@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Dict, Iterable, NewType
+from typing import Any, AsyncIterator, Dict, Iterable, NewType
 
 from emcie.server.threads import Message
 
@@ -12,6 +12,7 @@ class TextGenerationModel(ABC):
     async def generate_text(
         self,
         messages: Iterable[Message],
+        skills: Iterable[Any],
     ) -> AsyncIterator[str]:
         yield ""
 

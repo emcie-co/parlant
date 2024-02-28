@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 import os
-from typing import Dict, Iterable, NewType, Optional
+from typing import Any, Dict, Iterable, NewType, Optional
+import importlib
 
 from emcie.server import common
 from emcie.server.models import ModelId
@@ -21,6 +22,25 @@ class AgentStore:
         self,
     ) -> None:
         self._agents: Dict[AgentId, Agent] = {}
+        self._skills: Dict[str, Any] = {}
+
+    async def create_skill(
+        self,
+        skill_id: str,
+        module_path: str,
+        spec: Dict[Any, Any],
+    ) -> None:
+        module = importlib.import_module(module_path)
+        func = getattr(module, "skill")
+
+        self._skills[skill_id] = {
+            "id": skill_id,
+            "spec": spec,
+            "func": func,
+        }
+
+    async def list_skills(self) -> Iterable[Any]:
+        return self._skills.values()
 
     async def create_agent(
         self,

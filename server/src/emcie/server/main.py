@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 from fastapi import FastAPI
 
 from emcie.server.api import agents
@@ -9,7 +9,10 @@ from emcie.server.providers.openai import OpenAIGPT, AzureGPT
 from emcie.server.threads import ThreadStore
 
 
-async def create_app(skills: Dict[str, Any] = {}) -> FastAPI:
+async def create_app(
+    skills: Dict[str, Any] = {},
+    rules: List[Any] = [],
+) -> FastAPI:
     agent_store = AgentStore()
     thread_store = ThreadStore()
     model_registry = ModelRegistry()
@@ -39,6 +42,12 @@ async def create_app(skills: Dict[str, Any] = {}) -> FastAPI:
                     "required": skill["required"],
                 },
             },
+        )
+
+    for rule in rules:
+        await agent_store.create_rule(
+            when=rule["when"],
+            then=rule["then"],
         )
 
     app = FastAPI()

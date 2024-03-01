@@ -76,6 +76,7 @@ def create_router(
         model = await model_registry.get_text_generation_model(model_id=agent.model_id)
         thread_messages = list(await thread_store.list_messages(thread_id=request.thread_id))
         skills = await agent_store.list_skills()
+        rules = await agent_store.list_rules()
 
         message = await thread_store.create_message(
             thread_id=request.thread_id,
@@ -90,6 +91,7 @@ def create_router(
             async for token in model.generate_text(
                 messages=thread_messages,
                 skills=skills,
+                rules=rules,
             ):
                 await thread_store.patch_message(
                     thread_id=request.thread_id,

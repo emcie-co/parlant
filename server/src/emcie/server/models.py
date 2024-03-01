@@ -13,6 +13,7 @@ class TextGenerationModel(ABC):
         self,
         messages: Iterable[Message],
         skills: Iterable[Any],
+        rules: Iterable[Any],
     ) -> AsyncIterator[str]:
         yield ""
 

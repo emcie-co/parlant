@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 import os
-from typing import Any, Dict, Iterable, NewType, Optional
+from typing import Any, Dict, Iterable, List, NewType, Optional
 import importlib
 
 from emcie.server import common
@@ -23,6 +23,7 @@ class AgentStore:
     ) -> None:
         self._agents: Dict[AgentId, Agent] = {}
         self._skills: Dict[str, Any] = {}
+        self._rules: List[Any] = []
 
     async def create_skill(
         self,
@@ -41,6 +42,16 @@ class AgentStore:
 
     async def list_skills(self) -> Iterable[Any]:
         return self._skills.values()
+
+    async def create_rule(
+        self,
+        when: str,
+        then: str,
+    ) -> None:
+        self._rules.append({"when": when, "then": then})
+
+    async def list_rules(self) -> Iterable[Any]:
+        return self._rules
 
     async def create_agent(
         self,

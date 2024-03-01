@@ -19,7 +19,7 @@ def get_message(
 
 
 @fixture
-async def _app_configuration() -> Dict[str, Any]:
+async def app_configuration() -> Dict[str, Any]:
     return {
         "skills": {
             "multiply_numbers": {
@@ -46,6 +46,12 @@ async def _app_configuration() -> Dict[str, Any]:
                 "required": [],
             },
         },
+        "rules": [
+            {
+                "when": "always",
+                "then": "start math related answers with 'And the answer is...'",
+            },
+        ],
     }
 
 

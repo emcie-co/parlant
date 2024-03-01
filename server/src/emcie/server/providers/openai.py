@@ -19,12 +19,28 @@ class GPT(TextGenerationModel):
     def setup_client(self) -> AsyncOpenAI:
         raise NotImplementedError()
 
+    def _create_system_message(self, rules: Iterable[Any]) -> str:
+        prompt = "Instructions:\n"
+
+        num = 1
+
+        for rule in rules:
+            prompt += f"RULE {num}:###\nWhen: {rule['when']}.\nThen: {rule['then']}\n###\n"
+            num += 1
+
+        return prompt
+
     async def generate_text(
         self,
         messages: Iterable[Message],
         skills: Iterable[Any],
+        rules: Iterable[Any],
     ) -> AsyncIterator[str]:
-        converted_messages = self._convert_messages(messages)
+        converted_messages: List[ChatCompletionMessageParam] = [
+            {"role": "system", "content": self._create_system_message(rules)}
+        ] + self._convert_messages(
+            messages
+        )  # type: ignore
 
         specs = [s["spec"] for s in skills]
 

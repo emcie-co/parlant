@@ -63,7 +63,7 @@ def multiplication_thread_id(
         f"/threads/{new_thread_id}/messages",
         json={
             "role": "user",
-            "content": "What kind of toppings do you have for pizzas?",
+            "content": "What is 1985 * 53.5?",
         },
     )
 

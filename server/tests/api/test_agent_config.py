@@ -19,7 +19,7 @@ def get_message(
 
 
 @fixture
-async def app_configuration() -> Dict[str, Any]:
+async def _app_configuration() -> Dict[str, Any]:
     return {
         "skills": {
             "multiply_numbers": {

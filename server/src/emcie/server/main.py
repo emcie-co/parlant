@@ -5,7 +5,7 @@ from emcie.server.api import agents
 from emcie.server.api import threads
 from emcie.server.agents import AgentStore
 from emcie.server.models import ModelId, ModelRegistry
-from emcie.server.providers.openai import GPT
+from emcie.server.providers.openai import OpenAIGPT, AzureGPT
 from emcie.server.threads import ThreadStore
 
 
@@ -15,8 +15,9 @@ async def create_app(skills: Dict[str, Any] = {}) -> FastAPI:
     model_registry = ModelRegistry()
 
     models = {
-        "openai/gpt-4-turbo": GPT("gpt-4-turbo-preview"),
-        "openai/gpt-3.5-turbo": GPT("gpt-3.5-turbo-0125"),
+        "openai/gpt-4-turbo": OpenAIGPT("gpt-4-turbo-preview"),
+        "openai/gpt-3.5-turbo": OpenAIGPT("gpt-3.5-turbo-0125"),
+        "azure/gpt-3.5-turbo": AzureGPT("gpt-35-turbo"),
     }
 
     for model_id, model in models.items():

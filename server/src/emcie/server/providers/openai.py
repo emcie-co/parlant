@@ -1,5 +1,5 @@
 from typing import Any, AsyncIterator, Iterable, List
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AsyncAzureOpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 import os
 import json
@@ -13,8 +13,11 @@ class GPT(TextGenerationModel):
         self,
         model_id: str,
     ) -> None:
-        self.client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.model_id = model_id
+        self.client = self.setup_client()
+
+    def setup_client(self) -> AsyncOpenAI:
+        raise NotImplementedError()
 
     async def generate_text(
         self,
@@ -45,6 +48,8 @@ class GPT(TextGenerationModel):
         function_args = ""
 
         async for x in response:
+            if not x.choices:
+                continue
             # TODO test parallel function calls
             if x.choices[0].delta.tool_calls:
                 tool_call = x.choices[0].delta.tool_calls[0]
@@ -95,7 +100,35 @@ class GPT(TextGenerationModel):
             )
 
             async for x in response:
+                if not x.choices:
+                    continue
                 yield x.choices[0].delta.content or ""
 
     def _convert_messages(self, messages: Iterable[Message]) -> List[ChatCompletionMessageParam]:
         return [{"role": m.role, "content": m.content} for m in messages]  # type: ignore
+
+
+class OpenAIGPT(GPT):
+    def __init__(
+        self,
+        model_id: str,
+    ) -> None:
+        super().__init__(model_id=model_id)
+
+    def setup_client(self) -> AsyncOpenAI:
+        return AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+
+class AzureGPT(GPT):
+    def __init__(
+        self,
+        model_id: str,
+    ) -> None:
+        super().__init__(model_id=model_id)
+
+    def setup_client(self) -> AsyncOpenAI:
+        return AsyncAzureOpenAI(
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            base_url=os.environ["AZURE_OPENAI_URL"] + f"/deployments/{self.model_id}",
+            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        )

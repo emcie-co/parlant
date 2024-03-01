@@ -7,12 +7,15 @@
 # without the prior written permission of Emcie.
 #
 # Website: https://emcie.co
+
 from typing import Any, AsyncIterator, Dict
 from fastapi import status
 from fastapi.testclient import TestClient
 from pytest import fixture, Config
-
+from tinydb import TinyDB
+from tinydb.storages import MemoryStorage
 from emcie.server import main
+from emcie.server.rag import RagStore
 
 
 @fixture
@@ -28,11 +31,13 @@ async def app_configuration() -> Dict[str, Any]:
 @fixture
 async def client(
     app_configuration: Dict[str, Any],
+    rag_store: RagStore,
 ) -> AsyncIterator[TestClient]:
-    app = await main.create_app(**app_configuration)
+    app = await main.create_app(rag_store=rag_store, **app_configuration)
 
-    with TestClient(app) as client:
-        yield client
+
+def rag_store() -> RagStore:
+    return RagStore(TinyDB(storage=MemoryStorage))
 
 
 @fixture

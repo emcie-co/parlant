@@ -3,3 +3,5 @@
 .mypy_cache
 __pycache__
 dist/
+.DS_Store
+build_source/

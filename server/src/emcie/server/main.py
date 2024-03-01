@@ -12,15 +12,21 @@ from fastapi import FastAPI
 
 from emcie.server.api import agents
 from emcie.server.api import threads
+from emcie.server.api import rag
+
 from emcie.server.agents import AgentStore
 from emcie.server.models import ModelId, ModelRegistry
 from emcie.server.providers.openai import OpenAIGPT, AzureGPT
+from emcie.server.rag import RagStore
 from emcie.server.threads import ThreadStore
+
+from emcie.server.models import ModelId, ModelRegistry
 
 
 async def create_app(
     agent_store: Optional[AgentStore] = None,
     thread_store: Optional[ThreadStore] = None,
+    rag_store: Optional[RagStore] = None,
     skills: Dict[str, Any] = {},
     rules: List[Any] = [],
 ) -> FastAPI:
@@ -77,6 +83,13 @@ async def create_app(
         "/threads",
         threads.create_router(
             thread_store=thread_store,
+        ),
+    )
+
+    app.mount(
+        "/rag",
+        rag.create_router(
+            rag_store=rag_store,
         ),
     )
 

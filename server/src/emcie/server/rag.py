@@ -1,52 +1,62 @@
+import heapq
 from typing import List, Dict, Iterable, NewType, Optional, Tuple, Union
 from tinydb.storages import MemoryStorage
-import chromadb
 from pydantic import BaseModel
-from tinydb import TinyDB, table, where
+from tinydb import TinyDB, table
+
+from emcie.server.embedders import EmbedderModel, OpenAIEmbedder
 
 
 class RagDocument(BaseModel):
     id: str
     metadata: Optional[dict] = None
     document: str
+    vector: List[float]
 
 
 class RagStore:
-    def __init__(self, db: Optional[TinyDB] = None) -> None:
-        self.rag = chromadb.Client()
-        self.collection = self.rag.create_collection("documents")
+    def __init__(
+        self,
+        embedder: Optional[EmbedderModel] = None,
+        db: Optional[TinyDB] = None,
+    ) -> None:
         self.db = db or TinyDB(storage=MemoryStorage)
+        self.embedder = embedder or OpenAIEmbedder()
 
-    def upsert(self, document: dict, retrain_in_case_of_update: bool = True) -> Dict:
-        self.collection.upsert(
-            documents=[document["document"]],
-            metadatas=[document["metadata"]],
-            ids=[document["id"]],
+    async def upsert(self, document: dict) -> Dict:
+        document_vector = await self.embedder.get_embedding(document["document"])
+        full_document = {
+            **{"document_vector": document_vector},
+            **document,
+        }
+        self.db.upsert(
+            table.Document(
+                full_document,
+                doc_id=document["id"],
+            )
         )
         return document
 
-    def query(self, query: str, k: int = 3) -> Iterable[Dict]:
-        query_result = self.collection.query(query_texts=[query], n_results=k)
-        result = []
-        for i in range(len(query_result["ids"][0])):
-            result.append(
-                {
-                    "id": query_result["ids"][0][i],
-                    "metadata": query_result["metadatas"][0][i],
-                    "document": query_result["documents"][0][i],
-                }
-            )
-        return result
+    async def query(self, query: str, k: int = 3) -> Iterable[Dict]:
+        query_embedding = await self.embedder.get_embedding(query)
+        docs_with_distance = [
+            {
+                **doc,
+                **{
+                    "distance": self.embedder.get_similarity(
+                        query_embedding, doc["document_vector"]
+                    )
+                },
+            }
+            for doc in self.get_all_documents()
+        ]
+        top_k = heapq.nlargest(
+            k,
+            docs_with_distance,
+            key=lambda doc: 1 - doc["distance"],
+        )
+
+        return sorted(top_k, key=lambda doc: doc["distance"])
 
     def get_all_documents(self) -> Iterable[Dict] | None:
-        documents = self._get_documents(self.collection.get())
-        result = []
-        for i in range(len(documents["ids"])):
-            result.append(
-                {
-                    "id": documents["ids"][i],
-                    "metadata": documents["metadatas"][i],
-                    "document": documents["documents"][i],
-                }
-            )
-        return result
+        return self.db.all()

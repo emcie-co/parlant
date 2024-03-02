@@ -25,7 +25,7 @@ def create_router(
     async def upsert(
         request: RagDocumentRequest,
     ) -> RagDocumentResponse:
-        response = rag_store.upsert(
+        response = await rag_store.upsert(
             document={
                 "id": request.id,
                 "metadata": request.metadata,
@@ -39,7 +39,7 @@ def create_router(
         rag_query: Annotated[str | None, Query(alias="query")] = None
     ) -> Iterable[RagDocumentResponse]:
         if rag_query:
-            documents = rag_store.query(rag_query)
+            documents = await rag_store.query(rag_query)
         else:
             documents = rag_store.get_all_documents()
         return [RagDocumentResponse(**doc) for doc in documents]

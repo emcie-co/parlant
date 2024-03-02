@@ -15,6 +15,7 @@ from pytest import fixture, Config
 from tinydb import TinyDB
 from tinydb.storages import MemoryStorage
 from emcie.server import main
+from emcie.server.embedders import OpenAIEmbedder
 from emcie.server.rag import RagStore
 
 
@@ -26,6 +27,11 @@ def test_config(pytestconfig: Config) -> Dict[str, Any]:
 @fixture
 async def app_configuration() -> Dict[str, Any]:
     return {}
+
+
+@fixture
+def rag_store() -> RagStore:
+    return RagStore(TinyDB(storage=MemoryStorage), OpenAIEmbedder())
 
 
 @fixture

@@ -15,6 +15,8 @@ python-dotenv = "^1.0.1"
 openai = "^1.12.0"
 loguru = "^0.7.2"
 tinydb = "^4.8.0"
+scikit-learn = "^1.4.1.post1"
+scipy = "^1.12.0"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.8.0"

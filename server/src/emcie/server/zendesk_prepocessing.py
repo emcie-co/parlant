@@ -1,5 +1,6 @@
 from ast import Dict
 import asyncio
+import itertools
 import requests
 import json
 from typing import List
@@ -71,7 +72,7 @@ async def get_document(ticket: dict) -> str:
 async def preprocessing_ticket(ticket: dict) -> Dict:
     return [
         {
-            "meta_data": {**{"tool": "zendesk"}, **ticket},
+            "metadata": {**{"tool": "zendesk"}, **ticket},
             "document": json.loads(doc)["summary"],
             "id": f"{int(_hash_func("zendesk".encode()).hexdigest(), 16) % 10**8}_{ticket["id"]}",
         }
@@ -92,7 +93,14 @@ async def get_documents() -> None:
     result = []
     for ticket in get_all_tickets():
         result.append(await preprocessing_ticket(ticket))
-    with open("zendesk_docs", "w") as _f:
+    with open("zendesk_docs.json", "w") as _f:
         json.dump(result, _f, indent=2)
 
-asyncio.run(get_documents())
+if __name__ == "__main__":
+    upsert_url = 'http://localhost:8000/rag'  # Replace with your desired URL
+    with open("zendesk_docs.json", "r") as _f:
+        lists = json.load(_f)
+    zendesk_tickets = list(itertools.chain.from_iterable(lists))
+    for ticket in zendesk_tickets:
+        response = requests.post(url=upsert_url, json=ticket)
+        print(f"Status code: {response.status_code}")

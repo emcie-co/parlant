@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import FastAPI
 
 from emcie.server.api import agents
@@ -10,17 +10,20 @@ from emcie.server.threads import ThreadStore
 
 
 async def create_app(
+    agent_store: Optional[AgentStore] = None,
+    thread_store: Optional[ThreadStore] = None,
     skills: Dict[str, Any] = {},
     rules: List[Any] = [],
 ) -> FastAPI:
-    agent_store = AgentStore()
-    thread_store = ThreadStore()
+    agent_store = agent_store or AgentStore()
+    thread_store = thread_store or ThreadStore()
     model_registry = ModelRegistry()
 
     models = {
         "openai/gpt-4-turbo": OpenAIGPT("gpt-4-turbo-preview"),
         "openai/gpt-3.5-turbo": OpenAIGPT("gpt-3.5-turbo-0125"),
         "azure/gpt-3.5-turbo": AzureGPT("gpt-35-turbo"),
+        "azure/gpt-4": AzureGPT("gpt-4"),
     }
 
     for model_id, model in models.items():

@@ -3,6 +3,7 @@ from openai import AsyncOpenAI, AsyncAzureOpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 import os
 import json
+from loguru import logger
 
 from emcie.server.models import TextGenerationModel
 from emcie.server.threads import Message
@@ -36,6 +37,8 @@ class GPT(TextGenerationModel):
         skills: Iterable[Any],
         rules: Iterable[Any],
     ) -> AsyncIterator[str]:
+        temperature = 0.3
+
         converted_messages: List[ChatCompletionMessageParam] = [
             {"role": "system", "content": self._create_system_message(rules)}
         ] + self._convert_messages(
@@ -48,6 +51,7 @@ class GPT(TextGenerationModel):
             response = await self.client.chat.completions.create(
                 messages=converted_messages,
                 model=self.model_id,
+                temperature=temperature,
                 stream=True,
                 tools=specs,
                 tool_choice="auto",
@@ -56,6 +60,7 @@ class GPT(TextGenerationModel):
             response = await self.client.chat.completions.create(
                 messages=converted_messages,
                 model=self.model_id,
+                temperature=temperature,
                 stream=True,
             )
 
@@ -81,9 +86,16 @@ class GPT(TextGenerationModel):
                 yield x.choices[0].delta.content or ""
 
         if function_name:
+            logger.info(f"Running function {function_name} with args {function_args}")
             function_args_parsed = json.loads(function_args)
             skill = [s for s in skills if s["spec"]["function"]["name"] == function_name][0]
-            ret_val = skill["func"](**function_args_parsed)
+
+            try:
+                ret_val = skill["func"](**function_args_parsed)
+                logger.info(f"{function_name} returned: {ret_val}")
+            except Exception as exc:
+                logger.error(f"Error while running tool {function_name}: {exc}")
+                ret_val = "Sorry, I encountered an error"
 
             converted_messages.append(
                 {
@@ -112,6 +124,7 @@ class GPT(TextGenerationModel):
             response = await self.client.chat.completions.create(
                 messages=converted_messages,
                 model=self.model_id,
+                temperature=temperature,
                 stream=True,
             )
 

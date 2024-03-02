@@ -20,8 +20,9 @@ class Agent:
 class AgentStore:
     def __init__(
         self,
+        agents: Optional[Dict[AgentId, Agent]] = None,
     ) -> None:
-        self._agents: Dict[AgentId, Agent] = {}
+        self._agents: Dict[AgentId, Agent] = agents or {}
         self._skills: Dict[str, Any] = {}
         self._rules: List[Any] = []
 

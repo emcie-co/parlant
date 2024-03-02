@@ -1,10 +1,11 @@
 import heapq
 from typing import List, Dict, Iterable, NewType, Optional, Tuple, Union
+from scipy import spatial
 from tinydb.storages import MemoryStorage
 from pydantic import BaseModel
 from tinydb import TinyDB, table
 
-from emcie.server.embedders import EmbedderModel, OpenAIEmbedder
+from emcie.server.models import TextEmbeddingModel
 
 
 class RagDocument(BaseModel):
@@ -17,14 +18,18 @@ class RagDocument(BaseModel):
 class RagStore:
     def __init__(
         self,
-        embedder: Optional[EmbedderModel] = None,
+        embedding_model: TextEmbeddingModel,
         db: Optional[TinyDB] = None,
     ) -> None:
         self.db = db or TinyDB(storage=MemoryStorage)
-        self.embedder = embedder or OpenAIEmbedder()
+        self.embedding_model = embedding_model
+
+    @staticmethod
+    def distance(first_vec: Iterable[float], second_vec: Iterable[float]):
+        return spatial.distance.cosine(first_vec, second_vec)
 
     async def upsert(self, document: dict) -> Dict:
-        document_vector = await self.embedder.get_embedding(document["document"])
+        document_vector = (await self.embedding_model.embed(document["document"]))[0]
         full_document = {
             **{"document_vector": document_vector},
             **document,
@@ -38,15 +43,11 @@ class RagStore:
         return document
 
     async def query(self, query: str, k: int = 3) -> Iterable[Dict]:
-        query_embedding = await self.embedder.get_embedding(query)
+        query_embedding = (await self.embedding_model.embed(query))[0]
         docs_with_distance = [
             {
                 **doc,
-                **{
-                    "distance": self.embedder.get_similarity(
-                        query_embedding, doc["document_vector"]
-                    )
-                },
+                **{"distance": self.distance(query_embedding, doc["document_vector"])},
             }
             for doc in self.get_all_documents()
         ]

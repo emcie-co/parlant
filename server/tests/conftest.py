@@ -12,11 +12,7 @@ from typing import Any, AsyncIterator, Dict
 from fastapi import status
 from fastapi.testclient import TestClient
 from pytest import fixture, Config
-from tinydb import TinyDB
-from tinydb.storages import MemoryStorage
 from emcie.server import main
-from emcie.server.embedders import OpenAIEmbedder
-from emcie.server.rag import RagStore
 
 
 @fixture
@@ -30,20 +26,13 @@ async def app_configuration() -> Dict[str, Any]:
 
 
 @fixture
-def rag_store() -> RagStore:
-    return RagStore(TinyDB(storage=MemoryStorage), OpenAIEmbedder())
-
-
-@fixture
 async def client(
     app_configuration: Dict[str, Any],
-    rag_store: RagStore,
 ) -> AsyncIterator[TestClient]:
-    app = await main.create_app(rag_store=rag_store, **app_configuration)
+    app = await main.create_app(**app_configuration)
 
-
-def rag_store() -> RagStore:
-    return RagStore(TinyDB(storage=MemoryStorage))
+    with TestClient(app) as client:
+        yield client
 
 
 @fixture

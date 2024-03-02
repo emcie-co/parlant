@@ -14,7 +14,7 @@ import os
 import json
 from loguru import logger
 
-from emcie.server.models import TextGenerationModel
+from emcie.server.models import TextEmbeddingModel, TextGenerationModel
 from emcie.server.threads import Message
 
 
@@ -158,6 +158,45 @@ class OpenAIGPT(GPT):
 
 
 class AzureGPT(GPT):
+    def __init__(
+        self,
+        model_id: str,
+    ) -> None:
+        super().__init__(model_id=model_id)
+
+    def setup_client(self) -> AsyncOpenAI:
+        return AsyncAzureOpenAI(
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            base_url=os.environ["AZURE_OPENAI_URL"] + f"/deployments/{self.model_id}",
+            api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        )
+
+
+class TextEmbedding(TextEmbeddingModel):
+    def __init__(self, model_id):
+        self.model_id = model_id
+        self.client = self.setup_client()
+
+    def setup_client(self) -> AsyncOpenAI:
+        raise NotImplementedError()
+
+    async def embed(self, documents: Iterable[str]) -> Iterable[Iterable[float]]:
+        response = await self.client.embeddings.create(input=documents, model=self.model_id)
+        return [vec.embedding for vec in response.data]
+
+
+class OpenAITextEmbedding(TextEmbedding):
+    def __init__(
+        self,
+        model_id: str,
+    ) -> None:
+        super().__init__(model_id=model_id)
+
+    def setup_client(self) -> AsyncOpenAI:
+        return AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+
+class AzureTextEmbedding(TextEmbedding):
     def __init__(
         self,
         model_id: str,

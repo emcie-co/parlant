@@ -7,6 +7,8 @@
 # without the prior written permission of Emcie.
 #
 # Website: https://emcie.co
+
+import os
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI
 
@@ -15,8 +17,13 @@ from emcie.server.api import threads
 from emcie.server.api import rag
 
 from emcie.server.agents import AgentStore
-from emcie.server.models import ModelId, ModelRegistry
-from emcie.server.providers.openai import OpenAIGPT, AzureGPT
+from emcie.server.models import ModelId, ModelRegistry, TextEmbeddingModel, TextGenerationModel
+from emcie.server.providers.openai import (
+    AzureTextEmbedding,
+    OpenAIGPT,
+    AzureGPT,
+    OpenAITextEmbedding,
+)
 from emcie.server.rag import RagStore
 from emcie.server.threads import ThreadStore
 
@@ -37,12 +44,23 @@ async def create_app(
     models = {
         "openai/gpt-4-turbo": OpenAIGPT("gpt-4-turbo-preview"),
         "openai/gpt-3.5-turbo": OpenAIGPT("gpt-3.5-turbo-0125"),
+        "openai/text-embedding-ada-002": OpenAITextEmbedding("text-embedding-ada-002"),
         "azure/gpt-3.5-turbo": AzureGPT("gpt-35-turbo"),
         "azure/gpt-4": AzureGPT("gpt-4"),
+        "azure/text-embedding-ada-002": AzureTextEmbedding("text-embedding-ada-002"),
     }
 
     for model_id, model in models.items():
-        await model_registry.add_text_generation_model(ModelId(model_id), model)
+        if isinstance(model, TextGenerationModel):
+            await model_registry.add_text_generation_model(ModelId(model_id), model)
+        elif isinstance(model, TextEmbeddingModel):
+            await model_registry.add_text_embedding_model(ModelId(model_id), model)
+
+    rag_store = rag_store or RagStore(
+        embedding_model=await model_registry.get_text_embedding_model(
+            os.environ["DEFAULT_RAG_MODEL"],
+        )
+    )
 
     for skill_id, skill in skills.items():
         await agent_store.create_skill(

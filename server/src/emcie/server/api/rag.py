@@ -1,19 +1,28 @@
 from typing import Annotated, Iterable, List, Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from emcie.server.rag import RagDocument, RagStore
+from emcie.server.rag import RagStore
 
 
-class RagDocumentRequest(BaseModel):
+class DocumentDTO(BaseModel):
     id: str
     metadata: Optional[dict] = None
-    document: str
+    content: str
 
 
-class RagDocumentResponse(BaseModel):
+class UpsertDocumentRequest(BaseModel):
+    metadata: Optional[dict] = None
+    content: str
+
+
+class UpsertDocumentResponse(BaseModel):
     id: str
     metadata: Optional[dict] = None
-    document: str
+    content: str
+
+
+class ListDocumentsResponse(BaseModel):
+    documents: List[DocumentDTO]
 
 
 def create_router(
@@ -21,27 +30,39 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/")
+    @router.put("/{document_id}")
     async def upsert(
-        request: RagDocumentRequest,
-    ) -> RagDocumentResponse:
+        document_id: str,
+        request: UpsertDocumentRequest,
+    ) -> UpsertDocumentResponse:
         response = await rag_store.upsert(
             document={
-                "id": request.id,
+                "id": document_id,
                 "metadata": request.metadata,
-                "document": request.document,
+                "document": request.content,
             },
         )
-        return RagDocumentResponse(**response)
+
+        return UpsertDocumentResponse(
+            id=response["id"],
+            metadata=response["metadata"],
+            content=response["document"],
+        )
 
     @router.get("/")
     async def query(
         rag_query: Annotated[str | None, Query(alias="query")] = None
-    ) -> Iterable[RagDocumentResponse]:
+    ) -> ListDocumentsResponse:
         if rag_query:
             documents = await rag_store.query(rag_query)
         else:
             documents = rag_store.get_all_documents()
-        return [RagDocumentResponse(**doc) for doc in documents]
+
+        return ListDocumentsResponse(
+            documents=[
+                DocumentDTO(id=doc["id"], metadata=doc["metadata"], content=doc["document"])
+                for doc in documents
+            ]
+        )
 
     return router

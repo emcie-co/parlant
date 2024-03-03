@@ -1,5 +1,4 @@
-
-import datetime
+from datetime import datetime
 from typing import List, Literal, NewType
 from pydantic import BaseModel
 
@@ -14,11 +13,12 @@ class TicketDTO(BaseModel):
     subject: str
     description: str
     priority: str
-    tags: list
+    tags: List[str]
     created_at: datetime
     updated_at: datetime
     assignee_id: int
     requester_id: int
+
 
 class ListTickets(BaseModel):
     messages: List[TicketDTO]

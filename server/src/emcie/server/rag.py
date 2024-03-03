@@ -9,8 +9,8 @@
 # Website: https://emcie.co
 
 import heapq
-from typing import List, Dict, Iterable, NewType, Optional, Tuple, Union
-from scipy import spatial
+from typing import Any, List, Dict, Iterable, Optional
+from scipy import spatial  # type: ignore
 from tinydb.storages import MemoryStorage
 from pydantic import BaseModel
 from tinydb import TinyDB, table
@@ -20,7 +20,7 @@ from emcie.server.models import TextEmbeddingModel
 
 class RagDocument(BaseModel):
     id: str
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
     document: str
     vector: List[float]
 
@@ -35,11 +35,11 @@ class RagStore:
         self.embedding_model = embedding_model
 
     @staticmethod
-    def distance(first_vec: Iterable[float], second_vec: Iterable[float]):
-        return spatial.distance.cosine(first_vec, second_vec)
+    def distance(first_vec: Iterable[float], second_vec: Iterable[float]) -> float:
+        return float(spatial.distance.cosine(first_vec, second_vec))
 
-    async def upsert(self, document: dict) -> Dict:
-        document_vector = (await self.embedding_model.embed(document["document"]))[0]
+    async def upsert(self, document: Dict[str, Any]) -> Dict[str, Any]:
+        document_vector = list(await self.embedding_model.embed(document["document"]))[0]
         full_document = {
             **{"document_vector": document_vector},
             **document,
@@ -52,8 +52,8 @@ class RagStore:
         )
         return document
 
-    async def query(self, query: str, k: int = 3) -> Iterable[Dict]:
-        query_embedding = (await self.embedding_model.embed(query))[0]
+    async def query(self, query: str, k: int = 3) -> Iterable[Dict[str, Any]]:
+        query_embedding = list(await self.embedding_model.embed(query))[0]
         docs_with_distance = [
             {
                 **doc,
@@ -69,5 +69,5 @@ class RagStore:
 
         return sorted(top_k, key=lambda doc: doc["distance"])
 
-    def get_all_documents(self) -> Iterable[Dict] | None:
-        return self.db.all()
+    def get_all_documents(self) -> Iterable[Dict[Any, Any]]:
+        return [{**d} for d in self.db.all()]

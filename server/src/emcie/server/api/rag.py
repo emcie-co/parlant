@@ -8,7 +8,7 @@
 #
 # Website: https://emcie.co
 
-from typing import Annotated, Iterable, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from emcie.server.rag import RagStore
@@ -16,18 +16,18 @@ from emcie.server.rag import RagStore
 
 class DocumentDTO(BaseModel):
     id: str
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
     content: str
 
 
 class UpsertDocumentRequest(BaseModel):
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
     content: str
 
 
 class UpsertDocumentResponse(BaseModel):
     id: str
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
     content: str
 
 

@@ -1,11 +1,9 @@
-from ast import Dict
-import asyncio
 import itertools
-import requests
+import requests  # type: ignore
+from requests.auth import HTTPBasicAuth  # type: ignore
 import json
-from typing import List
+from typing import Any, Dict, List
 import openai
-import os
 import hashlib
 
 _hash_func = hashlib.sha256
@@ -27,7 +25,6 @@ OPENAI_API_KEY = "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"
 
 client = openai.AsyncClient(api_key=OPENAI_API_KEY)
 # The headers for authentication
-from requests.auth import HTTPBasicAuth
 
 headers = {
     "Content-Type": "application/json",
@@ -35,7 +32,7 @@ headers = {
 
 
 # The data for the new ticket
-def add_ticket(ticket_data):
+def add_ticket(ticket_data: Any) -> None:
     # Make the POST request to create a new ticket
     response = requests.post(
         url, json={"ticket": ticket_data}, headers=headers, auth=HTTPBasicAuth(email, password)
@@ -57,36 +54,38 @@ def json_tickets_to_zendesk() -> None:
             add_ticket(ticket)
 
 
-def get_all_tickets() -> List:
+def get_all_tickets() -> List[Any]:
     response = requests.get(url, headers=headers, auth=HTTPBasicAuth(email, password))
-    return response.json()["tickets"]
+    return response.json()["tickets"]  # type: ignore
 
 
-async def get_document(ticket: dict) -> str:
-    ticket_prompt = f"""Please summerize this zendesk ticket. the output will be a json object with one property which the key is summary and the value is the summarization. ticket subject: {ticket["subject"]}, ticket description: {ticket["description"]}"""
+async def get_document(ticket: Dict[str, Any]) -> List[str]:
+    ticket_prompt = f"""Please summerize this zendesk ticket. the output will be a json object
+with one property which the key is summary and the value is the summarization.
+ticket subject: {ticket["subject"]}, ticket description: {ticket["description"]}"""
     result = await prompt(ticket_prompt)
     print(f"prompt_result: {result}")
     return result.split("\n\n")
 
 
-async def preprocessing_ticket(ticket: dict) -> Dict:
+async def preprocessing_ticket(ticket: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [
         {
             "metadata": {**{"tool": "zendesk"}, **ticket},
             "document": json.loads(doc)["summary"],
-            "id": f"{int(_hash_func("zendesk".encode()).hexdigest(), 16) % 10**8}_{ticket["id"]}",
+            "id": f"{int(_hash_func('zendesk'.encode()).hexdigest(), 16) % 10**8}_{ticket['id']}",
         }
         for doc in await get_document(ticket)
     ]
 
 
-async def prompt(text):
+async def prompt(text: str) -> str:
     response = await client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "system", "content": text}],
         response_format={"type": "json_object"},
     )
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""
 
 
 async def get_documents() -> None:
@@ -96,8 +95,9 @@ async def get_documents() -> None:
     with open("zendesk_docs.json", "w") as _f:
         json.dump(result, _f, indent=2)
 
+
 if __name__ == "__main__":
-    upsert_url = 'http://localhost:8000/rag'  # Replace with your desired URL
+    upsert_url = "http://localhost:8000/rag"  # Replace with your desired URL
     with open("zendesk_docs.json", "r") as _f:
         lists = json.load(_f)
     zendesk_tickets = list(itertools.chain.from_iterable(lists))

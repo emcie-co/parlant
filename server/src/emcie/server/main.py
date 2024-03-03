@@ -27,8 +27,6 @@ from emcie.server.providers.openai import (
 from emcie.server.rag import RagStore
 from emcie.server.threads import ThreadStore
 
-from emcie.server.models import ModelId, ModelRegistry
-
 
 async def create_app(
     agent_store: Optional[AgentStore] = None,
@@ -58,7 +56,7 @@ async def create_app(
 
     rag_store = rag_store or RagStore(
         embedding_model=await model_registry.get_text_embedding_model(
-            os.environ["DEFAULT_RAG_MODEL"],
+            ModelId(os.environ["DEFAULT_RAG_MODEL"]),
         )
     )
 

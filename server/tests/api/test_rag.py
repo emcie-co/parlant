@@ -109,7 +109,7 @@ def test_query_rag(
             "content": "Restaurants that serve both pizzas and hamburgers often face criticism for not specializing in one type of cuisine, leading to perceptions of lower quality. However, many such establishments successfully cater to a wide range of tastes, offering delicious options for everyone.",
         },)
 
-    response = client.get(f"/rag?query={"Is pepperoni considered a good choice of topping?"}")
+    response = client.get("/rag?query=Is pepperoni considered a good choice of topping?")
 
     assert response.status_code == status.HTTP_200_OK
 

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Literal, NewType, Optional
 from datetime import datetime
 from tinydb import TinyDB, Query
-from loguru import logger
 
 from emcie.server import common
 
@@ -70,6 +69,33 @@ class ThreadStore:
         )
 
         self._messages[thread_id][message.id] = message
+
+        return message
+
+    async def update_message(
+        self,
+        thread_id: ThreadId,
+        message_id: MessageId,
+        target_revision: int,
+        content: str,
+        completed: bool,
+    ) -> Message:
+        message = self._messages[thread_id][message_id]
+
+        if message.revision != target_revision:
+            raise ValueError("Target revision is not the current one")
+
+        message = Message(
+            id=message.id,
+            thread_id=thread_id,
+            role=message.role,
+            content=content,
+            completed=completed,
+            creation_utc=message.creation_utc,
+            revision=(message.revision + 1),
+        )
+
+        self._messages[thread_id][message_id] = message
 
         return message
 

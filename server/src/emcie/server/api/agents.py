@@ -9,13 +9,13 @@
 # Website: https://emcie.co
 import asyncio
 from datetime import datetime
-from typing import List, Optional
+from typing import Awaitable, Callable, List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from emcie.server.agents import AgentId, AgentStore
 from emcie.server.models import ModelId, ModelRegistry
-from emcie.server.threads import MessageId, ThreadId, ThreadStore
+from emcie.server.threads import Message, MessageId, ThreadId, ThreadStore
 
 
 class AgentDTO(BaseModel):
@@ -49,10 +49,15 @@ class CreateReactionResponse(BaseModel):
     reaction: ReactionDTO
 
 
+ReactionMiddlewareLink = Callable[[], Awaitable[Message]]
+ReactionMiddleware = Callable[[ReactionMiddlewareLink], Awaitable[Message]]
+
+
 def create_router(
     agent_store: AgentStore,
     thread_store: ThreadStore,
     model_registry: ModelRegistry,
+    reaction_middlewares: Optional[List[ReactionMiddleware]] = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -96,13 +101,14 @@ def create_router(
 
         async def generate_message_text() -> None:
             revision = message.revision
+            last_revision_message: Message | None = None
 
             async for token in model.generate_text(
                 messages=thread_messages,
                 skills=skills,
                 rules=rules,
             ):
-                await thread_store.patch_message(
+                last_revision_message = await thread_store.patch_message(
                     thread_id=request.thread_id,
                     message_id=message.id,
                     target_revision=revision,
@@ -111,6 +117,36 @@ def create_router(
                 )
 
                 revision += 1
+
+            if last_revision_message and reaction_middlewares:
+
+                async def get_last_revision_message() -> Message:
+                    assert last_revision_message
+                    return last_revision_message
+
+                async def chain() -> Message:
+                    def next_middleware(index: int) -> ReactionMiddlewareLink:
+                        if index == len(reaction_middlewares):
+                            return get_last_revision_message
+
+                        async def call_next_middleware() -> Message:
+                            return await reaction_middlewares[index](next_middleware(index + 1))
+
+                        return call_next_middleware
+
+                    return await next_middleware(0)()
+
+                last_revision_message = await chain()
+
+                await thread_store.update_message(
+                    thread_id=request.thread_id,
+                    message_id=message.id,
+                    target_revision=revision,
+                    content=last_revision_message.content,
+                    completed=True,
+                )
+
+                return
 
             await thread_store.patch_message(
                 thread_id=request.thread_id,

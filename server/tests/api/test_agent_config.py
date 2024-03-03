@@ -7,7 +7,7 @@
 # without the prior written permission of Emcie.
 #
 # Website: https://emcie.co
-from typing import Any, Dict
+from typing import Any, Dict, List
 from fastapi.testclient import TestClient
 from fastapi import status
 from pytest import fixture
@@ -15,6 +15,8 @@ import time
 
 from emcie.server.api.agents import ReactionDTO
 from emcie.server.api.threads import MessageDTO
+from emcie.server.api.agents import ReactionMiddleware, ReactionMiddlewareLink
+from emcie.server.threads import Message
 
 
 def get_message(
@@ -27,9 +29,42 @@ def get_message(
     return MessageDTO(**response.json()["message"])
 
 
+async def base_reaction_middleware(next: ReactionMiddlewareLink) -> Message:
+    message = await next()
+
+    return Message(
+        id=message.id,
+        thread_id=message.thread_id,
+        role=message.role,
+        content="$ " + message.content,
+        completed=message.completed,
+        creation_utc=message.creation_utc,
+        revision=message.revision,
+    )
+
+
 @fixture
-async def app_configuration() -> Dict[str, Any]:
+def reaction_middlewares() -> List[ReactionMiddleware]:
+    async def f(next: ReactionMiddlewareLink) -> Message:
+        message = await next()
+
+        return Message(
+            id=message.id,
+            thread_id=message.thread_id,
+            role=message.role,
+            content=message.content.format(prefix="Message"),
+            completed=message.completed,
+            creation_utc=message.creation_utc,
+            revision=message.revision,
+        )
+
+    return [f, base_reaction_middleware]
+
+
+@fixture
+async def app_configuration(reaction_middlewares: ReactionMiddleware) -> Dict[str, Any]:
     return {
+        "reaction_middlewares": reaction_middlewares,
         "skills": {
             "multiply_numbers": {
                 "name": "multiply_numbers",
@@ -56,10 +91,7 @@ async def app_configuration() -> Dict[str, Any]:
             },
         },
         "rules": [
-            {
-                "when": "always",
-                "then": "start math related answers with 'And the answer is...'",
-            },
+            {"when": "always", "then": "start math related answers with '{prefix}: '"},
         ],
     }
 
@@ -98,6 +130,7 @@ def test_that_agent_config_can_be_loaded_and_used(
 
     assert message.completed
     assert len(message.content) > 0
+    assert message.content.startswith("$ Message: ")
 
     response = client.get(f"/threads/{multiplication_thread_id}/messages")
     assert response.status_code == status.HTTP_200_OK

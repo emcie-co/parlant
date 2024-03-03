@@ -17,7 +17,12 @@ from emcie.server.api import threads
 from emcie.server.api import rag
 
 from emcie.server.agents import AgentStore
-from emcie.server.models import ModelId, ModelRegistry, TextEmbeddingModel, TextGenerationModel
+from emcie.server.models import (
+    ModelId,
+    ModelRegistry,
+    TextEmbeddingModel,
+    TextGenerationModel,
+)
 from emcie.server.providers.openai import (
     AzureTextEmbedding,
     OpenAIGPT,
@@ -34,6 +39,7 @@ async def create_app(
     rag_store: Optional[RagStore] = None,
     skills: Dict[str, Any] = {},
     rules: List[Any] = [],
+    reaction_middlewares: Optional[List[agents.ReactionMiddleware]] = None,
 ) -> FastAPI:
     agent_store = agent_store or AgentStore()
     thread_store = thread_store or ThreadStore()
@@ -92,6 +98,7 @@ async def create_app(
             agent_store=agent_store,
             thread_store=thread_store,
             model_registry=model_registry,
+            reaction_middlewares=reaction_middlewares,
         ),
     )
 

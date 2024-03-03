@@ -7,11 +7,11 @@
 # without the prior written permission of Emcie.
 #
 # Website: https://emcie.co
+
 from typing import Any, AsyncIterator, Dict
 from fastapi import status
 from fastapi.testclient import TestClient
 from pytest import fixture, Config
-
 from emcie.server import main
 
 

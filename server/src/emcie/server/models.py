@@ -29,10 +29,10 @@ class TextGenerationModel(ABC):
 
 class TextEmbeddingModel(ABC):
     @abstractmethod
-    def embed(
+    async def embed(
         self,
         text: str,
-    ) -> Iterable[float]: ...
+    ) -> Iterable[Iterable[float]]: ...
 
 
 class ModelRegistry:
@@ -58,12 +58,12 @@ class ModelRegistry:
     async def add_text_embedding_model(
         self,
         model_id: ModelId,
-        model: TextGenerationModel,
+        model: TextEmbeddingModel,
     ) -> None:
         self._text_embedding_models[model_id] = model
 
     async def get_text_embedding_model(
         self,
         model_id: ModelId,
-    ) -> TextGenerationModel:
+    ) -> TextEmbeddingModel:
         return self._text_embedding_models[model_id]

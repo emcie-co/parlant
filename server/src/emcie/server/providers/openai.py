@@ -7,6 +7,7 @@
 # without the prior written permission of Emcie.
 #
 # Website: https://emcie.co
+import inspect
 from typing import Any, AsyncIterator, Iterable, List
 from openai import AsyncOpenAI, AsyncAzureOpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
@@ -100,11 +101,17 @@ class GPT(TextGenerationModel):
             skill = [s for s in skills if s["spec"]["function"]["name"] == function_name][0]
 
             try:
-                ret_val = skill["func"](**function_args_parsed)
-                logger.info(f"{function_name} returned: {ret_val}")
+                skill_result = skill["func"](**function_args_parsed)
+
+                if inspect.isawaitable(skill_result):
+                    skill_return_value = await skill_result
+                else:
+                    skill_return_value = skill_result
+
+                logger.info(f"{function_name} returned: {skill_return_value}")
             except Exception as exc:
                 logger.error(f"Error while running tool {function_name}: {exc}")
-                ret_val = "Sorry, I encountered an error"
+                skill_return_value = "Sorry, I encountered an error"
 
             converted_messages.append(
                 {
@@ -126,7 +133,7 @@ class GPT(TextGenerationModel):
                 {
                     "tool_call_id": tool_call_id,
                     "role": "tool",
-                    "content": json.dumps({"result": ret_val}),
+                    "content": json.dumps({"result": skill_return_value}),
                 }
             )
 
@@ -173,7 +180,7 @@ class AzureGPT(GPT):
 
 
 class TextEmbedding(TextEmbeddingModel):
-    def __init__(self, model_id):
+    def __init__(self, model_id: str) -> None:
         self.model_id = model_id
         self.client = self.setup_client()
 
@@ -181,7 +188,11 @@ class TextEmbedding(TextEmbeddingModel):
         raise NotImplementedError()
 
     async def embed(self, documents: Iterable[str]) -> Iterable[Iterable[float]]:
-        response = await self.client.embeddings.create(input=documents, model=self.model_id)
+        response = await self.client.embeddings.create(
+            input=list(documents),
+            model=self.model_id,
+        )
+
         return [vec.embedding for vec in response.data]
 
 

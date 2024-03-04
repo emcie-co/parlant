@@ -11,6 +11,7 @@
 import os
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI
+from tinydb import TinyDB, storages
 
 from emcie.server.api import agents
 from emcie.server.api import threads
@@ -36,7 +37,7 @@ from emcie.server.threads import ThreadStore
 async def create_app(
     agent_store: Optional[AgentStore] = None,
     thread_store: Optional[ThreadStore] = None,
-    rag_store: Optional[RagStore] = None,
+    vector_db_file: Optional[str] = None,
     skills: Dict[str, Any] = {},
     rules: List[Any] = [],
     reaction_middlewares: Optional[List[agents.ReactionMiddleware]] = None,
@@ -60,10 +61,16 @@ async def create_app(
         elif isinstance(model, TextEmbeddingModel):
             await model_registry.add_text_embedding_model(ModelId(model_id), model)
 
-    rag_store = rag_store or RagStore(
+    if vector_db_file:
+        rag_db = TinyDB(vector_db_file, storage=storages.JSONStorage)
+    else:
+        rag_db = TinyDB(storage=storages.MemoryStorage)
+
+    rag_store = RagStore(
         embedding_model=await model_registry.get_text_embedding_model(
             ModelId(os.environ["DEFAULT_RAG_MODEL"]),
-        )
+        ),
+        db=rag_db,
     )
 
     for skill_id, skill in skills.items():

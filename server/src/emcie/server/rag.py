@@ -11,9 +11,9 @@
 import heapq
 from typing import Any, List, Dict, Iterable, Optional
 from scipy import spatial  # type: ignore
-from tinydb.storages import MemoryStorage
 from pydantic import BaseModel
 from tinydb import TinyDB, table
+from loguru import logger
 
 from emcie.server.models import TextEmbeddingModel
 
@@ -29,9 +29,10 @@ class RagStore:
     def __init__(
         self,
         embedding_model: TextEmbeddingModel,
-        db: Optional[TinyDB] = None,
+        db: TinyDB,
     ) -> None:
-        self.db = db or TinyDB(storage=MemoryStorage)
+        self.db = db
+        logger.info(f"Initialized vector db with storage {self.db.storage}")
         self.embedding_model = embedding_model
 
     @staticmethod
@@ -50,6 +51,7 @@ class RagStore:
                 doc_id=document["id"],
             )
         )
+        self.db.storage.flush()  # type: ignore
         return document
 
     async def query(self, query: str, k: int = 3) -> Iterable[Dict[str, Any]]:

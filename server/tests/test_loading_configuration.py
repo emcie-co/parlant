@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from pydoc import importfile
 import tempfile
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator
 
 from pytest import fixture
 

@@ -138,7 +138,7 @@ def run_server(context: _TestContext) -> Iterator[subprocess.Popen[str]]:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"EMCIE_HOME": context.home_dir.as_posix(), **os.environ},
+        env={**os.environ, "EMCIE_HOME": context.home_dir.as_posix()},
     ) as process:
         yield process
 

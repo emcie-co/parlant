@@ -9,7 +9,10 @@ from emcie.server.core.common import JSONSerializable
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 from emcie.server.core.tools import ToolParameter
 
 SessionId = NewType("SessionId", str)
@@ -153,7 +156,7 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
     ) -> Session:
-        filters = {"id": FieldFilter(equal_to=session_id)}
+        filters = {"id": {"$eq": session_id}}
         session_document = await self._database.find_one(self._session_collection, filters)
 
         return Session(
@@ -168,7 +171,7 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         updated_session: Session,
     ) -> None:
-        filters = {"id": FieldFilter(equal_to=session_id)}
+        filters = {"id": {"$eq": session_id}}
         await self._database.update_one(
             self._session_collection,
             filters,
@@ -225,12 +228,10 @@ class SessionDocumentStore(SessionStore):
         source: Optional[EventSource] = None,
         min_offset: Optional[int] = None,
     ) -> Sequence[Event]:
-        source_filter = {"source": FieldFilter(equal_to=source)} if source else {}
-        offset_filter = (
-            {"offset": FieldFilter(greater_than_or_equal_to=min_offset)} if min_offset else {}
-        )
+        source_filter = {"source": {"$eq": source}} if source else {}
+        offset_filter = {"offset": {"$gte": min_offset}} if min_offset else {}
         filters = {
-            **{"session_id": FieldFilter(equal_to=session_id)},
+            **{"session_id": {"$eq": session_id}},
             **source_filter,
             **offset_filter,
         }

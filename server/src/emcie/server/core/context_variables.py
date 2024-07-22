@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
 from emcie.server.core.tools import ToolId
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 ContextVariableId = NewType("ContextVariableId", str)
 ContextVariableValueId = NewType("ContextVariableValueId", str)
@@ -168,9 +171,9 @@ class ContextVariableDocumentStore(ContextVariableStore):
         data: common.JSONSerializable,
     ) -> ContextVariableValue:
         filters = {
-            "variable_set": FieldFilter(equal_to=variable_set),
-            "variable_id": FieldFilter(equal_to=variable_id),
-            "key": FieldFilter(equal_to=key),
+            "variable_set": {"$eq": variable_set},
+            "variable_id": {"$eq": variable_id},
+            "key": {"$eq": key},
         }
         last_modified = datetime.now(timezone.utc)
         value_document_id = await self._database.update_one(
@@ -199,14 +202,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         id: ContextVariableId,
     ) -> None:
         filters = {
-            "id": FieldFilter(equal_to=id),
-            "variable_set": FieldFilter(equal_to=variable_set),
+            "id": {"$eq": id},
+            "variable_set": {"$eq": variable_set},
         }
         await self._database.delete_one(self._variable_collection, filters)
 
         filters = {
-            "variable_id": FieldFilter(equal_to=id),
-            "variable_set": FieldFilter(equal_to=variable_set),
+            "variable_id": {"$eq": id},
+            "variable_set": {"$eq": variable_set},
         }
         await self._database.delete_one(self._value_collection, filters)
 
@@ -214,7 +217,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         self,
         variable_set: str,
     ) -> Sequence[ContextVariable]:
-        filters = {"variable_set": FieldFilter(equal_to=variable_set)}
+        filters = {"variable_set": {"$eq": variable_set}}
 
         return [
             ContextVariable(
@@ -233,8 +236,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
         id: ContextVariableId,
     ) -> ContextVariable:
         filters = {
-            "variable_set": FieldFilter(equal_to=variable_set),
-            "id": FieldFilter(equal_to=id),
+            "variable_set": {"$eq": variable_set},
+            "id": {"$eq": id},
         }
 
         variable_document = await self._database.find_one(self._variable_collection, filters)
@@ -253,9 +256,9 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
     ) -> ContextVariableValue:
         filters = {
-            "variable_set": FieldFilter(equal_to=variable_set),
-            "variable_id": FieldFilter(equal_to=variable_id),
-            "key": FieldFilter(equal_to=key),
+            "variable_set": {"$eq": variable_set},
+            "variable_id": {"$eq": variable_id},
+            "key": {"$eq": key},
         }
         value_document = await self._database.find_one(self._value_collection, filters)
         return ContextVariableValue(

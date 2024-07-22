@@ -7,7 +7,10 @@ from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
 from emcie.server.core.guidelines import GuidelineId
 from emcie.server.core.tools import ToolId
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 GuidelineToolAssociationId = NewType("GuidelineToolAssociationId", str)
 

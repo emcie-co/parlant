@@ -8,7 +8,10 @@ from pydantic import ValidationError
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 ToolId = NewType("ToolId", str)
 
@@ -90,9 +93,7 @@ class ToolDocumentStore(ToolStore):
         consequential: bool = False,
     ) -> Tool:
         if list(
-            await self._database.find(
-                collection=self._collection, filters={"name": FieldFilter(equal_to=name)}
-            )
+            await self._database.find(collection=self._collection, filters={"name": {"$eq": name}})
         ):
             raise ValidationError("Tool name must be unique within the tool set")
 
@@ -147,7 +148,7 @@ class ToolDocumentStore(ToolStore):
         tool_id: ToolId,
     ) -> Tool:
         filters = {
-            "id": FieldFilter(equal_to=tool_id),
+            "id": {"$eq": tool_id},
         }
 
         tool_document = await self._database.find_one(self._collection, filters)

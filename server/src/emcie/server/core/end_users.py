@@ -5,7 +5,10 @@ from typing import NewType, Optional
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 EndUserId = NewType("EndUserId", str)
 
@@ -79,7 +82,7 @@ class EndUserDocumentStore(EndUserStore):
         self,
         end_user_id: EndUserId,
     ) -> EndUser:
-        filters = {"id": FieldFilter(equal_to=end_user_id)}
+        filters = {"id": {"$eq": end_user_id}}
         end_user_document = await self._database.find_one(self._collection, filters)
 
         return EndUser(

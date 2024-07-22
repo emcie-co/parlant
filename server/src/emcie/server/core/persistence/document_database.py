@@ -2,33 +2,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from collections import defaultdict
-from dataclasses import dataclass
 import json
 from pathlib import Path
-import re
-from typing import Any, Callable, Mapping, NewType, Optional, Sequence, Type, TypedDict, cast
+from typing import Any, Callable, Mapping, Optional, Sequence, Type, cast
 import aiofiles
 
-from emcie.server.base_models import DefaultBaseModel
-
-
-ObjectId = NewType("ObjectId", str)
-
-
-class FieldFilter(TypedDict, total=False):
-    equal_to: Any
-    not_equal_to: Any
-    greater_than: Any
-    greater_than_or_equal_to: Any
-    less_than: Any
-    less_than_or_equal_to: Any
-    regex: str
-
-
-@dataclass(frozen=True)
-class CollectionDescriptor:
-    name: str
-    schema: Type[DefaultBaseModel]
+from emcie.server.core.persistence.common import (
+    CollectionDescriptor,
+    ObjectId,
+    Where,
+)
 
 
 class DocumentDatabase(ABC):
@@ -37,14 +20,14 @@ class DocumentDatabase(ABC):
     async def find(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Sequence[Mapping[str, Any]]: ...
 
     @abstractmethod
     async def find_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Mapping[str, Any]:
         """
         Returns the first document that matches the query criteria.
@@ -63,7 +46,7 @@ class DocumentDatabase(ABC):
     async def update_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
         updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
@@ -76,7 +59,7 @@ class DocumentDatabase(ABC):
     async def delete_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> None:
         """
         Deletes the first document that matches the query criteria.
@@ -87,17 +70,16 @@ class DocumentDatabase(ABC):
 
 
 def _matches_filters(
-    field_filters: Mapping[str, FieldFilter],
+    field_filters: Where,
     candidate: Mapping[str, Any],
 ) -> bool:
     tests: dict[str, Callable[[Any, Any], bool]] = {
-        "equal_to": lambda candidate, filter_value: candidate == filter_value,
-        "not_equal_to": lambda candidate, filter_value: candidate != filter_value,
-        "greater_than": lambda candidate, filter_value: candidate > filter_value,
-        "greater_than_or_equal_to": lambda candidate, filter_value: candidate >= filter_value,
-        "less_than": lambda candidate, filter_value: candidate < filter_value,
-        "less_than_or_equal_to": lambda candidate, filter_value: candidate <= filter_value,
-        "regex": lambda candidate, filter_value: bool(re.match(str(filter_value), str(candidate))),
+        "$eq": lambda candidate, filter_value: candidate == filter_value,
+        "$ne": lambda candidate, filter_value: candidate != filter_value,
+        "$gt": lambda candidate, filter_value: candidate > filter_value,
+        "$gte": lambda candidate, filter_value: candidate >= filter_value,
+        "$lt": lambda candidate, filter_value: candidate < filter_value,
+        "$lte": lambda candidate, filter_value: candidate <= filter_value,
     }
     for field, field_filter in field_filters.items():
         for filter_name, filter_value in field_filter.items():
@@ -120,7 +102,7 @@ class TransientDocumentDatabase(DocumentDatabase):
     async def find(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Sequence[Mapping[str, Any]]:
         return list(
             filter(
@@ -132,7 +114,7 @@ class TransientDocumentDatabase(DocumentDatabase):
     async def find_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Mapping[str, Any]:
         matched_documents = await self.find(collection, filters)
         if len(matched_documents) >= 1:
@@ -150,7 +132,7 @@ class TransientDocumentDatabase(DocumentDatabase):
     async def update_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
         updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
@@ -167,7 +149,7 @@ class TransientDocumentDatabase(DocumentDatabase):
     async def delete_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> None:
         for i, d in enumerate(self._collections[collection.name]):
             if _matches_filters(filters, d):
@@ -233,7 +215,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
     async def find(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Sequence[Mapping[str, Any]]:
         # TODO MC-101
         self._collection_descriptors[collection.name] = collection
@@ -245,7 +227,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
     async def find_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> Mapping[str, Any]:
         # TODO MC-101
         self._collection_descriptors[collection.name] = collection
@@ -269,7 +251,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
     async def update_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
         updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
@@ -287,7 +269,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
     async def delete_one(
         self,
         collection: CollectionDescriptor,
-        filters: Mapping[str, FieldFilter],
+        filters: Where,
     ) -> None:
         # TODO MC-101
         self._collection_descriptors[collection.name] = collection

@@ -5,7 +5,10 @@ from datetime import datetime, timezone
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 GuidelineId = NewType("GuidelineId", str)
 
@@ -85,7 +88,7 @@ class GuidelineDocumentStore(GuidelineStore):
         )
 
     async def list_guidelines(self, guideline_set: str) -> Sequence[Guideline]:
-        filters = {"guideline_set": FieldFilter(equal_to=guideline_set)}
+        filters = {"guideline_set": {"$eq": guideline_set}}
 
         return [
             Guideline(
@@ -99,8 +102,8 @@ class GuidelineDocumentStore(GuidelineStore):
 
     async def read_guideline(self, guideline_set: str, guideline_id: GuidelineId) -> Guideline:
         filters = {
-            "guideline_set": FieldFilter(equal_to=guideline_set),
-            "id": FieldFilter(equal_to=guideline_id),
+            "guideline_set": {"$eq": guideline_set},
+            "id": {"$eq": guideline_id},
         }
         guideline_document = await self._database.find_one(self._collection, filters)
 

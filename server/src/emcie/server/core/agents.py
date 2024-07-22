@@ -5,7 +5,11 @@ from typing import NewType, Optional, Sequence
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase, FieldFilter
+from emcie.server.core.persistence.common import Where
+from emcie.server.core.persistence.document_database import (
+    CollectionDescriptor,
+    DocumentDatabase,
+)
 
 AgentId = NewType("AgentId", str)
 
@@ -95,7 +99,7 @@ class AgentDocumentStore(AgentStore):
         agent_id: AgentId,
     ) -> Agent:
         filters = {
-            "id": FieldFilter(equal_to=agent_id),
+            "id": {"$eq": agent_id},
         }
         agent_document = await self._database.find_one(self._collection, filters)
         return Agent(

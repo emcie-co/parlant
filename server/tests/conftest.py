@@ -23,7 +23,10 @@ from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.engines.common import Engine
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
-from emcie.server.core.persistence import DocumentDatabase, TransientDocumentDatabase
+from emcie.server.core.persistence.document_database import (
+    DocumentDatabase,
+    TransientDocumentDatabase,
+)
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,

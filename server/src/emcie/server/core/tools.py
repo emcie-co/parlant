@@ -8,10 +8,8 @@ from pydantic import ValidationError
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence.document_database import (
-    CollectionDescriptor,
-    DocumentDatabase,
-)
+from emcie.server.core.persistence.document_database import DocumentDatabase
+
 
 ToolId = NewType("ToolId", str)
 
@@ -76,8 +74,7 @@ class ToolDocumentStore(ToolStore):
         self,
         database: DocumentDatabase,
     ) -> None:
-        self._database = database
-        self._collection = CollectionDescriptor(
+        self._collection = database.get_or_create_collection(
             name="tools",
             schema=self.ToolDocument,
         )
@@ -92,15 +89,12 @@ class ToolDocumentStore(ToolStore):
         creation_utc: Optional[datetime] = None,
         consequential: bool = False,
     ) -> Tool:
-        if list(
-            await self._database.find(collection=self._collection, filters={"name": {"$eq": name}})
-        ):
+        if list(await self._collection.find(filters={"name": {"$eq": name}})):
             raise ValidationError("Tool name must be unique within the tool set")
 
         creation_utc = creation_utc or datetime.now(timezone.utc)
-        tool_id = await self._database.insert_one(
-            self._collection,
-            {
+        tool_id = await self._collection.insert_one(
+            document={
                 "id": common.generate_id(),
                 "name": name,
                 "module_path": module_path,
@@ -137,10 +131,7 @@ class ToolDocumentStore(ToolStore):
                 required=d["required"],
                 consequential=d["consequential"],
             )
-            for d in await self._database.find(
-                collection=self._collection,
-                filters={},
-            )
+            for d in await self._collection.find(filters={})
         ]
 
     async def read_tool(
@@ -151,7 +142,7 @@ class ToolDocumentStore(ToolStore):
             "id": {"$eq": tool_id},
         }
 
-        tool_document = await self._database.find_one(self._collection, filters)
+        tool_document = await self._collection.find_one(filters=filters)
 
         return Tool(
             id=ToolId(tool_document["id"]),

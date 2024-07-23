@@ -6,10 +6,7 @@ from dataclasses import dataclass
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
 from emcie.server.core.tools import ToolId
-from emcie.server.core.persistence.document_database import (
-    CollectionDescriptor,
-    DocumentDatabase,
-)
+from emcie.server.core.persistence.document_database import DocumentDatabase
 
 ContextVariableId = NewType("ContextVariableId", str)
 ContextVariableValueId = NewType("ContextVariableValueId", str)
@@ -126,12 +123,11 @@ class ContextVariableDocumentStore(ContextVariableStore):
         data: dict[str, Any]
 
     def __init__(self, database: DocumentDatabase):
-        self._database = database
-        self._variable_collection = CollectionDescriptor(
+        self._variable_collection = database.get_or_create_collection(
             name="variables",
             schema=self.ContextVariableDocument,
         )
-        self._value_collection = CollectionDescriptor(
+        self._value_collection = database.get_or_create_collection(
             name="values",
             schema=self.ContextVariableValueDocument,
         )
@@ -144,8 +140,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         tool_id: ToolId,
         freshness_rules: Optional[FreshnessRules],
     ) -> ContextVariable:
-        variable_id = await self._database.insert_one(
-            self._variable_collection,
+        variable_id = await self._variable_collection.insert_one(
             {
                 "id": common.generate_id(),
                 "variable_set": variable_set,
@@ -176,8 +171,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             "key": {"$eq": key},
         }
         last_modified = datetime.now(timezone.utc)
-        value_document_id = await self._database.update_one(
-            self._value_collection,
+        value_document_id = await self._value_collection.update_one(
             filters,
             {
                 "id": common.generate_id(),
@@ -205,13 +199,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
             "id": {"$eq": id},
             "variable_set": {"$eq": variable_set},
         }
-        await self._database.delete_one(self._variable_collection, filters)
+        await self._variable_collection.delete_one(filters)
 
         filters = {
             "variable_id": {"$eq": id},
             "variable_set": {"$eq": variable_set},
         }
-        await self._database.delete_one(self._value_collection, filters)
+        await self._value_collection.delete_one(filters)
 
     async def list_variables(
         self,
@@ -227,7 +221,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 tool_id=d["tool_id"],
                 freshness_rules=d["freshness_rules"],
             )
-            for d in await self._database.find(self._variable_collection, filters)
+            for d in await self._variable_collection.find(filters)
         ]
 
     async def read_variable(
@@ -240,7 +234,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             "id": {"$eq": id},
         }
 
-        variable_document = await self._database.find_one(self._variable_collection, filters)
+        variable_document = await self._variable_collection.find_one(filters)
         return ContextVariable(
             id=ContextVariableId(variable_document["id"]),
             name=variable_document["name"],
@@ -260,7 +254,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             "variable_id": {"$eq": variable_id},
             "key": {"$eq": key},
         }
-        value_document = await self._database.find_one(self._value_collection, filters)
+        value_document = await self._value_collection.find_one(filters)
         return ContextVariableValue(
             id=ContextVariableValueId(value_document["id"]),
             variable_id=value_document["variable_id"],

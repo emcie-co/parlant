@@ -9,11 +9,8 @@ from emcie.server.core.common import JSONSerializable
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
-from emcie.server.core.persistence.document_database import (
-    CollectionDescriptor,
-    DocumentDatabase,
-)
 from emcie.server.core.tools import ToolParameter
+from emcie.server.core.persistence.document_database import DocumentDatabase
 
 SessionId = NewType("SessionId", str)
 EventId = NewType("EventId", str)
@@ -119,12 +116,11 @@ class SessionDocumentStore(SessionStore):
         data: dict[str, Any]
 
     def __init__(self, database: DocumentDatabase):
-        self._database = database
-        self._session_collection = CollectionDescriptor(
+        self._session_collection = database.get_or_create_collection(
             name="sessions",
             schema=self.SessionDocument,
         )
-        self._event_collection = CollectionDescriptor(
+        self._event_collection = database.get_or_create_collection(
             name="events",
             schema=self.EventDocument,
         )
@@ -134,10 +130,9 @@ class SessionDocumentStore(SessionStore):
         end_user_id: EndUserId,
         agent_id: AgentId,
     ) -> Session:
-        consumption_offsets: dict[ConsumerId, int] = {"client": 0}
-        session_id = await self._database.insert_one(
-            self._session_collection,
-            {
+        consumption_offsets = {"client": 0}
+        session_id = await self._session_collection.insert_one(
+            document={
                 "id": common.generate_id(),
                 "end_user_id": end_user_id,
                 "agent_id": agent_id,
@@ -157,7 +152,7 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
     ) -> Session:
         filters = {"id": {"$eq": session_id}}
-        session_document = await self._database.find_one(self._session_collection, filters)
+        session_document = await self._session_collection.find_one(filters=filters)
 
         return Session(
             id=session_document["id"],
@@ -172,10 +167,9 @@ class SessionDocumentStore(SessionStore):
         updated_session: Session,
     ) -> None:
         filters = {"id": {"$eq": session_id}}
-        await self._database.update_one(
-            self._session_collection,
-            filters,
-            updated_session.__dict__,
+        await self._session_collection.update_one(
+            filters=filters,
+            document=updated_session.__dict__,
         )
 
     async def update_consumption_offset(
@@ -200,9 +194,8 @@ class SessionDocumentStore(SessionStore):
         creation_utc = creation_utc or datetime.now(timezone.utc)
         offset = len(list(session_events))
 
-        event_id = await self._database.insert_one(
-            self._event_collection,
-            {
+        event_id = await self._event_collection.insert_one(
+            document={
                 "id": common.generate_id(),
                 "session_id": session_id,
                 "source": source,
@@ -245,7 +238,7 @@ class SessionDocumentStore(SessionStore):
                 creation_utc=d["creation_utc"],
                 data=d["data"],
             )
-            for d in await self._database.find(self._event_collection, filters)
+            for d in await self._event_collection.find(filters=filters)
         ]
 
 

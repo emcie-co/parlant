@@ -7,10 +7,7 @@ from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
 from emcie.server.core.guidelines import GuidelineId
 from emcie.server.core.tools import ToolId
-from emcie.server.core.persistence.document_database import (
-    CollectionDescriptor,
-    DocumentDatabase,
-)
+from emcie.server.core.persistence.document_database import DocumentDatabase
 
 GuidelineToolAssociationId = NewType("GuidelineToolAssociationId", str)
 
@@ -47,8 +44,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         tool_id: ToolId
 
     def __init__(self, database: DocumentDatabase):
-        self._database = database
-        self._collection = CollectionDescriptor(
+        self._collection = database.get_or_create_collection(
             name="associations", schema=self.GuidelineToolAssociationDocument
         )
 
@@ -59,9 +55,8 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         creation_utc: Optional[datetime] = None,
     ) -> GuidelineToolAssociation:
         creation_utc = creation_utc or datetime.now(timezone.utc)
-        association_id = await self._database.insert_one(
-            self._collection,
-            {
+        association_id = await self._collection.insert_one(
+            document={
                 "id": common.generate_id(),
                 "creation_utc": creation_utc,
                 "guideline_id": guideline_id,
@@ -84,5 +79,5 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
                 guideline_id=d["guideline_id"],
                 tool_id=d["tool_id"],
             )
-            for d in await self._database.find(self._collection, filters={})
+            for d in await self._collection.find(filters={})
         ]

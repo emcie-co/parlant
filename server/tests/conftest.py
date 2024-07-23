@@ -12,6 +12,7 @@ from emcie.server.core.guideline_connections import (
     GuidelineConnectionStore,
 )
 from emcie.server.core.guidelines import GuidelineDocumentStore, GuidelineStore
+from emcie.server.core.persistence.transient_database import TransientDocumentDatabase
 from emcie.server.core.sessions import (
     PollingSessionListener,
     SessionDocumentStore,
@@ -25,7 +26,6 @@ from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.persistence.document_database import (
     DocumentDatabase,
-    TransientDocumentDatabase,
 )
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,

@@ -17,7 +17,7 @@ from emcie.server.core.guidelines import (
     GuidelineDocumentStore,
     GuidelineId,
 )
-from emcie.server.core.persistence.document_database import JSONFileDocumentDatabase
+from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
 from emcie.server.core.sessions import Event, SessionDocumentStore
 from emcie.server.core.tools import ToolDocumentStore, ToolId
 from emcie.server.core.guideline_tool_associations import (
@@ -161,7 +161,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     with open(new_file) as f:
         guidelines_from_json = json.load(f)
 
-    assert len(guidelines_from_json) == 1
+    assert len(guidelines_from_json["guidelines"]) == 1
 
     json_guideline = guidelines_from_json["guidelines"][0]
     assert json_guideline["guideline_set"] == context.agent_id
@@ -233,7 +233,7 @@ async def test_tool_creation(
     with open(new_file) as f:
         tools_from_json = json.load(f)
 
-    assert len(tools_from_json) == 1
+    assert len(tools_from_json["tools"]) == 1
     json_tool = tools_from_json["tools"][0]
 
     assert json_tool["name"] == tool.name
@@ -518,7 +518,7 @@ async def test_successful_loading_of_an_empty_json_file(
     with open(new_file) as f:
         guidelines_from_json = json.load(f)
 
-    assert len(guidelines_from_json) == 1
+    assert len(guidelines_from_json["guidelines"]) == 1
 
     json_guideline = guidelines_from_json["guidelines"][0]
     assert json_guideline["guideline_set"] == context.agent_id

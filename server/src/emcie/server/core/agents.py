@@ -5,11 +5,7 @@ from typing import NewType, Optional, Sequence
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence.common import Where
-from emcie.server.core.persistence.document_database import (
-    CollectionDescriptor,
-    DocumentDatabase,
-)
+from emcie.server.core.persistence.document_database import DocumentDatabase
 
 AgentId = NewType("AgentId", str)
 
@@ -52,8 +48,7 @@ class AgentDocumentStore(AgentStore):
         self,
         database: DocumentDatabase,
     ):
-        self._database = database
-        self._collection = CollectionDescriptor(
+        self._collection = database.get_or_create_collection(
             name="agents",
             schema=self.AgentDocument,
         )
@@ -65,9 +60,8 @@ class AgentDocumentStore(AgentStore):
         creation_utc: Optional[datetime] = None,
     ) -> Agent:
         creation_utc = creation_utc or datetime.now(timezone.utc)
-        agent_id = await self._database.insert_one(
-            self._collection,
-            {
+        agent_id = await self._collection.insert_one(
+            document={
                 "id": common.generate_id(),
                 "name": name,
                 "description": description,
@@ -91,7 +85,7 @@ class AgentDocumentStore(AgentStore):
                 description=a.get("description"),
                 creation_utc=a["creation_utc"],
             )
-            for a in await self._database.find(self._collection, filters={})
+            for a in await self._collection.find(filters={})
         ]
 
     async def read_agent(
@@ -101,7 +95,7 @@ class AgentDocumentStore(AgentStore):
         filters = {
             "id": {"$eq": agent_id},
         }
-        agent_document = await self._database.find_one(self._collection, filters)
+        agent_document = await self._collection.find_one(filters=filters)
         return Agent(
             id=agent_document["id"],
             name=agent_document["name"],

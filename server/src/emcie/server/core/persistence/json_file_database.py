@@ -138,9 +138,6 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             data[collection_name] = self._collections[collection_name]._documents
         await self._save_data(data)
 
-    def list_collection_names(self) -> Sequence[str]:
-        return list(self._collections.keys())
-
 
 class JSONFileDocumentCollection(DocumentCollection):
 

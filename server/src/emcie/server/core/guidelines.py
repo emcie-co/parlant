@@ -82,7 +82,10 @@ class GuidelineDocumentStore(GuidelineStore):
             creation_utc=creation_utc,
         )
 
-    async def list_guidelines(self, guideline_set: str) -> Sequence[Guideline]:
+    async def list_guidelines(
+        self,
+        guideline_set: str,
+    ) -> Sequence[Guideline]:
         filters = {"guideline_set": {"$eq": guideline_set}}
 
         return [

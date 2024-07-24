@@ -100,9 +100,6 @@ class ChromaDatabase(DocumentDatabase):
         self._chroma_client.delete_collection(name=name)
         del self._collections[name]
 
-    def list_collection_names(self) -> Sequence[str]:
-        return list(self._collections.keys())
-
 
 class ChromaCollection(VectorCollection):
 
@@ -127,7 +124,9 @@ class ChromaCollection(VectorCollection):
         self,
         filters: Where,
     ) -> dict[str, Any]:
-        return self._chroma_collection.get(where=filters)["metadatas"][0]
+        if docs := self._chroma_collection.get(where=filters)["metadatas"]:
+            return docs[0]
+        raise ValueError("No document found matching the provided filters.")
 
     async def insert_one(
         self,
@@ -139,23 +138,36 @@ class ChromaCollection(VectorCollection):
                 documents=[document["content"]],
                 metadatas=[document],
             )
+
         document_id: ObjectId = document["id"]
         return document_id
 
     async def update_one(
         self,
+        filters: Where,
         updated_document: dict[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
-        func = self._chroma_collection.upsert if upsert else self._chroma_collection.update
         async with self._lock:
-            func(
-                ids=[updated_document["id"]],
-                documents=[updated_document["content"]],
-                metadatas=[updated_document],
-            )
-            document_id: ObjectId = updated_document["id"]
-            return document_id
+            if docs := self._chroma_collection.get(where=filters)["metadatas"]:
+                document_id: ObjectId = docs[0]["id"]
+                self._chroma_collection.update(
+                    ids=[document_id],
+                    documents=[updated_document["content"]],
+                    metadatas=[{**docs[0], **updated_document}],
+                )
+                return document_id
+
+            elif upsert:
+                document_id: ObjectId = updated_document["id"]
+                self._chroma_collection.add(
+                    ids=[updated_document["id"]],
+                    documents=[updated_document["content"]],
+                    metadatas=[updated_document],
+                )
+                return document_id
+
+            raise ValueError("No document found matching the provided filters.")
 
     async def delete_one(
         self,
@@ -166,12 +178,17 @@ class ChromaCollection(VectorCollection):
 
     async def find_similar_documents(
         self,
+        filters: Where,
         query: str,
         k: int,
     ) -> Sequence[dict[str, Any]]:
-        docs = self._chroma_collection.query(query_texts=[query], n_results=k)
+        docs = self._chroma_collection.query(
+            where=filters,
+            query_texts=[query],
+            n_results=k,
+        )
 
         if docs:
-            logger.debug(f"Similar documents found: {json.dumps(docs['metadatas'], indent=2,)}")
+            logger.debug(f"Similar documents found: {json.dumps(docs['metadatas'], indent=2)}")
 
         return docs["metadatas"][0]

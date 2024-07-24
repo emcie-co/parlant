@@ -46,9 +46,6 @@ class TransientDocumentDatabase(DocumentDatabase):
     ) -> None:
         del self._collections[name]
 
-    def list_collection_names(self) -> Sequence[str]:
-        return list(self._collections.keys())
-
 
 class _TransientDocumentCollection(DocumentCollection):
     def __init__(

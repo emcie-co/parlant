@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import tempfile
 from typing import AsyncIterator, Iterator
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.persistence.chroma_database import ChromaCollection, ChromaDatabase
@@ -111,7 +111,11 @@ async def test_that_update_one_without_upsert_is_updating_existing_document(
         "name": "new name",
     }
 
-    await chroma_collection.update_one(updated_document, upsert=False)
+    await chroma_collection.update_one(
+        {"name": "test name"},
+        updated_document,
+        upsert=False,
+    )
 
     filters = {"name": {"$eq": "test name"}}
     result = await chroma_collection.find(filters)
@@ -141,12 +145,8 @@ async def test_that_update_one_without_upsert_and_no_existing_content_does_not_i
         "name": "new name",
     }
 
-    await chroma_collection.update_one(updated_document, upsert=False)
-
-    filters = {"name": {"$eq": "new name"}}
-    result = await chroma_collection.find(filters)
-
-    assert len(result) == 0  # no insertion since upsert is False
+    with raises(ValueError):
+        await chroma_collection.update_one({"name": "new name"}, updated_document, upsert=False)
 
 
 @mark.asyncio
@@ -159,7 +159,7 @@ async def test_that_update_one_with_upsert_and_no_existing_content_insert_new_do
         "name": "new name",
     }
 
-    await chroma_collection.update_one(updated_document, upsert=True)
+    await chroma_collection.update_one({"name": "new name"}, updated_document, upsert=True)
 
     filters = {"name": {"$eq": "new name"}}
     result = await chroma_collection.find(filters)
@@ -214,7 +214,7 @@ async def test_find_similar_documents(
     query = "apple banana cherry"
     k = 3
 
-    result = await chroma_collection.find_similar_documents(query, k)
+    result = await chroma_collection.find_similar_documents({}, query, k)
 
     assert len(result) == 3
     assert {"id": "1", "content": "apple", "name": "Apple"} in result

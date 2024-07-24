@@ -50,13 +50,6 @@ class DocumentDatabase(ABC):
         """
         ...
 
-    @abstractmethod
-    def list_collection_names(self) -> Sequence[str]:
-        """
-        Lists all collection names.
-        """
-        ...
-
 
 class DocumentCollection(ABC):
 
@@ -115,23 +108,10 @@ class DocumentCollection(ABC):
 
 
 class VectorCollection(DocumentCollection):
-
-    @abstractmethod
-    async def update_one(
-        self,
-        filters: Where,
-        updated_document: Mapping[str, Any],
-        upsert: bool = False,
-    ) -> ObjectId:
-        """
-        Finds documents with the same content and updates their metadata.
-        If upsert is True, inserts the document if it does not exist.
-        """
-        ...
-
     @abstractmethod
     async def find_similar_documents(
         self,
+        filters: Where,
         query: str,
         k: int,
     ) -> Sequence[dict[str, Any]]:

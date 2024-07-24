@@ -17,6 +17,7 @@ from emcie.server.core.tools import Tool
 
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
+from emcie.server.engines.alpha.terminology import Term
 from emcie.server.engines.alpha.utils import (
     duration_logger,
     make_llm_client,
@@ -63,6 +64,7 @@ class ToolCaller:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
         staged_events: Sequence[ProducedEvent],
@@ -71,6 +73,7 @@ class ToolCaller:
             agents,
             context_variables,
             interaction_history,
+            terms,
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,
             staged_events,
@@ -119,6 +122,7 @@ class ToolCaller:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_event_list: Sequence[Event],
+        terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
         staged_events: Sequence[ProducedEvent],
@@ -133,6 +137,7 @@ class ToolCaller:
         builder.add_agent_identity(agents[0])
         builder.add_interaction_history(interaction_event_list)
         builder.add_context_variables(context_variables)
+        builder.add_terminology(terms)
 
         builder.add_section(
             """

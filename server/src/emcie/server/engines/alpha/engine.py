@@ -18,6 +18,8 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
+from emcie.server.engines.alpha.terminology import Term, TerminologyStore
+from emcie.server.engines.alpha.utils import context_variables_to_json
 from emcie.server.engines.common import Context, Engine, ProducedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import Event, SessionId, SessionStore
@@ -29,6 +31,7 @@ class AlphaEngine(Engine):
         agent_store: AgentStore,
         session_store: SessionStore,
         context_variable_store: ContextVariableStore,
+        terminology_store: TerminologyStore,
         guideline_store: GuidelineStore,
         guideline_connection_store: GuidelineConnectionStore,
         tool_store: ToolStore,
@@ -37,6 +40,7 @@ class AlphaEngine(Engine):
         self.agent_store = agent_store
         self.session_store = session_store
         self.context_variable_store = context_variable_store
+        self.terminology_store = terminology_store
         self.guideline_store = guideline_store
         self.guideline_connection_store = guideline_connection_store
         self.tool_store = tool_store
@@ -48,13 +52,22 @@ class AlphaEngine(Engine):
         self.tool_event_producer = ToolEventProducer()
         self.message_event_producer = MessageEventProducer()
 
-    async def process(self, context: Context) -> Sequence[ProducedEvent]:
+    async def process(
+        self,
+        context: Context,
+    ) -> Sequence[ProducedEvent]:
         agent = await self.agent_store.read_agent(context.agent_id)
         interaction_history = list(await self.session_store.list_events(context.session_id))
 
         context_variables = await self._load_context_variables(
             agent_id=context.agent_id,
             session_id=context.session_id,
+        )
+
+        terms = await self._find_terminology(
+            agents=[agent],
+            context_variables=context_variables,
+            interaction_history=interaction_history,
         )
 
         all_tool_events: list[ProducedEvent] = []
@@ -68,6 +81,7 @@ class AlphaEngine(Engine):
                     agents=[agent],
                     context_variables=context_variables,
                     interaction_history=interaction_history,
+                    terms=terms,
                     staged_events=all_tool_events,
                 )
             )
@@ -76,6 +90,7 @@ class AlphaEngine(Engine):
                 agents=[agent],
                 context_variables=context_variables,
                 interaction_history=interaction_history,
+                terms=terms,
                 ordinary_guideline_propositions=ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
                 staged_events=all_tool_events,
@@ -92,6 +107,7 @@ class AlphaEngine(Engine):
             agents=[agent],
             context_variables=context_variables,
             interaction_history=interaction_history,
+            terms=terms,
             ordinary_guideline_propositions=ordinary_guideline_propositions,
             tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
             staged_events=all_tool_events,
@@ -127,6 +143,7 @@ class AlphaEngine(Engine):
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         staged_events: Sequence[ProducedEvent],
     ) -> tuple[Sequence[GuidelineProposition], Mapping[GuidelineProposition, Sequence[Tool]]]:
         all_relevant_guidelines = await self._fetch_guideline_propositions(
@@ -134,6 +151,7 @@ class AlphaEngine(Engine):
             context_variables=context_variables,
             interaction_history=interaction_history,
             staged_events=staged_events,
+            terms=terms,
         )
 
         tool_enabled_guidelines = await self._find_tool_enabled_guidelines_propositions(
@@ -151,6 +169,7 @@ class AlphaEngine(Engine):
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         staged_events: Sequence[ProducedEvent],
     ) -> Sequence[GuidelineProposition]:
         assert len(agents) == 1
@@ -164,6 +183,7 @@ class AlphaEngine(Engine):
             guidelines=list(all_possible_guidelines),
             context_variables=context_variables,
             interaction_history=interaction_history,
+            terms=terms,
             staged_events=staged_events,
         )
 
@@ -278,3 +298,28 @@ class AlphaEngine(Engine):
             )
 
         return dict(tools_for_guidelines)
+
+    async def _find_terminology(
+        self,
+        agents: Sequence[Agent],
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+    ) -> Sequence[Term]:
+        assert len(agents) == 1
+
+        context = ""
+
+        agent = agents[0]
+        if agent.description:
+            context += f"{agents[0].description}"
+
+        if context_variables:
+            context += f"\n{context_variables_to_json(context_variables=context_variables)}"
+
+        if interaction_history:
+            context += str([e.data for e in interaction_history])
+
+        return await self.terminology_store.find_relevant_terms(
+            term_set=agent.name,
+            query=context,
+        )

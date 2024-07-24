@@ -10,6 +10,7 @@ from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
+from emcie.server.engines.alpha.terminology import Term
 from emcie.server.engines.alpha.utils import (
     context_variables_to_json,
     events_to_json,
@@ -22,6 +23,7 @@ class BuiltInSection(Enum):
     AGENT_IDENTITY = auto()
     INTERACTION_HISTORY = auto()
     CONTEXT_VARIABLES = auto()
+    TERMINOLOGY = auto()
     GUIDELINE_PREDICATES = auto()
     GUIDELINE_PROPOSITIONS = auto()
     TOOLS = auto()
@@ -144,6 +146,28 @@ The following is information that you're given about the user and context of the
 {context_values}
 ###
 """,
+                status=SectionStatus.ACTIVE,
+            )
+
+        return self
+
+    def add_terminology(
+        self,
+        terms: Sequence[Term],
+    ) -> PromptBuilder:
+        if terms:
+
+            terms_string = "\n".join(f"{i}) {repr(t)}" for i, t in enumerate(terms, start=1))
+
+            self.add_section(
+                name=BuiltInSection.TERMINOLOGY,
+                content=f"""
+The following is a terminology of the business. 
+Please be tolerant of possible typos by the user with regards to these terms, 
+and let the user know if/when you assume they meant a term by their typo: ###
+{terms_string}
+###
+""",  # noqa
                 status=SectionStatus.ACTIVE,
             )
 

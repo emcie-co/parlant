@@ -8,6 +8,7 @@ from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
+from emcie.server.engines.alpha.terminology import Term
 from emcie.server.engines.alpha.utils import (
     duration_logger,
     make_llm_client,
@@ -27,6 +28,7 @@ class GuidelineProposer:
         guidelines: Sequence[Guideline],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         staged_events: Sequence[ProducedEvent],
     ) -> Sequence[GuidelineProposition]:
         if not guidelines:
@@ -41,6 +43,7 @@ class GuidelineProposer:
                     context_variables,
                     interaction_history,
                     staged_events,
+                    terms,
                     batch,
                 )
                 for batch in batches
@@ -72,6 +75,7 @@ class GuidelineProposer:
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         staged_events: Sequence[ProducedEvent],
+        terms: Sequence[Term],
         batch: Sequence[Guideline],
     ) -> list[GuidelineProposition]:
         prompt = self._format_prompt(
@@ -79,6 +83,7 @@ class GuidelineProposer:
             context_variables=context_variables,
             interaction_history=interaction_history,
             staged_events=staged_events,
+            terms=terms,
             guidelines=batch,
         )
 
@@ -111,6 +116,7 @@ class GuidelineProposer:
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         staged_events: Sequence[ProducedEvent],
+        terms: Sequence[Term],
         guidelines: Sequence[Guideline],
     ) -> str:
         assert len(agents) == 1
@@ -139,6 +145,7 @@ The following is an additional list of staged events that were just added: ###
         )
 
         builder.add_context_variables(context_variables)
+        builder.add_terminology(terms)
 
         builder.add_section(
             """

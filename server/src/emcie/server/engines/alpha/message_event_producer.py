@@ -7,6 +7,7 @@ from emcie.server.core.context_variables import ContextVariable, ContextVariable
 from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
+from emcie.server.engines.alpha.terminology import Term
 from emcie.server.engines.alpha.utils import (
     make_llm_client,
 )
@@ -25,6 +26,7 @@ class MessageEventProducer:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
         staged_events: Sequence[ProducedEvent],
@@ -45,6 +47,7 @@ class MessageEventProducer:
             agents=agents,
             context_variables=context_variables,
             interaction_history=interaction_history,
+            terms=terms,
             ordinary_guideline_propositions=ordinary_guideline_propositions,
             tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
             staged_events=staged_events,
@@ -69,6 +72,7 @@ class MessageEventProducer:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
+        terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
         staged_events: Sequence[ProducedEvent],
@@ -80,6 +84,7 @@ class MessageEventProducer:
         builder.add_agent_identity(agents[0])
         builder.add_interaction_history(interaction_history)
         builder.add_context_variables(context_variables)
+        builder.add_terminology(terms)
         builder.add_guideline_propositions(
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,

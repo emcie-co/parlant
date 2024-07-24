@@ -133,10 +133,11 @@ class ChromaCollection(VectorCollection):
         document: dict[str, Any],
     ) -> ObjectId:
         async with self._lock:
+
             self._chroma_collection.add(
                 ids=[document["id"]],
                 documents=[document["content"]],
-                metadatas=[document],
+                metadatas=[self._schema(**document).model_dump(mode="json")],
             )
 
         document_id: ObjectId = document["id"]
@@ -151,19 +152,23 @@ class ChromaCollection(VectorCollection):
         async with self._lock:
             if docs := self._chroma_collection.get(where=filters)["metadatas"]:
                 document_id: ObjectId = docs[0]["id"]
+
                 self._chroma_collection.update(
                     ids=[document_id],
                     documents=[updated_document["content"]],
-                    metadatas=[{**docs[0], **updated_document}],
+                    metadatas=[
+                        {**docs[0], **self._schema(**updated_document).model_dump(mode="json")}
+                    ],
                 )
                 return document_id
 
             elif upsert:
                 document_id: ObjectId = updated_document["id"]
+
                 self._chroma_collection.add(
                     ids=[updated_document["id"]],
                     documents=[updated_document["content"]],
-                    metadatas=[updated_document],
+                    metadatas=[self._schema(**updated_document).model_dump(mode="json")],
                 )
                 return document_id
 
@@ -188,7 +193,7 @@ class ChromaCollection(VectorCollection):
             n_results=k,
         )
 
-        if docs:
+        if docs["metadatas"][0]:
             logger.debug(f"Similar documents found: {json.dumps(docs['metadatas'], indent=2)}")
 
         return docs["metadatas"][0]

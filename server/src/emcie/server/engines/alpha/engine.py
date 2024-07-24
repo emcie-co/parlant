@@ -1,6 +1,6 @@
 from collections import defaultdict
 from itertools import chain
-from typing import Mapping, Sequence
+from typing import Mapping, Optional, Sequence
 from loguru import logger
 
 from emcie.server.core.agents import Agent, AgentId, AgentStore
@@ -64,10 +64,12 @@ class AlphaEngine(Engine):
             session_id=context.session_id,
         )
 
-        terms = await self._find_terminology(
-            agents=[agent],
-            context_variables=context_variables,
-            interaction_history=interaction_history,
+        terms = set(
+            await self._find_terminology(
+                agents=[agent],
+                context_variables=context_variables,
+                interaction_history=interaction_history,
+            )
         )
 
         all_tool_events: list[ProducedEvent] = []
@@ -86,6 +88,20 @@ class AlphaEngine(Engine):
                 )
             )
 
+            terms.union(
+                set(
+                    await self._find_terminology(
+                        agents=[agent],
+                        propositions=list(
+                            chain(
+                                ordinary_guideline_propositions,
+                                tool_enabled_guideline_propositions.keys(),
+                            ),
+                        ),
+                    )
+                )
+            )
+
             if tool_events := await self.tool_event_producer.produce_events(
                 agents=[agent],
                 context_variables=context_variables,
@@ -96,6 +112,19 @@ class AlphaEngine(Engine):
                 staged_events=all_tool_events,
             ):
                 all_tool_events += tool_events
+                terms.union(
+                    set(
+                        await self._find_terminology(
+                            agents=[agent],
+                            propositions=chain(
+                                [
+                                    ordinary_guideline_propositions,
+                                    tool_enabled_guideline_propositions.keys(),
+                                ]
+                            ),
+                        )
+                    )
+                )
             else:
                 break
 
@@ -302,16 +331,16 @@ class AlphaEngine(Engine):
     async def _find_terminology(
         self,
         agents: Sequence[Agent],
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-        interaction_history: Sequence[Event],
+        context_variables: Optional[Sequence[tuple[ContextVariable, ContextVariableValue]]] = None,
+        interaction_history: Optional[Sequence[Event]] = None,
+        propositions: Optional[Sequence[GuidelineProposition]] = None,
+        staged_events: Optional[Sequence[ProducedEvent]] = None,
     ) -> Sequence[Term]:
         assert len(agents) == 1
 
-        context = ""
-
         agent = agents[0]
-        if agent.description:
-            context += f"{agents[0].description}"
+
+        context = ""
 
         if context_variables:
             context += f"\n{context_variables_to_json(context_variables=context_variables)}"
@@ -319,7 +348,19 @@ class AlphaEngine(Engine):
         if interaction_history:
             context += str([e.data for e in interaction_history])
 
-        return await self.terminology_store.find_relevant_terms(
-            term_set=agent.name,
-            query=context,
+        if propositions:
+            context += str(
+                [f"When {p.guideline.predicate}, then {p.guideline.content}" for p in propositions]
+            )
+
+        if staged_events:
+            context += str([e.data for e in staged_events])
+
+        return (
+            await self.terminology_store.find_relevant_terms(
+                term_set=agent.name,
+                query=context,
+            )
+            if context
+            else []
         )

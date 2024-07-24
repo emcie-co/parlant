@@ -7,7 +7,7 @@ import networkx  # type: ignore
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.common import generate_id
 from emcie.server.core.guidelines import GuidelineId
-from emcie.server.core.persistence import CollectionDescriptor, DocumentDatabase
+from emcie.server.core.persistence.document_database import DocumentDatabase, DocumentCollection
 
 GuidelineConnectionId = NewType("GuidelineConnectionId", str)
 ConnectionKind = Literal["entails", "suggests"]
@@ -54,8 +54,7 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
         kind: ConnectionKind
 
     def __init__(self, database: DocumentDatabase) -> None:
-        self._database = database
-        self._collection = CollectionDescriptor(
+        self._collection: DocumentCollection = database.get_or_create_collection(
             name="guideline_connections",
             schema=self.GuidelineConnectionDocument,
         )
@@ -65,7 +64,7 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
         if not self._graph:
             g = networkx.DiGraph()
 
-            connections = await self._database.find(self._collection, filters={})
+            connections = await self._collection.find(filters={})
 
             nodes = set()
             edges = list()
@@ -101,9 +100,8 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
 
         creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        connection_id = await self._database.update_one(
-            self._collection,
-            filters={"source": {"equal_to": source}, "target": {"equal_to": target}},
+        connection_id = await self._collection.update_one(
+            filters={"source": {"$eq": source}, "target": {"$eq": target}},
             updated_document={
                 "id": generate_id(),
                 "creation_utc": creation_utc,
@@ -138,11 +136,11 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
         self,
         id: GuidelineConnectionId,
     ) -> None:
-        document = await self._database.find_one(self._collection, filters={"id": {"equal_to": id}})
+        document = await self._collection.find_one(filters={"id": {"$eq": id}})
 
         (await self._get_graph()).remove_edge(document["source"], document["target"])
 
-        await self._database.delete_one(self._collection, filters={"id": {"equal_to": id}})
+        self._collection.delete_one(filters={"id": {"$eq": id}})
 
     async def list_connections(
         self,
@@ -161,9 +159,8 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
             for edge_source, edge_target in descendant_edges:
                 edge_data = graph.get_edge_data(edge_source, edge_target)
 
-                connection = await self._database.find_one(
-                    self._collection,
-                    filters={"id": {"equal_to": edge_data["id"]}},
+                connection = await self._collection.find_one(
+                    filters={"id": {"$eq": edge_data["id"]}},
                 )
 
                 connections.append(
@@ -183,9 +180,8 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
             connections = []
 
             for source, data in successors.items():
-                connection = await self._database.find_one(
-                    self._collection,
-                    filters={"id": {"equal_to": data["id"]}},
+                connection = await self._collection.find_one(
+                    filters={"id": {"$eq": data["id"]}},
                 )
 
                 connections.append(

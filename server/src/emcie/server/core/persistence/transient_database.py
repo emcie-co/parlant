@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional, Sequence, Type
+from typing import Any, Mapping, Optional, Sequence, Type
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.persistence.common import ObjectId, Where, matches_filters
 from emcie.server.core.persistence.document_database import DocumentCollection, DocumentDatabase
@@ -46,22 +46,25 @@ class TransientDocumentDatabase(DocumentDatabase):
     ) -> None:
         del self._collections[name]
 
+    def list_collection_names(self) -> Sequence[str]:
+        return list(self._collections.keys())
+
 
 class _TransientDocumentCollection(DocumentCollection):
     def __init__(
         self,
         name: str,
         schema: Type[DefaultBaseModel],
-        data: Optional[list[dict[str, Any]]] = None,
+        data: Optional[Sequence[Mapping[str, Any]]] = None,
     ) -> None:
         self._name = name
         self._schema = schema
-        self._documents = data if data else []
+        self._documents = list(data) if data else []
 
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[dict[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:
         return list(
             filter(
                 lambda d: matches_filters(filters, d),
@@ -72,7 +75,7 @@ class _TransientDocumentCollection(DocumentCollection):
     async def find_one(
         self,
         filters: Where,
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Any]:
         matched_documents = await self.find(filters)
         if len(matched_documents) >= 1:
             return matched_documents[0]
@@ -80,21 +83,23 @@ class _TransientDocumentCollection(DocumentCollection):
 
     async def insert_one(
         self,
-        document: dict[str, Any],
+        document: Mapping[str, Any],
     ) -> ObjectId:
         self._documents.append(self._schema(**document).model_dump(mode="json"))
-        return document["id"]
+        document_id: ObjectId = document["id"]
+        return document_id
 
     async def update_one(
         self,
         filters: Where,
-        updated_document: dict[str, Any],
+        updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
         for i, d in enumerate(self._documents):
             if matches_filters(filters, d):
                 self._documents[i] = updated_document
-                return updated_document["id"]
+                document_id: ObjectId = updated_document["id"]
+                return document_id
         if upsert:
             document_id = await self.insert_one(updated_document)
             return document_id

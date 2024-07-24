@@ -138,6 +138,9 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             data[collection_name] = self._collections[collection_name]._documents
         await self._save_data(data)
 
+    def list_collection_names(self) -> Sequence[str]:
+        return list(self._collections.keys())
+
 
 class JSONFileDocumentCollection(DocumentCollection):
 
@@ -197,6 +200,7 @@ class JSONFileDocumentCollection(DocumentCollection):
     ) -> ObjectId:
         for i, d in enumerate(self._documents):
             if matches_filters(filters, d):
+                await self._process_operation_counter()
                 self._documents[i] = updated_document
                 return updated_document["id"]
         if upsert:

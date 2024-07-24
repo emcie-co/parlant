@@ -30,7 +30,7 @@ from emcie.server.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from emcie.server.core.persistence import JSONFileDocumentDatabase
+from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
 from emcie.server.core.sessions import (
     PollingSessionListener,
     SessionDocumentStore,

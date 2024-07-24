@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, NewType, Type, Union
+from typing import Any, Callable, Literal, Mapping, NewType, Type, Union
 
 from emcie.server.base_models import DefaultBaseModel
 
@@ -35,7 +35,7 @@ Where = dict[Union[str, LogicalOperator], Union[LiteralValue, OperatorExpression
 
 def matches_filters(
     field_filters: Where,
-    candidate: dict[str, Any],
+    candidate: Mapping[str, Any],
 ) -> bool:
     tests: dict[str, Callable[[Any, Any], bool]] = {
         "$eq": lambda candidate, filter_value: candidate == filter_value,
@@ -45,8 +45,8 @@ def matches_filters(
         "$lt": lambda candidate, filter_value: candidate < filter_value,
         "$lte": lambda candidate, filter_value: candidate <= filter_value,
     }
-    for field, field_filter in field_filters.items():
-        for filter_name, filter_value in field_filter.items():
-            if not tests[filter_name](candidate.get(field), filter_value):
+    for field_name, field_filter in field_filters.items():
+        for filter_name, filter_value in field_filters.items():
+            if not tests[filter_name](candidate.get(field_name), filter_value):
                 return False
     return True

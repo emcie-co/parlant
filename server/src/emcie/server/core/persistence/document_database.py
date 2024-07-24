@@ -3,10 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Mapping, Sequence, Type
 
 from emcie.server.base_models import DefaultBaseModel
-from emcie.server.core.persistence.common import (
-    ObjectId,
-    Where,
-)
+from emcie.server.core.persistence.common import ObjectId, Where
 
 
 class DocumentDatabase(ABC):
@@ -39,7 +36,7 @@ class DocumentDatabase(ABC):
         schema: Type[DefaultBaseModel],
     ) -> DocumentCollection:
         """
-        Get or create a new collection
+        Retrieves an existing collection by its name or creates a new one if it does not exist.
         """
         ...
 
@@ -53,6 +50,13 @@ class DocumentDatabase(ABC):
         """
         ...
 
+    @abstractmethod
+    def list_collection_names(self) -> Sequence[str]:
+        """
+        Lists all collection names.
+        """
+        ...
+
 
 class DocumentCollection(ABC):
 
@@ -60,7 +64,11 @@ class DocumentCollection(ABC):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[Mapping[str, Any]]: ...
+    ) -> Sequence[Mapping[str, Any]]:
+        """
+        Finds all documents that match the given filters.
+        """
+        ...
 
     @abstractmethod
     async def find_one(
@@ -70,14 +78,17 @@ class DocumentCollection(ABC):
         """
         Returns the first document that matches the query criteria.
         """
-
-    ...
+        ...
 
     @abstractmethod
     async def insert_one(
         self,
         document: Mapping[str, Any],
-    ) -> ObjectId: ...
+    ) -> ObjectId:
+        """
+        Inserts a single document into the collection.
+        """
+        ...
 
     @abstractmethod
     async def update_one(
@@ -87,7 +98,8 @@ class DocumentCollection(ABC):
         upsert: bool = False,
     ) -> ObjectId:
         """
-        Updates the first document that matches the query criteria.
+        Updates the first document that matches the query criteria. If upsert is True,
+        inserts the document if it does not exist.
         """
         ...
 
@@ -98,5 +110,32 @@ class DocumentCollection(ABC):
     ) -> None:
         """
         Deletes the first document that matches the query criteria.
+        """
+        ...
+
+
+class VectorCollection(DocumentCollection):
+
+    @abstractmethod
+    async def update_one(
+        self,
+        filters: Where,
+        updated_document: Mapping[str, Any],
+        upsert: bool = False,
+    ) -> ObjectId:
+        """
+        Finds documents with the same content and updates their metadata.
+        If upsert is True, inserts the document if it does not exist.
+        """
+        ...
+
+    @abstractmethod
+    async def find_similar_documents(
+        self,
+        query: str,
+        k: int,
+    ) -> Sequence[dict[str, Any]]:
+        """
+        Finds the k most similar documents to the given query in the collection.
         """
         ...

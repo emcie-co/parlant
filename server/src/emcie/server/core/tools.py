@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, Mapping, NewType, Optional, Sequence, TypedDict
+from typing import Literal, Mapping, NewType, Optional, Sequence, TypedDict, Union
 from typing_extensions import NotRequired
 
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ ToolId = NewType("ToolId", str)
 class ToolParameter(TypedDict):
     type: Literal["string", "number", "integer", "boolean", "array", "object"]
     description: NotRequired[str]
+    enum: NotRequired[list[Union[str, int, float, bool]]]
 
 
 @dataclass(frozen=True)

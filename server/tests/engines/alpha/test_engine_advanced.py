@@ -138,7 +138,7 @@ def given_a_context_variable(
             variable_set=agent_id,
             key=end_user_id,
             variable_id=variable.id,
-            data=variable_value,
+            data={variable_name: variable_value},
         )
     )
 
@@ -313,7 +313,7 @@ def given_a_tool(
             "module_path": "tests.tool_utilities",
             "parameters": {
                 "product_type": {
-                    "product_type": "string",
+                    "type": "string",
                     "description": "The type of product (either 'drinks' or 'toppings')",
                     "enum": ["drinks", "toppings"],
                 }

@@ -24,7 +24,7 @@ from emcie.server.core.sessions import (
 )
 from emcie.server.core.tools import ToolDocumentStore, ToolStore
 from emcie.server.engines.alpha.engine import AlphaEngine
-from emcie.server.engines.alpha.terminology import TerminologyStore
+from emcie.server.engines.alpha.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.engines.common import Engine
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -66,7 +66,7 @@ async def container() -> AsyncIterator[Container]:
     container[Engine] = AlphaEngine
 
     with tempfile.TemporaryDirectory() as chroma_db_dir:
-        container[TerminologyStore] = TerminologyStore(ChromaDatabase(Path(chroma_db_dir)))
+        container[TerminologyStore] = TerminologyChromaStore(ChromaDatabase(Path(chroma_db_dir)))
         async with MC(container) as mc:
             container[MC] = mc
             yield container

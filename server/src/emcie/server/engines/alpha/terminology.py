@@ -1,10 +1,11 @@
+from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.persistence.document_database import DocumentDatabase, VectorCollection
+from emcie.server.core.persistence.chroma_database import ChromaCollection, ChromaDatabase
 
 TermId = NewType("TermId", str)
 
@@ -25,6 +26,47 @@ class Term:
 
 
 class TerminologyStore:
+    @abstractmethod
+    async def create_term(
+        self,
+        term_set: str,
+        name: str,
+        description: str,
+        creation_utc: Optional[datetime] = None,
+        synonyms: Optional[Sequence[str]] = None,
+    ) -> Term: ...
+
+    @abstractmethod
+    async def update_term(
+        self,
+        term_set: str,
+        name: str,
+        description: str,
+        synonyms: Sequence[str],
+    ) -> Term: ...
+
+    @abstractmethod
+    async def read_term(
+        self,
+        term_set: str,
+        name: str,
+    ) -> Term: ...
+
+    @abstractmethod
+    async def list_terms(
+        self,
+        term_set: str,
+    ) -> Sequence[Term]: ...
+
+    @abstractmethod
+    async def find_relevant_terms(
+        self,
+        term_set: str,
+        query: str,
+    ) -> Sequence[Term]: ...
+
+
+class TerminologyChromaStore(TerminologyStore):
     class TermDocument(DefaultBaseModel):
         id: TermId
         term_set: str
@@ -36,9 +78,9 @@ class TerminologyStore:
 
     def __init__(
         self,
-        vector_db: DocumentDatabase,
+        chroma_db: ChromaDatabase,
     ):
-        self._collection: VectorCollection = vector_db.get_or_create_collection(
+        self._collection: ChromaCollection = chroma_db.get_or_create_collection(
             name="terminology",
             schema=self.TermDocument,
         )
@@ -60,8 +102,10 @@ class TerminologyStore:
             synonyms=synonyms,
         )
 
+        term_id = TermId(common.generate_id())
+
         document = {
-            "id": common.generate_id(),
+            "id": term_id,
             "term_set": term_set,
             "content": content,
             "name": name,
@@ -70,7 +114,7 @@ class TerminologyStore:
             "synonyms": ", ".join(synonyms) if synonyms else "",
         }
 
-        term_id = await self._collection.insert_one(document=document)
+        await self._collection.insert_one(document=document)
 
         return Term(
             id=term_id,
@@ -87,16 +131,16 @@ class TerminologyStore:
         description: str,
         synonyms: Sequence[str],
     ) -> Term:
-        filters = {"term_set": term_set, "term_name": name}
-
         content = self._assemble_term_content(
             name=name,
             description=description,
             synonyms=synonyms,
         )
 
+        term_id = TermId(common.generate_id())
+
         updated_document = {
-            "id": common.generate_id(),
+            "id": term_id,
             "term_set": term_set,
             "content": content,
             "name": name,
@@ -104,12 +148,12 @@ class TerminologyStore:
             "synonyms": ", ".join(synonyms) if synonyms else "",
         }
 
-        term_id = await self._collection.update_one(
-            filters=filters,
+        await self._collection.update_one(
+            filters={"term_set": {"$eq": term_set}, "term_name": {"$eq": name}},
             updated_document=updated_document,
         )
 
-        term_doc = await self._collection.find_one({"id": term_id})
+        term_doc = await self._collection.find_one({"id": {"$eq": updated_document["id"]}})
 
         return Term(
             id=term_id,
@@ -124,9 +168,9 @@ class TerminologyStore:
         term_set: str,
         name: str,
     ) -> Term:
-        filters = {"term_set": term_set, "term_name": name}
-
-        term_document = self._collection.find_one(filters=filters)
+        term_document = await self._collection.find_one(
+            filters={"term_set": {"$eq": term_set}, "term_name": {"$eq": name}}
+        )
 
         return Term(
             id=term_document["term_id"],
@@ -148,7 +192,7 @@ class TerminologyStore:
                 description=d["description"],
                 synonyms=d["synonyms"],
             )
-            for d in await self._collection.find(filters={"term_set": term_set})
+            for d in await self._collection.find(filters={"term_set": {"$eq": term_set}})
         ]
 
     async def find_relevant_terms(
@@ -165,7 +209,7 @@ class TerminologyStore:
                 synonyms=d["synonyms"],
             )
             for d in await self._collection.find_similar_documents(
-                filters={"term_set": term_set},
+                filters={"term_set": {"$eq": term_set}},
                 query=query,
                 k=self._n_results,
             )

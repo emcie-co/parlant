@@ -171,7 +171,7 @@ def given_a_term_of(
     agent_name = context.sync_await(context.container[AgentStore].read_agent(agent_id)).name
     context.sync_await(
         terminology_store.create_term(
-            **{"term_set": agent_name, **cryptocurrency_terminology[term]}
+            **{"term_set": agent_name, **cryptocurrency_terminology[term]}  # type: ignore
         )
     )
 

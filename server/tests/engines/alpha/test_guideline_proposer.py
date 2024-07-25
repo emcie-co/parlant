@@ -54,6 +54,7 @@ def propose_guidelines(
             guidelines=context.guidelines,
             context_variables=[],
             interaction_history=interaction_history,
+            terms=[],
             staged_events=[],
         )
     )

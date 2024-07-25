@@ -1,3 +1,4 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -113,7 +114,7 @@ class SessionDocumentStore(SessionStore):
         source: EventSource
         kind: str
         offset: int
-        data: dict[str, Any]
+        data: Any
 
     def __init__(self, database: DocumentDatabase):
         self._session_collection = database.get_or_create_collection(
@@ -130,7 +131,7 @@ class SessionDocumentStore(SessionStore):
         end_user_id: EndUserId,
         agent_id: AgentId,
     ) -> Session:
-        consumption_offsets = {"client": 0}
+        consumption_offsets: dict[ConsumerId, int] = {"client": 0}
         session_id = await self._session_collection.insert_one(
             document={
                 "id": common.generate_id(),
@@ -151,8 +152,9 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
     ) -> Session:
-        filters = {"id": {"$eq": session_id}}
-        session_document = await self._session_collection.find_one(filters=filters)
+        session_document = await self._session_collection.find_one(
+            filters={"id": {"$eq": session_id}}
+        )
 
         return Session(
             id=session_document["id"],
@@ -166,10 +168,9 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         updated_session: Session,
     ) -> None:
-        filters = {"id": {"$eq": session_id}}
         await self._session_collection.update_one(
-            filters=filters,
-            document=updated_session.__dict__,
+            filters={"id": {"$eq": session_id}},
+            updated_document=updated_session.__dict__,
         )
 
     async def update_consumption_offset(
@@ -221,14 +222,6 @@ class SessionDocumentStore(SessionStore):
         source: Optional[EventSource] = None,
         min_offset: Optional[int] = None,
     ) -> Sequence[Event]:
-        source_filter = {"source": {"$eq": source}} if source else {}
-        offset_filter = {"offset": {"$gte": min_offset}} if min_offset else {}
-        filters = {
-            **{"session_id": {"$eq": session_id}},
-            **source_filter,
-            **offset_filter,
-        }
-
         return [
             Event(
                 id=EventId(d["id"]),
@@ -238,7 +231,13 @@ class SessionDocumentStore(SessionStore):
                 creation_utc=d["creation_utc"],
                 data=d["data"],
             )
-            for d in await self._event_collection.find(filters=filters)
+            for d in await self._event_collection.find(
+                filters={
+                    **{"session_id": {"$eq": session_id}},
+                    **({"source": {"$eq": source}} if source else {}),
+                    **({"offset": {"$gte": min_offset}} if min_offset else {}),
+                }
+            )
         ]
 
 

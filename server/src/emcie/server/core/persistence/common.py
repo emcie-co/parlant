@@ -1,7 +1,4 @@
-from dataclasses import dataclass
-from typing import Any, Callable, Literal, Mapping, NewType, Type, Union
-
-from emcie.server.base_models import DefaultBaseModel
+from typing import Any, Callable, Literal, Mapping, NewType, Union
 
 
 ObjectId = NewType("ObjectId", str)

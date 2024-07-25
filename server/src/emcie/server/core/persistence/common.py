@@ -6,7 +6,7 @@ ObjectId = NewType("ObjectId", str)
 
 # Metadata Query Grammar
 LiteralValue = Union[str, int, float, bool]
-LogicalOperator = Union[Literal["$and"], Literal["$or"]]
+
 WhereOperator = Union[
     Literal["$gt"],
     Literal["$gte"],
@@ -15,13 +15,8 @@ WhereOperator = Union[
     Literal["$ne"],
     Literal["$eq"],
 ]
-InclusionExclusionOperator = Union[Literal["$in"], Literal["$nin"]]
-OperatorExpression = Union[
-    dict[Union[WhereOperator, LogicalOperator], LiteralValue],
-    dict[InclusionExclusionOperator, list[LiteralValue]],
-]
 
-Where = dict[Union[str, LogicalOperator], Union[LiteralValue, OperatorExpression, list["Where"]]]
+Where = dict[str, dict[WhereOperator, LiteralValue]]
 
 
 def matches_filters(

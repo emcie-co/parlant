@@ -12,7 +12,6 @@ JSONSerializable = Union[
     Sequence["JSONSerializable"],
 ]
 
-
 UniqueId = NewType("UniqueId", str)
 T = TypeVar("T")
 

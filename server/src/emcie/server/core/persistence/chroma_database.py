@@ -6,13 +6,13 @@ import operator
 from loguru import logger
 import os
 from pathlib import Path
-from typing import Any, Sequence, Type
+from typing import Any, Sequence, Type, cast
 import chromadb
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction  # type: ignore
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.persistence.common import ObjectId, Where
-from emcie.server.core.persistence.document_database import VectorCollection, DocumentDatabase
+from emcie.server.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 
 class ChromaDatabase(DocumentDatabase):
@@ -42,7 +42,7 @@ class ChromaDatabase(DocumentDatabase):
         name: str,
         schema: Type[DefaultBaseModel],
     ) -> ChromaCollection:
-        if name in self.collections:
+        if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
         logger.debug(f'Creating chromadb collection "{name}"')
         new_collection = ChromaCollection(
@@ -72,7 +72,7 @@ class ChromaDatabase(DocumentDatabase):
         self,
         name: str,
         schema: Type[DefaultBaseModel],
-    ) -> VectorCollection:
+    ) -> ChromaCollection:
         if collection := self._collections.get(name):
             return collection
         logger.debug(f'Creating chromadb collection "{name}"')
@@ -101,7 +101,7 @@ class ChromaDatabase(DocumentDatabase):
         del self._collections[name]
 
 
-class ChromaCollection(VectorCollection):
+class ChromaCollection(DocumentCollection):
 
     def __init__(
         self,
@@ -118,14 +118,22 @@ class ChromaCollection(VectorCollection):
         self,
         filters: Where,
     ) -> Sequence[dict[str, Any]]:
-        return self._chroma_collection.get(where=filters)["metadatas"]
+        if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters))[
+            "metadatas"
+        ]:
+            return [{k: v for k, v in m.items()} for m in metadatas]
+
+        raise ValueError("No documents found matching the provided filters.")
 
     async def find_one(
         self,
         filters: Where,
     ) -> dict[str, Any]:
-        if docs := self._chroma_collection.get(where=filters)["metadatas"]:
-            return docs[0]
+        if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters))[
+            "metadatas"
+        ]:
+            return {k: v for k, v in metadatas[0].items()}
+
         raise ValueError("No document found matching the provided filters.")
 
     async def insert_one(
@@ -149,9 +157,13 @@ class ChromaCollection(VectorCollection):
         updated_document: dict[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
+        document_id: ObjectId
+
         async with self._lock:
-            if docs := self._chroma_collection.get(where=filters)["metadatas"]:
-                document_id: ObjectId = docs[0]["id"]
+            if docs := self._chroma_collection.get(where=cast(chromadb.Where, filters))[
+                "metadatas"
+            ]:
+                document_id = ObjectId(str(docs[0]["id"]))
 
                 self._chroma_collection.update(
                     ids=[document_id],
@@ -163,7 +175,7 @@ class ChromaCollection(VectorCollection):
                 return document_id
 
             elif upsert:
-                document_id: ObjectId = updated_document["id"]
+                document_id = updated_document["id"]
 
                 self._chroma_collection.add(
                     ids=[updated_document["id"]],
@@ -179,7 +191,7 @@ class ChromaCollection(VectorCollection):
         filters: Where,
     ) -> None:
         async with self._lock:
-            self._chroma_collection.delete(where=filters)
+            self._chroma_collection.delete(where=cast(chromadb.Where, filters))
 
     async def find_similar_documents(
         self,
@@ -188,12 +200,14 @@ class ChromaCollection(VectorCollection):
         k: int,
     ) -> Sequence[dict[str, Any]]:
         docs = self._chroma_collection.query(
-            where=filters,
+            where=cast(chromadb.Where, filters),
             query_texts=[query],
             n_results=k,
         )
 
-        if docs["metadatas"][0]:
-            logger.debug(f"Similar documents found: {json.dumps(docs['metadatas'], indent=2)}")
+        if metadatas := docs["metadatas"]:
+            logger.debug(f"Similar documents found: {json.dumps(metadatas[0], indent=2)}")
 
-        return docs["metadatas"][0]
+            return [{k: v for k, v in m.items()} for m in metadatas[0]]
+
+        raise ValueError("No similar documents found")

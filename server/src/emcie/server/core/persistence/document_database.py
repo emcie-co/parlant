@@ -114,7 +114,7 @@ class VectorCollection(DocumentCollection):
         filters: Where,
         query: str,
         k: int,
-    ) -> Sequence[dict[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:
         """
         Finds the k most similar documents to the given query in the collection.
         """

@@ -25,8 +25,9 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             self.file_path.write_text(json.dumps({}))
         self._collections: dict[str, JSONFileDocumentCollection]
 
-    async def __aenter__(self) -> JSONFileDocumentCollection:
+    async def __aenter__(self) -> JSONFileDocumentDatabase:
         raw_data = await self._load_data()
+        schemas: dict[str, Any] = raw_data["__schemas__"]
         self._collections = (
             {
                 c_name: JSONFileDocumentCollection(
@@ -37,7 +38,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
                     ),
                     data=raw_data[c_name],
                 )
-                for c_name, c_schema in raw_data["__schemas__"].items()
+                for c_name, c_schema in schemas.items()
             }
             if raw_data
             else {}
@@ -55,7 +56,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
 
     async def _load_data(
         self,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> dict[str, Any]:
         async with self._lock:
             # Return an empty JSON object if the file is empty
             if self.file_path.stat().st_size == 0:
@@ -186,8 +187,11 @@ class JSONFileDocumentCollection(DocumentCollection):
         document: dict[str, Any],
     ) -> ObjectId:
         self._documents.append(self._schema(**document).model_dump(mode="json"))
+
         await self._process_operation_counter()
-        return document["id"]
+
+        document_id: ObjectId = document["id"]
+        return document_id
 
     async def update_one(
         self,
@@ -197,12 +201,18 @@ class JSONFileDocumentCollection(DocumentCollection):
     ) -> ObjectId:
         for i, d in enumerate(self._documents):
             if matches_filters(filters, d):
-                await self._process_operation_counter()
                 self._documents[i] = updated_document
-                return updated_document["id"]
+
+                await self._process_operation_counter()
+
+                document_id: ObjectId = updated_document["id"]
+                return document_id
+
         if upsert:
             document_id = await self.insert_one(updated_document)
+
             await self._process_operation_counter()
+
             return document_id
 
         raise ValueError("No document found matching the provided filters.")
@@ -213,7 +223,8 @@ class JSONFileDocumentCollection(DocumentCollection):
     ) -> None:
         for i, d in enumerate(self._documents):
             if matches_filters(filters, d):
-                await self._process_operation_counter()
                 del self._documents[i]
+
+                await self._process_operation_counter()
                 return
         raise ValueError("No document found matching the provided filters.")

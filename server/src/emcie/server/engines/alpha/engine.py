@@ -83,22 +83,20 @@ class AlphaEngine(Engine):
                     agents=[agent],
                     context_variables=context_variables,
                     interaction_history=interaction_history,
-                    terms=terms,
+                    terms=list(terms),
                     staged_events=all_tool_events,
                 )
             )
 
-            terms.union(
-                set(
-                    await self._find_terminology(
-                        agents=[agent],
-                        propositions=list(
-                            chain(
-                                ordinary_guideline_propositions,
-                                tool_enabled_guideline_propositions.keys(),
-                            ),
+            terms.update(
+                await self._find_terminology(
+                    agents=[agent],
+                    propositions=list(
+                        chain(
+                            ordinary_guideline_propositions,
+                            tool_enabled_guideline_propositions.keys(),
                         ),
-                    )
+                    ),
                 )
             )
 
@@ -106,22 +104,18 @@ class AlphaEngine(Engine):
                 agents=[agent],
                 context_variables=context_variables,
                 interaction_history=interaction_history,
-                terms=terms,
+                terms=list(terms),
                 ordinary_guideline_propositions=ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
                 staged_events=all_tool_events,
             ):
                 all_tool_events += tool_events
-                terms.union(
+
+                terms.update(
                     set(
                         await self._find_terminology(
                             agents=[agent],
-                            propositions=chain(
-                                [
-                                    ordinary_guideline_propositions,
-                                    tool_enabled_guideline_propositions.keys(),
-                                ]
-                            ),
+                            staged_events=tool_events,
                         )
                     )
                 )
@@ -136,7 +130,7 @@ class AlphaEngine(Engine):
             agents=[agent],
             context_variables=context_variables,
             interaction_history=interaction_history,
-            terms=terms,
+            terms=list(terms),
             ordinary_guideline_propositions=ordinary_guideline_propositions,
             tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
             staged_events=all_tool_events,
@@ -298,8 +292,7 @@ class AlphaEngine(Engine):
                 score={
                     "suggests": connection[0].score // 2,
                     "entails": connection[0].score,
-                }.get(connection[2])
-                or -1,
+                }[connection[2]],
                 rationale="Automatically inferred from context",
             )
             for connection in proposition_and_inferred_guideline_guideline_pairs

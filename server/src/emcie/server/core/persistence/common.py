@@ -7,12 +7,6 @@ from emcie.server.base_models import DefaultBaseModel
 ObjectId = NewType("ObjectId", str)
 
 
-@dataclass(frozen=True)
-class CollectionDescriptor:
-    name: str
-    schema: Type[DefaultBaseModel]
-
-
 # Metadata Query Grammar
 LiteralValue = Union[str, int, float, bool]
 LogicalOperator = Union[Literal["$and"], Literal["$or"]]

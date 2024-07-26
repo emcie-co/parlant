@@ -30,6 +30,7 @@ from emcie.server.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
+from emcie.server.core.persistence.chroma_database import ChromaDatabase
 from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
 from emcie.server.core.sessions import (
     PollingSessionListener,
@@ -37,6 +38,7 @@ from emcie.server.core.sessions import (
     SessionListener,
     SessionStore,
 )
+from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.core.tools import ToolDocumentStore, ToolStore
 from emcie.server.coherence_checker import CoherenceChecker
 from emcie.server.engines.alpha.engine import AlphaEngine
@@ -161,6 +163,8 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
             guideline_tool_associations_db
         )
         c[SessionStore] = SessionDocumentStore(sessions_db)
+
+        c[TerminologyStore] = TerminologyChromaStore(ChromaDatabase(EMCIE_HOME_DIR))
 
         c[SessionListener] = PollingSessionListener
         c[Engine] = AlphaEngine

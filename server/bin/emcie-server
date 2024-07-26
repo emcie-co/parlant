@@ -24,6 +24,10 @@ from emcie.server.api.app import create_app
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
+from emcie.server.core.guideline_connections import (
+    GuidelineConnectionDocumentStore,
+    GuidelineConnectionStore,
+)
 from emcie.server.core.guidelines import (
     Guideline,
     GuidelineDocumentStore,
@@ -153,7 +157,9 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         EMCIE_HOME_DIR / "tools.json"
     ) as tools_db, JSONFileDocumentDatabase(
         EMCIE_HOME_DIR / "guideline_tool_associations.json"
-    ) as guideline_tool_associations_db:
+    ) as guideline_tool_associations_db, JSONFileDocumentDatabase(
+        EMCIE_HOME_DIR / "guideline_connections.json"
+    ) as guideline_connections_db:
         c[AgentStore] = AgentDocumentStore(agents_db)
         c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
         c[EndUserStore] = EndUserDocumentStore(end_users_db)
@@ -162,6 +168,7 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
             guideline_tool_associations_db
         )
+        c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
         c[SessionStore] = SessionDocumentStore(sessions_db)
 
         c[TerminologyStore] = TerminologyChromaStore(ChromaDatabase(EMCIE_HOME_DIR))

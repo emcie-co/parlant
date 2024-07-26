@@ -6,7 +6,6 @@ from emcie.server.core.persistence.document_database import DocumentCollection, 
 
 
 class TransientDocumentDatabase(DocumentDatabase):
-
     def __init__(self) -> None:
         self._collections: dict[str, _TransientDocumentCollection] = {}
 
@@ -15,10 +14,12 @@ class TransientDocumentDatabase(DocumentDatabase):
         name: str,
         schema: Type[DefaultBaseModel],
     ) -> _TransientDocumentCollection:
-        return _TransientDocumentCollection(
+        collection = _TransientDocumentCollection(
             name=name,
             schema=schema,
         )
+        self._collections[name] = collection
+        return collection
 
     def get_collection(
         self,
@@ -26,7 +27,7 @@ class TransientDocumentDatabase(DocumentDatabase):
     ) -> _TransientDocumentCollection:
         if name in self._collections:
             return self._collections[name]
-        raise ValueError(f'Collection "{name}" does not exists')
+        raise ValueError(f'Collection "{name}" does not exist')
 
     def get_or_create_collection(
         self,
@@ -44,7 +45,10 @@ class TransientDocumentDatabase(DocumentDatabase):
         self,
         name: str,
     ) -> None:
-        del self._collections[name]
+        if name in self._collections:
+            del self._collections[name]
+        else:
+            raise ValueError(f'Collection "{name}" does not exist')
 
 
 class _TransientDocumentCollection(DocumentCollection):
@@ -92,11 +96,14 @@ class _TransientDocumentCollection(DocumentCollection):
         updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
+        document_id: ObjectId
+
         for i, d in enumerate(self._documents):
             if matches_filters(filters, d):
                 self._documents[i] = updated_document
-                document_id: ObjectId = updated_document["id"]
+                document_id = updated_document["id"]
                 return document_id
+
         if upsert:
             document_id = await self.insert_one(updated_document)
             return document_id

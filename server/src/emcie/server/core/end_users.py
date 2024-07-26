@@ -77,8 +77,7 @@ class EndUserDocumentStore(EndUserStore):
         self,
         end_user_id: EndUserId,
     ) -> EndUser:
-        filters = {"id": {"$eq": end_user_id}}
-        end_user_document = await self._collection.find_one(filters=filters)
+        end_user_document = await self._collection.find_one(filters={"id": {"$eq": end_user_id}})
 
         return EndUser(
             id=EndUserId(end_user_document["id"]),

@@ -140,7 +140,7 @@ class GuidelineConnectionDocumentStore(GuidelineConnectionStore):
 
         (await self._get_graph()).remove_edge(document["source"], document["target"])
 
-        self._collection.delete_one(filters={"id": {"$eq": id}})
+        await self._collection.delete_one(filters={"id": {"$eq": id}})
 
     async def list_connections(
         self,

@@ -21,9 +21,7 @@ from tests.test_utilities import SyncAwaiter, nlp_test
 
 roles = Literal["client", "server"]
 
-scenarios(
-    "engines/alpha/terminology.feature",
-)
+scenarios("engines/alpha/terminology.feature")
 
 
 @dataclass
@@ -36,21 +34,14 @@ class _TestContext:
 
 
 @fixture
-def agent_id(
-    container: Container,
-    sync_await: SyncAwaiter,
-) -> AgentId:
+def agent_id(container: Container, sync_await: SyncAwaiter) -> AgentId:
     store = container[AgentStore]
     agent = sync_await(store.create_agent(name="test-agent"))
     return agent.id
 
 
 @fixture
-def context(
-    sync_await: SyncAwaiter,
-    container: Container,
-    agent_id: AgentId,
-) -> _TestContext:
+def context(sync_await: SyncAwaiter, container: Container, agent_id: AgentId) -> _TestContext:
     return _TestContext(
         sync_await,
         container,
@@ -61,23 +52,17 @@ def context(
 
 
 @given("the alpha engine", target_fixture="engine")
-def given_the_alpha_engine(
-    container: Container,
-) -> AlphaEngine:
+def given_the_alpha_engine(container: Container) -> AlphaEngine:
     return container[AlphaEngine]
 
 
 @given("an agent", target_fixture="agent_id")
-def given_an_agent(
-    agent_id: AgentId,
-) -> AgentId:
+def given_an_agent(agent_id: AgentId) -> AgentId:
     return agent_id
 
 
 @given("an empty session", target_fixture="session_id")
-def given_an_empty_session(
-    context: _TestContext,
-) -> SessionId:
+def given_an_empty_session(context: _TestContext) -> SessionId:
     store = context.container[SessionStore]
     session = context.sync_await(
         store.create_session(
@@ -128,8 +113,8 @@ def given_a_user_message(
     return session.id
 
 
-@given(parsers.parse('the term "{term_name}" defined as "{term_description}"'))
-def given_the_term_deinition(
+@given(parsers.parse('the term "{term_name}" defined as {term_description}'))
+def given_the_term_definition(
     context: _TestContext,
     agent_id: AgentId,
     term_name: str,
@@ -152,7 +137,7 @@ def given_50_random_terms_related_to_technology_companies(
     agent_id: AgentId,
 ) -> None:
     agent_name = context.sync_await(context.container[AgentStore].read_agent(agent_id)).name
-    for term in [
+    terms = [
         {
             "name": "API",
             "description": "A set of functions and procedures allowing the creation of applications that access the features or data of an operating system, application, or other service.",  # noqa
@@ -245,7 +230,7 @@ def given_50_random_terms_related_to_technology_companies(
         },
         {
             "name": "Automation",
-            "description": "The use of technology to perform tasks without human intervention.",  # noqa
+            "description": "The use of technology to perform tasks without human intervention.",
             "synonyms": [],
         },
         {
@@ -401,7 +386,8 @@ def given_50_random_terms_related_to_technology_companies(
             "description": "Product Lifecycle Management is the process of managing the entire lifecycle of a product from inception, through engineering design and manufacturing, to service and disposal of manufactured products.",  # noqa
             "synonyms": ["Product Lifecycle Management"],
         },
-    ]:
+    ]
+    for term in terms:
         context.sync_await(
             context.container[TerminologyStore].create_term(
                 term_set=agent_name,
@@ -428,7 +414,7 @@ def given_a_guideline_tool_association(
     )
 
 
-@given(parsers.parse('a guideline "{guideline_name}", to {do_something} when {a_condition_holds}'))
+@given(parsers.parse('a guideline "{guideline_name}" to {do_something} when {a_condition_holds}'))
 def given_a_guideline_name_to_when(
     guideline_name: str,
     do_something: str,

@@ -140,9 +140,11 @@ class ContextVariableDocumentStore(ContextVariableStore):
         tool_id: ToolId,
         freshness_rules: Optional[FreshnessRules],
     ) -> ContextVariable:
-        variable_id = await self._variable_collection.insert_one(
+        variable_id = ContextVariableId(common.generate_id())
+
+        await self._variable_collection.insert_one(
             {
-                "id": common.generate_id(),
+                "id": variable_id,
                 "variable_set": variable_set,
                 "name": name,
                 "description": description,
@@ -165,14 +167,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         data: common.JSONSerializable,
     ) -> ContextVariableValue:
-        filters = {
-            "variable_set": {"$eq": variable_set},
-            "variable_id": {"$eq": variable_id},
-            "key": {"$eq": key},
-        }
         last_modified = datetime.now(timezone.utc)
         value_document_id = await self._value_collection.update_one(
-            filters,
+            {
+                "variable_set": {"$eq": variable_set},
+                "variable_id": {"$eq": variable_id},
+                "key": {"$eq": key},
+            },
             {
                 "id": common.generate_id(),
                 "variable_set": variable_set,
@@ -195,24 +196,23 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         id: ContextVariableId,
     ) -> None:
-        filters = {
-            "id": {"$eq": id},
-            "variable_set": {"$eq": variable_set},
-        }
-        await self._variable_collection.delete_one(filters)
-
-        filters = {
-            "variable_id": {"$eq": id},
-            "variable_set": {"$eq": variable_set},
-        }
-        await self._value_collection.delete_one(filters)
+        await self._variable_collection.delete_one(
+            {
+                "id": {"$eq": id},
+                "variable_set": {"$eq": variable_set},
+            }
+        )
+        await self._value_collection.delete_one(
+            {
+                "variable_id": {"$eq": id},
+                "variable_set": {"$eq": variable_set},
+            }
+        )
 
     async def list_variables(
         self,
         variable_set: str,
     ) -> Sequence[ContextVariable]:
-        filters = {"variable_set": {"$eq": variable_set}}
-
         return [
             ContextVariable(
                 id=ContextVariableId(d["id"]),
@@ -221,7 +221,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 tool_id=d["tool_id"],
                 freshness_rules=d["freshness_rules"],
             )
-            for d in await self._variable_collection.find(filters)
+            for d in await self._variable_collection.find({"variable_set": {"$eq": variable_set}})
         ]
 
     async def read_variable(
@@ -229,12 +229,12 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         id: ContextVariableId,
     ) -> ContextVariable:
-        filters = {
-            "variable_set": {"$eq": variable_set},
-            "id": {"$eq": id},
-        }
-
-        variable_document = await self._variable_collection.find_one(filters)
+        variable_document = await self._variable_collection.find_one(
+            {
+                "variable_set": {"$eq": variable_set},
+                "id": {"$eq": id},
+            }
+        )
         return ContextVariable(
             id=ContextVariableId(variable_document["id"]),
             name=variable_document["name"],
@@ -249,12 +249,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
         key: str,
         variable_id: ContextVariableId,
     ) -> ContextVariableValue:
-        filters = {
-            "variable_set": {"$eq": variable_set},
-            "variable_id": {"$eq": variable_id},
-            "key": {"$eq": key},
-        }
-        value_document = await self._value_collection.find_one(filters)
+        value_document = await self._value_collection.find_one(
+            {
+                "variable_set": {"$eq": variable_set},
+                "variable_id": {"$eq": variable_id},
+                "key": {"$eq": key},
+            }
+        )
         return ContextVariableValue(
             id=ContextVariableValueId(value_document["id"]),
             variable_id=value_document["variable_id"],

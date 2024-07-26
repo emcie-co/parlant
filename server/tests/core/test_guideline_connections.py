@@ -33,63 +33,86 @@ def has_connection(
 async def test_that_direct_guideline_connections_can_be_listed(
     store: GuidelineConnectionStore,
 ) -> None:
-    for source, target in [("a", "b"), ("a", "c"), ("b", "d"), ("z", "b")]:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+    d_id = GuidelineId("d")
+    z_id = GuidelineId("z")
+
+    for source, target in [
+        (a_id, b_id),
+        (a_id, c_id),
+        (b_id, d_id),
+        (z_id, b_id),
+    ]:
         await store.update_connection(
-            source=GuidelineId(source),
-            target=GuidelineId(target),
+            source=source,
+            target=target,
             kind="entails",
         )
 
     a_connections = await store.list_connections(
-        source=GuidelineId("a"),
+        source=a_id,
         indirect=False,
     )
 
     assert len(a_connections) == 2
-    assert has_connection(a_connections, ("a", "b"))
-    assert has_connection(a_connections, ("a", "c"))
+    assert has_connection(a_connections, (a_id, b_id))
+    assert has_connection(a_connections, (a_id, c_id))
 
 
 async def test_that_indirect_guideline_connections_can_be_listed(
     store: GuidelineConnectionStore,
 ) -> None:
-    for source, target in [("a", "b"), ("a", "c"), ("b", "d"), ("z", "b")]:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+    d_id = GuidelineId("d")
+    z_id = GuidelineId("z")
+
+    for source, target in [(a_id, b_id), (a_id, c_id), (b_id, d_id), (z_id, b_id)]:
         await store.update_connection(
-            source=GuidelineId(source),
-            target=GuidelineId(target),
+            source=source,
+            target=target,
             kind="entails",
         )
 
     a_connections = await store.list_connections(
-        source=GuidelineId("a"),
+        source=a_id,
         indirect=True,
     )
 
     assert len(a_connections) == 3
-    assert has_connection(a_connections, ("a", "b"))
-    assert has_connection(a_connections, ("a", "c"))
-    assert has_connection(a_connections, ("b", "d"))
+    assert has_connection(a_connections, (a_id, b_id))
+    assert has_connection(a_connections, (a_id, c_id))
+    assert has_connection(a_connections, (b_id, d_id))
 
 
 async def test_that_db_data_is_loaded_correctly(
     store: GuidelineConnectionStore,
     underlying_database: DocumentDatabase,
 ) -> None:
-    for source, target in [("a", "b"), ("a", "c"), ("b", "d"), ("z", "b")]:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+    d_id = GuidelineId("d")
+    z_id = GuidelineId("z")
+
+    for source, target in [(a_id, b_id), (a_id, c_id), (b_id, d_id), (z_id, b_id)]:
         await store.update_connection(
-            source=GuidelineId(source),
-            target=GuidelineId(target),
+            source=source,
+            target=target,
             kind="entails",
         )
 
     new_store_with_same_db = GuidelineConnectionDocumentStore(underlying_database)
 
     a_connections = await new_store_with_same_db.list_connections(
-        source=GuidelineId("a"),
+        source=a_id,
         indirect=True,
     )
 
     assert len(a_connections) == 3
-    assert has_connection(a_connections, ("a", "b"))
-    assert has_connection(a_connections, ("a", "c"))
-    assert has_connection(a_connections, ("b", "d"))
+    assert has_connection(a_connections, (a_id, b_id))
+    assert has_connection(a_connections, (a_id, c_id))
+    assert has_connection(a_connections, (b_id, d_id))

@@ -210,4 +210,4 @@ class ChromaCollection(DocumentCollection):
 
             return [{k: v for k, v in m.items()} for m in metadatas[0]]
 
-        raise ValueError("No similar documents found")
+        raise ValueError("No similar documents found.")

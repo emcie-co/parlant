@@ -86,8 +86,6 @@ class GuidelineDocumentStore(GuidelineStore):
         self,
         guideline_set: str,
     ) -> Sequence[Guideline]:
-        filters = {"guideline_set": {"$eq": guideline_set}}
-
         return [
             Guideline(
                 id=GuidelineId(d["id"]),
@@ -95,7 +93,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 content=d["content"],
                 creation_utc=d["creation_utc"],
             )
-            for d in await self._collection.find(filters=filters)
+            for d in await self._collection.find(filters={"guideline_set": {"$eq": guideline_set}})
         ]
 
     async def read_guideline(
@@ -103,11 +101,12 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_set: str,
         guideline_id: GuidelineId,
     ) -> Guideline:
-        filters = {
-            "guideline_set": {"$eq": guideline_set},
-            "id": {"$eq": guideline_id},
-        }
-        guideline_document = await self._collection.find_one(filters=filters)
+        guideline_document = await self._collection.find_one(
+            filters={
+                "guideline_set": {"$eq": guideline_set},
+                "id": {"$eq": guideline_id},
+            }
+        )
 
         return Guideline(
             id=GuidelineId(guideline_document["id"]),

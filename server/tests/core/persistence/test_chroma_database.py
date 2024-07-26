@@ -23,9 +23,7 @@ class _TestContext:
 def context() -> Iterator[_TestContext]:
     with tempfile.TemporaryDirectory() as home_dir:
         home_dir_path = Path(home_dir)
-        yield _TestContext(
-            home_dir=home_dir_path,
-        )
+        yield _TestContext(home_dir=home_dir_path)
 
 
 @fixture
@@ -35,10 +33,7 @@ def chroma_database(context: _TestContext) -> ChromaDatabase:
 
 @fixture
 async def chroma_collection(chroma_database: ChromaDatabase) -> AsyncIterator[ChromaCollection]:
-    collection = chroma_database.get_or_create_collection(
-        "test_collection",
-        TestModel,
-    )
+    collection = chroma_database.get_or_create_collection("test_collection", TestModel)
     yield collection
     chroma_database.delete_collection("test_collection")
 
@@ -55,12 +50,10 @@ async def test_that_create_document_and_find_with_metadata_field(
         },
     )
 
-    filters = {"id": {"$eq": "1"}}
+    find_by_id_result = await chroma_collection.find({"id": {"$eq": "1"}})
 
-    result = await chroma_collection.find(filters)
-
-    assert len(result) == 1
-    assert result == [
+    assert len(find_by_id_result) == 1
+    assert find_by_id_result == [
         {
             "id": "1",
             "content": "test content",
@@ -68,18 +61,18 @@ async def test_that_create_document_and_find_with_metadata_field(
         }
     ]
 
-    result = await chroma_collection.find_one(filters)
-    assert result == {
+    find_one_result = await chroma_collection.find_one({"id": {"$eq": "1"}})
+
+    assert find_one_result == {
         "id": "1",
         "content": "test content",
         "name": "test name",
     }
 
-    filters = {"name": {"$eq": "test name"}}
-    result = await chroma_collection.find(filters)
+    find_by_name_result = await chroma_collection.find({"name": {"$eq": "test name"}})
 
-    assert len(result) == 1
-    assert result == [
+    assert len(find_by_name_result) == 1
+    assert find_by_name_result == [
         {
             "id": "1",
             "content": "test content",
@@ -87,10 +80,11 @@ async def test_that_create_document_and_find_with_metadata_field(
         }
     ]
 
-    filters = {"name": {"$eq": "not existing"}}
-    result = await chroma_collection.find(filters)
+    find_by_not_existing_name_result = await chroma_collection.find(
+        {"name": {"$eq": "not existing"}}
+    )
 
-    assert len(result) == 0
+    assert len(find_by_not_existing_name_result) == 0
 
 
 @mark.asyncio
@@ -112,18 +106,16 @@ async def test_that_update_one_without_upsert_is_updating_existing_document(
     }
 
     await chroma_collection.update_one(
-        {"name": "test name"},
+        {"name": {"$eq": "test name"}},
         updated_document,
         upsert=False,
     )
 
-    filters = {"name": {"$eq": "test name"}}
-    result = await chroma_collection.find(filters)
+    result = await chroma_collection.find({"name": {"$eq": "test name"}})
 
-    assert len(result) == 0  # didn't find since got updated
+    assert len(result) == 0  # didn't find since it got updated
 
-    filters = {"name": {"$eq": "new name"}}
-    result = await chroma_collection.find(filters)
+    result = await chroma_collection.find({"name": {"$eq": "new name"}})
 
     assert len(result) == 1
     assert result == [
@@ -146,11 +138,15 @@ async def test_that_update_one_without_upsert_and_no_existing_content_does_not_i
     }
 
     with raises(ValueError):
-        await chroma_collection.update_one({"name": "new name"}, updated_document, upsert=False)
+        await chroma_collection.update_one(
+            {"name": {"$eq": "new name"}},
+            updated_document,
+            upsert=False,
+        )
 
 
 @mark.asyncio
-async def test_that_update_one_with_upsert_and_no_existing_content_insert_new_document(
+async def test_that_update_one_with_upsert_and_no_existing_content_inserts_new_document(
     chroma_collection: ChromaCollection,
 ) -> None:
     updated_document = {
@@ -159,10 +155,13 @@ async def test_that_update_one_with_upsert_and_no_existing_content_insert_new_do
         "name": "new name",
     }
 
-    await chroma_collection.update_one({"name": "new name"}, updated_document, upsert=True)
+    await chroma_collection.update_one(
+        {"name": {"$eq": "new name"}},
+        updated_document,
+        upsert=True,
+    )
 
-    filters = {"name": {"$eq": "new name"}}
-    result = await chroma_collection.find(filters)
+    result = await chroma_collection.find({"name": {"$eq": "new name"}})
 
     assert len(result) == 1
     assert result == [
@@ -175,9 +174,7 @@ async def test_that_update_one_with_upsert_and_no_existing_content_insert_new_do
 
 
 @mark.asyncio
-async def test_delete_one(
-    chroma_collection: ChromaCollection,
-) -> None:
+async def test_delete_one(chroma_collection: ChromaCollection) -> None:
     await chroma_collection.insert_one(
         {
             "id": "1",
@@ -186,20 +183,17 @@ async def test_delete_one(
         },
     )
 
-    filters = {"id": {"$eq": "1"}}
-    result = await chroma_collection.find(filters)
+    result = await chroma_collection.find({"id": {"$eq": "1"}})
     assert len(result) == 1
 
-    await chroma_collection.delete_one(filters)
+    await chroma_collection.delete_one({"id": {"$eq": "1"}})
 
-    result = await chroma_collection.find(filters)
+    result = await chroma_collection.find({"id": {"$eq": "1"}})
     assert len(result) == 0
 
 
 @mark.asyncio
-async def test_find_similar_documents(
-    chroma_collection: ChromaCollection,
-) -> None:
+async def test_find_similar_documents(chroma_collection: ChromaCollection) -> None:
     documents = [
         {"id": "1", "content": "apple", "name": "Apple"},
         {"id": "2", "content": "banana", "name": "Banana"},
@@ -223,9 +217,7 @@ async def test_find_similar_documents(
 
 
 @mark.asyncio
-async def test_loading_collections_succeed(
-    context: _TestContext,
-) -> None:
+async def test_loading_collections_succeed(context: _TestContext) -> None:
     # Step 1: Create initial database and collection, then insert a document
     chroma_database_1 = ChromaDatabase(dir_path=context.home_dir)
     chroma_collection_1 = chroma_database_1.get_or_create_collection("test_collection", TestModel)
@@ -237,15 +229,10 @@ async def test_loading_collections_succeed(
         },
     )
 
-    # Step 2: Create a new database instance with the same directory path
     chroma_database_2 = ChromaDatabase(dir_path=context.home_dir)
-
-    # Step 3: Verify that the collection in the new database exists
     chroma_collection_2 = chroma_database_2.get_collection("test_collection")
 
-    # Step 4: Check that the document inserted into the first database exists in the new database
-    filters = {"id": {"$eq": "1"}}
-    result = await chroma_collection_2.find(filters)
+    result = await chroma_collection_2.find({"id": {"$eq": "1"}})
 
     assert len(result) == 1
     assert result == [

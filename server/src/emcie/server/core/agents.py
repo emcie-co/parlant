@@ -92,10 +92,11 @@ class AgentDocumentStore(AgentStore):
         self,
         agent_id: AgentId,
     ) -> Agent:
-        filters = {
-            "id": {"$eq": agent_id},
-        }
-        agent_document = await self._collection.find_one(filters=filters)
+        agent_document = await self._collection.find_one(
+            filters={
+                "id": {"$eq": agent_id},
+            }
+        )
         return Agent(
             id=agent_document["id"],
             name=agent_document["name"],

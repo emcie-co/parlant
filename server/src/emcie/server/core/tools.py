@@ -139,11 +139,7 @@ class ToolDocumentStore(ToolStore):
         self,
         tool_id: ToolId,
     ) -> Tool:
-        filters = {
-            "id": {"$eq": tool_id},
-        }
-
-        tool_document = await self._collection.find_one(filters=filters)
+        tool_document = await self._collection.find_one(filters={"id": {"$eq": tool_id}})
 
         return Tool(
             id=ToolId(tool_document["id"]),

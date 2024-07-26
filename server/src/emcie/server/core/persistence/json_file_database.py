@@ -27,7 +27,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
 
     async def __aenter__(self) -> JSONFileDocumentDatabase:
         raw_data = await self._load_data()
-        schemas: dict[str, Any] = raw_data["__schemas__"]
+        schemas: dict[str, Any] = raw_data.get("__schemas__", {})
         self._collections = (
             {
                 c_name: JSONFileDocumentCollection(

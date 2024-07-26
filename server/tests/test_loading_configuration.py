@@ -45,6 +45,16 @@ async def valid_config() -> JSONSerializable:
                     "type": "python",
                 }
             },
+            "terminology":
+            {
+               "Default Agent": [
+                    {
+                        "name": "walnut",
+                        "description": "a name of an altcoin",
+                        "synonyms": ["Emcie's altcoin"],
+                    }
+                ]
+            }
         }
 
     async with new_file_path() as tool_file:
@@ -63,6 +73,7 @@ async def test_that_empty_config_is_valid() -> None:
                         "agents": [{"name": "Default Agent"}],
                         "guidelines": {"Default Agent": []},
                         "tools": {},
+                        "terminology": {},
                     }
                 )
             )
@@ -154,5 +165,20 @@ async def test_that_syntactically_invalid_json_fails_validation() -> None:
     async with new_file_path() as config_file:
         with open(config_file, "w") as f:
             f.write("{invalid_json: true,}")
+
+        assert ConfigurationFileValidator().validate(config_file) is False
+
+
+async def test_that_terms_under_nonexistent_agent_fail_validation(
+    valid_config: JSONSerializable,
+) -> None:
+    async with new_file_path() as config_file:
+        invalid_config = copy.deepcopy(valid_config)
+        invalid_config["terminology"]["Nonexistent Agent"] = [  # type: ignore
+            {"name": "Example term", "description": "Example description"}
+        ]
+
+        with open(config_file, "w") as f:
+            f.write(json.dumps(invalid_config))
 
         assert ConfigurationFileValidator().validate(config_file) is False

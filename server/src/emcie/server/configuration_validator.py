@@ -83,8 +83,22 @@ class ConfigurationFileValidator:
                         }
                     },
                 },
-            },
-            "required": ["agents", "guidelines", "tools"],
+                "terminology": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "description": {"type": "string"},
+                                "synonyms": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["name", "description"],
+                        },
+                    },
+                }},
+            "required": ["agents", "guidelines", "tools", "terminology"],
         }
 
     def validate_and_load_config_json(
@@ -147,12 +161,24 @@ class ConfigurationFileValidator:
                                 ' does not exist in "tools".'
                             )
 
+    def validate_terminology(
+        self,
+        config: JSONSerializable,
+    ) -> None:
+        config = typing.cast(dict[str, typing.Any], config)
+
+        agents = set(agent["name"] for agent in config["agents"])
+        for agent in config["terminology"]:
+            if agent not in agents:
+                raise ValidationError(f'Agent "{agent}" does not exist.')
+
     def validate(self, config_file: Path) -> bool:
         try:
             config = self.validate_and_load_config_json(config_file)
             self.validate_json_schema(config)
             self.validate_tools(config)
             self.validate_guidelines(config)
+            self.validate_terminology(config)
             return True
         except Exception as e:
             logger.error(f"Configuration file invalid: {str(e)}")

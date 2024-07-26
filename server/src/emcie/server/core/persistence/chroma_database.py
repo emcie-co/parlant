@@ -122,8 +122,7 @@ class ChromaCollection(DocumentCollection):
             "metadatas"
         ]:
             return [{k: v for k, v in m.items()} for m in metadatas]
-
-        raise ValueError("No documents found matching the provided filters.")
+        return []
 
     async def find_one(
         self,

@@ -10,7 +10,7 @@ from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
-from emcie.server.engines.alpha.terminology import Term
+from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     context_variables_to_json,
     events_to_json,

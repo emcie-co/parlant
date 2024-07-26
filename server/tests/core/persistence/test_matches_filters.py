@@ -31,7 +31,7 @@ def test_greater_than_or_equal_to_true() -> None:
     field_filters: Where = {"age": {"$gte": 30}}
     assert matches_filters(field_filters, candidate)
 
-    field_filters: Where = {"age": {"$gte": 29}}
+    field_filters = {"age": {"$gte": 29}}
     assert matches_filters(field_filters, candidate)
 
 
@@ -60,7 +60,7 @@ def test_less_than_or_equal_to_true() -> None:
     field_filters: Where = {"age": {"$lte": 30}}
     assert matches_filters(field_filters, candidate)
 
-    field_filters: Where = {"age": {"$lte": 31}}
+    field_filters = {"age": {"$lte": 31}}
     assert matches_filters(field_filters, candidate)
 
 

@@ -8,7 +8,7 @@ from emcie.server.core.context_variables import ContextVariable, ContextVariable
 from emcie.server.core.sessions import Event, ToolEventData
 from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
-from emcie.server.engines.alpha.terminology import Term
+from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.tool_caller import ToolCaller
 from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.engines.common import ProducedEvent

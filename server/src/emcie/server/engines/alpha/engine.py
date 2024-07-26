@@ -18,7 +18,7 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
-from emcie.server.engines.alpha.terminology import Term, TerminologyStore
+from emcie.server.core.terminology import Term, TerminologyStore
 from emcie.server.engines.alpha.utils import context_variables_to_json
 from emcie.server.engines.common import Context, Engine, ProducedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore

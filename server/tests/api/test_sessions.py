@@ -247,6 +247,7 @@ def test_that_posting_a_message_elicits_a_response(
 
 def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
     client: TestClient,
+    agent_id: AgentId,
     session_id: SessionId,
 ) -> None:
     posted_event = (

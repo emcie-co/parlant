@@ -52,5 +52,5 @@ def transfer_money(from_account: str, to_account: str) -> bool:
     return True
 
 
-def terry_definition() -> str:
+def get_terrys_offering() -> str:
     return "Terry offers leaf"

@@ -9,28 +9,26 @@ Feature: Terminology Integration
         And a user message, "<USER_MESSAGE>"
         When processing is triggered
         Then a single message event is produced
-        And the message contains an explanation of <TERM_DESCRIPTION>
+        And the message contains an explanation of <TERM_NAME> as <TERM_DESCRIPTION>
         Examples:
-            | TERM_NAME   | USER_MESSAGE           | TERM_DESCRIPTION                      |
-            | token       | What is a token?       | digital token                         |
-            | wallet      | What is a wallet?      | digital wallet                        |
-            | mining      | What is mining?        | cryptocurrency mining                 |
-            | private key | What is a private key? | private key in cryptocurrency         |
-            | gas         | What is gas?           | gas fees in Ethereum                  |
+            | TERM_NAME   | USER_MESSAGE           | TERM_DESCRIPTION                |
+            | token       | What is a token?       | a digital token                 |
+            | wallet      | What is a wallet?      | a digital wallet                |
+            | mining      | What is mining?        | cryptocurrency mining           |
+            | private key | What is a private key? | a private key in cryptocurrency |
+            | gas         | What is gas?           | a type of fee in Ethereum       |
 
-    Scenario: The agent explains multiple terms without explicit cryptocurrency context
-        Given the term "walnut" defined as a name of an altcoin
-        And the term "private key" defined as private key in cryptocurrency
+    Scenario: The agent follows a guideline that mentions a term by name
+        Given the term "walnut" defined as the name of an altcoin
         And a guideline to say "Keep your private key secure" when the user asks how to protect their walnuts
         And a user message, "How do you keep walnuts secure?"
         When processing is triggered
         Then a single message event is produced
         And the message contains an instruction to keep the private key secure
 
-    Scenario: The agent follows a guideline based on term definition
-        Given the term "private key" defined as private key in cryptocurrency
-        And the term "walnut" defined as a name of an altcoin
-        And a guideline to say "Keep your private key secure" when the user asks how to protect their assets
+    Scenario: The agent follows a guideline that refers to a term's definition
+        Given the term "walnut" defined as the name of an altcoin
+        And a guideline to say "Keep your private key secure" when the user asks how to protect their financial assets
         And a user message, "How do I protect my walnuts?"
         When processing is triggered
         Then a single message event is produced
@@ -43,15 +41,15 @@ Feature: Terminology Integration
         And a user message, "Tell me about IBM"
         When processing is triggered
         Then a single message event is produced
-        And the message contains an explanation about a cryptocurrency wallet for walnut cryptocoins
+        And the message contains an explanation of a leaf as a cryptocurrency wallet for walnut cryptocoins
 
     Scenario: The agent responds with a term retrieved from tool content
         Given 50 random terms related to technology companies
         And the term "leaf" defined as a cryptocurrency wallet for walnut cryptocoins
-        And a guideline "explain_about_terry" to get Terry's SaaS solutions explanation when the user asks about Terry solutions
-        And the tool "terry_definition"
-        And an association between "explain_about_terry" and "terry_definition"
-        And a user message, "Tell me about Terry SaaS solutions"
+        And a guideline "explain_terry" to elaborate on Terry's offering when the user asks about Terry
+        And the tool "get_terrys_offering"
+        And an association between "explain_terry" and "get_terrys_offering"
+        And a user message, "Tell me about Terry"
         When processing is triggered
         Then a single message event is produced
         And the message contains an explanation about a cryptocurrency wallet for walnut cryptocoins

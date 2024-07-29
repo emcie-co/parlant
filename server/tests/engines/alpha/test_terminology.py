@@ -460,9 +460,9 @@ def given_a_tool(
         )
 
     tools: dict[str, dict[str, Any]] = {
-        "terry_definition": {
-            "name": "terry_definition",
-            "description": "Get Terry's solutions explanation",
+        "get_terrys_offering": {
+            "name": "get_terrys_offering",
+            "description": "Explain Terry's offering",
             "module_path": "tests.tool_utilities",
             "parameters": {},
             "required": [],

@@ -32,7 +32,7 @@ def matches_filters(
         "$lte": lambda candidate, filter_value: candidate <= filter_value,
     }
     for field_name, field_filter in field_filters.items():
-        for filter_name, filter_value in field_filters.items():
+        for filter_name, filter_value in field_filter.items():
             if not tests[filter_name](candidate.get(field_name), filter_value):
                 return False
     return True

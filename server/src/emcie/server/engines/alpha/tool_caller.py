@@ -21,7 +21,7 @@ from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     duration_logger,
     make_llm_client,
-    produced_tool_events_to_dict,
+    produced_tool_events_to_dicts,
 )
 from emcie.server.engines.common import (
     ProducedEvent,
@@ -101,7 +101,7 @@ class ToolCaller:
         self,
         tool_calls: Sequence[ToolCall],
         tools: Sequence[Tool],
-    ) -> list[ToolResult]:
+    ) -> Sequence[ToolResult]:
         tools_by_name = {t.name: t for t in tools}
 
         with duration_logger("Tool calls"):
@@ -249,7 +249,7 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
         produced_events: Sequence[ProducedEvent],
     ) -> Optional[str]:
         ordered_function_invocations = list(
-            chain(*[e["data"] for e in produced_tool_events_to_dict(produced_events)])
+            chain(*[e["data"] for e in produced_tool_events_to_dicts(produced_events)])
         )
 
         if not ordered_function_invocations:

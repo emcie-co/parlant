@@ -199,7 +199,7 @@ async def serve_app(
     server = uvicorn.Server(config)
     interrupted = False
 
-    async def monitor_shutdown_request() -> None:
+    async def monitor_shutdown_request() -> ShutdownReason:
         try:
             while True:
                 await asyncio.sleep(1)
@@ -334,8 +334,8 @@ if __name__ == "__main__":
                 print(f"error: config file not found: {config_file_path}", file=sys.stderr)
                 exit(1)
 
-            with open(config_file_path, "r") as config_file:
-                config = json.load(config_file)
+            with open(config_file_path, "r") as f:
+                config = json.load(f)
 
                 ctx.obj = CLIParams(
                     config_file=config_file_path,

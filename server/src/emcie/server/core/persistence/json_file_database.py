@@ -4,7 +4,7 @@ import importlib
 import json
 import operator
 from pathlib import Path
-from typing import Any, Optional, Sequence, Type
+from typing import Any, Mapping, Optional, Sequence, Type
 
 import aiofiles
 from loguru import logger
@@ -68,7 +68,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
 
     async def _save_data(
         self,
-        data: dict[str, list[dict[str, Any]]],
+        data: Mapping[str, Sequence[Mapping[str, Any]]],
     ) -> None:
         async with self._lock:
             async with aiofiles.open(self.file_path, mode="w") as file:
@@ -147,12 +147,12 @@ class JSONFileDocumentCollection(DocumentCollection):
         database: JSONFileDocumentDatabase,
         name: str,
         schema: Type[DefaultBaseModel],
-        data: Optional[list[dict[str, Any]]] = None,
+        data: Optional[Sequence[Mapping[str, Any]]] = None,
     ) -> None:
         self._database = database
         self._name = name
         self._schema = schema
-        self._documents = data if data else []
+        self._documents = [doc for doc in data] if data else []
         self._op_counter = 0
 
     async def _process_operation_counter(self) -> None:
@@ -163,7 +163,7 @@ class JSONFileDocumentCollection(DocumentCollection):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[dict[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:
         return [
             self._schema.model_validate(doc).model_dump()
             for doc in filter(
@@ -175,7 +175,7 @@ class JSONFileDocumentCollection(DocumentCollection):
     async def find_one(
         self,
         filters: Where,
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Any]:
         matched_documents = await self.find(filters)
         if not matched_documents:
             raise ValueError("No document found matching the provided filters.")
@@ -184,7 +184,7 @@ class JSONFileDocumentCollection(DocumentCollection):
 
     async def insert_one(
         self,
-        document: dict[str, Any],
+        document: Mapping[str, Any],
     ) -> ObjectId:
         self._documents.append(self._schema(**document).model_dump(mode="json"))
 
@@ -196,7 +196,7 @@ class JSONFileDocumentCollection(DocumentCollection):
     async def update_one(
         self,
         filters: Where,
-        updated_document: dict[str, Any],
+        updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
         for i, d in enumerate(self._documents):

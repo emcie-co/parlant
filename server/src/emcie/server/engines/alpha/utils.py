@@ -63,7 +63,7 @@ def context_variables_to_json(
     return json.dumps(context_values)
 
 
-def produced_tool_events_to_dict(
+def produced_tool_events_to_dicts(
     produced_events: Sequence[ProducedEvent],
 ) -> list[dict[str, Any]]:
     return [produced_tool_event_to_dict(e) for e in produced_events]

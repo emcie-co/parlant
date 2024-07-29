@@ -10,7 +10,7 @@ from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import Event, MessageEventData, SessionId, SessionStore
 from emcie.server.core.tools import Tool, ToolStore
 from emcie.server.engines.alpha.engine import AlphaEngine
-from emcie.server.engines.alpha.guideline_tool_associations import (
+from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,
     GuidelineToolAssociationStore,
 )

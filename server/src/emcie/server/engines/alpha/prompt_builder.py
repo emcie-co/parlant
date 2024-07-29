@@ -14,7 +14,7 @@ from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     context_variables_to_json,
     events_to_json,
-    produced_tool_events_to_dict,
+    produced_tool_events_to_dicts,
 )
 from emcie.server.engines.common import ProducedEvent
 
@@ -162,8 +162,8 @@ The following is information that you're given about the user and context of the
             self.add_section(
                 name=BuiltInSection.TERMINOLOGY,
                 content=f"""
-The following is a terminology of the business. 
-Please be tolerant of possible typos by the user with regards to these terms, 
+The following is a terminology of the business.
+Please be tolerant of possible typos by the user with regards to these terms,
 and let the user know if/when you assume they meant a term by their typo: ###
 {terms_string}
 ###
@@ -295,7 +295,7 @@ The following are the tool function definitions: ###
             # FIXME: The following is a code-smell. We can't assume staged_events
             #        is necessarily only composed of tool events.
             #        Also, produced_tool_events_to_dict() is an oddball of a function.
-            staged_events_as_dict = produced_tool_events_to_dict(events)
+            staged_events_as_dict = produced_tool_events_to_dicts(events)
 
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,

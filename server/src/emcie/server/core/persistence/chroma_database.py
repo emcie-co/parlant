@@ -6,7 +6,7 @@ import operator
 from loguru import logger
 import os
 from pathlib import Path
-from typing import Any, Sequence, Type, cast
+from typing import Any, Mapping, Sequence, Type, cast
 import chromadb
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction  # type: ignore
 
@@ -117,7 +117,7 @@ class ChromaCollection(DocumentCollection):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[dict[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:
         if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters))[
             "metadatas"
         ]:
@@ -127,7 +127,7 @@ class ChromaCollection(DocumentCollection):
     async def find_one(
         self,
         filters: Where,
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Any]:
         if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters))[
             "metadatas"
         ]:
@@ -137,10 +137,9 @@ class ChromaCollection(DocumentCollection):
 
     async def insert_one(
         self,
-        document: dict[str, Any],
+        document: Mapping[str, Any],
     ) -> ObjectId:
         async with self._lock:
-
             self._chroma_collection.add(
                 ids=[document["id"]],
                 documents=[document["content"]],
@@ -153,7 +152,7 @@ class ChromaCollection(DocumentCollection):
     async def update_one(
         self,
         filters: Where,
-        updated_document: dict[str, Any],
+        updated_document: Mapping[str, Any],
         upsert: bool = False,
     ) -> ObjectId:
         document_id: ObjectId
@@ -197,7 +196,7 @@ class ChromaCollection(DocumentCollection):
         filters: Where,
         query: str,
         k: int,
-    ) -> Sequence[dict[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:
         docs = self._chroma_collection.query(
             where=cast(chromadb.Where, filters),
             query_texts=[query],

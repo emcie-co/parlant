@@ -48,32 +48,7 @@ class ToolService(ABC):
     ) -> Tool: ...
 
 
-class ToolStore(ToolService):
-    @abstractmethod
-    async def create_tool(
-        self,
-        name: str,
-        module_path: str,
-        description: str,
-        parameters: Mapping[str, ToolParameter],
-        required: Sequence[str],
-        creation_utc: Optional[datetime] = None,
-        consequential: bool = False,
-    ) -> Tool: ...
-
-    @abstractmethod
-    async def list_tools(
-        self,
-    ) -> Sequence[Tool]: ...
-
-    @abstractmethod
-    async def read_tool(
-        self,
-        tool_id: ToolId,
-    ) -> Tool: ...
-
-
-class ToolDocumentStore(ToolStore):
+class LocalToolService(ToolService):
     class ToolDocument(DefaultBaseModel):
         id: ToolId
         creation_utc: datetime

@@ -22,7 +22,7 @@ from emcie.server.core.sessions import (
     SessionListener,
     SessionStore,
 )
-from emcie.server.core.tools import ToolDocumentStore, ToolService, ToolStore
+from emcie.server.core.tools import LocalToolService, ToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.engines.common import Engine
@@ -57,8 +57,8 @@ async def container() -> AsyncIterator[Container]:
     container[AgentStore] = Singleton(AgentDocumentStore)
     container[GuidelineStore] = Singleton(GuidelineDocumentStore)
     container[GuidelineConnectionStore] = Singleton(GuidelineConnectionDocumentStore)
-    container[ToolStore] = Singleton(ToolDocumentStore)
-    container[ToolService] = lambda c: c[ToolStore]
+    container[LocalToolService] = Singleton(LocalToolService)
+    container[ToolService] = lambda c: c[LocalToolService]
     container[SessionStore] = Singleton(SessionDocumentStore)
     container[ContextVariableStore] = Singleton(ContextVariableDocumentStore)
     container[EndUserStore] = Singleton(EndUserDocumentStore)

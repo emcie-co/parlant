@@ -19,7 +19,7 @@ from emcie.server.core.guidelines import (
 )
 from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
 from emcie.server.core.sessions import Event, SessionDocumentStore
-from emcie.server.core.tools import ToolDocumentStore, ToolId
+from emcie.server.core.tools import LocalToolService, ToolId
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
 )
@@ -220,7 +220,7 @@ async def test_tool_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(new_file) as tool_db:
-        tool_store = ToolDocumentStore(tool_db)
+        tool_store = LocalToolService(tool_db)
         tool = await tool_store.create_tool(
             name="Unique tool name",
             module_path="path/to/module",
@@ -248,7 +248,7 @@ async def test_tool_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(new_file) as tool_db:
-        tool_store = ToolDocumentStore(tool_db)
+        tool_store = LocalToolService(tool_db)
         tool = await tool_store.create_tool(
             name="Tool for loading test",
             module_path="path/to/tool/module",

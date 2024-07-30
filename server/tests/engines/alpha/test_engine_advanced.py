@@ -13,7 +13,7 @@ from emcie.server.core.guideline_connections import (
     GuidelineConnection,
     GuidelineConnectionStore,
 )
-from emcie.server.core.tools import Tool, ToolId, ToolStore
+from emcie.server.core.tools import Tool, ToolId, LocalToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,
@@ -266,7 +266,7 @@ def given_a_tool(
     tool_name: str,
     context: _TestContext,
 ) -> None:
-    tool_store = container[ToolStore]
+    tool_store = container[LocalToolService]
 
     async def create_tool(
         name: str,

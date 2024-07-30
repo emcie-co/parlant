@@ -8,7 +8,7 @@ from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import Event, MessageEventData, SessionId, SessionStore
-from emcie.server.core.tools import Tool, ToolStore
+from emcie.server.core.tools import Tool, LocalToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,
@@ -442,7 +442,7 @@ def given_a_tool(
     tool_name: str,
     context: _TestContext,
 ) -> None:
-    tool_store = container[ToolStore]
+    tool_store = container[LocalToolService]
 
     async def create_tool(
         name: str,

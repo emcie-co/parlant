@@ -35,7 +35,20 @@ class Tool:
         return hash(self.id)
 
 
-class ToolStore(ABC):
+class ToolService(ABC):
+    @abstractmethod
+    async def list_tools(
+        self,
+    ) -> Sequence[Tool]: ...
+
+    @abstractmethod
+    async def read_tool(
+        self,
+        tool_id: ToolId,
+    ) -> Tool: ...
+
+
+class ToolStore(ToolService):
     @abstractmethod
     async def create_tool(
         self,

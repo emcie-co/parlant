@@ -10,7 +10,7 @@ from emcie.server.core.context_variables import (
     ContextVariableValue,
 )
 from emcie.server.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
-from emcie.server.core.tools import Tool, ToolStore
+from emcie.server.core.tools import Tool, ToolService
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
@@ -34,7 +34,7 @@ class AlphaEngine(Engine):
         terminology_store: TerminologyStore,
         guideline_store: GuidelineStore,
         guideline_connection_store: GuidelineConnectionStore,
-        tool_store: ToolStore,
+        tool_service: ToolService,
         guideline_tool_association_store: GuidelineToolAssociationStore,
     ) -> None:
         self.agent_store = agent_store
@@ -43,7 +43,7 @@ class AlphaEngine(Engine):
         self.terminology_store = terminology_store
         self.guideline_store = guideline_store
         self.guideline_connection_store = guideline_connection_store
-        self.tool_store = tool_store
+        self.tool_service = tool_service
         self.guideline_tool_association_store = guideline_tool_association_store
 
         self.max_tool_call_iterations = 5
@@ -314,7 +314,7 @@ class AlphaEngine(Engine):
         tools_for_guidelines: dict[GuidelineProposition, list[Tool]] = defaultdict(list)
 
         for association in relevant_associations:
-            tool = await self.tool_store.read_tool(association.tool_id)
+            tool = await self.tool_service.read_tool(association.tool_id)
             tools_for_guidelines[guideline_propositions_by_id[association.guideline_id]].append(
                 tool
             )

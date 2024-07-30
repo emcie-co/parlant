@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "emcie-sdk"
+version = "0.1.0"
+description = ""
+authors = ["Yam Marcovitz <yam@emcie.co>"]
+readme = "README.md"
+packages = [{include = "emcie", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.11.0"
+ruff = "^0.5.5"
+pytest = "^8.3.2"
+pytest-asyncio = "^0.23.8"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

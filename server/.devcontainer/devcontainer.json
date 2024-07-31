@@ -28,7 +28,8 @@
         "zeshuaro.vscode-python-poetry",
         "hbenl.vscode-test-explorer",
         "alexkrechik.cucumberautocomplete",
-        "matangover.mypy"
+        "matangover.mypy",
+        "charliermarsh.ruff"
       ]
     }
   },

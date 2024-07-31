@@ -237,7 +237,6 @@ async def test_tool_creation(
     json_tool = tools_from_json["tools"][0]
 
     assert json_tool["name"] == tool.name
-    assert json_tool["module_path"] == tool.module_path
     assert json_tool["description"] == tool.description
     assert json_tool["parameters"] == tool.parameters
     assert json_tool["required"] == tool.required

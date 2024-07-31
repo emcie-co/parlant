@@ -53,7 +53,6 @@ class Tool:
     id: ToolId
     creation_utc: datetime
     name: str
-    module_path: str
     description: str
     parameters: dict[str, ToolParameter]
     required: list[str]
@@ -133,7 +132,6 @@ class LocalToolService(ToolService):
         return Tool(
             id=ToolId(tool_id),
             name=name,
-            module_path=module_path,
             description=description,
             parameters=dict(parameters),
             creation_utc=creation_utc,
@@ -148,7 +146,6 @@ class LocalToolService(ToolService):
             Tool(
                 id=ToolId(d["id"]),
                 name=d["name"],
-                module_path=d["module_path"],
                 description=d["description"],
                 parameters=d["parameters"],
                 creation_utc=d["creation_utc"],
@@ -167,7 +164,6 @@ class LocalToolService(ToolService):
         return Tool(
             id=ToolId(tool_document["id"]),
             name=tool_document["name"],
-            module_path=tool_document["module_path"],
             description=tool_document["description"],
             parameters=tool_document["parameters"],
             creation_utc=tool_document["creation_utc"],
@@ -181,9 +177,9 @@ class LocalToolService(ToolService):
         parameters: dict[str, ToolParameter],
     ) -> JSONSerializable:
         try:
-            tool = await self.read_tool(tool_id)
-            module = importlib.import_module(tool.module_path)
-            func = getattr(module, tool.name)
+            tool_doc = await self._collection.find_one({"id": {"$eq": tool_id}})
+            module = importlib.import_module(tool_doc["module_path"])
+            func = getattr(module, tool_doc["name"])
         except Exception as e:
             raise ToolImportError(tool_id) from e
 

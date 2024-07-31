@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "emcie", from = "src"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.13"
+python = "^3.12"
 fastapi = "^0.109.2"
 nanoid = "^2.0.0"
 python-dateutil = "^2.8.2"

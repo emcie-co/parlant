@@ -1,17 +1,45 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import importlib
+import inspect
+import json
 from typing import Literal, Mapping, NewType, Optional, Sequence, TypedDict, Union
 from typing_extensions import NotRequired
-
 from pydantic import ValidationError
 
 from emcie.server.base_models import DefaultBaseModel
-from emcie.server.core import common
+from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 
 ToolId = NewType("ToolId", str)
+
+
+class ToolError(Exception):
+    def __init__(
+        self,
+        tool_id: ToolId,
+        message: Optional[str] = None,
+    ) -> None:
+        if message:
+            super().__init__(f"Tool error (id='{tool_id}'): {message}")
+        else:
+            super().__init__(f"Tool error (id='{tool_id}')")
+
+        self.tool_id = tool_id
+
+
+class ToolImportError(ToolError):
+    pass
+
+
+class ToolExecutionError(ToolError):
+    pass
+
+
+class ToolResultError(ToolError):
+    pass
 
 
 class ToolParameter(TypedDict):
@@ -46,6 +74,13 @@ class ToolService(ABC):
         self,
         tool_id: ToolId,
     ) -> Tool: ...
+
+    @abstractmethod
+    async def execute_tool(
+        self,
+        tool_id: ToolId,
+        parameters: dict[str, ToolParameter],
+    ) -> JSONSerializable: ...
 
 
 class LocalToolService(ToolService):
@@ -84,7 +119,7 @@ class LocalToolService(ToolService):
         creation_utc = creation_utc or datetime.now(timezone.utc)
         tool_id = await self._collection.insert_one(
             document={
-                "id": common.generate_id(),
+                "id": generate_id(),
                 "name": name,
                 "module_path": module_path,
                 "description": description,
@@ -139,3 +174,28 @@ class LocalToolService(ToolService):
             required=tool_document["required"],
             consequential=tool_document["consequential"],
         )
+
+    async def execute_tool(
+        self,
+        tool_id: ToolId,
+        parameters: dict[str, ToolParameter],
+    ) -> JSONSerializable:
+        try:
+            tool = await self.read_tool(tool_id)
+            module = importlib.import_module(tool.module_path)
+            func = getattr(module, tool.name)
+        except Exception as e:
+            raise ToolImportError(tool_id) from e
+
+        try:
+            result: JSONSerializable = func(**parameters)
+
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as e:
+            raise ToolExecutionError(tool_id) from e
+
+        try:
+            return json.dumps(result)
+        except Exception as e:
+            raise ToolResultError(tool_id) from e

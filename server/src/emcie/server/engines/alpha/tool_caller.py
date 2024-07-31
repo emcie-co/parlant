@@ -1,9 +1,8 @@
 import asyncio
 from dataclasses import dataclass
-import importlib
-import inspect
 from itertools import chain
 import json
+import traceback
 import jsonfinder  # type: ignore
 from typing import Any, Mapping, NewType, Optional, Sequence, TypedDict
 
@@ -13,11 +12,10 @@ from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event
-from emcie.server.core.tools import Tool
-
+from emcie.server.core.tools import Tool, ToolParameter, ToolService
+from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
-from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     duration_logger,
     make_llm_client,
@@ -35,7 +33,7 @@ ToolResultId = NewType("ToolResultId", str)
 class ToolCall:
     id: ToolCallId
     name: str
-    parameters: dict[str, Any]
+    parameters: dict[str, ToolParameter]
 
 
 @dataclass(frozen=True)
@@ -56,7 +54,9 @@ class ToolCaller:
 
     def __init__(
         self,
+        tool_service: ToolService,
     ) -> None:
+        self._tool_service = tool_service
         self._llm_client = make_llm_client("openai")
 
     async def infer_tool_calls(
@@ -83,8 +83,7 @@ class ToolCaller:
             inference_output = await self._run_inference(inference_prompt)
 
         tool_calls_that_need_to_run = [
-            c for c in inference_output
-            if not c["same_call_is_already_staged"]
+            c for c in inference_output if not c["same_call_is_already_staged"]
         ]
 
         return [
@@ -293,33 +292,24 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
         tool: Tool,
     ) -> ToolResult:
         try:
-            module = importlib.import_module(tool.module_path)
-            func = getattr(module, tool_call.name)
-        except Exception as e:
-            logger.error(f"ERROR IN LOADING TOOL {tool_call.name}: " + str(e))
+            logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
+            result = await self._tool_service.execute_tool(tool.id, tool_call.parameters)
+            logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
+
             return ToolResult(
                 id=ToolResultId(generate_id()),
                 tool_call=tool_call,
-                result=str(e),
+                result=result,
+            )
+        except Exception as e:
+            logger.error(
+                f"Tool execution error (tool='{tool_call.name}', "
+                "parameters={tool_call.parameters}): "
+                + "\n".join(traceback.format_exception(e)),
             )
 
-        try:
-            logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
-
-            result = func(**tool_call.parameters)
-
-            if inspect.isawaitable(result):
-                result = await result
-
-            result = json.dumps(result)
-
-            logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
-        except Exception as e:
-            logger.warning(f"Tool call produced an error: {tool_call.name}/{tool_call.id}: {e}")
-            result = str(e)
-
-        return ToolResult(
-            id=ToolResultId(generate_id()),
-            tool_call=tool_call,
-            result=result,
-        )
+            return ToolResult(
+                id=ToolResultId(generate_id()),
+                tool_call=tool_call,
+                result=f"Tool call error: {e}",
+            )

@@ -6,7 +6,7 @@ from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, ToolEventData
-from emcie.server.core.tools import Tool
+from emcie.server.core.tools import Tool, ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.tool_caller import ToolCaller
@@ -17,9 +17,10 @@ from emcie.server.engines.common import ProducedEvent
 class ToolEventProducer:
     def __init__(
         self,
+        tool_service: ToolService,
     ) -> None:
         self._llm_client = make_llm_client("openai")
-        self.tool_caller = ToolCaller()
+        self.tool_caller = ToolCaller(tool_service)
 
     async def produce_events(
         self,

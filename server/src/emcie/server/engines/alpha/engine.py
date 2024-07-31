@@ -49,7 +49,7 @@ class AlphaEngine(Engine):
         self.max_tool_call_iterations = 5
 
         self.guideline_proposer = GuidelineProposer()
-        self.tool_event_producer = ToolEventProducer()
+        self.tool_event_producer = ToolEventProducer(self.tool_service)
         self.message_event_producer = MessageEventProducer()
 
     async def process(

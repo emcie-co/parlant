@@ -2,9 +2,9 @@ import json
 from typing import Mapping, Optional, Sequence
 from loguru import logger
 
+from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from emcie.server.core.terminology import Term

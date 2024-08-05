@@ -8,6 +8,7 @@ from lagom import Container
 from pytest import fixture, mark
 import pytest
 
+from emcie.common.tools import ToolId
 from emcie.server.core.agents import AgentDocumentStore, AgentId, AgentStore
 from emcie.server.core.context_variables import (
     ContextVariableDocumentStore,
@@ -19,7 +20,7 @@ from emcie.server.core.guidelines import (
 )
 from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
 from emcie.server.core.sessions import Event, SessionDocumentStore
-from emcie.server.core.tools import LocalToolService, ToolId
+from emcie.server.core.tools import LocalToolService
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
 )

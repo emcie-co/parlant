@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 
+from emcie.common.tools import ToolId
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
 from emcie.server.core.guidelines import GuidelineId
-from emcie.server.core.tools import ToolId
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 GuidelineToolAssociationId = NewType("GuidelineToolAssociationId", str)

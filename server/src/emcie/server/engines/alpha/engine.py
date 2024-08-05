@@ -3,6 +3,7 @@ from itertools import chain
 from typing import Mapping, Optional, Sequence
 from loguru import logger
 
+from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.context_variables import (
     ContextVariable,
@@ -10,7 +11,7 @@ from emcie.server.core.context_variables import (
     ContextVariableValue,
 )
 from emcie.server.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
-from emcie.server.core.tools import Tool, ToolService
+from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition

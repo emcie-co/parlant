@@ -5,6 +5,7 @@ from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
 
+from emcie.common.tools import Tool, ToolId
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.context_variables import ContextVariableStore, ContextVariableValue
 from emcie.server.core.end_users import EndUserId
@@ -13,7 +14,7 @@ from emcie.server.core.guideline_connections import (
     GuidelineConnection,
     GuidelineConnectionStore,
 )
-from emcie.server.core.tools import Tool, ToolId, LocalToolService
+from emcie.server.core.tools import LocalToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,

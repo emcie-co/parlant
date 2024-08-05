@@ -3,12 +3,12 @@ from enum import Enum, auto
 from itertools import chain
 from typing import Any, Mapping, Optional, Sequence, cast
 
+from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
-from emcie.server.core.tools import Tool
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (

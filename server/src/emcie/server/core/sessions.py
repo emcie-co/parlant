@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, NewType, Optional, Sequence, TypedDict
 
+from emcie.common.tools import ToolParameter
 from emcie.server.async_utils import Timeout
 from emcie.server.core import common
 from emcie.server.core.common import JSONSerializable
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
-from emcie.server.core.tools import ToolParameter
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 SessionId = NewType("SessionId", str)

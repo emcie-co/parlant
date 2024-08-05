@@ -8,11 +8,12 @@ from typing import Any, Mapping, NewType, Optional, Sequence, TypedDict
 
 from loguru import logger
 
+from emcie.common.tools import Tool, ToolParameter
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event
-from emcie.server.core.tools import Tool, ToolParameter, ToolService
+from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder

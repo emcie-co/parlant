@@ -3,9 +3,9 @@ from typing import Any, Literal, NewType, Optional, Sequence
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
+from emcie.common.tools import ToolId
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core import common
-from emcie.server.core.tools import ToolId
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 ContextVariableId = NewType("ContextVariableId", str)

@@ -32,6 +32,7 @@ types-jsonschema = "^4.22.0.20240610"
 networkx = {extras = ["default"], version = "^3.3"}
 chromadb = "^0.5.4"
 tokenizers = "^0.19.1"
+emcie-common = {path = "../common", develop = true}
 
 
 [tool.poetry.group.dev.dependencies]

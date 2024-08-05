@@ -293,7 +293,7 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
     ) -> ToolResult:
         try:
             logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
-            result = await self._tool_service.execute_tool(tool.id, tool_call.parameters)
+            result = await self._tool_service.call_tool(tool.id, tool_call.parameters)
             logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
 
             return ToolResult(

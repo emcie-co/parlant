@@ -75,7 +75,7 @@ class ToolService(ABC):
     ) -> Tool: ...
 
     @abstractmethod
-    async def execute_tool(
+    async def call_tool(
         self,
         tool_id: ToolId,
         parameters: dict[str, ToolParameter],
@@ -171,7 +171,7 @@ class LocalToolService(ToolService):
             consequential=tool_document["consequential"],
         )
 
-    async def execute_tool(
+    async def call_tool(
         self,
         tool_id: ToolId,
         parameters: dict[str, ToolParameter],

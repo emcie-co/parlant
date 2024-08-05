@@ -8,6 +8,7 @@ packages = [{include = "emcie", from = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
+emcie-common = {path = "../common", develop = true}
 
 
 [tool.poetry.group.dev.dependencies]

@@ -26,6 +26,8 @@ RUN DEBIAN_FRONTEND=noninteractive \
     libffi-dev \
     liblzma-dev
 
+RUN mkdir -p /workspaces/emcie-common /workspaces/emcie-sdk
+
 # Python and poetry installation
 USER $USER
 ARG HOME="/home/$USER"

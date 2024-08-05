@@ -39,7 +39,12 @@
     "ghcr.io/devcontainers-contrib/features/poetry:2": {
       "version": "latest"
     }
-  }
+  },
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/../common,target=/workspaces/common,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../sdk,target=/workspaces/sdk,type=bind,consistency=cached"
+  ]
 
   // 👇 Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
   // "remoteUser": "root"

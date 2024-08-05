@@ -20,8 +20,6 @@
         "ms-python.python",
         "njpwerner.autodocstring",
         "github.remotehub",
-        "ms-python.black-formatter",
-        "ms-python.flake8",
         "GitHub.vscode-pull-request-github",
         "ms-python.vscode-pylance",
         "ms-python.debugpy",

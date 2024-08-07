@@ -1,19 +1,11 @@
-from typing import Mapping, NewType, Sequence, TypeVar, Union
+from typing import NewType
 import nanoid  # type: ignore
 
+import emcie.common.types
 
-JSONSerializable = Union[
-    str,
-    int,
-    float,
-    bool,
-    None,
-    Mapping[str, "JSONSerializable"],
-    Sequence["JSONSerializable"],
-]
+JSONSerializable = emcie.common.types.JSONSerializable
 
 UniqueId = NewType("UniqueId", str)
-T = TypeVar("T")
 
 
 def generate_id() -> UniqueId:

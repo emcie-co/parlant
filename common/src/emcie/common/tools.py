@@ -6,9 +6,16 @@ from typing_extensions import NotRequired
 
 ToolId = NewType("ToolId", str)
 
+ToolParameterType = Literal[
+    "string",
+    "number",
+    "integer",
+    "boolean",
+]
+
 
 class ToolParameter(TypedDict):
-    type: Literal["string", "number", "integer", "boolean", "array", "object"]
+    type: ToolParameterType
     description: NotRequired[str]
     enum: NotRequired[list[Union[str, int, float, bool]]]
 

@@ -58,6 +58,71 @@ class ToolService(ABC):
     ) -> JSONSerializable: ...
 
 
+class MultiplexedToolService(ToolService):
+    def __init__(self, services: Mapping[str, ToolService]) -> None:
+        self.services = services
+
+    async def list_tools(self) -> Sequence[Tool]:
+        tools = [
+            self._multiplex_tool(service_name, t)
+            for service_name, service in self.services.items()
+            for t in await service.list_tools()
+        ]
+        return tools
+
+    async def read_tool(self, tool_id: ToolId, service_name: Optional[str] = None) -> Tool:
+        if service_name:
+            actual_tool_id = str(tool_id)
+        else:
+            service_name, actual_tool_id = self._demultiplex_tool_str(tool_id)
+
+        service = self.services[service_name]
+        tool = await service.read_tool(ToolId(actual_tool_id))
+        return self._multiplex_tool(service_name, tool)
+
+    async def call_tool(
+        self,
+        tool_id: ToolId,
+        arguments: dict[str, object],
+    ) -> JSONSerializable:
+        service_name, actual_tool_id = self._demultiplex_tool_str(tool_id)
+        service = self.services[service_name]
+        return await service.call_tool(ToolId(actual_tool_id), arguments)
+
+    def _multiplex_tool(self, service_name: str, tool: Tool) -> Tool:
+        return Tool(
+            id=ToolId(f"{service_name}__{tool.id}"),
+            name=f"{service_name}__{tool.name}",
+            creation_utc=tool.creation_utc,
+            description=tool.description,
+            parameters=tool.parameters,
+            required=tool.required,
+            consequential=tool.consequential,
+        )
+
+    def _demultiplex_tool_str(self, tool_str: str) -> tuple[str, str]:
+        service_name = tool_str[: tool_str.find("__")]
+        tool_str = tool_str[len(service_name) + 2 :]
+        return service_name, tool_str
+
+    def _demultiplex_tool(self, tool: Tool) -> tuple[str, Tool]:
+        service_name, tool_id = self._demultiplex_tool_str(tool.id)
+        _, tool_name = self._demultiplex_tool_str(tool.name)
+
+        return (
+            service_name,
+            Tool(
+                id=ToolId(tool_id),
+                name=tool_name,
+                creation_utc=tool.creation_utc,
+                description=tool.description,
+                parameters=tool.parameters,
+                required=tool.required,
+                consequential=tool.consequential,
+            ),
+        )
+
+
 class LocalToolService(ToolService):
     class ToolDocument(DefaultBaseModel):
         id: ToolId

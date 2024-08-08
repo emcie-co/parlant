@@ -14,7 +14,7 @@ from emcie.server.core.guideline_connections import (
     GuidelineConnection,
     GuidelineConnectionStore,
 )
-from emcie.server.core.tools import LocalToolService
+from emcie.server.core.tools import LocalToolService, MultiplexedToolService, ToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,
@@ -269,21 +269,6 @@ def given_a_tool(
 ) -> None:
     tool_store = container[LocalToolService]
 
-    async def create_tool(
-        name: str,
-        module_path: str,
-        description: str,
-        parameters: dict[str, Any],
-        required: list[str],
-    ) -> Tool:
-        return await tool_store.create_tool(
-            name=name,
-            module_path=module_path,
-            description=description,
-            parameters=parameters,
-            required=required,
-        )
-
     tools: dict[str, dict[str, Any]] = {
         "get_available_drinks": {
             "name": "get_available_drinks",
@@ -377,9 +362,15 @@ def given_a_tool(
         },
     }
 
-    tool = sync_await(create_tool(**tools[tool_name]))
+    tool = sync_await(tool_store.create_tool(**tools[tool_name]))
 
-    context.tools[tool_name] = tool
+    multiplexed_tool_service = container[MultiplexedToolService]
+
+    context.tools[tool_name] = sync_await(
+        multiplexed_tool_service.read_tool(
+            tool.id, next(iter(multiplexed_tool_service.services.keys()))
+        )
+    )
 
 
 @given(parsers.parse('an association between "{guideline_name}" and "{tool_name}"'))

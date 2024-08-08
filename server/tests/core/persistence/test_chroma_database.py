@@ -8,7 +8,7 @@ from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.persistence.chroma_database import ChromaCollection, ChromaDatabase
 
 
-class TestModel(DefaultBaseModel):
+class _TestModel(DefaultBaseModel):
     id: str
     content: str
     name: str
@@ -33,7 +33,7 @@ def chroma_database(context: _TestContext) -> ChromaDatabase:
 
 @fixture
 async def chroma_collection(chroma_database: ChromaDatabase) -> AsyncIterator[ChromaCollection]:
-    collection = chroma_database.get_or_create_collection("test_collection", TestModel)
+    collection = chroma_database.get_or_create_collection("test_collection", _TestModel)
     yield collection
     chroma_database.delete_collection("test_collection")
 
@@ -220,7 +220,7 @@ async def test_find_similar_documents(chroma_collection: ChromaCollection) -> No
 async def test_loading_collections_succeed(context: _TestContext) -> None:
     # Step 1: Create initial database and collection, then insert a document
     chroma_database_1 = ChromaDatabase(dir_path=context.home_dir)
-    chroma_collection_1 = chroma_database_1.get_or_create_collection("test_collection", TestModel)
+    chroma_collection_1 = chroma_database_1.get_or_create_collection("test_collection", _TestModel)
     await chroma_collection_1.insert_one(
         {
             "id": "1",

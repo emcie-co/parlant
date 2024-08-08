@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dateutil.parser
 from types import TracebackType
-from typing import Optional, Sequence, Type
+from typing import Optional, Sequence, Type, cast
 import httpx
 from urllib.parse import urljoin
 
@@ -45,14 +45,32 @@ class PluginClient(ToolService):
         ]
 
     async def read_tool(self, tool_id: ToolId) -> Tool:
-        raise NotImplementedError()
+        response = await self._http_client.get(self._get_url(f"/tools/{tool_id}"))
+        content = response.json()
+        tool = content["tool"]
+        return Tool(
+            id=tool["id"],
+            creation_utc=dateutil.parser.parse(tool["creation_utc"]),
+            name=tool["name"],
+            description=tool["description"],
+            parameters=tool["parameters"],
+            required=tool["required"],
+            consequential=tool["consequential"],
+        )
 
     async def call_tool(
         self,
         tool_id: ToolId,
-        parameters: dict[str, ToolParameter],
+        arguments: dict[str, object],
     ) -> JSONSerializable:
-        raise NotImplementedError()
+        response = await self._http_client.post(
+            self._get_url(f"/tools/{tool_id}/calls"),
+            json={
+                "arguments": arguments,
+            },
+        )
+        content = response.json()
+        return cast(JSONSerializable, content["result"])
 
     def _get_url(self, path: str) -> str:
         return urljoin(f"http://{self.host}:{self.port}", path)

@@ -12,7 +12,6 @@ from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 
-
 class ToolError(Exception):
     def __init__(
         self,
@@ -55,7 +54,7 @@ class ToolService(ABC):
     async def call_tool(
         self,
         tool_id: ToolId,
-        parameters: dict[str, ToolParameter],
+        arguments: dict[str, object],
     ) -> JSONSerializable: ...
 
 
@@ -151,7 +150,7 @@ class LocalToolService(ToolService):
     async def call_tool(
         self,
         tool_id: ToolId,
-        parameters: dict[str, ToolParameter],
+        arguments: dict[str, object],
     ) -> JSONSerializable:
         try:
             tool_doc = await self._collection.find_one({"id": {"$eq": tool_id}})
@@ -161,7 +160,7 @@ class LocalToolService(ToolService):
             raise ToolImportError(tool_id) from e
 
         try:
-            result: JSONSerializable = func(**parameters)
+            result: JSONSerializable = func(**arguments)
 
             if inspect.isawaitable(result):
                 result = await result

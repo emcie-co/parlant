@@ -70,7 +70,7 @@ class ToolEventProducer:
             "tool_results": [
                 {
                     "tool_name": r.tool_call.name,
-                    "parameters": r.tool_call.parameters,
+                    "arguments": r.tool_call.arguments,
                     "result": r.result,
                 }
                 for r in tool_results

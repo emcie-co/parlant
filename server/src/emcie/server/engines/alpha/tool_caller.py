@@ -4,11 +4,11 @@ from itertools import chain
 import json
 import traceback
 import jsonfinder  # type: ignore
-from typing import Any, Mapping, NewType, Optional, Sequence, TypedDict
+from typing import Mapping, NewType, Optional, Sequence, TypedDict
 
 from loguru import logger
 
-from emcie.common.tools import Tool, ToolParameter
+from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
@@ -34,7 +34,7 @@ ToolResultId = NewType("ToolResultId", str)
 class ToolCall:
     id: ToolCallId
     name: str
-    parameters: dict[str, ToolParameter]
+    arguments: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class ToolCaller:
         rationale: str
         applicability_score: int
         should_run: bool
-        parameters: dict[str, Any]
+        arguments: dict[str, object]
         same_call_is_already_staged: bool
 
     def __init__(
@@ -91,7 +91,7 @@ class ToolCaller:
             ToolCall(
                 id=ToolCallId(generate_id()),
                 name=tc["name"],
-                parameters=tc["parameters"],
+                arguments=tc["arguments"],
             )
             for tc in tool_calls_that_need_to_run
             if tc["should_run"] and tc["applicability_score"] >= 7
@@ -160,7 +160,7 @@ Before generating your next response, you are highly encouraged to use tools tha
 The following is a list of staged tool calls after the interaction's latest state.
 You can use this information to avoid redundant calls and inform your response.
 For example, if the data you need already exists in one of these calls, then you DO NOT
-need to ask for that exact tool call (with the same parameters) to be run again,
+need to ask for that exact tool call (with the same arguments) to be run again,
 because its information is fresh here!: ###
 {staged_function_calls}
 ###
@@ -174,22 +174,22 @@ Here are the principles by which you can decide whether to use tools:
 
 1. Determine the tool functions that need to be called based on the provided instructions and the interaction's latest state.
 2. It is permissible to propose tool functions that do not directly answer the interaction's latest state but can compute based on the function definitions to promote a more advanced state for answering.
-3. A tool function may be called multiple times with different parameters.
+3. A tool function may be called multiple times with different arguments.
 4. If a tool function is not called at all, it must still be mentioned in the results!
-5. Avoid calling a tool function that has already been called with the same parameters!
+5. Avoid calling a tool function that has already been called with the same arguments!
 6. If the data required for a tool call is already given in previous invoked tool results, then the same tool call should not run.
 7. Ensure that each function proposed for invocation relies solely on the immediate context and previously invoked functions, without depending on other functions yet to be invoked. This prevents the proposal of interconnected functions unless their dependencies are already satisfied by previous calls.
 
 Produce a valid JSON object according to the following format:
 
 {{
-    "tool_call_specifications": [
+    "tool_call_evaluations": [
         {{
             "name": "<FUNCTION NAME>",
             "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL FUNCTION NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "should_run": <BOOLEAN>,
-            "parameters": <PARAMETERS FOR THE TOOL FUNCTION>,
+            "arguments": <ARGUMENTS FOR THE TOOL FUNCTION>,
             "same_call_is_already_staged": <BOOLEAN>
         }},
         ...,
@@ -198,7 +198,7 @@ Produce a valid JSON object according to the following format:
             "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL FUNCTION NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "should_run": <BOOLEAN>,
-            "parameters": <PARAMETERS FOR THE TOOL FUNCTION>,
+            "arguments": <ARGUMENTS FOR THE TOOL FUNCTION>,
             "same_call_is_already_staged": <BOOLEAN>
         }}
     ]
@@ -207,13 +207,13 @@ Produce a valid JSON object according to the following format:
 Here's a hypothetical example, for your reference:
 
 {{
-    "tool_call_specifications": [
+    "tool_call_evaluations": [
         {{
             "name": "transfer_money",
             "rationale": "Jack owes John $5",
             "applicability_score": 9,
             "should_run": true,
-            "parameters": {{
+            "arguments": {{
                 "from": "Jack",
                 "to": "John",
                 "amount": 5.00
@@ -238,7 +238,7 @@ Here's a hypothetical example, for your reference:
 }}
 
 
-Note that the `tool_call_specifications` list can be empty if no functions need to be called.
+Note that the `tool_call_evaluations` list can be empty if no functions need to be called.
 """  # noqa
         )
 
@@ -259,7 +259,7 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
             [
                 {
                     "function_name": invocation["tool_name"],
-                    "parameters": invocation["parameters"],
+                    "arguments": invocation["arguments"],
                     "result": invocation["result"],
                 }
                 for invocation in ordered_function_invocations
@@ -282,10 +282,10 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
 
         logger.debug(
             f"Tool call request results: {json.dumps(
-                json_content['tool_call_specifications'], indent=2
+                json_content['tool_call_evaluations'], indent=2
                 )}"
         )
-        return json_content["tool_call_specifications"]  # type: ignore
+        return json_content["tool_call_evaluations"]  # type: ignore
 
     async def _run_tool(
         self,
@@ -294,7 +294,7 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
     ) -> ToolResult:
         try:
             logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
-            result = await self._tool_service.call_tool(tool.id, tool_call.parameters)
+            result = await self._tool_service.call_tool(tool.id, tool_call.arguments)
             logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
 
             return ToolResult(
@@ -305,8 +305,7 @@ Note that the `tool_call_specifications` list can be empty if no functions need 
         except Exception as e:
             logger.error(
                 f"Tool execution error (tool='{tool_call.name}', "
-                "parameters={tool_call.parameters}): "
-                + "\n".join(traceback.format_exception(e)),
+                "arguments={tool_call.arguments}): " + "\n".join(traceback.format_exception(e)),
             )
 
             return ToolResult(

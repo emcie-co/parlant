@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, NewType, Optional, Sequence, TypedDict
 
-from emcie.common.tools import ToolParameter
 from emcie.server.async_utils import Timeout
 from emcie.server.core import common
 from emcie.server.core.common import JSONSerializable
@@ -39,7 +38,7 @@ class MessageEventData(TypedDict):
 
 class _ToolResult(TypedDict):
     tool_name: str
-    parameters: dict[str, ToolParameter]
+    arguments: dict[str, object]
     result: JSONSerializable
 
 

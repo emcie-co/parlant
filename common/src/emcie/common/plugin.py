@@ -23,10 +23,6 @@ from emcie.common.tools import Tool, ToolId, ToolParameter, ToolParameterType
 from emcie.common.types import JSONSerializable
 
 
-class ListToolsResponse(BaseModel):
-    tools: list[Tool]
-
-
 class ToolContext:
     pass
 
@@ -156,6 +152,22 @@ def tool(
         return _tool_decorator_impl(**kwargs)
 
 
+class ListToolsResponse(BaseModel):
+    tools: list[Tool]
+
+
+class ReadToolResponse(BaseModel):
+    tool: Tool
+
+
+class CallToolRequest(BaseModel):
+    arguments: dict[str, _ToolParameterType]
+
+
+class CallToolResponse(BaseModel):
+    result: object
+
+
 class PluginServer:
     def __init__(
         self,
@@ -165,7 +177,7 @@ class PluginServer:
         host: str = "0.0.0.0",
     ) -> None:
         self.name = name
-        self.tools = tools
+        self.tools = {entry.tool.id: entry for entry in tools}
         self.host = host
         self.port = port
 
@@ -221,10 +233,25 @@ class PluginServer:
         return False
 
     def _create_app(self) -> FastAPI:
+        # TODO: Change uses of BaseModel to DefaultBaseModel
+
         app = FastAPI()
 
         @app.get("/tools")
         async def list_tools() -> ListToolsResponse:
-            return ListToolsResponse(tools=[t.tool for t in self.tools])
+            return ListToolsResponse(tools=[t.tool for t in self.tools.values()])
+
+        @app.get("/tools/{tool_id}")
+        async def read_tool(tool_id: ToolId) -> ReadToolResponse:
+            return ReadToolResponse(tool=self.tools[tool_id].tool)
+
+        @app.post("/tools/{tool_id}/calls")
+        async def call_tool(
+            tool_id: ToolId,
+            request: CallToolRequest,
+        ) -> CallToolResponse:
+            stub_context = ToolContext()
+            result = self.tools[tool_id].function(stub_context, **request.arguments)  # type: ignore
+            return CallToolResponse(result=result)
 
         return app

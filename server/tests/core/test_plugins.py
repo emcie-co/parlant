@@ -58,3 +58,17 @@ async def test_that_a_plugin_calls_a_tool() -> None:
                 arguments={"arg_1": 2, "arg_2": 4},
             )
             assert result == 8
+
+
+async def test_that_a_plugin_calls_an_async_tool() -> None:
+    @tool
+    async def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> int:
+        return arg_1 * arg_2
+
+    async with run_plugin_server([my_tool]) as server:
+        async with PluginClient(server.host, server.port) as client:
+            result = await client.call_tool(
+                my_tool.tool.id,
+                arguments={"arg_1": 2, "arg_2": 4},
+            )
+            assert result == 8

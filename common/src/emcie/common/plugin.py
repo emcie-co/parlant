@@ -251,7 +251,12 @@ class PluginServer:
             request: CallToolRequest,
         ) -> CallToolResponse:
             stub_context = ToolContext()
+
             result = self.tools[tool_id].function(stub_context, **request.arguments)  # type: ignore
+
+            if inspect.isawaitable(result):
+                result = await result
+
             return CallToolResponse(result=result)
 
         return app

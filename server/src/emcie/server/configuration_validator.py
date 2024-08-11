@@ -1,6 +1,7 @@
 import importlib
 import json
 from pathlib import Path
+import traceback
 import typing
 from jsonschema import ValidationError, validate
 from loguru import logger
@@ -41,46 +42,72 @@ class ConfigurationFileValidator:
                         },
                     },
                 },
-                "tools": {
-                    "type": "object",
-                    "patternProperties": {
-                        "^[a-zA-Z0-9_]+$": {
-                            "type": "object",
-                            "properties": {
-                                "type": {"type": "string"},
-                                "description": {"type": "string"},
-                                "function_name": {"type": "string"},
-                                "module_path": {"type": "string"},
-                                "parameters": {
-                                    "type": "object",
-                                    "additionalProperties": {
+                "services": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["plugin"]},
+                                    "name": {"type": "string"},
+                                    "url": {"type": "string"},
+                                },
+                                "required": ["type", "name", "url"],
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["local"]},
+                                    "tools": {
                                         "type": "object",
-                                        "properties": {
-                                            "description": {"type": "string"},
-                                            "type": {
-                                                "enum": [
-                                                    "number",
-                                                    "string",
-                                                    "integer",
-                                                    "boolean",
-                                                    "array",
-                                                    "object",
-                                                ]
-                                            },
+                                        "patternProperties": {
+                                            "^[a-zA-Z0-9_]+$": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "type": {"type": "string"},
+                                                    "description": {"type": "string"},
+                                                    "function_name": {"type": "string"},
+                                                    "module_path": {"type": "string"},
+                                                    "parameters": {
+                                                        "type": "object",
+                                                        "additionalProperties": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "description": {"type": "string"},
+                                                                "type": {
+                                                                    "enum": [
+                                                                        "number",
+                                                                        "string",
+                                                                        "integer",
+                                                                        "boolean",
+                                                                        "array",
+                                                                        "object",
+                                                                    ]
+                                                                },
+                                                            },
+                                                            "required": ["description", "type"],
+                                                        },
+                                                    },
+                                                    "required": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                    },
+                                                },
+                                                "required": [
+                                                    "description",
+                                                    "function_name",
+                                                    "module_path",
+                                                    "parameters",
+                                                    "type",
+                                                ],
+                                            }
                                         },
-                                        "required": ["description", "type"],
                                     },
                                 },
-                                "required": {"type": "array", "items": {"type": "string"}},
+                                "required": ["type", "tools"],
                             },
-                            "required": [
-                                "description",
-                                "function_name",
-                                "module_path",
-                                "parameters",
-                                "type",
-                            ],
-                        }
+                        ]
                     },
                 },
                 "terminology": {
@@ -99,7 +126,7 @@ class ConfigurationFileValidator:
                     },
                 },
             },
-            "required": ["agents", "guidelines", "tools"],
+            "required": ["agents", "guidelines", "services"],
         }
 
     def validate_and_load_config_json(
@@ -118,28 +145,32 @@ class ConfigurationFileValidator:
     ) -> None:
         validate(instance=config, schema=self.schema)
 
-    def validate_tools(
+    def validate_local_tools(
         self,
         config: JSONSerializable,
     ) -> None:
         config = typing.cast(dict[str, typing.Any], config)
 
-        for tool_name, tool_info in config["tools"].items():
-            module_path = tool_info["module_path"]
-            try:
-                module = importlib.import_module(module_path)
-            except ModuleNotFoundError:
-                raise ValidationError(
-                    f'Module path "{module_path}" for tool "{tool_name}" does not exist.'
-                )
-            function_name = tool_info["function_name"]
-            try:
-                getattr(module, function_name)
-            except Exception:
-                raise ValidationError(
-                    f'The function "{function_name}" for tool "{tool_name}" '
-                    f'does not exist in the "{module_path}" module.'
-                )
+        for service in config["services"]:
+            if service["type"] != "local":
+                continue
+
+            for tool_name, tool_info in service["tools"].items():
+                module_path = tool_info["module_path"]
+                try:
+                    module = importlib.import_module(module_path)
+                except ModuleNotFoundError:
+                    raise ValidationError(
+                        f'Module path "{module_path}" for tool "{tool_name}" does not exist.'
+                    )
+                function_name = tool_info["function_name"]
+                try:
+                    getattr(module, function_name)
+                except Exception:
+                    raise ValidationError(
+                        f'The function "{function_name}" for tool "{tool_name}" '
+                        f'does not exist in the "{module_path}" module.'
+                    )
 
     def validate_guidelines(
         self,
@@ -147,20 +178,10 @@ class ConfigurationFileValidator:
     ) -> None:
         config = typing.cast(dict[str, typing.Any], config)
 
-        tools = set(config["tools"].keys())
         agents = set(agent["name"] for agent in config["agents"])
         for agent, guidelines in config["guidelines"].items():
             if agent not in agents:
                 raise ValidationError(f'Agent "{agent}" does not exist.')
-
-            for guideline in guidelines:
-                if "enabled_tools" in guideline:
-                    for tool_name in guideline["enabled_tools"]:
-                        if tool_name not in tools:
-                            raise ValidationError(
-                                f'Tool "{tool_name}" listed in "enabled_tools"'
-                                ' does not exist in "tools".'
-                            )
 
     def validate_terminology(
         self,
@@ -177,10 +198,11 @@ class ConfigurationFileValidator:
         try:
             config = self.validate_and_load_config_json(config_file)
             self.validate_json_schema(config)
-            self.validate_tools(config)
+            self.validate_local_tools(config)
             self.validate_guidelines(config)
             self.validate_terminology(config)
             return True
         except Exception as e:
-            logger.error(f"Configuration file invalid: {str(e)}")
+            traceback.print_exc()
+            logger.error(f"Configuration file invalid: {e.__class__.__name__}({str(e)})")
             return False

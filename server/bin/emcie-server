@@ -94,17 +94,21 @@ async def load_agents(c: Container, config: Any) -> None:
 async def load_tools(c: Container, config: Any) -> None:
     tool_store = c[ToolService]
 
-    for tool_name, tool in config["tools"].items():
-        tool = await tool_store.create_tool(
-            name=tool["function_name"],
-            module_path=tool["module_path"],
-            description=tool["description"],
-            parameters=tool["parameters"],
-            required=tool["required"],
-            consequential=False,
-        )
+    for service in config["services"]:
+        if service["type"] != "local":
+            continue
 
-        TOOL_NAME_TO_ID[tool_name] = tool.id
+        for tool_name, tool in service["tools"].items():
+            tool = await tool_store.create_tool(
+                name=tool["function_name"],
+                module_path=tool["module_path"],
+                description=tool["description"],
+                parameters=tool["parameters"],
+                required=tool["required"],
+                consequential=False,
+            )
+
+            TOOL_NAME_TO_ID[tool_name] = tool.id
 
 
 async def load_guidelines(c: Container, config: Any) -> None:

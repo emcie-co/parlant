@@ -226,7 +226,8 @@ class PluginServer:
         await self._server.serve()
 
     async def shutdown(self) -> None:
-        self._task.cancel()
+        if server := self._server:
+            server.should_exit = True
 
     def started(self) -> bool:
         if self._server:

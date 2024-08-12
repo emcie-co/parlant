@@ -180,6 +180,7 @@ class PluginServer:
         self.tools = {entry.tool.id: entry for entry in tools}
         self.host = host
         self.port = port
+        self.url = f"http://{self.host}:{self.port}"
 
         self._server: Optional[uvicorn.Server] = None
 

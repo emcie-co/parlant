@@ -11,12 +11,14 @@ from emcie.server.core.tools import ToolService
 
 
 class PluginClient(ToolService):
-    def __init__(self, host: str, port: int) -> None:
-        self.host = host
-        self.port = port
+    def __init__(self, url: str) -> None:
+        self.url = url
 
     async def __aenter__(self) -> PluginClient:
-        self._http_client = await httpx.AsyncClient().__aenter__()
+        self._http_client = await httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(3),
+        ).__aenter__()
         return self
 
     async def __aexit__(
@@ -73,4 +75,4 @@ class PluginClient(ToolService):
         return cast(JSONSerializable, content["result"])
 
     def _get_url(self, path: str) -> str:
-        return urljoin(f"http://{self.host}:{self.port}", path)
+        return urljoin(f"{self.url}", path)

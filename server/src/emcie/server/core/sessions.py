@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal, NewType, Optional, Sequence, TypedDict
+from typing import Any, Literal, Mapping, NewType, Optional, Sequence, TypedDict
 
 from emcie.server.async_utils import Timeout
 from emcie.server.core import common
@@ -36,14 +36,19 @@ class MessageEventData(TypedDict):
     message: str
 
 
-class _ToolResult(TypedDict):
+class ToolResult(TypedDict):
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable]
+
+
+class _ToolCallResult(TypedDict):
     tool_name: str
     arguments: dict[str, object]
-    result: JSONSerializable
+    result: ToolResult
 
 
 class ToolEventData(TypedDict):
-    tool_results: list[_ToolResult]
+    tool_results: list[_ToolCallResult]
 
 
 ConsumerId = Literal["client"]

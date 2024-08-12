@@ -12,7 +12,7 @@ from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.sessions import Event
+from emcie.server.core.sessions import Event, ToolResult
 from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
@@ -38,10 +38,10 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
-class ToolResult:
+class ToolCallResult:
     id: ToolResultId
     tool_call: ToolCall
-    result: JSONSerializable
+    result: ToolResult
 
 
 class ToolCaller:
@@ -101,7 +101,7 @@ class ToolCaller:
         self,
         tool_calls: Sequence[ToolCall],
         tools: Sequence[Tool],
-    ) -> Sequence[ToolResult]:
+    ) -> Sequence[ToolCallResult]:
         tools_by_name = {t.name: t for t in tools}
 
         with duration_logger("Tool calls"):
@@ -291,16 +291,16 @@ Note that the `tool_call_evaluations` list can be empty if no functions need to 
         self,
         tool_call: ToolCall,
         tool: Tool,
-    ) -> ToolResult:
+    ) -> ToolCallResult:
         try:
             logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
             result = await self._tool_service.call_tool(tool.id, tool_call.arguments)
             logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
 
-            return ToolResult(
+            return ToolCallResult(
                 id=ToolResultId(generate_id()),
                 tool_call=tool_call,
-                result=result,
+                result={"data": result.data, "metadata": result.metadata},
             )
         except Exception as e:
             logger.error(
@@ -308,8 +308,8 @@ Note that the `tool_call_evaluations` list can be empty if no functions need to 
                 "arguments={tool_call.arguments}): " + "\n".join(traceback.format_exception(e)),
             )
 
-            return ToolResult(
+            return ToolCallResult(
                 id=ToolResultId(generate_id()),
                 tool_call=tool_call,
-                result=f"Tool call error: {e}",
+                result={"data": "Tool call error", "metadata": {"error_details": str(e)}},
             )

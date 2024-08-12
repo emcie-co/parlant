@@ -4,7 +4,8 @@ import signal
 import traceback
 import httpx
 
-from emcie.common.plugin import PluginServer, ToolContext, tool
+from emcie.common.tools import ToolContext, ToolResult
+from emcie.common.plugin import PluginServer, tool
 
 from emcie.server.core.sessions import Event
 from tests.e2e.test_utilities import (
@@ -126,9 +127,9 @@ async def test_that_the_server_loads_and_interacts_with_a_plugin(
     context: _TestContext,
 ) -> None:
     @tool(id="about_dor", name="about_dor")
-    def about_dor(context: ToolContext) -> str:
+    def about_dor(context: ToolContext) -> ToolResult:
         """Gets information about Dor"""
-        return "Dor makes great pizza"
+        return ToolResult("Dor makes great pizza", {"metadata_item": 123})
 
     plugin_port = 8090
 

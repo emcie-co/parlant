@@ -2,13 +2,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 import importlib
 import inspect
-import json
 from typing import Mapping, Optional, Sequence
 from pydantic import ValidationError
 
-from emcie.common.tools import ToolId, ToolParameter, Tool
+from emcie.common.tools import ToolId, ToolParameter, ToolResult, Tool
 from emcie.server.base_models import DefaultBaseModel
-from emcie.server.core.common import JSONSerializable, generate_id
+from emcie.server.core.common import generate_id
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 
@@ -55,7 +54,7 @@ class ToolService(ABC):
         self,
         tool_id: ToolId,
         arguments: dict[str, object],
-    ) -> JSONSerializable: ...
+    ) -> ToolResult: ...
 
 
 class MultiplexedToolService(ToolService):
@@ -84,7 +83,7 @@ class MultiplexedToolService(ToolService):
         self,
         tool_id: ToolId,
         arguments: dict[str, object],
-    ) -> JSONSerializable:
+    ) -> ToolResult:
         service_name, actual_tool_id = self._demultiplex_tool_str(tool_id)
         service = self.services[service_name]
         return await service.call_tool(ToolId(actual_tool_id), arguments)
@@ -216,7 +215,7 @@ class LocalToolService(ToolService):
         self,
         tool_id: ToolId,
         arguments: dict[str, object],
-    ) -> JSONSerializable:
+    ) -> ToolResult:
         try:
             tool_doc = await self._collection.find_one({"id": {"$eq": tool_id}})
             module = importlib.import_module(tool_doc["module_path"])
@@ -225,14 +224,14 @@ class LocalToolService(ToolService):
             raise ToolImportError(tool_id) from e
 
         try:
-            result: JSONSerializable = func(**arguments)
+            result: ToolResult = func(**arguments)
 
             if inspect.isawaitable(result):
                 result = await result
         except Exception as e:
             raise ToolExecutionError(tool_id) from e
 
-        try:
-            return json.dumps(result)
-        except Exception as e:
-            raise ToolResultError(tool_id) from e
+        if not isinstance(result, ToolResult):
+            raise ToolResultError(tool_id, "Tool result is not an instance of ToolResult")
+
+        return result

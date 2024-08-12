@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
-from emcie.common.plugin import PluginServer, ToolContext, ToolEntry, tool
+from emcie.common.tools import ToolContext, ToolResult
+from emcie.common.plugin import PluginServer, ToolEntry, tool
 from emcie.server.core.plugins import PluginClient
 
 
@@ -23,9 +24,9 @@ async def test_that_a_plugin_with_no_configured_tools_returns_no_tools() -> None
 
 async def test_that_a_plugin_with_one_configured_tool_returns_that_tool() -> None:
     @tool
-    def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> int:
+    def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
         """My tool's description"""
-        return arg_1 * (arg_2 or 0)
+        return ToolResult(arg_1 * (arg_2 or 0))
 
     async with run_plugin_server([my_tool]) as server:
         async with PluginClient(server.url) as client:
@@ -36,9 +37,9 @@ async def test_that_a_plugin_with_one_configured_tool_returns_that_tool() -> Non
 
 async def test_that_a_plugin_reads_a_tool() -> None:
     @tool
-    def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> int:
+    def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
         """My tool's description"""
-        return arg_1 * (arg_2 or 0)
+        return ToolResult(arg_1 * (arg_2 or 0))
 
     async with run_plugin_server([my_tool]) as server:
         async with PluginClient(server.url) as client:
@@ -48,8 +49,8 @@ async def test_that_a_plugin_reads_a_tool() -> None:
 
 async def test_that_a_plugin_calls_a_tool() -> None:
     @tool
-    def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> int:
-        return arg_1 * arg_2
+    def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
+        return ToolResult(arg_1 * arg_2)
 
     async with run_plugin_server([my_tool]) as server:
         async with PluginClient(server.url) as client:
@@ -57,13 +58,13 @@ async def test_that_a_plugin_calls_a_tool() -> None:
                 my_tool.tool.id,
                 arguments={"arg_1": 2, "arg_2": 4},
             )
-            assert result == 8
+            assert result.data == 8
 
 
 async def test_that_a_plugin_calls_an_async_tool() -> None:
     @tool
-    async def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> int:
-        return arg_1 * arg_2
+    async def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
+        return ToolResult(arg_1 * arg_2)
 
     async with run_plugin_server([my_tool]) as server:
         async with PluginClient(server.url) as client:
@@ -71,4 +72,4 @@ async def test_that_a_plugin_calls_an_async_tool() -> None:
                 my_tool.tool.id,
                 arguments={"arg_1": 2, "arg_2": 4},
             )
-            assert result == 8
+            assert result.data == 8

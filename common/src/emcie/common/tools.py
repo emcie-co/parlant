@@ -1,7 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, NewType, TypedDict, Union
+from typing import Literal, Mapping, NewType, TypedDict, Union
 from typing_extensions import NotRequired
+
+from emcie.common.types import JSONSerializable
 
 
 ToolId = NewType("ToolId", str)
@@ -18,6 +20,16 @@ class ToolParameter(TypedDict):
     type: ToolParameterType
     description: NotRequired[str]
     enum: NotRequired[list[Union[str, int, float, bool]]]
+
+
+class ToolContext:
+    pass
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

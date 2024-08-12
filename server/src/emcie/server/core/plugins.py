@@ -1,12 +1,11 @@
 from __future__ import annotations
 import dateutil.parser
 from types import TracebackType
-from typing import Optional, Sequence, Type, cast
+from typing import Optional, Sequence, Type
 import httpx
 from urllib.parse import urljoin
 
-from emcie.common.tools import Tool, ToolId, ToolParameter
-from emcie.server.core.common import JSONSerializable
+from emcie.common.tools import Tool, ToolId, ToolResult
 from emcie.server.core.tools import ToolService
 
 
@@ -64,7 +63,7 @@ class PluginClient(ToolService):
         self,
         tool_id: ToolId,
         arguments: dict[str, object],
-    ) -> JSONSerializable:
+    ) -> ToolResult:
         response = await self._http_client.post(
             self._get_url(f"/tools/{tool_id}/calls"),
             json={
@@ -72,7 +71,7 @@ class PluginClient(ToolService):
             },
         )
         content = response.json()
-        return cast(JSONSerializable, content["result"])
+        return ToolResult(**content["result"])
 
     def _get_url(self, path: str) -> str:
         return urljoin(f"{self.url}", path)

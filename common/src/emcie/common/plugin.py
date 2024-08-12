@@ -5,6 +5,7 @@ import inspect
 from types import TracebackType
 from typing import (
     Any,
+    Awaitable,
     Callable,
     NamedTuple,
     Optional,
@@ -19,24 +20,54 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
 
-from emcie.common.tools import Tool, ToolId, ToolParameter, ToolParameterType
+from emcie.common.tools import (
+    Tool,
+    ToolContext,
+    ToolId,
+    ToolParameter,
+    ToolParameterType,
+    ToolResult,
+)
 from emcie.common.types import JSONSerializable
 
 
-class ToolContext:
-    pass
-
-
 ToolFunction = Union[
-    Callable[[ToolContext], Any],
-    Callable[[ToolContext, Any], Any],
-    Callable[[ToolContext, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any, Any, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any, Any, Any, Any, Any], Any],
-    Callable[[ToolContext, Any, Any, Any, Any, Any, Any, Any, Any], Any],
+    Callable[
+        [ToolContext],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any],
+        Union[Awaitable[ToolResult], ToolResult],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [ToolContext, Any, Any, Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
 ]
 
 
@@ -85,9 +116,8 @@ def _tool_decorator_impl(
         ), "A tool function's first parameter must be 'context: ToolContext'"
 
         assert (
-            (signature.return_annotation in get_args(JSONSerializable))
-            or signature.return_annotation == JSONSerializable
-        ), "A tool function must return a JSON-serializable type"
+            signature.return_annotation == ToolResult
+        ), "A tool function must return a ToolResult object"
 
         for param in parameters[1:]:
             param_type = _resolve_param_type(param)

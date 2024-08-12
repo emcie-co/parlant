@@ -79,14 +79,15 @@ class AlphaEngine(Engine):
         while True:
             tool_call_iterations += 1
 
-            ordinary_guideline_propositions, tool_enabled_guideline_propositions = (
-                await self._load_guideline_propositions(
-                    agents=[agent],
-                    context_variables=context_variables,
-                    interaction_history=interaction_history,
-                    terms=list(terms),
-                    staged_events=all_tool_events,
-                )
+            (
+                ordinary_guideline_propositions,
+                tool_enabled_guideline_propositions,
+            ) = await self._load_guideline_propositions(
+                agents=[agent],
+                context_variables=context_variables,
+                interaction_history=interaction_history,
+                terms=list(terms),
+                staged_events=all_tool_events,
             )
 
             terms.update(

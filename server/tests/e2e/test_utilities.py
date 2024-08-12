@@ -7,7 +7,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Iterator, TypedDict, cast
+from typing import Any, Iterator, Literal, TypedDict, Union, cast
 from loguru import logger
 
 
@@ -53,6 +53,20 @@ class _Guideline(TypedDict, total=False):
     enabled_tools: list[str]
 
 
+class _LocalService(TypedDict):
+    type: Literal["local"]
+    tools: list[Any]
+
+
+class _PluginService(TypedDict):
+    type: Literal["plugin"]
+    name: str
+    url: str
+
+
+_Service = Union[_LocalService, _PluginService]
+
+
 def read_guideline_config(
     config_file: Path,
     agent: str = DEFAULT_AGENT_NAME,
@@ -70,6 +84,15 @@ def write_guideline_config(
     config = json.loads(config_file.read_text())
     assert agent in config["guidelines"]
     config["guidelines"][agent] = new_guidelines
+    config_file.write_text(json.dumps(config))
+
+
+def write_service_config(
+    new_services: list[_Service],
+    config_file: Path,
+) -> None:
+    config = json.loads(config_file.read_text())
+    config["services"] = new_services
     config_file.write_text(json.dumps(config))
 
 

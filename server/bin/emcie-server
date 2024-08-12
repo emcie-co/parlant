@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, auto
@@ -43,7 +43,8 @@ from emcie.server.core.sessions import (
     SessionStore,
 )
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
-from emcie.server.core.tools import LocalToolService, ToolService
+from emcie.server.core.tools import LocalToolService, ToolService, MultiplexedToolService
+from emcie.server.core.plugins import PluginClient
 from emcie.server.coherence_checker import CoherenceChecker
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
@@ -59,8 +60,10 @@ DEFAULT_PORT = 8000
 EMCIE_HOME_DIR = Path(os.environ.get("EMCIE_HOME", "/var/lib/emcie"))
 EMCIE_HOME_DIR.mkdir(parents=True, exist_ok=True)
 
+MULTIPLEXED_TOOL_SERVICE = MultiplexedToolService()
 TOOL_NAME_TO_ID: dict[str, str] = {}
 
+EXIT_STACK: AsyncExitStack
 
 sys.path.append(EMCIE_HOME_DIR.as_posix())
 
@@ -92,23 +95,29 @@ async def load_agents(c: Container, config: Any) -> None:
 
 
 async def load_tools(c: Container, config: Any) -> None:
-    tool_store = c[ToolService]
+    local_tool_service = c[LocalToolService]
 
     for service in config["services"]:
-        if service["type"] != "local":
-            continue
+        if service["type"] == "local":
+            for tool_name, tool in service["tools"].items():
+                tool = await local_tool_service.create_tool(
+                    name=tool["function_name"],
+                    module_path=tool["module_path"],
+                    description=tool["description"],
+                    parameters=tool["parameters"],
+                    required=tool["required"],
+                    consequential=False,
+                )
 
-        for tool_name, tool in service["tools"].items():
-            tool = await tool_store.create_tool(
-                name=tool["function_name"],
-                module_path=tool["module_path"],
-                description=tool["description"],
-                parameters=tool["parameters"],
-                required=tool["required"],
-                consequential=False,
-            )
+                TOOL_NAME_TO_ID[tool_name] = tool.id
+        elif service["type"] == "plugin":
+            name = service["name"]
+            url = service["url"]
 
-            TOOL_NAME_TO_ID[tool_name] = tool.id
+            client = PluginClient(url)
+            await EXIT_STACK.enter_async_context(client)
+
+            MULTIPLEXED_TOOL_SERVICE.services[name] = client
 
 
 async def load_guidelines(c: Container, config: Any) -> None:
@@ -131,12 +140,15 @@ async def load_guidelines(c: Container, config: Any) -> None:
             for tool_name in guideline_spec.get("enabled_tools", []):
                 await guideline_tool_association_store.create_association(
                     guideline_id=guideline.id,
-                    tool_id=TOOL_NAME_TO_ID[tool_name],
+                    tool_id=TOOL_NAME_TO_ID.get(tool_name, tool_name),
                 )
 
 
 @asynccontextmanager
 async def setup_container(config: Any) -> AsyncIterator[Container]:
+    TOOL_NAME_TO_ID.clear()
+    MULTIPLEXED_TOOL_SERVICE.services.clear()
+
     for store_name in [
         "guidelines",
         "tools",
@@ -168,7 +180,11 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
         c[EndUserStore] = EndUserDocumentStore(end_users_db)
         c[GuidelineStore] = GuidelineDocumentStore(guidelines_db)
-        c[ToolService] = LocalToolService(tools_db)
+
+        c[LocalToolService] = LocalToolService(tools_db)
+        MULTIPLEXED_TOOL_SERVICE.services["local"] = c[LocalToolService]
+        c[ToolService] = MULTIPLEXED_TOOL_SERVICE
+
         c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
             guideline_tool_associations_db
         )
@@ -190,7 +206,11 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
 @asynccontextmanager
 async def load_app(config: Any) -> AsyncIterator[FastAPI]:
-    async with setup_container(config) as container:
+    global EXIT_STACK
+
+    EXIT_STACK = AsyncExitStack()
+
+    async with setup_container(config) as container, EXIT_STACK:
         yield await create_app(container)
 
 

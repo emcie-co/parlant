@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from lagom import Container
 
 from emcie.server.api import agents
@@ -15,6 +16,8 @@ async def create_app(container: Container) -> FastAPI:
     mc = container[MC]
 
     app = FastAPI()
+
+    app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
     app.include_router(
         prefix="/agents",

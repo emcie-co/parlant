@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dateutil.parser
 from types import TracebackType
-from typing import Optional, Sequence, Type
+from typing import Optional, Sequence
 import httpx
 from urllib.parse import urljoin
 
@@ -16,13 +16,13 @@ class PluginClient(ToolService):
     async def __aenter__(self) -> PluginClient:
         self._http_client = await httpx.AsyncClient(
             follow_redirects=True,
-            timeout=httpx.Timeout(3),
+            timeout=httpx.Timeout(120),
         ).__aenter__()
         return self
 
     async def __aexit__(
         self,
-        exc_type: Optional[Type[BaseException]],
+        exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> bool:

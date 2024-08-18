@@ -3,7 +3,7 @@ from typing import AsyncIterator, Optional
 
 from emcie.common.tools import ToolContext, ToolResult
 from emcie.common.plugin import PluginServer, ToolEntry, tool
-from emcie.server.core.plugins import PluginClient
+from emcie.server.core.services.plugins import PluginClient
 
 
 @asynccontextmanager

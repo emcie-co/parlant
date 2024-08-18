@@ -43,7 +43,7 @@ from emcie.server.core.sessions import (
 )
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.core.tools import LocalToolService, ToolService, MultiplexedToolService
-from emcie.server.core.plugins import PluginClient
+from emcie.server.core.services.plugins import PluginClient
 from emcie.server.coherence_checker import CoherenceChecker
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (

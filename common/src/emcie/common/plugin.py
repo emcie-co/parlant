@@ -28,7 +28,6 @@ from emcie.common.tools import (
     ToolParameterType,
     ToolResult,
 )
-from emcie.common.types import JSONSerializable
 
 
 ToolFunction = Union[

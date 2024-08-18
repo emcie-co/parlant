@@ -34,6 +34,8 @@ chromadb = "^0.5.4"
 tokenizers = "^0.19.1"
 emcie-common = {path = "../common", develop = true}
 httpx = "^0.27.0"
+openapi3-parser = "^1.1.17"
+openapi-client = "^1.1.7"
 
 
 [tool.poetry.group.dev.dependencies]

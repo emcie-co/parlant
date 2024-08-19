@@ -1,7 +1,7 @@
-from typing import Mapping, Sequence, Union
+from typing import Mapping, Sequence, Union, TypeAlias
 
 
-JSONSerializable = Union[
+JSONSerializable: TypeAlias = Union[
     str,
     int,
     float,

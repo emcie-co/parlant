@@ -2,12 +2,13 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import httpx
-from random import random
-from typing import Any, AsyncIterator
-from fastapi import Body, FastAPI, Query
+from typing import Any, AsyncIterator, Awaitable, Callable
+from fastapi import Body, FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
+from pytest import mark
 import uvicorn
 
+from emcie.common.tools import ToolId
 from emcie.server.core.services.openapi import OpenAPIClient
 from emcie.common.base_models import DefaultBaseModel
 
@@ -28,24 +29,32 @@ async def two_required_query_params(
     return JSONResponse({"result": query_param_1 + query_param_2})
 
 
+class OneBodyParam(DefaultBaseModel):
+    body_param: str
+
+
 async def one_required_body_param(
-    body_param: str = Body(),
+    body: OneBodyParam,
 ) -> JSONResponse:
-    return JSONResponse({"result": body_param})
+    return JSONResponse({"result": body.body_param})
+
+
+class TwoBodyParams(DefaultBaseModel):
+    body_param_1: str
+    body_param_2: str
 
 
 async def two_required_body_params(
-    body_param_1: str = Body(),
-    body_param_2: str = Body(),
+    body: TwoBodyParams,
 ) -> JSONResponse:
-    return JSONResponse({"result": body_param_1 + body_param_2})
+    return JSONResponse({"result": body.body_param_1 + body.body_param_2})
 
 
 async def one_required_query_param_one_required_body_param(
+    body: OneBodyParam,
     query_param: int = Query(),
-    body_param: str = Body(),
 ) -> JSONResponse:
-    return JSONResponse({"result": f"{body_param}: {query_param}"})
+    return JSONResponse({"result": f"{body.body_param}: {query_param}"})
 
 
 class DummyDTO(DefaultBaseModel):
@@ -75,7 +84,7 @@ async def get_json(address: str, params: dict[str, str] = {}) -> Any:
 
 
 async def get_openapi_spec(address: str) -> str:
-    return json.dumps(await get_json(f"{address}/openapi.json"))
+    return json.dumps(await get_json(f"{address}/openapi.json"), indent=2)
 
 
 TOOLS = (
@@ -89,10 +98,19 @@ TOOLS = (
 
 
 def rng_app() -> FastAPI:
-    app = FastAPI()
+    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+
+    @app.middleware("http")
+    async def debug_request(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        return response
 
     for tool in TOOLS:
-        app.get(f"/{tool.__name__}", operation_id=tool.__name__)(tool)
+        registration_func = app.post if "body" in tool.__name__ else app.get
+        registration_func(f"/{tool.__name__}", operation_id=tool.__name__)(tool)
 
     return app
 
@@ -107,3 +125,36 @@ async def test_that_a_tool_is_exposed_via_an_openapi_server() -> None:
             for tool_id, tool in {t.__name__: t for t in TOOLS}.items():
                 listed_tool = next((t for t in tools if t.id == tool_id), None)
                 assert listed_tool
+
+
+@mark.parametrize(
+    ["tool_id", "tool_args", "expected_result"],
+    [
+        (
+            one_required_query_param.__name__,
+            {"query_param": 123},
+            {"result": 123},
+        ),
+        (
+            two_required_query_params.__name__,
+            {"query_param_1": 123, "query_param_2": 321},
+            {"result": 123 + 321},
+        ),
+        (
+            one_required_body_param.__name__,
+            {"body_param": "hello"},
+            {"result": "hello"},
+        ),
+    ],
+)
+async def test_that_a_tool_can_be_called_via_an_openapi_server(
+    tool_id: ToolId,
+    tool_args: dict[str, Any],
+    expected_result: Any,
+) -> None:
+    async with run_openapi_server(rng_app()):
+        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+
+        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+            result = await client.call_tool(tool_id, tool_args)
+            assert result.data == expected_result

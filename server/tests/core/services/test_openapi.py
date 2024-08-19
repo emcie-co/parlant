@@ -156,6 +156,16 @@ async def test_that_tools_can_be_read_via_an_openapi_server() -> None:
             {"body_param": "hello"},
             {"result": "hello"},
         ),
+        (
+            two_required_body_params.__name__,
+            {"body_param_1": "hello ", "body_param_2": "world"},
+            {"result": "hello world"},
+        ),
+        (
+            one_required_query_param_one_required_body_param.__name__,
+            {"body_param": "banana", "query_param": 123},
+            {"result": "banana: 123"},
+        ),
     ],
 )
 async def test_that_a_tool_can_be_called_via_an_openapi_server(

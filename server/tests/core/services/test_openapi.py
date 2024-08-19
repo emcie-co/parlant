@@ -115,7 +115,7 @@ def rng_app() -> FastAPI:
     return app
 
 
-async def test_that_a_tool_is_exposed_via_an_openapi_server() -> None:
+async def test_that_tools_are_exposed_via_an_openapi_server() -> None:
     async with run_openapi_server(rng_app()):
         openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
 
@@ -125,6 +125,17 @@ async def test_that_a_tool_is_exposed_via_an_openapi_server() -> None:
             for tool_id, tool in {t.__name__: t for t in TOOLS}.items():
                 listed_tool = next((t for t in tools if t.id == tool_id), None)
                 assert listed_tool
+
+
+async def test_that_tools_can_be_read_via_an_openapi_server() -> None:
+    async with run_openapi_server(rng_app()):
+        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+
+        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+            tools = await client.list_tools()
+
+            for t in tools:
+                assert (await client.read_tool(t.id)) == t
 
 
 @mark.parametrize(

@@ -175,7 +175,7 @@ class OpenAPIClient(ToolService):
         return [t.tool for t in self._tools.values()]
 
     async def read_tool(self, tool_id: ToolId) -> Tool:
-        raise NotImplementedError()
+        return self._tools[tool_id].tool
 
     async def call_tool(
         self,

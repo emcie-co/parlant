@@ -128,3 +128,20 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_pro
     events = list(await context.container[SessionStore].list_events(session.id))
 
     assert len(events) > 1
+
+
+async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_posted(
+    context: _TestContext,
+    session: Session,
+) -> None:
+    event = await context.mc.post_client_event(
+        session_id=session.id,
+        kind=Event.MESSAGE_KIND,
+        data={"message": "Hey there"},
+    )
+
+    assert await context.mc.wait_for_update(
+        session_id=session.id,
+        min_offset=event.offset,
+        timeout=Timeout.none(),
+    )

@@ -350,7 +350,6 @@ class PollingSessionListener(SessionListener):
             events = list(
                 await self._session_store.list_events(
                     session_id,
-                    source="server",
                     min_offset=min_offset,
                 )
             )

@@ -125,7 +125,7 @@ Here's how to decide whether to initiate the interaction:
 A. If the rules below both apply to the context, as well as suggest that you should say something
 to the user, then you should indeed initiate the interaction now.
 B. Otherwise, if no reason is provided that suggests you should say something to the user,
-then you should not initiate the interaction. Produce no response in this case.
+then you should not initiate the interaction. Produce no reply in this case.
 """,
                 status=SectionStatus.PASSIVE,
             )
@@ -156,7 +156,6 @@ The following is information that you're given about the user and context of the
         terms: Sequence[Term],
     ) -> PromptBuilder:
         if terms:
-
             terms_string = "\n".join(f"{i}) {repr(t)}" for i, t in enumerate(terms, start=1))
 
             self.add_section(
@@ -211,7 +210,7 @@ IMPORTANT: Please note there are exactly {len(guidelines)} predicates in the lis
                 rule = f"{i}) When {p.guideline.predicate}, then {p.guideline.content}"
 
                 if include_priority:
-                    rule += f"\n    [Priority (1-10): {p.score}, rationale: {p.rationale}]"
+                    rule += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
 
                 if include_tool_associations:
                     if p in tool_enabled:
@@ -224,7 +223,7 @@ IMPORTANT: Please note there are exactly {len(guidelines)} predicates in the lis
             rule_list = "\n".join(rules)
 
             section_preface = """
-In formulating your response, you are required to follow these behavioral rules,
+In formulating your reply, you are required to follow these behavioral rules,
 which are applicable to the latest state of the interaction.
 """
 
@@ -254,7 +253,7 @@ Rules: ###
             self.add_section(
                 name=BuiltInSection.GUIDELINE_PROPOSITIONS,
                 content="""
-In formulating your response, you are normally required to follow a number of behavioral rules.
+In formulating your reply, you are normally required to follow a number of behavioral rules.
 However, in this case, no special behavrioal rules were provided.
 """,
                 status=SectionStatus.PASSIVE,
@@ -301,7 +300,7 @@ The following are the tool function definitions: ###
                 name=BuiltInSection.STAGED_EVENTS,
                 content=f"""
 For your information, here are some staged events that have just been produced,
-to assist you with generating your response message while following the rules above: ###
+to assist you with generating your reply message while following the rules above: ###
 {staged_events_as_dict}
 ###
 """,

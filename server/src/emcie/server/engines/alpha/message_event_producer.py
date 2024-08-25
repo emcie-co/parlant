@@ -106,8 +106,8 @@ class MessageEventProducer:
 
         builder.add_section(
             """
-You must generate your response message to the current
-(latest) state of the interaction.
+You must generate your reply message to the current (latest) state of the interaction.
+IMPORTANT: Strive to continue the interaction/conversation in the most natural way for a human conversation.
 """
         )
 
@@ -118,7 +118,8 @@ You must generate your response message to the current
                 """
 Produce a valid JSON object in the following format: ###
 {{
-    "produced_response": true,
+    “last_message_of_user”: “<the user’s last message in the interaction>”,
+    "produced_reply": true,
     "rationale": "<a few words to justify why you decided to respond in this way>",
     "revisions": [
         {
@@ -137,9 +138,9 @@ Produce a valid JSON object in the following format: ###
 Propose revisions to the message content,
 ensuring that your proposals adhere to each and every one of the provided rules based on the most recent state of interaction.
 Consider the priority scores assigned to each rule, acknowledging that in some cases, adherence to a higher-priority rule may necessitate deviation from another.
-Additionally, recognize that if a rule cannot be adhered to due to lack of necessary context or data, this must be clearly justified in your response.
+Additionally, recognize that if a rule cannot be adhered to due to lack of necessary context or data, this must be clearly justified in your reply.
 
-Continuously critique each revision to refine the response.
+Continuously critique each revision to refine the reply.
 Ensure each critique is unique to prevent redundancy in the revision process.
 
 Your final output should be a JSON object documenting the entire message development process.
@@ -152,18 +153,20 @@ DO NOT PRODUCE MORE THAN 5 REVISIONS. IF YOU REACH the 5th REVISION, STOP THERE.
 
 Produce a valid JSON object in the format according to the following examples.
 
-Example 1: When no response was deemed appropriate: ###
+Example 1: When no reply was deemed appropriate: ###
 {{
-    "produced_response": false,
-    "rationale": "a few words to justify why a response was NOT produced here",
+    “last_message_of_user”: “<the user’s last message in the interaction>”,
+    "produced_reply": false,
+    "rationale": "<a few words to justify why a reply was NOT produced here>",
     "revisions": []
 }}
 ###
 
-Example 2: A response that took critique in a few revisions to get right: ###
+Example 2: A reply that took critique in a few revisions to get right: ###
 {{
-    "produced_response": true,
-    "rationale": "a few words to justify why a response was produced here",
+    “last_message_of_user”: “<the user’s last message in the interaction>”,
+    "produced_reply": true,
+    "rationale": "<a few words to justify why you decided to respond in this way>",
     "revisions": [
         {{
             "revision_number": 1,
@@ -198,10 +201,11 @@ Example 2: A response that took critique in a few revisions to get right: ###
 
 ###
 
-Example 3: A response where one rule was prioritized over another: ###
+Example 3: A reply where one rule was prioritized over another: ###
 {{
-    "produced_response": true,
-    "rationale": "Ensuring food quality is paramount, thus it overrides the immediate provision of a burger with requested toppings.",
+    “last_message_of_user”: “<the user’s last message in the interaction>”,
+    "produced_reply": true,
+    "rationale": "<a few words to justify why you decided to respond in this way>",
     "revisions": [
         {{
             "revision_number": 1,
@@ -224,8 +228,9 @@ Example 3: A response where one rule was prioritized over another: ###
 
 Example 4: Non-Adherence Due to Missing Data: ###
 {{
-    "produced_response": true,
-    "rationale": "No data of drinks menu is available, therefore informing the customer that we don't have this information at this time.",
+    “last_message_of_user”: “<the user’s last message in the interaction>”,
+    "produced_reply": true,
+    "rationale": "<a few words to justify why you decided to respond in this way>",
     "revisions": [
         {{
             "revision_number": 1,
@@ -260,7 +265,7 @@ Example 4: Non-Adherence Due to Missing Data: ###
 
         json_content = json.loads(content)
 
-        if not json_content["produced_response"]:
+        if not json_content["produced_reply"]:
             return None
 
         self.logger.debug(

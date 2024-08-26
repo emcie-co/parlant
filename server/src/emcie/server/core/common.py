@@ -1,9 +1,9 @@
-from typing import NewType, Optional
+from typing import NewType, Optional, TypeAlias
 import nanoid  # type: ignore
 
 import emcie.common.types
 
-JSONSerializable = emcie.common.types.JSONSerializable
+JSONSerializable: TypeAlias = emcie.common.types.JSONSerializable
 
 UniqueId = NewType("UniqueId", str)
 

@@ -1,4 +1,10 @@
-from typing import Mapping, Sequence, Union, TypeAlias
+from typing import (
+    Mapping,
+    Optional,
+    Sequence,
+    TypeAlias,
+    Union,
+)
 
 
 JSONSerializable: TypeAlias = Union[
@@ -9,4 +15,11 @@ JSONSerializable: TypeAlias = Union[
     None,
     Mapping[str, "JSONSerializable"],
     Sequence["JSONSerializable"],
+    Optional[str],
+    Optional[int],
+    Optional[float],
+    Optional[bool],
+    Optional[None],
+    Optional[Mapping[str, "JSONSerializable"]],
+    Optional[Sequence["JSONSerializable"]],
 ]

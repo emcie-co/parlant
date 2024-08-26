@@ -20,7 +20,6 @@ class ToolEventProducer:
         self,
         logger: Logger,
         tool_service: ToolService,
-        
     ) -> None:
         self.logger = logger
 

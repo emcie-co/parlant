@@ -9,7 +9,6 @@ from openapi_parser.parser import (
     DataType,
     Object,
     Operation,
-    Server,
 )
 from types import TracebackType
 from typing import Any, Awaitable, Callable, NamedTuple, Optional, Sequence, cast

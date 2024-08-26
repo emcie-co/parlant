@@ -9,7 +9,7 @@ from typing import Mapping, NewType, Optional, Sequence, TypedDict
 
 from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
-from emcie.server.core.common import JSONSerializable, generate_id
+from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, ToolResult
 from emcie.server.core.tools import ToolService

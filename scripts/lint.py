@@ -1,31 +1,52 @@
-import os
-from pathlib import Path
-import subprocess
 import sys
+from utils import Package, die, for_each_package
+from functools import partial
 
-PACKAGE_NAMES = ("common", "sdk", "server")
 
-status, output = subprocess.getstatusoutput("git rev-parse --show-toplevel")
+def run_cmd_or_die(
+    cmd: str,
+    description: str,
+    package: Package,
+) -> None:
+    print(f"Running {cmd} on {package.name}...")
 
-if status != 0:
-    print(output, file=sys.stderr)
-    print("error: failed to get repo root", file=sys.stderr)
-    exit(1)
-
-REPO_ROOT = Path(output.strip()).absolute()
-
-for package_name in PACKAGE_NAMES:
-    os.chdir(REPO_ROOT)
-
-    package_dir = REPO_ROOT / package_name
-
-    print(f"Running MyPy on {package_dir}...")
-
-    os.chdir(package_dir)
-
-    status, output = subprocess.getstatusoutput("poetry run mypy")
+    status, output = package.run_cmd(cmd)
 
     if status != 0:
         print(output, file=sys.stderr)
-        print(f"error: MyPy check failed on package: {package_dir}", file=sys.stderr)
-        exit(1)
+        die(f"error: package '{package.path}': {description}")
+
+
+def lint_package(mypy: bool, ruff: bool, package: Package) -> None:
+    if mypy:
+        run_cmd_or_die("mypy", "Please fix MyPy lint errors", package)
+    if ruff:
+        run_cmd_or_die("ruff check", "Please fix Ruff lint errors", package)
+        run_cmd_or_die("ruff format --check", "Please format files with Ruff", package)
+
+    if package.bin_files:
+        for bin_file in package.bin_files:
+            if mypy:
+                run_cmd_or_die(
+                    f"mypy {bin_file}",
+                    "Please fix MyPy lint errors",
+                    package,
+                )
+            if ruff:
+                run_cmd_or_die(
+                    f"ruff check {bin_file}",
+                    "Please fix Ruff lint errors",
+                    package,
+                )
+                run_cmd_or_die(
+                    f"ruff format --check {bin_file}",
+                    "Please format files with Ruff",
+                    package,
+                )
+
+
+if __name__ == "__main__":
+    mypy = "--mypy" in sys.argv
+    ruff = "--ruff" in sys.argv
+
+    for_each_package(partial(lint_package, mypy, ruff))

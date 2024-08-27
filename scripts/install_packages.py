@@ -1,26 +1,21 @@
-from pathlib import Path
 import subprocess
 import sys
+from utils import Package, die, for_each_package
 
-PACKAGE_NAMES = ("common", "sdk", "server")
 
-status, output = subprocess.getstatusoutput("git rev-parse --show-toplevel")
+def install_package(package: Package) -> None:
+    if not package.uses_poetry:
+        print(f"Skipping {package.path}...")
+        return
 
-if status != 0:
-    print(output, file=sys.stderr)
-    print("error: failed to get repo root", file=sys.stderr)
-    exit(1)
+    print(f"Installing {package.path}...")
 
-REPO_ROOT = Path(output.strip())
-
-for package_name in PACKAGE_NAMES:
-    package_dir = REPO_ROOT / package_name
-
-    print(f"Installing {package_dir}...")
-
-    status, output = subprocess.getstatusoutput(f"poetry -C {package_dir} install")
+    status, output = subprocess.getstatusoutput(f"poetry -C {package.path} install")
 
     if status != 0:
         print(output, file=sys.stderr)
-        print(f"error: failed to install package: {package_dir}", file=sys.stderr)
-        exit(1)
+        die(f"error: failed to install package: {package.path}")
+
+
+if __name__ == "__main__":
+    for_each_package(install_package)

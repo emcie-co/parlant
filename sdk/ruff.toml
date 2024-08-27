@@ -37,7 +37,21 @@ target-version = "py312"
 
 [lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
-select = ["E4", "E7", "E9", "F", "W293"]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "W293",
+    "PLR1722",
+    "PTH204",
+    "PLW2901",
+    #"ASYNC230", TODO: don't use sync open() in async methods
+    #"PTH123", TODO: prefer Path.open() over open()
+    #"UP035", TODO: preferred import sources
+    #"UP017", TODO: prefer datetimc.UTC
+    #"I001", TODO: sort imports
+]
 ignore = ["E203"]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.

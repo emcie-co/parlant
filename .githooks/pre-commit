@@ -1,45 +1,5 @@
 #!/bin/bash
 
-# Get the list of files to be committed
-files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(\.py$|^server/bin/|^script/)')
-
-if [ -z "$files" ]; then
-    exit 0
-fi
-
-EXTRA_RULES=(W293)
-
-echo "Running ruff on the following files:"
-echo "$files"
-echo
-
-
-output=$(ruff check --extend-select $(echo ${EXTRA_RULES[@]} | tr ' ' ,) $files)
-exit_code=$?
-
-if [ $exit_code -ne 0 ]; then
-    echo "Ruff found issues:"
-    echo "$output"
-    echo
-    while true; do
-        read -p "Do you want to continue with the commit? (y/N): " yn
-        yn=${yn:-n}  # Default to "n" if no input is provided
-        case $yn in
-            [Yy]* ) 
-                echo "Proceeding with commit."
-                exit 0
-                ;;
-            [Nn]* ) 
-                echo "Commit aborted."
-                exit 1
-                ;;
-            * ) 
-                echo "Please answer yes or no."
-                ;;
-        esac
-    done
-else
-    echo "Ruff passed. Proceeding with commit."
-fi
-
-exit 0
+ROOT=$(git rev-parse --show-toplevel)
+cd $ROOT
+python scripts/lint.py --ruff

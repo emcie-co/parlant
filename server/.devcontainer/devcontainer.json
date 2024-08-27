@@ -27,7 +27,8 @@
         "hbenl.vscode-test-explorer",
         "alexkrechik.cucumberautocomplete",
         "matangover.mypy",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml"
       ]
     }
   },

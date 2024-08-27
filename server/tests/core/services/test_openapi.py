@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 import json
 import httpx
 from typing import Any, AsyncIterator, Awaitable, Callable
-from fastapi import Body, FastAPI, Query, Request, Response
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pytest import mark
 import uvicorn

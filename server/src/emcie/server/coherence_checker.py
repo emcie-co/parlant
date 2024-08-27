@@ -314,7 +314,6 @@ This type of Contradiction occurs when the application of a general guideline is
 
 
 class ParallelContradictionEvaluator(ContradictionEvaluatorBase):
-
     def __init__(
         self,
         logger: Logger,

@@ -59,7 +59,10 @@ class ToolService(ABC):
 
 class MultiplexedToolService(ToolService):
     def __init__(self, services: Mapping[str, ToolService] = {}) -> None:
-        self.services = services
+        self.services = dict(services)
+
+    def add_service(self, service_name: str, service: ToolService) -> None:
+        self.services[service_name] = service
 
     async def list_tools(self) -> Sequence[Tool]:
         tools = [

@@ -7,7 +7,6 @@ from emcie.server.core.persistence.common import ObjectId, Where
 
 
 class DocumentDatabase(ABC):
-
     @abstractmethod
     def create_collection(
         self,
@@ -52,7 +51,6 @@ class DocumentDatabase(ABC):
 
 
 class DocumentCollection(ABC):
-
     @abstractmethod
     async def find(
         self,

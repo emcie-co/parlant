@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# mypy: disable-error-code=import-untyped
 
 import asyncio
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ class Actions:
     def list_agents(ctx: click.Context) -> list[dict[str, Any]]:
         response = requests.get(urljoin(ctx.obj.server_address, "agents"))
         response.raise_for_status()
-        return response.json()["agents"]
+        return response.json()["agents"]  # type: ignore
 
     @staticmethod
     def create_session(
@@ -42,13 +43,13 @@ class Actions:
 
         response.raise_for_status()
 
-        return response.json()
+        return response.json()  # type: ignore
 
     @staticmethod
     def list_events(ctx: click.Context, session_id: str) -> dict[str, Any]:
         response = requests.get(urljoin(ctx.obj.server_address, f"sessions/{session_id}/events"))
         response.raise_for_status()
-        return response.json()["events"]
+        return response.json()["events"]  # type: ignore
 
     @staticmethod
     def create_event(ctx: click.Context, session_id: str, message: str) -> dict[str, Any]:
@@ -59,7 +60,7 @@ class Actions:
 
         response.raise_for_status()
 
-        return response.json()
+        return response.json()  # type: ignore
 
 
 class Interface:
@@ -85,11 +86,11 @@ class Interface:
             tabulate(
                 [
                     {
-                        "id": e["id"],
-                        "source": e["source"],
-                        "offset": e["offset"],
-                        "creation_utc": e["creation_utc"],
-                        "message": e["data"]["message"],
+                        "id": e["id"],  # type: ignore
+                        "source": e["source"],  # type: ignore
+                        "offset": e["offset"],  # type: ignore
+                        "creation_utc": e["creation_utc"],  # type: ignore
+                        "message": e["data"]["message"],  # type: ignore
                     }
                     for e in events
                 ],
@@ -116,9 +117,9 @@ class Interface:
     @staticmethod
     def chat(ctx: click.Context, session_id: str) -> None:
         def print_message(message_event: dict[str, Any]) -> None:
-            role = {"client": "User", "server": "Agent"}.get(m["source"])
+            role = {"client": "User", "server": "Agent"}[m["source"]]
             prefix = Text(
-                f"{role}:".ljust(6), style="bold " + {"User": "blue", "Agent": "green"}.get(role)
+                f"{role}:".ljust(6), style="bold " + {"User": "blue", "Agent": "green"}[role]
             )
 
             message = wrap(
@@ -233,6 +234,8 @@ async def main() -> None:
             agents = Actions.list_agents(ctx)
             assert agents
             agent_id = agents[0]["id"]
+
+        assert agent_id
 
         session = Actions.create_session(ctx, agent_id=agent_id, end_user_id="<unused>")
 

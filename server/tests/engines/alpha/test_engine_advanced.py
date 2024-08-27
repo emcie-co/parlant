@@ -14,7 +14,7 @@ from emcie.server.core.guideline_connections import (
     GuidelineConnection,
     GuidelineConnectionStore,
 )
-from emcie.server.core.tools import LocalToolService, MultiplexedToolService, ToolService
+from emcie.server.core.tools import LocalToolService, MultiplexedToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,

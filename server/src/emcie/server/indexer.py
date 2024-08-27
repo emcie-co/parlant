@@ -176,13 +176,13 @@ class Indexer:
 
     def _read_index_file(self) -> dict[str, Any]:
         if self._index_file.exists() and self._index_file.stat().st_size > 0:
-            with open(self._index_file, "r") as f:
+            with self._index_file.open("r") as f:
                 data: dict[str, Any] = json.load(f)
                 return data
         return {}
 
     def _write_index_file(self, indexes: JSONSerializable) -> None:
-        with open(self._index_file, "w") as f:
+        with self._index_file.open("w") as f:
             json.dump(indexes, f, indent=2)
 
     async def should_index(self) -> bool:

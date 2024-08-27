@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# mypy: disable-error-code=import-untyped
 
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
@@ -19,6 +20,7 @@ from rich.text import Text
 from tabulate import tabulate
 import uvicorn
 
+from emcie.common.tools import ToolId
 from emcie.server.api.app import create_app
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
@@ -62,7 +64,7 @@ EMCIE_HOME_DIR = Path(os.environ.get("EMCIE_HOME", "/var/lib/emcie"))
 EMCIE_HOME_DIR.mkdir(parents=True, exist_ok=True)
 
 MULTIPLEXED_TOOL_SERVICE = MultiplexedToolService()
-TOOL_NAME_TO_ID: dict[str, str] = {}
+TOOL_NAME_TO_ID: dict[str, ToolId] = {}
 
 EXIT_STACK: AsyncExitStack
 
@@ -72,9 +74,11 @@ sys.path.append(EMCIE_HOME_DIR.as_posix())
 LOGGER = FileLogger(EMCIE_HOME_DIR / "emcie.log")
 LOGGER.info(f"Using home directory '{EMCIE_HOME_DIR.absolute()}'")
 
+
 class StartupError(Exception):
-    def __init__(self, message) -> None:
+    def __init__(self, message: str) -> None:
         super().__init__(message)
+
 
 @dataclass
 class CLIParams:
@@ -107,25 +111,25 @@ async def load_tools(c: Container, config: Any) -> None:
 
     for service in config["services"]:
         if service["type"] == "local":
-            for tool_name, tool in service["tools"].items():
+            for tool_name, tool_entry in service["tools"].items():
                 tool = await local_tool_service.create_tool(
-                    name=tool["function_name"],
-                    module_path=tool["module_path"],
-                    description=tool["description"],
-                    parameters=tool["parameters"],
-                    required=tool["required"],
+                    name=tool_entry["function_name"],
+                    module_path=tool_entry["module_path"],
+                    description=tool_entry["description"],
+                    parameters=tool_entry["parameters"],
+                    required=tool_entry["required"],
                     consequential=False,
                 )
 
                 TOOL_NAME_TO_ID[tool_name] = tool.id
         elif service["type"] == "plugin":
-            name = service["name"]
-            url = service["url"]
+            name = str(service["name"])
+            url = str(service["url"])
 
             client = PluginClient(url)
             await EXIT_STACK.enter_async_context(client)
 
-            MULTIPLEXED_TOOL_SERVICE.services[name] = client
+            MULTIPLEXED_TOOL_SERVICE.add_service(name, client)
 
 
 async def load_guidelines(c: Container, config: Any) -> None:
@@ -136,7 +140,6 @@ async def load_guidelines(c: Container, config: Any) -> None:
     agents = await agent_store.list_agents()
 
     for agent_name, guidelines in config["guidelines"].items():
-
         agent_id = next(a.id for a in agents if a.name == agent_name)
 
         for guideline_spec in guidelines:
@@ -149,7 +152,7 @@ async def load_guidelines(c: Container, config: Any) -> None:
             for tool_name in guideline_spec.get("enabled_tools", []):
                 await guideline_tool_association_store.create_association(
                     guideline_id=guideline.id,
-                    tool_id=TOOL_NAME_TO_ID.get(tool_name, tool_name),
+                    tool_id=TOOL_NAME_TO_ID.get(tool_name, ToolId(tool_name)),
                 )
 
 
@@ -170,24 +173,25 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
     c[Logger] = LOGGER
 
-    async with JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "agents.json"
-    ) as agents_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "context_variables.json"
-    ) as context_variables_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "end_users.json"
-    ) as end_users_db, JSONFileDocumentDatabase(
-        LOGGER,
-        EMCIE_HOME_DIR / "sessions.json",
-    ) as sessions_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "guidelines.json"
-    ) as guidelines_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "tools.json"
-    ) as tools_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "guideline_tool_associations.json"
-    ) as guideline_tool_associations_db, JSONFileDocumentDatabase(
-        LOGGER, EMCIE_HOME_DIR / "guideline_connections.json"
-    ) as guideline_connections_db:
+    async with (
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "agents.json") as agents_db,
+        JSONFileDocumentDatabase(
+            LOGGER, EMCIE_HOME_DIR / "context_variables.json"
+        ) as context_variables_db,
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "end_users.json") as end_users_db,
+        JSONFileDocumentDatabase(
+            LOGGER,
+            EMCIE_HOME_DIR / "sessions.json",
+        ) as sessions_db,
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guidelines.json") as guidelines_db,
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "tools.json") as tools_db,
+        JSONFileDocumentDatabase(
+            LOGGER, EMCIE_HOME_DIR / "guideline_tool_associations.json"
+        ) as guideline_tool_associations_db,
+        JSONFileDocumentDatabase(
+            LOGGER, EMCIE_HOME_DIR / "guideline_connections.json"
+        ) as guideline_connections_db,
+    ):
         c[AgentStore] = AgentDocumentStore(agents_db)
         c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
         c[EndUserStore] = EndUserDocumentStore(end_users_db)
@@ -229,7 +233,7 @@ async def load_app(params: CLIParams) -> AsyncIterator[FastAPI]:
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
-            )
+        )
 
         if not params.index:
             if params.force:
@@ -282,11 +286,11 @@ async def serve_app(
 async def start_server(params: CLIParams) -> None:
     assert ConfigurationFileValidator(LOGGER).validate(config_file=params.config_file)
 
-    last_config_update_time = os.path.getmtime(params.config_file)
+    last_config_update_time = params.config_file.stat().st_mtime
 
     async def config_file_changed() -> bool:
         nonlocal last_config_update_time
-        current_mtime = os.path.getmtime(params.config_file)
+        current_mtime = params.config_file.stat().st_mtime
 
         if current_mtime > last_config_update_time:
             validated = ConfigurationFileValidator(LOGGER).validate(config_file=params.config_file)
@@ -312,14 +316,14 @@ async def start_server(params: CLIParams) -> None:
 
                 with open(params.config_file) as f:
                     params.config = json.load(f)
-                    last_config_update_time = os.path.getmtime(params.config_file)
+                    last_config_update_time = params.config_file.stat().st_mtime
 
 
 async def check_coherence(params: CLIParams) -> None:
     def render_guideline(g: Guideline) -> str:
         return f"When {g.predicate}, then {g.content}"
 
-    checker = CoherenceChecker()
+    checker = CoherenceChecker(logger=LOGGER)
 
     for agent, guideline_specs in params.config["guidelines"].items():
         guidelines = [
@@ -385,7 +389,7 @@ if __name__ == "__main__":
 
             if not config_file_path.exists():
                 print(f"error: config file not found: {config_file_path}", file=sys.stderr)
-                exit(1)
+                sys.exit(1)
 
             with open(config_file_path, "r") as f:
                 config = json.load(f)
@@ -395,7 +399,7 @@ if __name__ == "__main__":
                     config=config,
                     port=DEFAULT_PORT,
                     index=False,
-                    force=True
+                    force=True,
                 )
 
     @cli.command(help="Run the Emcie server")
@@ -432,9 +436,9 @@ if __name__ == "__main__":
     @click.pass_context
     def check(ctx: click.Context) -> None:
         asyncio.run(check_coherence(ctx.obj))
+
     try:
         cli()
     except StartupError as e:
-            print(f"error: {e}", file=sys.stderr)
-            exit(1)
-
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)

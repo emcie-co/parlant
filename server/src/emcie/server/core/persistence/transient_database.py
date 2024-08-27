@@ -1,7 +1,12 @@
 from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence, Type
 from emcie.server.base_models import DefaultBaseModel
-from emcie.server.core.persistence.common import NoMatchingDocumentsError, ObjectId, Where, matches_filters
+from emcie.server.core.persistence.common import (
+    NoMatchingDocumentsError,
+    ObjectId,
+    Where,
+    matches_filters,
+)
 from emcie.server.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 

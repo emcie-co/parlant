@@ -6,16 +6,16 @@ import subprocess
 import sys
 from utils import die, for_each_package, Package, get_packages
 import re
-import toml
+import toml  # type: ignore
 
 
 def get_project_file(package: Package) -> Path:
     return package.path / "pyproject.toml"
 
 
-def get_current_version(package: Package) -> None:
+def get_current_version(package: Package) -> str:
     content = toml.load(get_project_file(package))
-    return content["tool"]["poetry"]["version"]
+    return str(content["tool"]["poetry"]["version"])
 
 
 def set_package_version(version: str, package: Package) -> None:
@@ -99,7 +99,7 @@ def there_are_pending_git_changes() -> bool:
     return status != 0
 
 
-def commit_version(version: str) -> None:
+def commit_version(version: str) -> bool:
     status, _ = subprocess.getstatusoutput(f"git commit -am 'Release {version}'")
     return status != 0
 

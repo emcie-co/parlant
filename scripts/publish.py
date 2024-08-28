@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import semver
 import sys
 import subprocess
 import toml  # type: ignore
@@ -13,11 +14,13 @@ def get_server_version() -> str:
     return version
 
 
-def publish_docker() -> None:
-    version = get_server_version()
+def run_command(args: list[str]) -> None:
+    cmd = " ".join(args)
+
+    print(f"Running {cmd}")
 
     build_process = subprocess.Popen(
-        args=["docker", "build", "-t", version, ".", "-f", "Dockerfile.server"],
+        args=args,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
@@ -25,7 +28,44 @@ def publish_docker() -> None:
     status = build_process.wait()
 
     if status != 0:
-        die("error: docker build failed")
+        die(f"error: command failed: {cmd}")
+
+
+def publish_docker() -> None:
+    version = get_server_version()
+    version_info = semver.parse_version_info(version)
+
+    tag_versions = [
+        f"v{version_info.major}",
+        f"v{version_info.major}.{version_info.minor}",
+        f"v{version_info.major}.{version_info.minor}.{version_info.patch}",
+        f"v{version_info.major}.{version_info.minor}.{version_info.patch}.{version_info.prerelease}",
+    ]
+
+    if not version_info.prerelease:
+        tag_versions.append("latest")
+
+    platforms = [
+        "linux/amd64",
+        "linux/arm64",
+    ]
+
+    for version in tag_versions:
+        run_command(
+            [
+                "docker",
+                "buildx",
+                "build",
+                "--platform",
+                ",".join(platforms),
+                "-t",
+                f"ghcr.io/emcie-co/emcie-server:{version}",
+                "-f",
+                "Dockerfile.server",
+                "--push",
+                ".",
+            ]
+        )
 
 
 def publish_package(package: Package) -> None:
@@ -47,5 +87,5 @@ def publish_package(package: Package) -> None:
 
 
 if __name__ == "__main__":
-    publish_docker()
     for_each_package(publish_package)
+    publish_docker()

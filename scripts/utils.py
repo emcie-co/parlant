@@ -74,11 +74,16 @@ def for_each_package(
     enter_dir: bool = True,
 ) -> None:
     for package in get_packages():
+        original_cwd = os.getcwd()
+
         if enter_dir:
             print(f"Entering {package.path}...")
             os.chdir(package.path)
 
-        f(package)
+        try:
+            f(package)
+        finally:
+            os.chdir(original_cwd)
 
 
 def die(message: str) -> NoReturn:

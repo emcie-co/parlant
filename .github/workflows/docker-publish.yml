@@ -9,17 +9,17 @@ on:
   schedule:
     - cron: '44 23 * * *'
   push:
-    branches: [ "main" ]
+    branches: [ "develop" ]
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "develop" ]
 
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
   # github.repository as <account>/<repo>
-  IMAGE_NAME: emcie-co/emcie
+  IMAGE_NAME: emcie-co/emcie-server
 
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=edge
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action

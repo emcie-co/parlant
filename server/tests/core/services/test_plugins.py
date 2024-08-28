@@ -22,6 +22,20 @@ async def test_that_a_plugin_with_no_configured_tools_returns_no_tools() -> None
             assert not tools
 
 
+async def test_that_a_decorated_tool_can_be_called_directly() -> None:
+    @tool
+    def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
+        """My tool's description"""
+        return ToolResult(arg_1 * (arg_2 or 0))
+
+    context = ToolContext()
+
+    assert my_tool(context, 2, None).data == 0
+    assert my_tool(context, 2, 1).data == 2
+    assert my_tool(context, 2, 2).data == 4
+    assert my_tool(context, arg_1=2, arg_2=3).data == 6
+
+
 async def test_that_a_plugin_with_one_configured_tool_returns_that_tool() -> None:
     @tool
     def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:

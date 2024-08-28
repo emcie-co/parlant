@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import inspect
 from types import TracebackType
@@ -70,9 +71,13 @@ ToolFunction = Union[
 ]
 
 
-class ToolEntry(NamedTuple):
+@dataclass(frozen=True)
+class ToolEntry:
     tool: Tool
     function: ToolFunction
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.function(*args, **kwargs)
 
 
 class _ToolDecoratorParams(TypedDict, total=False):
@@ -145,7 +150,7 @@ def _tool_decorator_impl(
     def decorator(func: ToolFunction) -> ToolEntry:
         _ensure_valid_tool_signature(func)
 
-        return ToolEntry(
+        entry = ToolEntry(
             tool=Tool(
                 id=ToolId(kwargs.get("id") or func.__qualname__),
                 creation_utc=datetime.now(timezone.utc),
@@ -157,6 +162,8 @@ def _tool_decorator_impl(
             ),
             function=func,
         )
+
+        return entry
 
     return decorator
 

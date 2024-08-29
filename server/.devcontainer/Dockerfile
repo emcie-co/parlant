@@ -42,4 +42,5 @@ RUN echo "Configuring Python environment" \
     && pyenv global ${PYTHON_VERSION} \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && poetry self update \
+    && poetry config virtualenvs.in-project false \
     && pip install ruff

@@ -36,14 +36,16 @@ def publish_docker() -> None:
     version_info = semver.parse_version_info(version)
 
     tag_versions = [
-        f"{version_info.major}",
-        f"{version_info.major}.{version_info.minor}",
-        f"{version_info.major}.{version_info.minor}.{version_info.patch}",
         f"{version_info.major}.{version_info.minor}.{version_info.patch}.{version_info.prerelease}",
     ]
 
     if not version_info.prerelease:
         tag_versions.append("latest")
+        tag_versions.append(f"{version_info.major}")
+        tag_versions.append(f"{version_info.major}.{version_info.minor}")
+        tag_versions.append(
+            f"{version_info.major}.{version_info.minor}.{version_info.patch}"
+        )
 
     platforms = [
         "linux/amd64",

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from typing import Awaitable, Callable
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from lagom import Container
 
@@ -22,6 +23,14 @@ async def create_app(container: Container) -> FastAPI:
     app = FastAPI()
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+    @app.middleware("http")
+    async def add_correlation_id(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        with logger.scope():
+            return await call_next(request)
 
     @app.exception_handler(ItemNotFoundError)
     async def item_not_found_error_handler(

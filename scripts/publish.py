@@ -40,12 +40,16 @@ def publish_docker() -> None:
     ]
 
     if not version_info.prerelease:
-        tag_versions.append("latest")
-        tag_versions.append(f"{version_info.major}")
-        tag_versions.append(f"{version_info.major}.{version_info.minor}")
-        tag_versions.append(
-            f"{version_info.major}.{version_info.minor}.{version_info.patch}"
-        )
+        tag_versions = [
+            "latest",
+            f"{version_info.major}",
+            f"{version_info.major}.{version_info.minor}",
+            f"{version_info.major}.{version_info.minor}.{version_info.patch}",
+        ]
+    else:
+        tag_versions = [
+            f"{version_info.major}.{version_info.minor}.{version_info.patch}.{version_info.prerelease}",
+        ]
 
     platforms = [
         "linux/amd64",

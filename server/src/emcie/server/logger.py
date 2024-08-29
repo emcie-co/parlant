@@ -1,11 +1,14 @@
 from abc import ABC
+import logging.handlers
 from pathlib import Path
-from loguru import logger
+import coloredlogs  # type: ignore
+import logging
 
 
 class Logger(ABC):
     def __init__(self) -> None:
-        self.logger = logger
+        self.logger = logging.getLogger("emcie")
+        self.logger.setLevel(logging.DEBUG)
 
     def debug(self, message: str) -> None:
         self.logger.debug(message)
@@ -26,19 +29,21 @@ class Logger(ABC):
 class StdoutLogger(Logger):
     def __init__(self) -> None:
         super().__init__()
-        # self.logger.remove()
-        # self.logger.add(lambda msg: print(msg, end=""))
+        coloredlogs.install(level="DEBUG", logger=self.logger)
 
 
 class FileLogger(Logger):
     def __init__(self, log_file_path: Path) -> None:
         super().__init__()
-        logger.remove()
-        logger.add(lambda msg: print(msg, end=""))
-        self.logger.add(
-            log_file_path,
-            rotation="500 MB",
-            retention="10 days",
-            compression="zip",
-            level="DEBUG",
+        formatter = logging.Formatter(
+            "%(asctime)s %(name)s[P=%(process)d; T=%(thread)d] %(levelname)s  %(message)s"
         )
+
+        handlers: list[logging.Handler] = [
+            logging.FileHandler(log_file_path),
+            logging.StreamHandler(),
+        ]
+
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)

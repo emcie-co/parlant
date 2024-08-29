@@ -35,8 +35,8 @@ tokenizers = "^0.19.1"
 httpx = "^0.27.0"
 openapi3-parser = "^1.1.17"
 aiopenapi3 = "^0.6.0"
-op-log = "^0.21.0"
 coloredlogs = "^15.0.1"
+contextvars = "^2.4"
 
 
 [tool.poetry.group.dev.dependencies]

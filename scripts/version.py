@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 from functools import partial
 from pathlib import Path
-import semver
+import semver  # type: ignore
 import subprocess
 import sys
 from utils import die, for_each_package, Package, get_packages

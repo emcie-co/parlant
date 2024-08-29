@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import semver
+import semver  # type: ignore
 import sys
 import subprocess
 import toml  # type: ignore

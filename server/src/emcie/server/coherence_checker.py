@@ -12,7 +12,6 @@ from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.guidelines import Guideline, GuidelineId
 from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.logger import Logger
-from emcie.server.utils import duration_logger
 
 CoherenceContradictionId = NewType("CoherenceContradictionId", str)
 
@@ -109,9 +108,8 @@ class ContradictionEvaluatorBase(ABC):
                     for batch in guideline_batches
                 ]
             )
-        with duration_logger(
-            logger=self.logger,
-            operation_name=f"Evaluating {self.contradiction_type} for {len(tasks)} "
+        with self.logger.operation(
+            f"Evaluating {self.contradiction_type} for {len(tasks)} "
             f"batches (batch size={EVALUATION_BATCH_SIZE})",
         ):
             contradictions = list(chain.from_iterable(await asyncio.gather(*tasks)))

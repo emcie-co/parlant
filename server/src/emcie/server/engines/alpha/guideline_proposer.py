@@ -14,7 +14,6 @@ from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.engines.common import ProducedEvent
 from emcie.server.logger import Logger
-from emcie.server.utils import duration_logger
 
 
 class GuidelineProposer:
@@ -40,7 +39,7 @@ class GuidelineProposer:
 
         batches = self._create_batches(guidelines, batch_size=5)
 
-        with duration_logger(self.logger, f"Total guideline proposal ({len(batches)} batches)"):
+        with self.logger.operation(f"Total guideline proposal ({len(batches)} batches)"):
             batch_tasks = [
                 self._process_batch(
                     agents,
@@ -91,7 +90,7 @@ class GuidelineProposer:
             guidelines=batch,
         )
 
-        with duration_logger(self.logger, "Guideline batch proposal"):
+        with self.logger.operation("Guideline batch proposal"):
             llm_response = await self._generate_llm_response(prompt)
 
         propositions_json = json.loads(llm_response)["checks"]

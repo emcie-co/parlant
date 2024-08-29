@@ -36,50 +36,53 @@ class MessageEventProducer:
     ) -> Sequence[ProducedEvent]:
         assert len(agents) == 1
 
-        if (
-            not interaction_history
-            and not ordinary_guideline_propositions
-            and not tool_enabled_guideline_propositions
-        ):
-            # No interaction and no guidelines that could trigger
-            # a proactive start of the interaction
-            self.logger.debug("Skipping response; interaction is empty and there are no guidelines")
-            return []
-
-        self.logger.debug(
-            f'Guidelines applied: {json.dumps([{
-                "predicate": p.guideline.predicate,
-                "content": p.guideline.content,
-                "rationale": p.rationale,
-                "score": p.score}
-            for p in  chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions.keys())], indent=2)}'
-        )
-
-        prompt = self._format_prompt(
-            agents=agents,
-            context_variables=context_variables,
-            interaction_history=interaction_history,
-            terms=terms,
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
-            staged_events=staged_events,
-        )
-
-        self.logger.debug(f"Message generation prompt: \n{prompt}")
-
-        if response_message := await self._generate_response_message(prompt):
-            self.logger.debug(f'Message production result: "{response_message}"')
-            return [
-                ProducedEvent(
-                    source="server",
-                    kind=Event.MESSAGE_KIND,
-                    data={"message": response_message},
+        with self.logger.operation("Message production"):
+            if (
+                not interaction_history
+                and not ordinary_guideline_propositions
+                and not tool_enabled_guideline_propositions
+            ):
+                # No interaction and no guidelines that could trigger
+                # a proactive start of the interaction
+                self.logger.debug(
+                    "Skipping response; interaction is empty and there are no guidelines"
                 )
-            ]
-        else:
-            self.logger.debug("Skipping response; no response deemed necessary")
+                return []
 
-        return []
+            self.logger.debug(
+                f'Guidelines applied: {json.dumps([{
+                    "predicate": p.guideline.predicate,
+                    "content": p.guideline.content,
+                    "rationale": p.rationale,
+                    "score": p.score}
+                for p in  chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions.keys())], indent=2)}'
+            )
+
+            prompt = self._format_prompt(
+                agents=agents,
+                context_variables=context_variables,
+                interaction_history=interaction_history,
+                terms=terms,
+                ordinary_guideline_propositions=ordinary_guideline_propositions,
+                tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+                staged_events=staged_events,
+            )
+
+            self.logger.debug(f"Message generation prompt: \n{prompt}")
+
+            if response_message := await self._generate_response_message(prompt):
+                self.logger.debug(f'Message production result: "{response_message}"')
+                return [
+                    ProducedEvent(
+                        source="server",
+                        kind=Event.MESSAGE_KIND,
+                        data={"message": response_message},
+                    )
+                ]
+            else:
+                self.logger.debug("Skipping response; no response deemed necessary")
+
+            return []
 
     def _format_prompt(
         self,

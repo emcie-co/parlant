@@ -10,7 +10,6 @@ from emcie.server.core.guideline_connections import ConnectionKind
 from emcie.server.core.guidelines import Guideline, GuidelineId
 from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.logger import Logger
-from emcie.server.utils import duration_logger
 
 
 @dataclass(frozen=True)
@@ -63,8 +62,7 @@ class GuidelineConnectionProposer:
                 ]
             )
 
-        with duration_logger(
-            self.logger,
+        with self.logger.operation(
             f"Propose guideline connections for {len(connection_proposition_tasks)} "  # noqa
             f"batches (batch size={self._batch_size})",
         ):
@@ -74,8 +72,7 @@ class GuidelineConnectionProposer:
             [asyncio.create_task(self._classify_connections(batch)) for batch in propositions]
         )
 
-        with duration_logger(
-            self.logger,
+        with self.logger.operation(
             f"Determine connections propositions for {len(connection_kind_classification_tasks)} "  # noqa
             f"batches (batch size={self._batch_size})",
         ):
@@ -274,7 +271,7 @@ Connection Propositions Found:
         return f"""
 
 - Task:
-Determine the type of connection (suggests or entails) between the source and target guidelines in each connection proposition. 
+Determine the type of connection (suggests or entails) between the source and target guidelines in each connection proposition.
 For each connection found.
 
 - Input: ###

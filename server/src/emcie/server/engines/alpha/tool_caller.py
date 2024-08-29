@@ -21,7 +21,6 @@ from emcie.server.engines.common import (
     ProducedEvent,
 )
 from emcie.server.logger import Logger
-from emcie.server.utils import duration_logger
 
 ToolCallId = NewType("ToolCallId", str)
 ToolResultId = NewType("ToolResultId", str)
@@ -79,7 +78,7 @@ class ToolCaller:
             staged_events,
         )
 
-        with duration_logger(self.logger, "Tool classification"):
+        with self.logger.operation("Tool classification"):
             inference_output = await self._run_inference(inference_prompt)
 
         tool_calls_that_need_to_run = [
@@ -103,7 +102,7 @@ class ToolCaller:
     ) -> Sequence[ToolCallResult]:
         tools_by_name = {t.name: t for t in tools}
 
-        with duration_logger(self.logger, "Tool calls"):
+        with self.logger.operation("Tool calls"):
             tool_results = await asyncio.gather(
                 *(
                     self._run_tool(

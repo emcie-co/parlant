@@ -69,6 +69,7 @@ class EventDTO(DefaultBaseModel):
 
 
 class ListEventsResponse(DefaultBaseModel):
+    session_id: SessionId
     events: list[EventDTO]
 
 
@@ -187,6 +188,7 @@ def create_router(
         )
 
         return ListEventsResponse(
+            session_id=session_id,
             events=[
                 EventDTO(
                     id=e.id,

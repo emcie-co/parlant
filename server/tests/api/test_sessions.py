@@ -5,7 +5,6 @@ from fastapi import status
 from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
-from itertools import count
 
 from emcie.server.core.agents import AgentId
 from emcie.server.core.sessions import EventSource, SessionId, SessionStore
@@ -303,11 +302,12 @@ async def test_that_events_can_be_listed(
     response = client.get(f"/sessions/{session_id}/events")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert "events" in data
+
+    assert data["session_id"] == session_id
 
     assert len(data["events"]) == len(session_events)
 
-    for i, event_params, listed_event in zip(count(), session_events, data["events"]):
+    for i, (event_params, listed_event) in enumerate(zip(session_events, data["events"])):
         assert listed_event["offset"] == i
         assert event_is_according_to_params(event=listed_event, params=event_params)
 

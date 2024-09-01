@@ -4,6 +4,7 @@ from typing import Any, cast
 from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
+from datetime import datetime, timezone
 
 from emcie.common.tools import Tool, ToolId
 from emcie.server.core.agents import AgentId, AgentStore
@@ -101,8 +102,10 @@ def given_an_empty_session(
     agent_id: AgentId,
 ) -> SessionId:
     store = container[SessionStore]
+    utc_now = datetime.now(timezone.utc)
     session = sync_await(
         store.create_session(
+            creation_utc=utc_now,
             end_user_id=EndUserId("test_user"),
             agent_id=agent_id,
         )

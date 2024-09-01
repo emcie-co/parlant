@@ -1,7 +1,7 @@
+from datetime import datetime, timezone
 from typing import Any, Optional, Union
-from fastapi import APIRouter, HTTPException, Query, Response, status
-from datetime import datetime
 
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import Field
 
 from emcie.server.async_utils import Timeout
@@ -28,6 +28,7 @@ class CreateSessionRequest(DefaultBaseModel):
 class CreateSessionResponse(DefaultBaseModel):
     session_id: SessionId
     title: Optional[str] = None
+    creation_utc: datetime
 
 
 class CreateMessageRequest(DefaultBaseModel):
@@ -47,6 +48,7 @@ class ConsumptionOffsetsDTO(DefaultBaseModel):
 class SessionDTO(DefaultBaseModel):
     session_id: SessionId
     end_user_id: EndUserId
+    creation_utc: datetime
     consumption_offsets: ConsumptionOffsetsDTO
     title: Optional[str] = None
 
@@ -91,13 +93,16 @@ def create_router(
         allow_greeting: bool = Query(default=True),
     ) -> CreateSessionResponse:
         session = await mc.create_end_user_session(
+            creation_utc=datetime.now(timezone.utc),
             end_user_id=request.end_user_id,
             agent_id=request.agent_id,
             title=request.title,
             allow_greeting=allow_greeting,
         )
 
-        return CreateSessionResponse(session_id=session.id, title=session.title)
+        return CreateSessionResponse(
+            session_id=session.id, title=session.title, creation_utc=session.creation_utc
+        )
 
     @router.get("/{session_id}")
     async def read_session(session_id: SessionId) -> SessionDTO:
@@ -105,6 +110,7 @@ def create_router(
 
         return SessionDTO(
             session_id=session.id,
+            creation_utc=session.creation_utc,
             title=session.title,
             end_user_id=session.end_user_id,
             consumption_offsets=ConsumptionOffsetsDTO(
@@ -120,6 +126,7 @@ def create_router(
             sessions=[
                 SessionDTO(
                     session_id=s.id,
+                    creation_utc=s.creation_utc,
                     title=s.title,
                     end_user_id=s.end_user_id,
                     consumption_offsets=ConsumptionOffsetsDTO(

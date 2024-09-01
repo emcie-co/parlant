@@ -73,6 +73,7 @@ ConsumerId: TypeAlias = Literal["client"]
 @dataclass(frozen=True)
 class Session:
     id: SessionId
+    creation_utc: datetime
     end_user_id: EndUserId
     agent_id: AgentId
     title: Optional[str]
@@ -83,6 +84,7 @@ class SessionStore(ABC):
     @abstractmethod
     async def create_session(
         self,
+        creation_utc: datetime,
         end_user_id: EndUserId,
         agent_id: AgentId,
         title: Optional[str] = None,
@@ -143,6 +145,7 @@ class SessionStore(ABC):
 class SessionDocumentStore(SessionStore):
     class SessionDocument(DefaultBaseModel):
         id: SessionId
+        creation_utc: datetime
         end_user_id: EndUserId
         agent_id: AgentId
         title: Optional[str] = None
@@ -170,6 +173,7 @@ class SessionDocumentStore(SessionStore):
 
     async def create_session(
         self,
+        creation_utc: datetime,
         end_user_id: EndUserId,
         agent_id: AgentId,
         title: Optional[str] = None,
@@ -178,6 +182,7 @@ class SessionDocumentStore(SessionStore):
 
         document = {
             "id": generate_id(),
+            "creation_utc": creation_utc,
             "end_user_id": end_user_id,
             "agent_id": agent_id,
             "consumption_offsets": consumption_offsets,
@@ -190,6 +195,7 @@ class SessionDocumentStore(SessionStore):
 
         return Session(
             id=SessionId(session_id),
+            creation_utc=creation_utc,
             end_user_id=end_user_id,
             agent_id=agent_id,
             consumption_offsets=consumption_offsets,
@@ -218,6 +224,7 @@ class SessionDocumentStore(SessionStore):
 
         return Session(
             id=session_document["id"],
+            creation_utc=session_document["creation_utc"],
             end_user_id=session_document["end_user_id"],
             agent_id=session_document["agent_id"],
             consumption_offsets=session_document["consumption_offsets"],
@@ -334,6 +341,7 @@ class SessionDocumentStore(SessionStore):
         return [
             Session(
                 id=SessionId(s["id"]),
+                creation_utc=s["creation_utc"],
                 end_user_id=EndUserId(s["end_user_id"]),
                 agent_id=AgentId(s["agent_id"]),
                 consumption_offsets=s["consumption_offsets"],

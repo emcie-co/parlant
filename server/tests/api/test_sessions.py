@@ -1,5 +1,6 @@
 import time
 from typing import Any, Callable, Optional
+import dateutil
 from fastapi.testclient import TestClient
 from fastapi import status
 from lagom import Container
@@ -187,6 +188,33 @@ def test_that_a_session_can_be_created_with_title(
 
     assert "session_id" in data
     assert data["title"] == title
+
+
+def test_that_session_has_meaningful_creation_utc(
+    client: TestClient,
+    agent_id: AgentId,
+) -> None:
+    time_before_creation = datetime.now(timezone.utc)
+
+    response = client.post(
+        "/sessions",
+        json={
+            "end_user_id": "test_user",
+            "agent_id": agent_id,
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+
+    assert "creation_utc" in data
+    creation_utc = dateutil.parser.isoparse(data["creation_utc"])
+
+    time_after_creation = datetime.now(timezone.utc)
+
+    assert time_before_creation <= creation_utc <= time_after_creation, (
+        f"Expected creation_utc to be between {time_before_creation} and {time_after_creation}, "
+        f"but got {creation_utc}."
+    )
 
 
 def test_that_sessions_can_be_listed(

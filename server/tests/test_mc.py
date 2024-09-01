@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from lagom import Container
 from pytest import fixture
+from datetime import datetime, timezone
 
 from emcie.server.async_utils import Timeout
 from emcie.server.mc import MC
@@ -61,7 +62,9 @@ async def session(
     agent_id: AgentId,
 ) -> Session:
     store = container[SessionStore]
+    utc_now = datetime.now(timezone.utc)
     session = await store.create_session(
+        creation_utc=utc_now,
         end_user_id=end_user_id,
         agent_id=agent_id,
     )
@@ -79,7 +82,9 @@ async def test_that_a_new_end_user_session_can_be_created(
     context: _TestContext,
     agent_id: AgentId,
 ) -> None:
+    utc_now = datetime.now(timezone.utc)
     created_session = await context.mc.create_end_user_session(
+        creation_utc=utc_now,
         end_user_id=context.end_user_id,
         agent_id=agent_id,
     )
@@ -95,7 +100,9 @@ async def test_that_a_new_user_session_with_a_proactive_agent_contains_a_message
     context: _TestContext,
     proactive_agent_id: AgentId,
 ) -> None:
+    utc_now = datetime.now(timezone.utc)
     session = await context.mc.create_end_user_session(
+        creation_utc=utc_now,
         end_user_id=context.end_user_id,
         agent_id=proactive_agent_id,
     )

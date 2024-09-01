@@ -155,6 +155,7 @@ class MC:
 
     async def create_end_user_session(
         self,
+        creation_utc: datetime,
         end_user_id: EndUserId,
         agent_id: AgentId,
         title: Optional[str] = None,
@@ -163,6 +164,7 @@ class MC:
         await self._collect_garbage()
 
         session = await self._session_store.create_session(
+            creation_utc=creation_utc,
             end_user_id=end_user_id,
             agent_id=agent_id,
             title=title,

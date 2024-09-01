@@ -65,8 +65,10 @@ def given_an_empty_session(
     context: _TestContext,
 ) -> SessionId:
     store = context.container[SessionStore]
+    utc_now = datetime.now(timezone.utc)
     session = context.sync_await(
         store.create_session(
+            creation_utc=utc_now,
             end_user_id=EndUserId("test_user"),
             agent_id=context.agent_id,
         )

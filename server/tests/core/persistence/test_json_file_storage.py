@@ -110,7 +110,9 @@ async def test_session_creation(
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as session_db:
         session_store = SessionDocumentStore(session_db)
         end_user_id = EndUserId("test_user")
+        utc_now = datetime.now(timezone.utc)
         session = await session_store.create_session(
+            creation_utc=utc_now,
             end_user_id=end_user_id,
             agent_id=context.agent_id,
         )
@@ -135,7 +137,9 @@ async def test_event_creation(
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as session_db:
         session_store = SessionDocumentStore(session_db)
         end_user_id = EndUserId("test_user")
+        utc_now = datetime.now(timezone.utc)
         session = await session_store.create_session(
+            creation_utc=utc_now,
             end_user_id=end_user_id,
             agent_id=context.agent_id,
         )

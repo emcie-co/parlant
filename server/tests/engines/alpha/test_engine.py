@@ -3,6 +3,7 @@ from typing import Callable, cast
 from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
+from datetime import datetime, timezone
 
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
@@ -44,9 +45,10 @@ def new_session(
     agent_id: AgentId,
 ) -> Session:
     store = container[SessionStore]
-
+    utc_now = datetime.now(timezone.utc)
     return sync_await(
         store.create_session(
+            creation_utc=utc_now,
             end_user_id=EndUserId("test_user"),
             agent_id=agent_id,
         )

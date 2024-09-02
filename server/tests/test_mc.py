@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from lagom import Container
 from pytest import fixture
@@ -8,6 +9,7 @@ from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId, EndUserStore
 from emcie.server.core.guidelines import GuidelineStore
 from emcie.server.core.sessions import Event, Session, SessionStore
+from tests.test_utilities import nlp_test
 
 REASONABLE_AMOUNT_OF_TIME = 10
 
@@ -145,3 +147,30 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
         min_offset=event.offset,
         timeout=Timeout.none(),
     )
+
+
+async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_one_message_is_produced_as_a_reply_to_the_last_message(
+    context: _TestContext,
+    session: Session,
+) -> None:
+    messages = [
+        "What are bananas?",
+        "Scratch that; what are apples?",
+        "Actually scratch that too. What are pineapples?",
+    ]
+
+    for m in messages:
+        await context.mc.post_client_event(
+            session_id=session.id,
+            kind=Event.MESSAGE_KIND,
+            data={"message": m},
+        )
+
+        await asyncio.sleep(1)
+
+    await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+    events = list(await context.container[SessionStore].list_events(session.id))
+
+    assert len(events) == 4
+    assert nlp_test(str(events[-1].data), "It talks about pineapples")

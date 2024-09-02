@@ -1,4 +1,5 @@
 from abc import ABC
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 import time
@@ -57,6 +58,9 @@ class Logger(ABC):
                 self.info(f"OPERATION {name} [{props}] finished in {t_end - t_start}s")
             else:
                 self.info(f"OPERATION {name} finished in {round(t_end - t_start, 3)} seconds")
+        except asyncio.CancelledError:
+            self.error(f"OPERATION {name} cancelled")
+            raise
         except Exception as exc:
             self.error(f"OPERATION {name} failed")
             self.error(" ".join(traceback.format_exception(exc)))

@@ -25,7 +25,7 @@ def events_to_json(events: Sequence[Event]) -> str:
 
 def event_to_dict(event: Event) -> dict[str, Any]:
     return {
-        "id": event.id,
+        "event_id": event.event_id,
         "kind": event.kind,
         "source": {
             "client": "user",

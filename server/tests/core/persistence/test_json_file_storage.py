@@ -122,7 +122,7 @@ async def test_session_creation(
 
     assert len(sessions_from_json["sessions"]) == 1
     json_session = sessions_from_json["sessions"][0]
-    assert json_session["id"] == session.id
+    assert json_session["session_id"] == session.session_id
     assert json_session["end_user_id"] == end_user_id
     assert json_session["agent_id"] == context.agent_id
     assert json_session["consumption_offsets"] == {
@@ -145,7 +145,7 @@ async def test_event_creation(
         )
 
         event = await session_store.create_event(
-            session_id=session.id,
+            session_id=session.session_id,
             source="client",
             kind="message",
             correlation_id="test_correlation_id",

@@ -62,7 +62,7 @@ class PatchSessionRequest(DefaultBaseModel):
 
 
 class EventDTO(DefaultBaseModel):
-    id: EventId
+    event_id: EventId
     source: EventSource
     kind: str
     offset: int
@@ -176,7 +176,7 @@ def create_router(
         )
 
         return CreateEventResponse(
-            event_id=event.id,
+            event_id=event.event_id,
             event_offset=event.offset,
         )
 
@@ -207,7 +207,7 @@ def create_router(
             session_id=session_id,
             events=[
                 EventDTO(
-                    id=e.id,
+                    event_id=e.event_id,
                     source=e.source,
                     kind=e.kind,
                     offset=e.offset,

@@ -203,7 +203,7 @@ class MC:
         new_offset: int,
     ) -> None:
         await self._session_store.update_consumption_offset(
-            session.id,
+            session.session_id,
             consumer_id="client",
             new_offset=new_offset,
         )

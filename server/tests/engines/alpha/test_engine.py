@@ -409,7 +409,7 @@ def given_an_empty_session(
     container: Container,
     new_session: Session,
 ) -> SessionId:
-    return new_session.id
+    return new_session.session_id
 
 
 @given("a session with a single user message", target_fixture="session_id")
@@ -422,7 +422,7 @@ def given_a_session_with_a_single_user_message(
 
     sync_await(
         store.create_event(
-            session_id=new_session.id,
+            session_id=new_session.session_id,
             source="client",
             kind="message",
             correlation_id="test_correlation_id",
@@ -430,7 +430,7 @@ def given_a_session_with_a_single_user_message(
         )
     )
 
-    return new_session.id
+    return new_session.session_id
 
 
 @given("a session with a thirsty user", target_fixture="session_id")
@@ -443,7 +443,7 @@ def given_a_session_with_a_thirsty_user(
 
     sync_await(
         store.create_event(
-            session_id=new_session.id,
+            session_id=new_session.session_id,
             source="client",
             kind="message",
             correlation_id="test_correlation_id",
@@ -451,7 +451,7 @@ def given_a_session_with_a_thirsty_user(
         )
     )
 
-    return new_session.id
+    return new_session.session_id
 
 
 @given("a session with a few messages", target_fixture="session_id")
@@ -480,7 +480,7 @@ def given_a_session_with_a_few_messages(
     for m in messages:
         sync_await(
             store.create_event(
-                session_id=new_session.id,
+                session_id=new_session.session_id,
                 source=m["source"] == "server" and "server" or "client",
                 kind="message",
                 correlation_id="test_correlation_id",
@@ -488,7 +488,7 @@ def given_a_session_with_a_few_messages(
             )
         )
 
-    return new_session.id
+    return new_session.session_id
 
 
 @when("processing is triggered", target_fixture="emitted_events")

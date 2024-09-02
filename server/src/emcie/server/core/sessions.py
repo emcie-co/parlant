@@ -162,7 +162,7 @@ class SessionDocumentStore(SessionStore):
         consumption_offsets: dict[ConsumerId, int]
 
     class EventDocument(DefaultBaseModel):
-        id: EventId
+        event_id: EventId
         creation_utc: datetime
         session_id: SessionId
         source: EventSource
@@ -219,9 +219,9 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
     ) -> Optional[SessionId]:
         events_to_delete = await self.list_events(session_id=session_id)
-        asyncio.gather(*iter(self.delete_event(event_id=e.id) for e in events_to_delete))
+        asyncio.gather(*iter(self.delete_event(event_id=e.event_id) for e in events_to_delete))
 
-        await self._session_collection.delete_one({"id": {"$eq": session_id}})
+        await self._session_collection.delete_one({"session_id": {"$eq": session_id}})
 
         return session_id
 
@@ -231,7 +231,7 @@ class SessionDocumentStore(SessionStore):
     ) -> Session:
         try:
             session_document = await self._session_collection.find_one(
-                filters={"id": {"$eq": session_id}}
+                filters={"session_id": {"$eq": session_id}}
             )
         except NoMatchingDocumentsError:
             raise ItemNotFoundError(item_id=UniqueId(session_id))
@@ -251,7 +251,7 @@ class SessionDocumentStore(SessionStore):
         updated_session: Session,
     ) -> None:
         await self._session_collection.update_one(
-            filters={"id": {"$eq": session_id}},
+            filters={"session_id": {"$eq": session_id}},
             updated_document=updated_session.__dict__,
         )
 
@@ -275,7 +275,7 @@ class SessionDocumentStore(SessionStore):
         creation_utc: Optional[datetime] = None,
     ) -> Event:
         try:
-            await self._session_collection.find_one(filters={"id": {"$eq": session_id}})
+            await self._session_collection.find_one(filters={"session_id": {"$eq": session_id}})
         except NoMatchingDocumentsError:
             raise ItemNotFoundError(item_id=UniqueId(session_id))
 
@@ -285,7 +285,7 @@ class SessionDocumentStore(SessionStore):
 
         event_id = await self._event_collection.insert_one(
             document={
-                "id": generate_id(),
+                "event_id": generate_id(),
                 "session_id": session_id,
                 "source": source,
                 "kind": kind,
@@ -297,7 +297,7 @@ class SessionDocumentStore(SessionStore):
         )
 
         return Event(
-            id=EventId(event_id),
+            event_id=EventId(event_id),
             source=source,
             kind=kind,
             offset=offset,
@@ -311,7 +311,7 @@ class SessionDocumentStore(SessionStore):
         event_id: EventId,
     ) -> None:
         try:
-            await self._event_collection.delete_one(filters={"id": {"$eq": event_id}})
+            await self._event_collection.delete_one(filters={"event_id": {"$eq": event_id}})
         except NoMatchingDocumentsError:
             raise ItemNotFoundError(item_id=UniqueId(event_id))
 
@@ -322,13 +322,13 @@ class SessionDocumentStore(SessionStore):
         min_offset: Optional[int] = None,
     ) -> Sequence[Event]:
         try:
-            await self._session_collection.find_one(filters={"id": {"$eq": session_id}})
+            await self._session_collection.find_one(filters={"session_id": {"$eq": session_id}})
         except NoMatchingDocumentsError:
             raise ItemNotFoundError(item_id=UniqueId(session_id))
 
         return [
             Event(
-                id=EventId(d["id"]),
+                event_id=EventId(d["event_id"]),
                 source=d["source"],
                 kind=d["kind"],
                 offset=d["offset"],

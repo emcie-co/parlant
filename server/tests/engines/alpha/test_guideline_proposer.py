@@ -72,7 +72,7 @@ def create_event_message(
     message: str,
 ) -> Event:
     event = Event(
-        event_id=EventId(generate_id()),
+        id=EventId(generate_id()),
         source=source,
         kind="message",
         offset=offset,

@@ -110,7 +110,7 @@ def given_an_empty_session(
             agent_id=agent_id,
         )
     )
-    return session.session_id
+    return session.id
 
 
 @given(parsers.parse('a context variable "{variable_name}" with a value of "{variable_value}"'))
@@ -428,7 +428,7 @@ def given_a_user_message(
 
     sync_await(
         store.create_event(
-            session_id=session.session_id,
+            session_id=session.id,
             source="client",
             kind="message",
             correlation_id="test_correlation_id",
@@ -436,7 +436,7 @@ def given_a_user_message(
         )
     )
 
-    return session.session_id
+    return session.id
 
 
 @given(
@@ -454,7 +454,7 @@ def given_a_server_message(
 
     sync_await(
         store.create_event(
-            session_id=session.session_id,
+            session_id=session.id,
             source="server",
             kind="message",
             correlation_id="test_correlation_id",
@@ -462,7 +462,7 @@ def given_a_server_message(
         )
     )
 
-    return session.session_id
+    return session.id
 
 
 @given(
@@ -480,7 +480,7 @@ def given_a_session_with_tool_event(
 
     sync_await(
         store.create_event(
-            session_id=session.session_id,
+            session_id=session.id,
             source="server",
             kind="tool",
             correlation_id="test_correlation_id",
@@ -488,7 +488,7 @@ def given_a_session_with_tool_event(
         )
     )
 
-    return session.session_id
+    return session.id
 
 
 @when("processing is triggered", target_fixture="emitted_events")

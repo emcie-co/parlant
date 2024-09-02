@@ -73,7 +73,7 @@ def given_an_empty_session(
             agent_id=context.agent_id,
         )
     )
-    return session.session_id
+    return session.id
 
 
 @given(parsers.parse('a user message, "{user_message}"'), target_fixture="session_id")
@@ -88,7 +88,7 @@ def given_a_user_message(
     context.intercations_history.append(
         context.sync_await(
             store.create_event(
-                session_id=session.session_id,
+                session_id=session.id,
                 source="client",
                 kind="message",
                 correlation_id="test_correlation_id",
@@ -97,7 +97,7 @@ def given_a_user_message(
         )
     )
 
-    return session.session_id
+    return session.id
 
 
 @given(parsers.parse("a guideline {guideline_name}, to {do_something} when {a_condition_holds}"))

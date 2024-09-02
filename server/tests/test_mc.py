@@ -90,7 +90,7 @@ async def test_that_a_new_end_user_session_can_be_created(
     )
 
     session_in_db = await context.container[SessionStore].read_session(
-        created_session.session_id,
+        created_session.id,
     )
 
     assert created_session == session_in_db
@@ -108,12 +108,12 @@ async def test_that_a_new_user_session_with_a_proactive_agent_contains_a_message
     )
 
     assert await context.mc.wait_for_update(
-        session_id=session.session_id,
+        session_id=session.id,
         min_offset=0,
         timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
     )
 
-    events = list(await context.container[SessionStore].list_events(session.session_id))
+    events = list(await context.container[SessionStore].list_events(session.id))
 
     assert len(events) == 1
 
@@ -129,12 +129,12 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     )
 
     await context.mc.wait_for_update(
-        session_id=session.session_id,
+        session_id=session.id,
         min_offset=1 + event.offset,
         timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
     )
 
-    events = list(await context.container[SessionStore].list_events(session.session_id))
+    events = list(await context.container[SessionStore].list_events(session.id))
 
     assert len(events) > 1
 

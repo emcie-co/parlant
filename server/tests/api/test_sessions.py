@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from emcie.common.tools import ToolId, ToolResult
 from emcie.server.core.agents import AgentId
+from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guideline_tool_associations import GuidelineToolAssociationStore
 from emcie.server.core.guidelines import GuidelineStore
 from emcie.server.core.sessions import EventSource, SessionId, SessionStore
@@ -177,12 +178,9 @@ def test_that_a_session_can_be_created_with_title(
 
     response = client.post(
         "/sessions",
-        json={
-            "end_user_id": "test_user",
-            "agent_id": agent_id,
-            "title": title,
-        },
+        json={"end_user_id": "test_user", "agent_id": agent_id, "title": title},
     )
+
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
@@ -515,7 +513,7 @@ def test_that_posting_a_message_elicits_a_response(
         .json()["events"]
     )
 
-    assert events_in_session
+    assert events_in_session, "No events found in session."
 
 
 def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(

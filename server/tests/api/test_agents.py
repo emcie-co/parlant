@@ -40,5 +40,6 @@ def test_that_an_agent_can_be_created_with_description(
     data = response.json()
 
     assert len(data["agents"]) == 1
-    assert data["agents"][0]["name"] == "test-agent"
-    assert data["agents"][0]["description"] == "You are a test agent"
+    first_agent = data["agents"][0]
+    assert first_agent["name"] == "test-agent"
+    assert first_agent["description"] == "You are a test agent"

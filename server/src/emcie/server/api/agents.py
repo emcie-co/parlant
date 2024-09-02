@@ -7,7 +7,7 @@ from emcie.server.core.agents import AgentId, AgentStore
 
 
 class AgentDTO(DefaultBaseModel):
-    id: AgentId
+    agent_id: AgentId
     name: str
     description: Optional[str]
     creation_utc: datetime
@@ -49,7 +49,7 @@ def create_router(
         return ListAgentsResponse(
             agents=[
                 AgentDTO(
-                    id=a.id,
+                    agent_id=a.id,
                     name=a.name,
                     description=a.description,
                     creation_utc=a.creation_utc,

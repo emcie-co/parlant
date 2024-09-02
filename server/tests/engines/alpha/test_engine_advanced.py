@@ -65,7 +65,7 @@ def agent_id(
     return agent.id
 
 
-@given("the alpha engine", target_fixture="engine")
+@given("the alpha engine", target_fixture="engine", stacklevel=0)
 def given_the_alpha_engine(
     container: Container,
 ) -> AlphaEngine:

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Callable, cast
 from lagom import Container
 from pytest import fixture
@@ -493,6 +494,29 @@ def when_processing_is_triggered(
     )
 
     return list(events)
+
+
+@when("processing is triggered and cancelled in the middle", target_fixture="produced_events")
+def when_processing_is_triggered_and_cancelled_in_the_middle(
+    sync_await: SyncAwaiter,
+    engine: AlphaEngine,
+    agent_id: AgentId,
+    session_id: SessionId,
+) -> list[ProducedEvent]:
+    processing_task = sync_await.event_loop.create_task(
+        engine.process(
+            Context(
+                session_id=session_id,
+                agent_id=agent_id,
+            )
+        )
+    )
+
+    sync_await(asyncio.sleep(1))
+
+    processing_task.cancel()
+
+    return list(sync_await(processing_task))
 
 
 @then("no events are produced")

@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from itertools import chain
 import json
@@ -59,6 +60,15 @@ class AlphaEngine(Engine):
         self.message_event_producer = MessageEventProducer(logger=self.logger)
 
     async def process(
+        self,
+        context: Context,
+    ) -> Sequence[ProducedEvent]:
+        try:
+            return await self._do_process(context)
+        except asyncio.CancelledError:
+            return []
+
+    async def _do_process(
         self,
         context: Context,
     ) -> Sequence[ProducedEvent]:

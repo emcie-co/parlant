@@ -39,3 +39,12 @@ Feature: Alpha Engine
         When processing is triggered
         Then a single message event is produced
         And the message contains a welcome to the pizza place
+
+    Scenario: Message generation is cancelled
+        Given the alpha engine
+        And an agent whose job is to sell pizza
+        And an empty session
+        And a user message, "Hi"
+        And a guideline to do your job when the user says hello
+        When processing is triggered and cancelled in the middle
+        Then no events are produced

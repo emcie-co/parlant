@@ -53,8 +53,7 @@ class GuidelineProposer:
             ]
             batch_results = await asyncio.gather(*batch_tasks)
             propositions = sum(batch_results, [])
-
-        return propositions
+            return propositions
 
     def _create_batches(
         self,

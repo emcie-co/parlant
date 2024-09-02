@@ -60,9 +60,11 @@ class Logger(ABC):
         except Exception as exc:
             self.error(f"OPERATION {name} failed")
             self.error(" ".join(traceback.format_exception(exc)))
+            raise
         except BaseException as exc:
             self.error(f"OPERATION {name} failed with critical error")
             self.critical(" ".join(traceback.format_exception(exc)))
+            raise
 
     def _add_scopes(self, message: str) -> str:
         if scopes := self.scopes.get():

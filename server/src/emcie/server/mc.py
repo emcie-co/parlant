@@ -9,9 +9,45 @@ from lagom import Container
 from emcie.server.async_utils import Timeout
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
-from emcie.server.core.sessions import Event, Session, SessionId, SessionListener, SessionStore
-from emcie.server.engines.common import Context, Engine, ProducedEvent
+from emcie.server.core.sessions import (
+    Event,
+    Session,
+    SessionId,
+    SessionListener,
+    SessionStore,
+    ToolCallResult,
+)
+from emcie.server.engines.common import Context, Engine
+from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
 from emcie.server.logger import Logger
+
+
+class EventBuffer(EventEmitter):
+    def __init__(self) -> None:
+        self.events: list[EmittedEvent] = []
+
+    async def emit_message(self, message: str) -> EmittedEvent:
+        event = EmittedEvent(
+            source="server",
+            kind=Event.MESSAGE_KIND,
+            data={"message": message},
+        )
+
+        self.events.append(event)
+
+        return event
+
+    async def emit_tool_results(self, results: Sequence[ToolCallResult]) -> EmittedEvent:
+        event = EmittedEvent(
+            source="server",
+            kind=Event.TOOL_KIND,
+            data={"tool_results": list(results)},  # type: ignore
+        )
+
+        self.events.append(event)
+
+        return event
+
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
 
@@ -148,22 +184,25 @@ class MC:
             )
 
     async def _process_session(self, session: Session) -> None:
-        produced_events = await self._engine.process(
-            context=Context(
+        emitter = EventBuffer()
+
+        await self._engine.process(
+            Context(
                 session_id=session.id,
                 agent_id=session.agent_id,
-            )
+            ),
+            emitter,
         )
 
         await self._add_events_to_session(
             session_id=session.id,
-            events=produced_events,
+            events=emitter.events,
         )
 
     async def _add_events_to_session(
         self,
         session_id: SessionId,
-        events: Sequence[ProducedEvent],
+        events: Sequence[EmittedEvent],
     ) -> None:
         utc_now = datetime.now(timezone.utc)
 

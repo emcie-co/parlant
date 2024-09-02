@@ -14,9 +14,9 @@ from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     context_variables_to_json,
     events_to_json,
-    produced_tool_events_to_dicts,
+    emitted_tool_events_to_dicts,
 )
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 
 
 class BuiltInSection(Enum):
@@ -288,13 +288,13 @@ The following are the tool function definitions: ###
 
     def add_staged_events(
         self,
-        events: Sequence[ProducedEvent],
+        events: Sequence[EmittedEvent],
     ) -> PromptBuilder:
         if events:
             # FIXME: The following is a code-smell. We can't assume staged_events
             #        is necessarily only composed of tool events.
             #        Also, produced_tool_events_to_dict() is an oddball of a function.
-            staged_events_as_dict = produced_tool_events_to_dicts(events)
+            staged_events_as_dict = emitted_tool_events_to_dicts(events)
 
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,

@@ -7,11 +7,12 @@ from pytest_bdd import scenarios, given, when, then, parsers
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
 from emcie.server.engines.alpha.engine import AlphaEngine
-from emcie.server.engines.common import Context, ProducedEvent
+from emcie.server.engines.common import Context
+from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import Event, MessageEventData, Session, SessionId, SessionStore
 
-from tests.test_utilities import SyncAwaiter, nlp_test
+from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
 scenarios(
     "engines/alpha/vanilla_agent.feature",
@@ -483,17 +484,20 @@ def when_processing_is_triggered(
     engine: AlphaEngine,
     agent_id: AgentId,
     session_id: SessionId,
-) -> list[ProducedEvent]:
-    events = sync_await(
+) -> list[EmittedEvent]:
+    event_buffer = EventBuffer()
+
+    sync_await(
         engine.process(
             Context(
                 session_id=session_id,
                 agent_id=agent_id,
-            )
+            ),
+            event_buffer,
         )
     )
 
-    return list(events)
+    return event_buffer.events
 
 
 @when("processing is triggered and cancelled in the middle", target_fixture="produced_events")
@@ -502,13 +506,16 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
     engine: AlphaEngine,
     agent_id: AgentId,
     session_id: SessionId,
-) -> list[ProducedEvent]:
+) -> list[EmittedEvent]:
+    event_buffer = EventBuffer()
+
     processing_task = sync_await.event_loop.create_task(
         engine.process(
             Context(
                 session_id=session_id,
                 agent_id=agent_id,
-            )
+            ),
+            event_buffer,
         )
     )
 
@@ -516,26 +523,28 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
 
     processing_task.cancel()
 
-    return list(sync_await(processing_task))
+    assert not sync_await(processing_task)
+
+    return event_buffer.events
 
 
 @then("no events are produced")
 def then_no_events_are_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert len(produced_events) == 0
 
 
 @then("a single message event is produced")
 def then_a_single_message_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message_event = next(e for e in produced_events if e.kind == Event.MESSAGE_KIND)

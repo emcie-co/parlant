@@ -11,7 +11,7 @@ from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import Event, MessageEventData, SessionId, SessionStore
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 
 from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter, nlp_test
@@ -135,7 +135,7 @@ def given_a_guideline_proposition(
 @when("messages are produced", target_fixture="produced_events")
 def when_processing_is_triggered(
     context: _TestContext,
-) -> list[ProducedEvent]:
+) -> list[EmittedEvent]:
     agents = [
         Agent(
             id=AgentId("123"),
@@ -164,7 +164,7 @@ def when_processing_is_triggered(
 
 @then(parsers.parse("the message should contain {something}"))
 def then_the_message_contains(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message = cast(MessageEventData, produced_events[-1].data)["message"]

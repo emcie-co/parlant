@@ -42,14 +42,14 @@ class ToolResult(TypedDict):
     metadata: Mapping[str, JSONSerializable]
 
 
-class _ToolCallResult(TypedDict):
+class ToolCallResult(TypedDict):
     tool_name: str
     arguments: dict[str, object]
     result: ToolResult
 
 
 class ToolEventData(TypedDict):
-    tool_results: list[_ToolCallResult]
+    tool_results: list[ToolCallResult]
 
 
 ConsumerId = Literal["client"]

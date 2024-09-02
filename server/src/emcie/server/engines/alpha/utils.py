@@ -5,7 +5,7 @@ from openai import AsyncClient
 
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, ToolEventData
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 
 
 def make_llm_client(provider: Literal["openai", "together"]) -> AsyncClient:
@@ -49,16 +49,16 @@ def context_variables_to_json(
     return json.dumps(context_values)
 
 
-def produced_tool_events_to_dicts(
-    produced_events: Sequence[ProducedEvent],
+def emitted_tool_events_to_dicts(
+    events: Sequence[EmittedEvent],
 ) -> list[dict[str, Any]]:
-    return [produced_tool_event_to_dict(e) for e in produced_events]
+    return [emitted_tool_event_to_dict(e) for e in events]
 
 
-def produced_tool_event_to_dict(produced_event: ProducedEvent) -> dict[str, Any]:
-    assert produced_event.kind == Event.TOOL_KIND
+def emitted_tool_event_to_dict(event: EmittedEvent) -> dict[str, Any]:
+    assert event.kind == Event.TOOL_KIND
 
     return {
-        "kind": produced_event.kind,
-        "data": cast(ToolEventData, produced_event.data)["tool_results"],
+        "kind": event.kind,
+        "data": cast(ToolEventData, event.data)["tool_results"],
     }

@@ -2,7 +2,7 @@ import asyncio
 from collections import defaultdict
 from itertools import chain
 import json
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence, cast
 
 from emcie.common.tools import Tool
 from emcie.server.logger import Logger
@@ -24,9 +24,16 @@ from emcie.server.core.guideline_tool_associations import (
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.core.terminology import Term, TerminologyStore
 from emcie.server.engines.alpha.utils import context_variables_to_json
-from emcie.server.engines.common import Context, Engine, ProducedEvent
+from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
+from emcie.server.engines.common import Context, Engine
 from emcie.server.core.guidelines import Guideline, GuidelineStore
-from emcie.server.core.sessions import Event, SessionId, SessionStore
+from emcie.server.core.sessions import (
+    Event,
+    MessageEventData,
+    SessionId,
+    SessionStore,
+    ToolEventData,
+)
 
 
 class AlphaEngine(Engine):
@@ -62,16 +69,19 @@ class AlphaEngine(Engine):
     async def process(
         self,
         context: Context,
-    ) -> Sequence[ProducedEvent]:
+        event_emitter: EventEmitter,
+    ) -> bool:
         try:
-            return await self._do_process(context)
+            await self._do_process(context, event_emitter)
+            return True
         except asyncio.CancelledError:
-            return []
+            return False
 
     async def _do_process(
         self,
         context: Context,
-    ) -> Sequence[ProducedEvent]:
+        event_emitter: EventEmitter,
+    ) -> None:
         agent = await self.agent_store.read_agent(context.agent_id)
         interaction_history = list(await self.session_store.list_events(context.session_id))
 
@@ -88,7 +98,7 @@ class AlphaEngine(Engine):
             )
         )
 
-        all_tool_events: list[ProducedEvent] = []
+        all_tool_events: list[EmittedEvent] = []
         tool_call_iterations = 0
 
         while True:
@@ -152,7 +162,13 @@ class AlphaEngine(Engine):
             staged_events=all_tool_events,
         )
 
-        return list(chain(all_tool_events, message_events))
+        for e in all_tool_events:
+            tool_data = cast(ToolEventData, e.data)
+            await event_emitter.emit_tool_results(tool_data["tool_results"])
+
+        for e in message_events:
+            message_data = cast(MessageEventData, e.data)
+            await event_emitter.emit_message(message_data["message"])
 
     async def _load_context_variables(
         self,
@@ -183,7 +199,7 @@ class AlphaEngine(Engine):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> tuple[Sequence[GuidelineProposition], Mapping[GuidelineProposition, Sequence[Tool]]]:
         all_relevant_guidelines = await self._fetch_guideline_propositions(
             agents=agents,
@@ -209,7 +225,7 @@ class AlphaEngine(Engine):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> Sequence[GuidelineProposition]:
         assert len(agents) == 1
 
@@ -343,7 +359,7 @@ class AlphaEngine(Engine):
         context_variables: Optional[Sequence[tuple[ContextVariable, ContextVariableValue]]] = None,
         interaction_history: Optional[Sequence[Event]] = None,
         propositions: Optional[Sequence[GuidelineProposition]] = None,
-        staged_events: Optional[Sequence[ProducedEvent]] = None,
+        staged_events: Optional[Sequence[EmittedEvent]] = None,
     ) -> Sequence[Term]:
         assert len(agents) == 1
 

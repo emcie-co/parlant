@@ -16,10 +16,8 @@ from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
-from emcie.server.engines.alpha.utils import make_llm_client, produced_tool_events_to_dicts
-from emcie.server.engines.common import (
-    ProducedEvent,
-)
+from emcie.server.engines.alpha.utils import make_llm_client, emitted_tool_events_to_dicts
+from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.logger import Logger
 
 ToolCallId = NewType("ToolCallId", str)
@@ -66,7 +64,7 @@ class ToolCaller:
         terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> Sequence[ToolCall]:
         inference_prompt = self._format_tool_call_inference_prompt(
             agents,
@@ -123,7 +121,7 @@ class ToolCaller:
         terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> str:
         assert len(agents) == 1
 
@@ -244,10 +242,10 @@ Note that the `tool_call_evaluations` list can be empty if no functions need to 
 
     def _get_invoked_functions(
         self,
-        produced_events: Sequence[ProducedEvent],
+        produced_events: Sequence[EmittedEvent],
     ) -> Optional[str]:
         ordered_function_invocations = list(
-            chain(*[e["data"] for e in produced_tool_events_to_dicts(produced_events)])
+            chain(*[e["data"] for e in emitted_tool_events_to_dicts(produced_events)])
         )
 
         if not ordered_function_invocations:

@@ -1,9 +1,12 @@
 import asyncio
 import os
 from textwrap import dedent
-from typing import Any, Awaitable, Generator, TypeVar
+from typing import Any, Awaitable, Generator, Sequence, TypeVar
 from openai import Client
 import tiktoken
+
+from emcie.server.core.sessions import Event, ToolCallResult
+from emcie.server.engines.event_emitter import EmittedEvent, EventEmitter
 
 
 T = TypeVar("T")
@@ -19,6 +22,33 @@ class SyncAwaiter:
 
     def __call__(self, awaitable: Generator[Any, None, T] | Awaitable[T]) -> T:
         return self.event_loop.run_until_complete(awaitable)  # type: ignore
+
+
+class EventBuffer(EventEmitter):
+    def __init__(self) -> None:
+        self.events: list[EmittedEvent] = []
+
+    async def emit_message(self, message: str) -> EmittedEvent:
+        event = EmittedEvent(
+            source="server",
+            kind=Event.MESSAGE_KIND,
+            data={"message": message},
+        )
+
+        self.events.append(event)
+
+        return event
+
+    async def emit_tool_results(self, results: Sequence[ToolCallResult]) -> EmittedEvent:
+        event = EmittedEvent(
+            source="server",
+            kind=Event.TOOL_KIND,
+            data={"tool_results": list(results)},  # type: ignore
+        )
+
+        self.events.append(event)
+
+        return event
 
 
 def nlp_test(context: str, predicate: str) -> bool:

@@ -20,8 +20,9 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,
     GuidelineToolAssociationStore,
 )
-from emcie.server.engines.alpha.utils import produced_tool_event_to_dict
-from emcie.server.engines.common import Context, ProducedEvent
+from emcie.server.engines.alpha.utils import emitted_tool_event_to_dict
+from emcie.server.engines.common import Context
+from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import (
     Event,
@@ -32,7 +33,7 @@ from emcie.server.core.sessions import (
 )
 
 from tests import tool_utilities
-from tests.test_utilities import SyncAwaiter, nlp_test
+from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
 scenarios(
     "engines/alpha/tools/single_tool_event.feature",
@@ -492,29 +493,32 @@ def when_processing_is_triggered(
     engine: AlphaEngine,
     agent_id: AgentId,
     session_id: SessionId,
-) -> list[ProducedEvent]:
-    events = sync_await(
+) -> list[EmittedEvent]:
+    buffer = EventBuffer()
+
+    sync_await(
         engine.process(
             Context(
                 session_id=session_id,
                 agent_id=agent_id,
-            )
+            ),
+            buffer,
         )
     )
 
-    return list(events)
+    return buffer.events
 
 
 @then("no tool calls event is produced")
 def then_no_tools_events_are_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert 0 == len([e for e in produced_events if e.kind == Event.TOOL_KIND])
 
 
 @then("a single tool calls event is produced")
 def then_a_single_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert 1 == len([e for e in produced_events if e.kind == Event.TOOL_KIND])
 
@@ -522,7 +526,7 @@ def then_a_single_tool_event_is_produced(
 @then(parsers.parse("the tool calls event contains {number_of_tool_calls:d} tool call(s)"))
 def then_the_tool_calls_event_contains_n_tool_calls(
     number_of_tool_calls: int,
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
     assert number_of_tool_calls == len(cast(ToolEventData, tool_calls_event.data)["tool_results"])
@@ -531,7 +535,7 @@ def then_the_tool_calls_event_contains_n_tool_calls(
 @then(parsers.parse("the tool calls event contains {expected_content}"))
 def then_the_tool_calls_event_contains_expected_content(
     expected_content: str,
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
     tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_results"]
@@ -549,11 +553,11 @@ def then_the_tool_calls_event_contains_expected_content(
     )
 )
 def then_drinks_available_in_stock_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     tool_id: ToolId,
     tool_event_number: int,
 ) -> None:
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
 
     tool_event_functions = {
         "tool_id": tool_utilities.get_available_drinks,
@@ -574,7 +578,7 @@ def then_drinks_available_in_stock_tool_event_is_produced(
     )
 )
 def then_product_availability_for_toppings_and_drinks_tools_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     product_type: str,
     tool_event_number: int,
 ) -> None:
@@ -582,7 +586,7 @@ def then_product_availability_for_toppings_and_drinks_tools_event_is_produced(
         "drinks": tool_utilities.get_available_drinks,
         "toppings": tool_utilities.get_available_toppings,
     }
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
     assert {
         "tool_name": "get_available_product_by_type",
         "parameters": {"product_type": product_type},
@@ -597,12 +601,12 @@ def then_product_availability_for_toppings_and_drinks_tools_event_is_produced(
     )
 )
 def then_add_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     first_num: int,
     second_num: int,
     tool_event_number: int,
 ) -> None:
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
 
     assert {
         "tool_name": "add",
@@ -621,12 +625,12 @@ def then_add_tool_event_is_produced(
     )
 )
 def then_multiply_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     first_num: int,
     second_num: int,
     tool_event_number: int,
 ) -> None:
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
 
     assert {
         "tool_name": "multiply",
@@ -645,11 +649,11 @@ def then_multiply_tool_event_is_produced(
     )
 )
 def then_get_balance_account_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     name: str,
     tool_event_number: int,
 ) -> None:
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
 
     assert {
         "tool_name": "get_account_balance",
@@ -665,11 +669,11 @@ def then_get_balance_account_tool_event_is_produced(
     "in tool event number {tool_event_number:d}"
 )
 def then_get_account_loans_tool_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     name: str,
     tool_event_number: int,
 ) -> None:
-    results = produced_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
+    results = emitted_tool_event_to_dict(produced_events[tool_event_number - 1])["data"]
 
     assert {
         "tool_name": "get_account_loans",
@@ -682,7 +686,7 @@ def then_get_account_loans_tool_event_is_produced(
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message = cast(MessageEventData, produced_events[-1].data)["message"]
@@ -695,13 +699,13 @@ def then_the_message_contains(
 
 @then("no events are produced")
 def then_no_events_are_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert len(produced_events) == 0
 
 
 @then("a single message event is produced")
 def then_a_single_message_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1

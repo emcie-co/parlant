@@ -12,7 +12,7 @@ from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositio
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.tool_caller import ToolCaller
 from emcie.server.engines.alpha.utils import make_llm_client
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 
 
 class ToolEventProducer:
@@ -34,8 +34,8 @@ class ToolEventProducer:
         terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
-        staged_events: Sequence[ProducedEvent],
-    ) -> Sequence[ProducedEvent]:
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[EmittedEvent]:
         assert len(agents) == 1
 
         produced_events = []
@@ -81,7 +81,7 @@ class ToolEventProducer:
         }
 
         produced_events.append(
-            ProducedEvent(
+            EmittedEvent(
                 source="server",
                 kind=Event.TOOL_KIND,
                 data=cast(JSONSerializable, data),

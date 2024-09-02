@@ -12,7 +12,7 @@ from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.logger import Logger
 
 
@@ -32,7 +32,7 @@ class GuidelineProposer:
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> Sequence[GuidelineProposition]:
         if not guidelines:
             return []
@@ -76,7 +76,7 @@ class GuidelineProposer:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
         terms: Sequence[Term],
         batch: Sequence[Guideline],
     ) -> list[GuidelineProposition]:
@@ -122,7 +122,7 @@ class GuidelineProposer:
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
         terms: Sequence[Term],
         guidelines: Sequence[Guideline],
     ) -> str:

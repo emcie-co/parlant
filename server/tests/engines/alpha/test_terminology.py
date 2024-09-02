@@ -16,9 +16,10 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from emcie.server.core.terminology import TerminologyStore
-from emcie.server.engines.common import Context, ProducedEvent
+from emcie.server.engines.common import Context
+from emcie.server.engines.event_emitter import EmittedEvent
 
-from tests.test_utilities import SyncAwaiter, nlp_test
+from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
 roles = Literal["client", "server"]
 
@@ -486,29 +487,32 @@ def when_processing_is_triggered(
     context: _TestContext,
     engine: AlphaEngine,
     session_id: SessionId,
-) -> list[ProducedEvent]:
-    events = context.sync_await(
+) -> list[EmittedEvent]:
+    buffer = EventBuffer()
+
+    context.sync_await(
         engine.process(
             Context(
                 session_id=session_id,
                 agent_id=context.agent_id,
-            )
+            ),
+            buffer,
         )
     )
 
-    return list(events)
+    return buffer.events
 
 
 @then("a single message event is produced")
 def then_a_single_message_event_is_produced(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
 ) -> None:
     assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
-    produced_events: list[ProducedEvent],
+    produced_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message = cast(MessageEventData, produced_events[-1].data)["message"]

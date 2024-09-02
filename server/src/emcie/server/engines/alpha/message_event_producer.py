@@ -11,7 +11,7 @@ from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.utils import (
     make_llm_client,
 )
-from emcie.server.engines.common import ProducedEvent
+from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.sessions import Event
 from emcie.server.logger import Logger
 
@@ -32,8 +32,8 @@ class MessageEventProducer:
         terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
-        staged_events: Sequence[ProducedEvent],
-    ) -> Sequence[ProducedEvent]:
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[EmittedEvent]:
         assert len(agents) == 1
 
         with self.logger.operation("Message production"):
@@ -73,7 +73,7 @@ class MessageEventProducer:
             if response_message := await self._generate_response_message(prompt):
                 self.logger.debug(f'Message production result: "{response_message}"')
                 return [
-                    ProducedEvent(
+                    EmittedEvent(
                         source="server",
                         kind=Event.MESSAGE_KIND,
                         data={"message": response_message},
@@ -92,7 +92,7 @@ class MessageEventProducer:
         terms: Sequence[Term],
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[Tool]],
-        staged_events: Sequence[ProducedEvent],
+        staged_events: Sequence[EmittedEvent],
     ) -> str:
         assert len(agents) == 1
 

@@ -27,8 +27,8 @@ class CreateSessionRequest(DefaultBaseModel):
 
 class CreateSessionResponse(DefaultBaseModel):
     session_id: SessionId
-    title: Optional[str] = None
     creation_utc: datetime
+    title: Optional[str] = None
 
 
 class CreateMessageRequest(DefaultBaseModel):

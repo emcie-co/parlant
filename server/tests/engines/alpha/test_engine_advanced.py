@@ -709,3 +709,13 @@ def then_a_single_message_event_is_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
     assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
+
+
+@then("the tool calls event is correlated with the message event")
+def then_the_tool_calls_event_is_correlated_with_the_message_event(
+    produced_events: list[EmittedEvent],
+) -> None:
+    message_event = next(e for e in produced_events if e.kind == Event.MESSAGE_KIND)
+    tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
+
+    assert message_event.correlation_id == tool_calls_event.correlation_id

@@ -2,6 +2,7 @@ from itertools import chain
 from typing import Mapping, Sequence, cast
 
 from emcie.common.tools import Tool
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable
@@ -19,9 +20,11 @@ class ToolEventProducer:
     def __init__(
         self,
         logger: Logger,
+        correlator: ContextualCorrelator,
         tool_service: ToolService,
     ) -> None:
         self.logger = logger
+        self.correlator = correlator
 
         self._llm_client = make_llm_client("openai")
         self.tool_caller = ToolCaller(logger, tool_service)
@@ -84,6 +87,7 @@ class ToolEventProducer:
             EmittedEvent(
                 source="server",
                 kind=Event.TOOL_KIND,
+                correlation_id=self.correlator.correlation_id,
                 data=cast(JSONSerializable, data),
             )
         )

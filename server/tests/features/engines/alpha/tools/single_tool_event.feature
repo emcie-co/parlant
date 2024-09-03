@@ -128,3 +128,14 @@ Feature: Single Tool Event
         When processing is triggered
         Then a single message event is produced
         And the message contains an apology for missing data
+
+    Scenario: The tool call is correlated with the message with which it was generated
+        Given a guideline "sell_pizza", to sell pizza when interacting with users
+        And a guideline "check_stock", to check if toppings or drinks are available in stock when a client asks for toppings or drinks
+        And the tool "get_available_product_by_type"
+        And an association between "check_stock" and "get_available_product_by_type"
+        And a user message, "Hey, Can I order large pepperoni pizza with Sprite?"
+        When processing is triggered
+        Then a single tool calls event is produced
+        And a single message event is produced
+        And the tool calls event is correlated with the message event

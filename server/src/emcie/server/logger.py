@@ -6,11 +6,10 @@ import time
 import traceback
 from typing import Any, Iterator
 import coloredlogs  # type: ignore
-import contextvars
 import logging
 import logging.handlers
 
-from emcie.server.core.common import generate_id
+from emcie.server.contextual_correlator import ContextualCorrelator
 
 
 class CustomFormatter(logging.Formatter, ABC):
@@ -21,32 +20,26 @@ class CustomFormatter(logging.Formatter, ABC):
 
 
 class Logger(ABC):
-    def __init__(self) -> None:
+    def __init__(self, correlator: ContextualCorrelator) -> None:
+        self._correlator = correlator
         self.logger = logging.getLogger("emcie")
         self.logger.setLevel(logging.DEBUG)
         self.formatter = CustomFormatter()
-        self.scopes = contextvars.ContextVar[list[str]]("scopes", default=[])
 
     def debug(self, message: str) -> None:
-        self.logger.debug(self._add_scopes(message))
+        self.logger.debug(self._add_correlation_id(message))
 
     def info(self, message: str) -> None:
-        self.logger.info(self._add_scopes(message))
+        self.logger.info(self._add_correlation_id(message))
 
     def warning(self, message: str) -> None:
-        self.logger.warning(self._add_scopes(message))
+        self.logger.warning(self._add_correlation_id(message))
 
     def error(self, message: str) -> None:
-        self.logger.error(self._add_scopes(message))
+        self.logger.error(self._add_correlation_id(message))
 
     def critical(self, message: str) -> None:
-        self.logger.critical(self._add_scopes(message))
-
-    @contextmanager
-    def scope(self) -> Iterator[None]:
-        self.scopes.get().append(generate_id())
-        yield
-        self.scopes.get().pop()
+        self.logger.critical(self._add_correlation_id(message))
 
     @contextmanager
     def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
@@ -70,23 +63,19 @@ class Logger(ABC):
             self.critical(" ".join(traceback.format_exception(exc)))
             raise
 
-    def _add_scopes(self, message: str) -> str:
-        if scopes := self.scopes.get():
-            chained_scopes = ".".join(scopes)
-            return f"[{chained_scopes}] {message}"
-        else:
-            return message
+    def _add_correlation_id(self, message: str) -> str:
+        return f"[{self._correlator.correlation_id}] {message}"
 
 
 class StdoutLogger(Logger):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, correlator: ContextualCorrelator) -> None:
+        super().__init__(correlator)
         coloredlogs.install(level="DEBUG", logger=self.logger)
 
 
 class FileLogger(Logger):
-    def __init__(self, log_file_path: Path) -> None:
-        super().__init__()
+    def __init__(self, log_file_path: Path, correlator: ContextualCorrelator) -> None:
+        super().__init__(correlator)
 
         handlers: list[logging.Handler] = [
             logging.FileHandler(log_file_path),

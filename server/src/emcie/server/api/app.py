@@ -5,8 +5,9 @@ from lagom import Container
 
 from emcie.server.api import agents
 from emcie.server.api import sessions
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentStore
-from emcie.server.core.common import ItemNotFoundError
+from emcie.server.core.common import ItemNotFoundError, generate_id
 from emcie.server.core.sessions import SessionListener, SessionStore
 from emcie.server.logger import Logger
 from emcie.server.mc import MC
@@ -14,7 +15,7 @@ from emcie.server.mc import MC
 
 async def create_app(container: Container) -> FastAPI:
     logger = container[Logger]
-
+    correlator = container[ContextualCorrelator]
     agent_store = container[AgentStore]
     session_store = container[SessionStore]
     session_listener = container[SessionListener]
@@ -29,7 +30,8 @@ async def create_app(container: Container) -> FastAPI:
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        with logger.scope():
+        with correlator.correlation_scope(generate_id()):
+            logger.info(f"{request.method} {request.url.path}")
             return await call_next(request)
 
     @app.exception_handler(ItemNotFoundError)

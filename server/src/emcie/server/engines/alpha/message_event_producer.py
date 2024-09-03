@@ -3,6 +3,7 @@ import json
 from typing import Mapping, Optional, Sequence
 
 from emcie.common.tools import Tool
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
@@ -20,8 +21,10 @@ class MessageEventProducer:
     def __init__(
         self,
         logger: Logger,
+        correlator: ContextualCorrelator,
     ) -> None:
         self.logger = logger
+        self.correlator = correlator
         self._llm_client = make_llm_client("openai")
 
     async def produce_events(
@@ -76,6 +79,7 @@ class MessageEventProducer:
                     EmittedEvent(
                         source="server",
                         kind=Event.MESSAGE_KIND,
+                        correlation_id=self.correlator.correlation_id,
                         data={"message": response_message},
                     )
                 ]

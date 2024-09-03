@@ -5,6 +5,7 @@ from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
 
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guidelines import Guideline, GuidelineStore
@@ -145,7 +146,10 @@ def when_processing_is_triggered(
         )
     ]
 
-    message_event_producer = MessageEventProducer(context.container[Logger])
+    message_event_producer = MessageEventProducer(
+        context.container[Logger],
+        context.container[ContextualCorrelator],
+    )
 
     message_events = context.sync_await(
         message_event_producer.produce_events(

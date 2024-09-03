@@ -22,6 +22,7 @@ import uvicorn
 
 from emcie.common.tools import ToolId
 from emcie.server.api.app import create_app
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
@@ -71,7 +72,8 @@ EXIT_STACK: AsyncExitStack
 sys.path.append(EMCIE_HOME_DIR.as_posix())
 
 
-LOGGER = FileLogger(EMCIE_HOME_DIR / "emcie.log")
+CORRELATOR = ContextualCorrelator()
+LOGGER = FileLogger(EMCIE_HOME_DIR / "emcie.log", CORRELATOR)
 LOGGER.info(f"Using home directory '{EMCIE_HOME_DIR.absolute()}'")
 
 
@@ -171,6 +173,7 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
     c = Container()
 
+    c[ContextualCorrelator] = CORRELATOR
     c[Logger] = LOGGER
 
     async with (

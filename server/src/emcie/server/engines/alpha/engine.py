@@ -5,6 +5,8 @@ import json
 from typing import Mapping, Optional, Sequence, cast
 
 from emcie.common.tools import Tool
+from emcie.server.contextual_correlator import ContextualCorrelator
+from emcie.server.core.common import generate_id
 from emcie.server.logger import Logger
 
 from emcie.server.core.agents import Agent, AgentId, AgentStore
@@ -40,6 +42,7 @@ class AlphaEngine(Engine):
     def __init__(
         self,
         logger: Logger,
+        correlator: ContextualCorrelator,
         agent_store: AgentStore,
         session_store: SessionStore,
         context_variable_store: ContextVariableStore,
@@ -50,6 +53,7 @@ class AlphaEngine(Engine):
         guideline_tool_association_store: GuidelineToolAssociationStore,
     ) -> None:
         self.logger = logger
+        self.correlator = correlator
 
         self.agent_store = agent_store
         self.session_store = session_store
@@ -62,9 +66,13 @@ class AlphaEngine(Engine):
 
         self.max_tool_call_iterations = 5
 
-        self.guideline_proposer = GuidelineProposer(logger=self.logger)
-        self.tool_event_producer = ToolEventProducer(self.logger, self.tool_service)
-        self.message_event_producer = MessageEventProducer(logger=self.logger)
+        self.guideline_proposer = GuidelineProposer(self.logger)
+        self.tool_event_producer = ToolEventProducer(
+            self.logger,
+            self.correlator,
+            self.tool_service,
+        )
+        self.message_event_producer = MessageEventProducer(self.logger, self.correlator)
 
     async def process(
         self,
@@ -72,7 +80,8 @@ class AlphaEngine(Engine):
         event_emitter: EventEmitter,
     ) -> bool:
         try:
-            await self._do_process(context, event_emitter)
+            with self.correlator.correlation_scope(generate_id()):
+                await self._do_process(context, event_emitter)
             return True
         except asyncio.CancelledError:
             return False
@@ -164,11 +173,17 @@ class AlphaEngine(Engine):
 
         for e in all_tool_events:
             tool_data = cast(ToolEventData, e.data)
-            await event_emitter.emit_tool_results(tool_data["tool_results"])
+            await event_emitter.emit_tool_results(
+                self.correlator.correlation_id,
+                tool_data["tool_results"],
+            )
 
         for e in message_events:
             message_data = cast(MessageEventData, e.data)
-            await event_emitter.emit_message(message_data["message"])
+            await event_emitter.emit_message(
+                self.correlator.correlation_id,
+                message_data["message"],
+            )
 
     async def _load_context_variables(
         self,

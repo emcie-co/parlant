@@ -26,10 +26,15 @@ class EventBuffer(EventEmitter):
     def __init__(self) -> None:
         self.events: list[EmittedEvent] = []
 
-    async def emit_message(self, message: str) -> EmittedEvent:
+    async def emit_message(
+        self,
+        correlation_id: str,
+        message: str,
+    ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
             kind=Event.MESSAGE_KIND,
+            correlation_id=correlation_id,
             data={"message": message},
         )
 
@@ -37,10 +42,15 @@ class EventBuffer(EventEmitter):
 
         return event
 
-    async def emit_tool_results(self, results: Sequence[ToolCallResult]) -> EmittedEvent:
+    async def emit_tool_results(
+        self,
+        correlation_id: str,
+        results: Sequence[ToolCallResult],
+    ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
             kind=Event.TOOL_KIND,
+            correlation_id=correlation_id,
             data={"tool_results": list(results)},  # type: ignore
         )
 

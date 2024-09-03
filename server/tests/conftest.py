@@ -7,6 +7,7 @@ from lagom import Container, Singleton
 from pytest import fixture, Config
 
 from emcie.server.api.app import create_app
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.guideline_connections import (
@@ -54,8 +55,8 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
 async def container() -> AsyncIterator[Container]:
     container = Container(log_undefined_deps=True)
 
-    container[Logger] = StdoutLogger()
-
+    container[ContextualCorrelator] = Singleton(ContextualCorrelator)
+    container[Logger] = StdoutLogger(container[ContextualCorrelator])
     container[DocumentDatabase] = TransientDocumentDatabase
     container[AgentStore] = Singleton(AgentDocumentStore)
     container[GuidelineStore] = Singleton(GuidelineDocumentStore)

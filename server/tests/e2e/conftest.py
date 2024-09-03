@@ -4,6 +4,7 @@ import tempfile
 from typing import Iterator
 from pytest import fixture
 
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.logger import StdoutLogger
 from tests.e2e.test_utilities import _TestContext, get_package_path
 
@@ -18,7 +19,7 @@ def context() -> Iterator[_TestContext]:
         shutil.copy(config_template_file, active_config_file_path)
 
         yield _TestContext(
-            logger=StdoutLogger(),
+            logger=StdoutLogger(ContextualCorrelator()),
             home_dir=home_dir_path,
             config_file=active_config_file_path,
             index_file=home_dir_path / "index.json",

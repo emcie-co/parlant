@@ -135,6 +135,7 @@ async def test_event_creation(
             session_id=session.id,
             source="client",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": "Hello, world!"},
             creation_utc=datetime.now(timezone.utc),
         )

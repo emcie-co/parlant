@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from itertools import chain
 import json
+import traceback
 from typing import Mapping, Optional, Sequence, cast
 
 from emcie.common.tools import Tool
@@ -85,6 +86,12 @@ class AlphaEngine(Engine):
             return True
         except asyncio.CancelledError:
             return False
+        except Exception as exc:
+            self.logger.error(f"Processing error: {traceback.format_exception(exc)}")
+            raise
+        except BaseException as exc:
+            self.logger.critical(f"Processing error: {traceback.format_exception(exc)}")
+            raise
 
     async def _do_process(
         self,

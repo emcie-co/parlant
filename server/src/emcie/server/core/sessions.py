@@ -30,6 +30,7 @@ class Event:
     kind: str
     creation_utc: datetime
     offset: int
+    correlation_id: str
     data: JSONSerializable
 
 
@@ -100,6 +101,7 @@ class SessionStore(ABC):
         session_id: SessionId,
         source: EventSource,
         kind: str,
+        correlation_id: str,
         data: JSONSerializable,
         creation_utc: Optional[datetime] = None,
     ) -> Event: ...
@@ -140,6 +142,7 @@ class SessionDocumentStore(SessionStore):
         source: EventSource
         kind: str
         offset: int
+        correlation_id: str
         data: Any
 
     def __init__(self, database: DocumentDatabase):
@@ -233,6 +236,7 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         source: EventSource,
         kind: str,
+        correlation_id: str,
         data: JSONSerializable,
         creation_utc: Optional[datetime] = None,
     ) -> Event:
@@ -253,6 +257,7 @@ class SessionDocumentStore(SessionStore):
                 "kind": kind,
                 "offset": offset,
                 "creation_utc": creation_utc,
+                "correlation_id": correlation_id,
                 "data": data,
             },
         )
@@ -263,6 +268,7 @@ class SessionDocumentStore(SessionStore):
             kind=kind,
             offset=offset,
             creation_utc=creation_utc,
+            correlation_id=correlation_id,
             data=data,
         )
 
@@ -293,6 +299,7 @@ class SessionDocumentStore(SessionStore):
                 kind=d["kind"],
                 offset=d["offset"],
                 creation_utc=d["creation_utc"],
+                correlation_id=d["correlation_id"],
                 data=d["data"],
             )
             for d in await self._event_collection.find(

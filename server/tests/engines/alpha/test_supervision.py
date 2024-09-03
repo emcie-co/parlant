@@ -89,6 +89,7 @@ def given_a_user_message(
                 session_id=session.id,
                 source="client",
                 kind=Event.MESSAGE_KIND,
+                correlation_id="test_correlation_id",
                 data={"message": user_message},
             )
         )

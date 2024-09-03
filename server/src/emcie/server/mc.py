@@ -7,6 +7,7 @@ from typing import Any, Mapping, Optional, Sequence, Type, TypeAlias
 from lagom import Container
 
 from emcie.server.async_utils import Timeout
+from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.sessions import (
@@ -65,6 +66,7 @@ TaskQueue: TypeAlias = list[asyncio.Task[None]]
 class MC:
     def __init__(self, container: Container) -> None:
         self._logger = container[Logger]
+        self._correlator = container[ContextualCorrelator]
         self._session_store = container[SessionStore]
         self._session_listener = container[SessionListener]
         self._engine = container[Engine]
@@ -161,6 +163,7 @@ class MC:
             session_id=session_id,
             source="client",
             kind=kind,
+            correlation_id=self._correlator.correlation_id,
             data=data,
         )
 
@@ -222,5 +225,6 @@ class MC:
                 source=e.source,
                 kind=e.kind,
                 data=e.data,
+                correlation_id=e.correlation_id,
                 creation_utc=utc_now,
             )

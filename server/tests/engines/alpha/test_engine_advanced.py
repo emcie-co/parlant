@@ -430,6 +430,7 @@ def given_a_user_message(
             session_id=session.id,
             source="client",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": user_message},
         )
     )
@@ -455,6 +456,7 @@ def given_a_server_message(
             session_id=session.id,
             source="server",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": server_message},
         )
     )
@@ -480,6 +482,7 @@ def given_a_session_with_tool_event(
             session_id=session.id,
             source="server",
             kind=Event.TOOL_KIND,
+            correlation_id="test_correlation_id",
             data=json.loads(tool_event_data),
         )
     )

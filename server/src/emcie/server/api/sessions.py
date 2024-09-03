@@ -65,6 +65,7 @@ class EventDTO(DefaultBaseModel):
     kind: str
     offset: int
     creation_utc: datetime
+    correlation_id: str
     data: Any
 
 
@@ -194,6 +195,7 @@ def create_router(
                     kind=e.kind,
                     offset=e.offset,
                     creation_utc=e.creation_utc,
+                    correlation_id=e.correlation_id,
                     data=e.data,
                 )
                 for e in events

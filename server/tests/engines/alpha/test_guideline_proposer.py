@@ -76,6 +76,7 @@ def create_event_message(
         source=source,
         kind=Event.MESSAGE_KIND,
         offset=offset,
+        correlation_id="test_correlation_id",
         data={"message": message},
         creation_utc=datetime.now(timezone.utc),
     )

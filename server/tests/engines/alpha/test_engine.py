@@ -89,6 +89,7 @@ def given_a_user_message(
             session_id=session_id,
             source="client",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": user_message},
         )
     )
@@ -415,6 +416,7 @@ def given_a_session_with_a_single_user_message(
             session_id=new_session.id,
             source="client",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": "Hey there"},
         )
     )
@@ -435,6 +437,7 @@ def given_a_session_with_a_thirsty_user(
             session_id=new_session.id,
             source="client",
             kind=Event.MESSAGE_KIND,
+            correlation_id="test_correlation_id",
             data={"message": "I'm thirsty"},
         )
     )
@@ -471,6 +474,7 @@ def given_a_session_with_a_few_messages(
                 session_id=new_session.id,
                 source=m["source"] == "server" and "server" or "client",
                 kind=Event.MESSAGE_KIND,
+                correlation_id="test_correlation_id",
                 data={"message": m["message"]},
             )
         )

@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, Callable, Optional
 from fastapi.testclient import TestClient
 from fastapi import status
 from lagom import Container
@@ -7,8 +7,20 @@ from pytest import fixture, mark
 from datetime import datetime, timezone
 from itertools import count
 
+from emcie.common.tools import ToolId, ToolResult
 from emcie.server.core.agents import AgentId
-from emcie.server.core.sessions import EventSource, SessionId, SessionStore
+from emcie.server.core.guideline_tool_associations import GuidelineToolAssociationStore
+from emcie.server.core.guidelines import GuidelineStore
+from emcie.server.core.sessions import Event, EventSource, SessionId, SessionStore
+from emcie.server.core.tools import LocalToolService
+
+
+def _get_cow_uttering() -> ToolResult:
+    return ToolResult("moo")
+
+
+class ToolFunctions:
+    GET_COW_UTTERING = _get_cow_uttering
 
 
 @fixture
@@ -79,6 +91,34 @@ def make_event_params(
     }
 
 
+async def add_guideline(
+    container: Container,
+    agent_id: AgentId,
+    predicate: str,
+    content: str,
+    tool_function: Optional[Callable[[], ToolResult]] = None,
+) -> None:
+    guideline = await container[GuidelineStore].create_guideline(
+        guideline_set=agent_id,
+        predicate=predicate,
+        content=content,
+    )
+
+    if tool_function:
+        tool = await container[LocalToolService].create_tool(
+            name=tool_function.__name__,
+            module_path=tool_function.__module__,
+            description="",
+            parameters={},
+            required=[],
+        )
+
+        await container[GuidelineToolAssociationStore].create_association(
+            guideline_id=guideline.id,
+            tool_id=ToolId(f"local__{tool.id}"),
+        )
+
+
 async def populate_session_id(
     container: Container,
     session_id: SessionId,
@@ -91,6 +131,7 @@ async def populate_session_id(
             session_id=session_id,
             source=e["source"],
             kind=e["kind"],
+            correlation_id=e["correlation_id"],
             data=e["data"],
         )
 
@@ -310,6 +351,47 @@ async def test_that_events_can_be_listed(
     for i, event_params, listed_event in zip(count(), session_events, data["events"]):
         assert listed_event["offset"] == i
         assert event_is_according_to_params(event=listed_event, params=event_params)
+
+
+async def test_that_tool_events_are_correlated_with_message_events(
+    client: TestClient,
+    container: Container,
+    agent_id: AgentId,
+    session_id: SessionId,
+) -> None:
+    await add_guideline(
+        container=container,
+        agent_id=agent_id,
+        predicate="a user says hello",
+        content="answer like a cow",
+        tool_function=ToolFunctions.GET_COW_UTTERING,
+    )
+
+    posted_event = (
+        client.post(
+            f"/sessions/{session_id}/events",
+            json={"content": "Hello there!"},
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    events_in_session = (
+        client.get(
+            f"/sessions/{session_id}/events",
+            params={
+                "min_offset": posted_event["event_offset"] + 1,
+                "wait": True,
+            },
+        )
+        .raise_for_status()
+        .json()["events"]
+    )
+
+    assert len(events_in_session) == 2
+    message_event = next(e for e in events_in_session if e["kind"] == Event.MESSAGE_KIND)
+    tool_call_event = next(e for e in events_in_session if e["kind"] == Event.TOOL_KIND)
+    assert message_event["correlation_id"] == tool_call_event["correlation_id"]
 
 
 def test_that_a_session_is_created_with_zeroed_out_consumption_offsets(

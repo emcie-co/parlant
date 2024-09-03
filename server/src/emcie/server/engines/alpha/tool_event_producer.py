@@ -73,7 +73,7 @@ class ToolEventProducer:
             return []
 
         data: ToolEventData = {
-            "tool_results": [
+            "tool_calls": [
                 {
                     "tool_name": r.tool_call.name,
                     "arguments": r.tool_call.arguments,

@@ -175,7 +175,7 @@ class AlphaEngine(Engine):
             tool_data = cast(ToolEventData, e.data)
             await event_emitter.emit_tool_results(
                 self.correlator.correlation_id,
-                tool_data["tool_results"],
+                tool_data["tool_calls"],
             )
 
         for e in message_events:

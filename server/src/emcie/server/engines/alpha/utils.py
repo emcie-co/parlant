@@ -60,5 +60,5 @@ def emitted_tool_event_to_dict(event: EmittedEvent) -> dict[str, Any]:
 
     return {
         "kind": event.kind,
-        "data": cast(ToolEventData, event.data)["tool_results"],
+        "data": cast(ToolEventData, event.data)["tool_calls"],
     }

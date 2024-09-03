@@ -15,7 +15,7 @@ from emcie.server.core.sessions import (
     SessionId,
     SessionListener,
     SessionStore,
-    ToolCallResult,
+    ToolCall,
 )
 from emcie.server.engines.common import Context, Engine
 from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
@@ -45,13 +45,13 @@ class EventBuffer(EventEmitter):
     async def emit_tool_results(
         self,
         correlation_id: str,
-        results: Sequence[ToolCallResult],
+        results: Sequence[ToolCall],
     ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
             kind=Event.TOOL_KIND,
             correlation_id=correlation_id,
-            data={"tool_results": list(results)},  # type: ignore
+            data={"tool_calls": list(results)},  # type: ignore
         )
 
         self.events.append(event)

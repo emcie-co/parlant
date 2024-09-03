@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from emcie.server.core.common import JSONSerializable
-from emcie.server.core.sessions import EventSource, ToolCallResult
+from emcie.server.core.sessions import EventSource, ToolCall
 
 
 @dataclass(frozen=True)
@@ -26,5 +26,5 @@ class EventEmitter(ABC):
     async def emit_tool_results(
         self,
         correlation_id: str,
-        results: Sequence[ToolCallResult],
+        results: Sequence[ToolCall],
     ) -> EmittedEvent: ...

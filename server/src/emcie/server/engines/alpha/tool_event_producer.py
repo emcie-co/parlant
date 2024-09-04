@@ -1,13 +1,13 @@
 from itertools import chain
 from typing import Mapping, Sequence, cast
 
-from emcie.common.tools import Tool
+from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.sessions import Event, ToolEventData
+from emcie.server.core.sessions import Event, SessionId, ToolEventData
 from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
@@ -31,6 +31,7 @@ class ToolEventProducer:
 
     async def produce_events(
         self,
+        session_id: SessionId,
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
@@ -65,6 +66,7 @@ class ToolEventProducer:
         tools = list(chain(*tool_enabled_guideline_propositions.values()))
 
         tool_results = await self.tool_caller.execute_tool_calls(
+            ToolContext(session_id=session_id),
             tool_calls,
             tools,
         )

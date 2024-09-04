@@ -13,7 +13,14 @@ from openapi_parser.parser import (
 from types import TracebackType
 from typing import Any, Awaitable, Callable, NamedTuple, Optional, Sequence, cast
 
-from emcie.common.tools import Tool, ToolId, ToolResult, ToolParameter, ToolParameterType
+from emcie.common.tools import (
+    Tool,
+    ToolId,
+    ToolResult,
+    ToolParameter,
+    ToolParameterType,
+    ToolContext,
+)
 from emcie.server.core.tools import ToolService
 
 
@@ -179,6 +186,8 @@ class OpenAPIClient(ToolService):
     async def call_tool(
         self,
         tool_id: ToolId,
+        context: ToolContext,
         arguments: dict[str, object],
     ) -> ToolResult:
+        _ = context
         return await self._tools[tool_id].func(**arguments)

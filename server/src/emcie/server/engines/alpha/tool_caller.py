@@ -7,7 +7,7 @@ import jsonfinder  # type: ignore
 from typing import Mapping, NewType, Optional, Sequence, TypedDict
 
 
-from emcie.common.tools import Tool
+from emcie.common.tools import Tool, ToolContext
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
@@ -95,6 +95,7 @@ class ToolCaller:
 
     async def execute_tool_calls(
         self,
+        context: ToolContext,
         tool_calls: Sequence[ToolCall],
         tools: Sequence[Tool],
     ) -> Sequence[ToolCallResult]:
@@ -104,6 +105,7 @@ class ToolCaller:
             tool_results = await asyncio.gather(
                 *(
                     self._run_tool(
+                        context=context,
                         tool_call=tool_call,
                         tool=tools_by_name[tool_call.name],
                     )
@@ -285,12 +287,17 @@ Note that the `tool_call_evaluations` list can be empty if no functions need to 
 
     async def _run_tool(
         self,
+        context: ToolContext,
         tool_call: ToolCall,
         tool: Tool,
     ) -> ToolCallResult:
         try:
             self.logger.debug(f"Tool call executing: {tool_call.name}/{tool_call.id}")
-            result = await self._tool_service.call_tool(tool.id, tool_call.arguments)
+            result = await self._tool_service.call_tool(
+                tool.id,
+                context,
+                tool_call.arguments,
+            )
             self.logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
 
             return ToolCallResult(

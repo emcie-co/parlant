@@ -5,8 +5,8 @@ from typing import Optional, Sequence
 import httpx
 from urllib.parse import urljoin
 
-from emcie.common.tools import Tool, ToolId, ToolResult
-from emcie.server.core.tools import ToolService
+from emcie.common.tools import Tool, ToolId, ToolResult, ToolContext
+from emcie.server.core.tools import ToolExecutionError, ToolService
 
 
 class PluginClient(ToolService):
@@ -62,15 +62,22 @@ class PluginClient(ToolService):
     async def call_tool(
         self,
         tool_id: ToolId,
+        context: ToolContext,
         arguments: dict[str, object],
     ) -> ToolResult:
         response = await self._http_client.post(
             self._get_url(f"/tools/{tool_id}/calls"),
             json={
+                "session_id": context.session_id,
                 "arguments": arguments,
             },
         )
+
+        if response.is_error:
+            raise ToolExecutionError(tool_id)
+
         content = response.json()
+
         return ToolResult(**content["result"])
 
     def _get_url(self, path: str) -> str:

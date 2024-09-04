@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal, Mapping, NewType, TypedDict, Union
 from typing_extensions import NotRequired
 
-from emcie.common.types import JSONSerializable
+from emcie.common.types.common import JSONSerializable
 
 
 ToolId = NewType("ToolId", str)
@@ -22,8 +22,9 @@ class ToolParameter(TypedDict):
     enum: NotRequired[list[Union[str, int, float, bool]]]
 
 
+@dataclass(frozen=True)
 class ToolContext:
-    pass
+    session_id: str
 
 
 @dataclass(frozen=True)

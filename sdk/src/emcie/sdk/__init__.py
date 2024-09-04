@@ -1,6 +1,6 @@
 from emcie.common.base_models import DefaultBaseModel as DefaultBaseModel
 
-from emcie.common.types import JSONSerializable as JSONSerializable
+from emcie.common.types.common import JSONSerializable as JSONSerializable
 
 from emcie.common.tools import (
     Tool as Tool,

@@ -197,6 +197,7 @@ class ReadToolResponse(BaseModel):
 
 
 class CallToolRequest(BaseModel):
+    session_id: str
     arguments: dict[str, _ToolParameterType]
 
 
@@ -288,9 +289,9 @@ class PluginServer:
             tool_id: ToolId,
             request: CallToolRequest,
         ) -> CallToolResponse:
-            stub_context = ToolContext()
+            context = ToolContext(session_id=request.session_id)
 
-            result = self.tools[tool_id].function(stub_context, **request.arguments)  # type: ignore
+            result = self.tools[tool_id].function(context, **request.arguments)  # type: ignore
 
             if inspect.isawaitable(result):
                 result = await result

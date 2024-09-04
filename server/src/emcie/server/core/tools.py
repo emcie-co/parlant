@@ -5,7 +5,7 @@ import inspect
 from typing import Mapping, Optional, Sequence
 from pydantic import ValidationError
 
-from emcie.common.tools import ToolId, ToolParameter, ToolResult, Tool
+from emcie.common.tools import ToolId, ToolParameter, ToolResult, Tool, ToolContext
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.common import generate_id
 from emcie.server.core.persistence.document_database import DocumentDatabase
@@ -53,6 +53,7 @@ class ToolService(ABC):
     async def call_tool(
         self,
         tool_id: ToolId,
+        context: ToolContext,
         arguments: dict[str, object],
     ) -> ToolResult: ...
 
@@ -85,11 +86,12 @@ class MultiplexedToolService(ToolService):
     async def call_tool(
         self,
         tool_id: ToolId,
+        context: ToolContext,
         arguments: dict[str, object],
     ) -> ToolResult:
         service_name, actual_tool_id = self._demultiplex_tool_str(tool_id)
         service = self.services[service_name]
-        return await service.call_tool(ToolId(actual_tool_id), arguments)
+        return await service.call_tool(ToolId(actual_tool_id), context, arguments)
 
     def _multiplex_tool(self, service_name: str, tool: Tool) -> Tool:
         return Tool(
@@ -217,8 +219,11 @@ class LocalToolService(ToolService):
     async def call_tool(
         self,
         tool_id: ToolId,
+        context: ToolContext,
         arguments: dict[str, object],
     ) -> ToolResult:
+        _ = context
+
         try:
             tool_doc = await self._collection.find_one({"id": {"$eq": tool_id}})
             module = importlib.import_module(tool_doc["module_path"])

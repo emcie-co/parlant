@@ -143,6 +143,7 @@ class AlphaEngine(Engine):
                 )
             )
             if tool_events := await self.tool_event_producer.produce_events(
+                session_id=context.session_id,
                 agents=[agent],
                 context_variables=context_variables,
                 interaction_history=interaction_history,

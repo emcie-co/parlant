@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pytest import mark
 import uvicorn
 
-from emcie.common.tools import ToolId
+from emcie.common.tools import ToolId, ToolContext
 from emcie.server.core.services.openapi import OpenAPIClient
 from emcie.common.base_models import DefaultBaseModel
 
@@ -177,5 +177,6 @@ async def test_that_a_tool_can_be_called_via_an_openapi_server(
         openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
 
         async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
-            result = await client.call_tool(tool_id, tool_args)
+            stub_context = ToolContext(session_id="test_session")
+            result = await client.call_tool(tool_id, stub_context, tool_args)
             assert result.data == expected_result

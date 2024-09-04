@@ -1,9 +1,13 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Sequence
 
 from emcie.server.core.common import JSONSerializable
-from emcie.server.core.sessions import EventKind, EventSource, ToolCall
+from emcie.server.core.sessions import (
+    EventKind,
+    EventSource,
+    MessageEventData,
+    ToolEventData,
+)
 
 
 @dataclass(frozen=True)
@@ -19,12 +23,12 @@ class EventEmitter(ABC):
     async def emit_message(
         self,
         correlation_id: str,
-        message: str,
+        data: MessageEventData,
     ) -> EmittedEvent: ...
 
     @abstractmethod
     async def emit_tool_results(
         self,
         correlation_id: str,
-        results: Sequence[ToolCall],
+        data: ToolEventData,
     ) -> EmittedEvent: ...

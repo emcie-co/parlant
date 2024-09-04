@@ -180,17 +180,15 @@ class AlphaEngine(Engine):
         )
 
         for e in all_tool_events:
-            tool_data = cast(ToolEventData, e.data)
             await event_emitter.emit_tool_results(
                 self.correlator.correlation_id,
-                tool_data["tool_calls"],
+                cast(ToolEventData, e.data),
             )
 
         for e in message_events:
-            message_data = cast(MessageEventData, e.data)
             await event_emitter.emit_message(
                 self.correlator.correlation_id,
-                message_data["message"],
+                cast(MessageEventData, e.data),
             )
 
     async def _load_context_variables(

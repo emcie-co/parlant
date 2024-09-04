@@ -1,11 +1,12 @@
 from __future__ import annotations
 import dateutil.parser
 from types import TracebackType
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 import httpx
 from urllib.parse import urljoin
 
 from emcie.common.tools import Tool, ToolId, ToolResult, ToolContext
+from emcie.server.core.common import JSONSerializable
 from emcie.server.core.tools import ToolExecutionError, ToolService
 
 
@@ -63,7 +64,7 @@ class PluginClient(ToolService):
         self,
         tool_id: ToolId,
         context: ToolContext,
-        arguments: dict[str, object],
+        arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         response = await self._http_client.post(
             self._get_url(f"/tools/{tool_id}/calls"),

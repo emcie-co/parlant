@@ -43,7 +43,7 @@ class ToolResult(TypedDict):
 
 class ToolCall(TypedDict):
     tool_name: str
-    arguments: dict[str, object]
+    arguments: Mapping[str, JSONSerializable]
     result: ToolResult
 
 

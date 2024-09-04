@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from emcie.common.tools import ToolId, ToolParameter, ToolResult, Tool, ToolContext
 from emcie.server.base_models import DefaultBaseModel
-from emcie.server.core.common import generate_id
+from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.persistence.document_database import DocumentDatabase
 
 
@@ -54,7 +54,7 @@ class ToolService(ABC):
         self,
         tool_id: ToolId,
         context: ToolContext,
-        arguments: dict[str, object],
+        arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult: ...
 
 
@@ -87,7 +87,7 @@ class MultiplexedToolService(ToolService):
         self,
         tool_id: ToolId,
         context: ToolContext,
-        arguments: dict[str, object],
+        arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         service_name, actual_tool_id = self._demultiplex_tool_str(tool_id)
         service = self.services[service_name]
@@ -220,7 +220,7 @@ class LocalToolService(ToolService):
         self,
         tool_id: ToolId,
         context: ToolContext,
-        arguments: dict[str, object],
+        arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         _ = context
 

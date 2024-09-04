@@ -11,7 +11,7 @@ from openapi_parser.parser import (
     Operation,
 )
 from types import TracebackType
-from typing import Any, Awaitable, Callable, NamedTuple, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Mapping, NamedTuple, Optional, Sequence, cast
 
 from emcie.common.tools import (
     Tool,
@@ -21,6 +21,7 @@ from emcie.common.tools import (
     ToolParameterType,
     ToolContext,
 )
+from emcie.server.core.common import JSONSerializable
 from emcie.server.core.tools import ToolService
 
 
@@ -187,7 +188,7 @@ class OpenAPIClient(ToolService):
         self,
         tool_id: ToolId,
         context: ToolContext,
-        arguments: dict[str, object],
+        arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         _ = context
         return await self._tools[tool_id].func(**arguments)

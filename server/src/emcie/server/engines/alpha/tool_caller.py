@@ -9,7 +9,7 @@ from typing import Mapping, NewType, Optional, Sequence, TypedDict
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.core.agents import Agent
-from emcie.server.core.common import generate_id
+from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, ToolResult
 from emcie.server.core.tools import ToolService
@@ -28,7 +28,7 @@ ToolResultId = NewType("ToolResultId", str)
 class ToolCall:
     id: ToolCallId
     name: str
-    arguments: dict[str, object]
+    arguments: Mapping[str, JSONSerializable]
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class ToolCaller:
         rationale: str
         applicability_score: int
         should_run: bool
-        arguments: dict[str, object]
+        arguments: Mapping[str, JSONSerializable]
         same_call_is_already_staged: bool
 
     def __init__(

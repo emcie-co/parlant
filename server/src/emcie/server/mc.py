@@ -3,21 +3,23 @@ import asyncio
 from datetime import datetime, timezone
 import time
 import traceback
-from typing import Any, Mapping, Optional, Sequence, Type, TypeAlias
+from typing import Any, Mapping, Optional, Sequence, Type, TypeAlias, cast
 from lagom import Container
 
 from emcie.server.async_utils import Timeout
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentId
+from emcie.server.core.common import JSONSerializable
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.sessions import (
     Event,
     EventKind,
+    MessageEventData,
     Session,
     SessionId,
     SessionListener,
     SessionStore,
-    ToolCall,
+    ToolEventData,
 )
 from emcie.server.engines.common import Context, Engine
 from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
@@ -31,13 +33,13 @@ class EventBuffer(EventEmitter):
     async def emit_message(
         self,
         correlation_id: str,
-        message: str,
+        data: MessageEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
             kind="message",
             correlation_id=correlation_id,
-            data={"message": message},
+            data=cast(JSONSerializable, data),
         )
 
         self.events.append(event)
@@ -47,13 +49,13 @@ class EventBuffer(EventEmitter):
     async def emit_tool_results(
         self,
         correlation_id: str,
-        results: Sequence[ToolCall],
+        data: ToolEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
             kind="tool",
             correlation_id=correlation_id,
-            data={"tool_calls": list(results)},  # type: ignore
+            data=cast(JSONSerializable, data),
         )
 
         self.events.append(event)

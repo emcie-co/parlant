@@ -7,7 +7,6 @@ import httpx
 from emcie.common.tools import ToolContext, ToolResult
 from emcie.common.plugin import PluginServer, tool
 
-from emcie.server.core.sessions import Event
 from tests.e2e.test_utilities import (
     DEFAULT_AGENT_NAME,
     SERVER_ADDRESS,
@@ -75,7 +74,7 @@ async def get_quick_reply_from_agent(
 
                 events = response.json()["events"]
 
-                if message_events := [e for e in events if e["kind"] == Event.MESSAGE_KIND]:
+                if message_events := [e for e in events if e["kind"] == "message"]:
                     return str(message_events[0]["data"]["message"])
                 else:
                     last_known_offset = events[-1]["offset"]

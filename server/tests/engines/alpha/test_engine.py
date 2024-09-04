@@ -10,7 +10,7 @@ from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.engines.common import Context
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
-from emcie.server.core.sessions import Event, MessageEventData, Session, SessionId, SessionStore
+from emcie.server.core.sessions import MessageEventData, Session, SessionId, SessionStore
 
 from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
@@ -88,7 +88,7 @@ def given_a_user_message(
         store.create_event(
             session_id=session_id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": user_message},
         )
@@ -415,7 +415,7 @@ def given_a_session_with_a_single_user_message(
         store.create_event(
             session_id=new_session.id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": "Hey there"},
         )
@@ -436,7 +436,7 @@ def given_a_session_with_a_thirsty_user(
         store.create_event(
             session_id=new_session.id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": "I'm thirsty"},
         )
@@ -473,7 +473,7 @@ def given_a_session_with_a_few_messages(
             store.create_event(
                 session_id=new_session.id,
                 source=m["source"] == "server" and "server" or "client",
-                kind=Event.MESSAGE_KIND,
+                kind="message",
                 correlation_id="test_correlation_id",
                 data={"message": m["message"]},
             )
@@ -543,7 +543,7 @@ def then_no_events_are_produced(
 def then_a_single_message_event_is_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
+    assert len(list(filter(lambda e: e.kind == "message", produced_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))
@@ -551,7 +551,7 @@ def then_the_message_contains(
     produced_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in produced_events if e.kind == Event.MESSAGE_KIND)
+    message_event = next(e for e in produced_events if e.kind == "message")
 
     assert nlp_test(
         context=cast(MessageEventData, message_event.data)["message"],

@@ -74,7 +74,7 @@ def create_event_message(
     event = Event(
         id=EventId(generate_id()),
         source=source,
-        kind=Event.MESSAGE_KIND,
+        kind="message",
         offset=offset,
         correlation_id="test_correlation_id",
         data={"message": message},

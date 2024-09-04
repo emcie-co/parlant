@@ -9,8 +9,8 @@ from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.sessions import (
-    Event,
     EventId,
+    EventKind,
     EventSource,
     SessionId,
     SessionListener,
@@ -31,7 +31,7 @@ class CreateSessionResponse(DefaultBaseModel):
 
 
 class CreateMessageRequest(DefaultBaseModel):
-    kind: str = Field(Event.MESSAGE_KIND, description=f'Internal (leave as "{Event.MESSAGE_KIND}")')
+    kind: EventKind = Field("message", description='Internal (leave as "message")')
     content: str
 
 

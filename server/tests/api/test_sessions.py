@@ -11,7 +11,7 @@ from emcie.common.tools import ToolId, ToolResult
 from emcie.server.core.agents import AgentId
 from emcie.server.core.guideline_tool_associations import GuidelineToolAssociationStore
 from emcie.server.core.guidelines import GuidelineStore
-from emcie.server.core.sessions import Event, EventSource, SessionId, SessionStore
+from emcie.server.core.sessions import EventSource, SessionId, SessionStore
 from emcie.server.core.tools import LocalToolService
 
 
@@ -389,8 +389,8 @@ async def test_that_tool_events_are_correlated_with_message_events(
     )
 
     assert len(events_in_session) == 2
-    message_event = next(e for e in events_in_session if e["kind"] == Event.MESSAGE_KIND)
-    tool_call_event = next(e for e in events_in_session if e["kind"] == Event.TOOL_KIND)
+    message_event = next(e for e in events_in_session if e["kind"] == "message")
+    tool_call_event = next(e for e in events_in_session if e["kind"] == "tool")
     assert message_event["correlation_id"] == tool_call_event["correlation_id"]
 
 

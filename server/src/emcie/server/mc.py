@@ -12,6 +12,7 @@ from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.sessions import (
     Event,
+    EventKind,
     Session,
     SessionId,
     SessionListener,
@@ -34,7 +35,7 @@ class EventBuffer(EventEmitter):
     ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id=correlation_id,
             data={"message": message},
         )
@@ -50,7 +51,7 @@ class EventBuffer(EventEmitter):
     ) -> EmittedEvent:
         event = EmittedEvent(
             source="server",
-            kind=Event.TOOL_KIND,
+            kind="tool",
             correlation_id=correlation_id,
             data={"tool_calls": list(results)},  # type: ignore
         )
@@ -154,7 +155,7 @@ class MC:
     async def post_client_event(
         self,
         session_id: SessionId,
-        kind: str,
+        kind: EventKind,
         data: Mapping[str, Any],
     ) -> Event:
         await self._collect_garbage()

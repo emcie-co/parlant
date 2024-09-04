@@ -88,7 +88,7 @@ class ToolEventProducer:
         produced_events.append(
             EmittedEvent(
                 source="server",
-                kind=Event.TOOL_KIND,
+                kind="tool",
                 correlation_id=self.correlator.correlation_id,
                 data=cast(JSONSerializable, data),
             )

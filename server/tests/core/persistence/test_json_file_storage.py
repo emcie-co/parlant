@@ -20,7 +20,7 @@ from emcie.server.core.guidelines import (
     GuidelineId,
 )
 from emcie.server.core.persistence.json_file_database import JSONFileDocumentDatabase
-from emcie.server.core.sessions import Event, SessionDocumentStore
+from emcie.server.core.sessions import SessionDocumentStore
 from emcie.server.core.tools import LocalToolService
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -134,7 +134,7 @@ async def test_event_creation(
         event = await session_store.create_event(
             session_id=session.id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": "Hello, world!"},
             creation_utc=datetime.now(timezone.utc),

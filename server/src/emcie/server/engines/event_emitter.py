@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from emcie.server.core.common import JSONSerializable
-from emcie.server.core.sessions import EventSource, ToolCall
+from emcie.server.core.sessions import EventKind, EventSource, ToolCall
 
 
 @dataclass(frozen=True)
 class EmittedEvent:
     source: EventSource
-    kind: str
+    kind: EventKind
     correlation_id: str
     data: JSONSerializable
 

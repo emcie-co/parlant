@@ -56,7 +56,7 @@ def emitted_tool_events_to_dicts(
 
 
 def emitted_tool_event_to_dict(event: EmittedEvent) -> dict[str, Any]:
-    assert event.kind == Event.TOOL_KIND
+    assert event.kind == "tool"
 
     return {
         "kind": event.kind,

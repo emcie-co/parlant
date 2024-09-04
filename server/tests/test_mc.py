@@ -8,7 +8,7 @@ from emcie.server.mc import MC
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId, EndUserStore
 from emcie.server.core.guidelines import GuidelineStore
-from emcie.server.core.sessions import Event, Session, SessionStore
+from emcie.server.core.sessions import Session, SessionStore
 from tests.test_utilities import nlp_test
 
 REASONABLE_AMOUNT_OF_TIME = 10
@@ -117,7 +117,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_pro
 ) -> None:
     event = await context.mc.post_client_event(
         session_id=session.id,
-        kind=Event.MESSAGE_KIND,
+        kind="message",
         data={"message": "Hey there"},
     )
 
@@ -138,7 +138,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
 ) -> None:
     event = await context.mc.post_client_event(
         session_id=session.id,
-        kind=Event.MESSAGE_KIND,
+        kind="message",
         data={"message": "Hey there"},
     )
 
@@ -162,7 +162,7 @@ async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_on
     for m in messages:
         await context.mc.post_client_event(
             session_id=session.id,
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             data={"message": m},
         )
 

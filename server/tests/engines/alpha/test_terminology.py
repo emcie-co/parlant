@@ -8,7 +8,7 @@ from emcie.common.tools import Tool
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guidelines import Guideline, GuidelineStore
-from emcie.server.core.sessions import Event, MessageEventData, SessionId, SessionStore
+from emcie.server.core.sessions import MessageEventData, SessionId, SessionStore
 from emcie.server.core.tools import LocalToolService, MultiplexedToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
@@ -107,7 +107,7 @@ def given_a_user_message(
         store.create_event(
             session_id=session.id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": user_message},
         )
@@ -508,7 +508,7 @@ def when_processing_is_triggered(
 def then_a_single_message_event_is_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
+    assert len(list(filter(lambda e: e.kind == "message", produced_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))

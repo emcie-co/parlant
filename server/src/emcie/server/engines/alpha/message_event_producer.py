@@ -78,7 +78,7 @@ class MessageEventProducer:
                 return [
                     EmittedEvent(
                         source="server",
-                        kind=Event.MESSAGE_KIND,
+                        kind="message",
                         correlation_id=self.correlator.correlation_id,
                         data={"message": response_message},
                     )

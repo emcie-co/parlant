@@ -25,7 +25,6 @@ from emcie.server.engines.common import Context
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import (
-    Event,
     MessageEventData,
     SessionId,
     SessionStore,
@@ -429,7 +428,7 @@ def given_a_user_message(
         store.create_event(
             session_id=session.id,
             source="client",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": user_message},
         )
@@ -455,7 +454,7 @@ def given_a_server_message(
         store.create_event(
             session_id=session.id,
             source="server",
-            kind=Event.MESSAGE_KIND,
+            kind="message",
             correlation_id="test_correlation_id",
             data={"message": server_message},
         )
@@ -481,7 +480,7 @@ def given_a_session_with_tool_event(
         store.create_event(
             session_id=session.id,
             source="server",
-            kind=Event.TOOL_KIND,
+            kind="tool",
             correlation_id="test_correlation_id",
             data=json.loads(tool_event_data),
         )
@@ -516,14 +515,14 @@ def when_processing_is_triggered(
 def then_no_tools_events_are_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
-    assert 0 == len([e for e in produced_events if e.kind == Event.TOOL_KIND])
+    assert 0 == len([e for e in produced_events if e.kind == "tool"])
 
 
 @then("a single tool calls event is produced")
 def then_a_single_tool_event_is_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
-    assert 1 == len([e for e in produced_events if e.kind == Event.TOOL_KIND])
+    assert 1 == len([e for e in produced_events if e.kind == "tool"])
 
 
 @then(parsers.parse("the tool calls event contains {number_of_tool_calls:d} tool call(s)"))
@@ -531,7 +530,7 @@ def then_the_tool_calls_event_contains_n_tool_calls(
     number_of_tool_calls: int,
     produced_events: list[EmittedEvent],
 ) -> None:
-    tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
+    tool_calls_event = next(e for e in produced_events if e.kind == "tool")
     assert number_of_tool_calls == len(cast(ToolEventData, tool_calls_event.data)["tool_calls"])
 
 
@@ -540,7 +539,7 @@ def then_the_tool_calls_event_contains_expected_content(
     expected_content: str,
     produced_events: list[EmittedEvent],
 ) -> None:
-    tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
+    tool_calls_event = next(e for e in produced_events if e.kind == "tool")
     tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_calls"]
 
     assert nlp_test(
@@ -711,14 +710,14 @@ def then_no_events_are_produced(
 def then_a_single_message_event_is_produced(
     produced_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == Event.MESSAGE_KIND, produced_events))) == 1
+    assert len(list(filter(lambda e: e.kind == "message", produced_events))) == 1
 
 
 @then("the tool calls event is correlated with the message event")
 def then_the_tool_calls_event_is_correlated_with_the_message_event(
     produced_events: list[EmittedEvent],
 ) -> None:
-    message_event = next(e for e in produced_events if e.kind == Event.MESSAGE_KIND)
-    tool_calls_event = next(e for e in produced_events if e.kind == Event.TOOL_KIND)
+    message_event = next(e for e in produced_events if e.kind == "message")
+    tool_calls_event = next(e for e in produced_events if e.kind == "tool")
 
     assert message_event.correlation_id == tool_calls_event.correlation_id

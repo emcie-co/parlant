@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal, Mapping, NewType, Optional, Sequence, TypedDict, cast
+from typing import Any, Literal, Mapping, NewType, Optional, Sequence, TypeAlias, TypedDict, cast
 
 from emcie.server.async_utils import Timeout
 from emcie.server.core.common import ItemNotFoundError, JSONSerializable, UniqueId, generate_id
@@ -17,17 +17,15 @@ SessionId = NewType("SessionId", str)
 EventId = NewType("EventId", str)
 
 
-EventSource = Literal["client", "server"]
+EventSource: TypeAlias = Literal["client", "server"]
+EventKind: TypeAlias = Literal["message", "tool", "custom"]
 
 
 @dataclass(frozen=True)
 class Event:
-    MESSAGE_KIND = "<message>"
-    TOOL_KIND = "<tool>"
-
     id: EventId
     source: EventSource
-    kind: str
+    kind: EventKind
     creation_utc: datetime
     offset: int
     correlation_id: str
@@ -100,7 +98,7 @@ class SessionStore(ABC):
         self,
         session_id: SessionId,
         source: EventSource,
-        kind: str,
+        kind: EventKind,
         correlation_id: str,
         data: JSONSerializable,
         creation_utc: Optional[datetime] = None,
@@ -235,7 +233,7 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
         source: EventSource,
-        kind: str,
+        kind: EventKind,
         correlation_id: str,
         data: JSONSerializable,
         creation_utc: Optional[datetime] = None,

@@ -634,7 +634,7 @@ def then_a_cancelled_status_event_is_produced(
 
 @then(
     parsers.parse(
-        "a status event is produced, ready for further engagement after responding to event {acknowledged_event_offset:d}"
+        "a status event is produced, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
     )
 )
 def then_a_ready_status_event_is_produced(

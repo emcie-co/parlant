@@ -221,15 +221,6 @@ class AlphaEngine(Engine):
                     self.correlator.correlation_id,
                     cast(MessageEventData, e.data),
                 )
-
-            await event_emitter.emit_status_event(
-                correlation_id=self.correlator.correlation_id,
-                data={
-                    "acknowledged_offset": last_known_event_offset,
-                    "status": "ready",
-                    "data": {},
-                },
-            )
         except asyncio.CancelledError:
             await event_emitter.emit_status_event(
                 correlation_id=self.correlator.correlation_id,
@@ -241,6 +232,15 @@ class AlphaEngine(Engine):
             )
 
             raise
+        finally:
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "ready",
+                    "data": {},
+                },
+            )
 
     async def _load_context_variables(
         self,

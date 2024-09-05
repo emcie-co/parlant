@@ -293,13 +293,13 @@ The following are the tool function definitions: ###
         if events:
             # FIXME: The following is a code-smell. We can't assume staged_events
             #        is necessarily only composed of tool events.
-            #        Also, produced_tool_events_to_dict() is an oddball of a function.
+            #        Also, emitted_tool_events_to_dict() is an oddball of a function.
             staged_events_as_dict = emitted_tool_events_to_dicts(events)
 
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,
                 content=f"""
-For your information, here are some staged events that have just been produced,
+For your information, here are some staged events that have just been emitted,
 to assist you with generating your reply message while following the rules above: ###
 {staged_events_as_dict}
 ###

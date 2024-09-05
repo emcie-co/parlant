@@ -42,7 +42,7 @@ class ToolEventProducer:
     ) -> Sequence[EmittedEvent]:
         assert len(agents) == 1
 
-        produced_events = []
+        emitted_events = []
 
         if not tool_enabled_guideline_propositions:
             self.logger.debug("Skipping tool calling; no tools associated with guidelines found")
@@ -85,7 +85,7 @@ class ToolEventProducer:
             ]
         }
 
-        produced_events.append(
+        emitted_events.append(
             EmittedEvent(
                 source="server",
                 kind="tool",
@@ -94,4 +94,4 @@ class ToolEventProducer:
             )
         )
 
-        return produced_events
+        return emitted_events

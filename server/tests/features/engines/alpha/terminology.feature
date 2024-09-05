@@ -8,7 +8,7 @@ Feature: Terminology Integration
         Given the term "<TERM_NAME>" defined as <TERM_DESCRIPTION>
         And a user message, "<USER_MESSAGE>"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains an explanation of <TERM_NAME> as <TERM_DESCRIPTION>
         Examples:
             | TERM_NAME   | USER_MESSAGE           | TERM_DESCRIPTION                |
@@ -23,7 +23,7 @@ Feature: Terminology Integration
         And a guideline to say "Keep your private key secure" when the user asks how to protect their walnuts
         And a user message, "How do you keep walnuts secure?"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains an instruction to keep the private key secure
 
     Scenario: The agent follows a guideline that refers to a term's definition
@@ -31,7 +31,7 @@ Feature: Terminology Integration
         And a guideline to say "Keep your private key secure" when the user asks how to protect their financial assets
         And a user message, "How do I protect my walnuts?"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains an instruction to keep the private key secure
 
     Scenario: The agent responds with a term retrieved from guideline content
@@ -40,7 +40,7 @@ Feature: Terminology Integration
         And a guideline to explain what a leaf is when the user asks about IBM
         And a user message, "Tell me about IBM"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains an explanation of a leaf as a cryptocurrency wallet for walnut cryptocoins
 
     Scenario: The agent responds with a term retrieved from tool content
@@ -51,5 +51,5 @@ Feature: Terminology Integration
         And an association between "explain_terry" and "get_terrys_offering"
         And a user message, "Tell me about Terry"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains an explanation about a cryptocurrency wallet for walnut cryptocoins

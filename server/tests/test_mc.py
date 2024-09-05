@@ -111,7 +111,7 @@ async def test_that_a_new_user_session_with_a_proactive_agent_contains_a_message
     assert len(events) == 1
 
 
-async def test_that_when_a_client_event_is_posted_then_new_server_events_are_produced(
+async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emitted(
     context: _TestContext,
     session: Session,
 ) -> None:
@@ -149,7 +149,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
     )
 
 
-async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_one_message_is_produced_as_a_reply_to_the_last_message(
+async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_one_message_is_emitted_as_a_reply_to_the_last_message(
     context: _TestContext,
     session: Session,
 ) -> None:

@@ -8,5 +8,5 @@ Feature: Guideline Connections
         And a guideline "good_sir", to add "good sir" when saying "Howdy"
         And a guideline connection whereby "howdy" entails "good_sir"
         When processing is triggered
-        Then a single message event is produced
+        Then a single message event is emitted
         And the message contains a greeting with "Howdy" and "good sir"

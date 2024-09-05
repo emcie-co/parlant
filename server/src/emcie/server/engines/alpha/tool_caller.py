@@ -244,10 +244,10 @@ Note that the `tool_call_evaluations` list can be empty if no functions need to 
 
     def _get_invoked_functions(
         self,
-        produced_events: Sequence[EmittedEvent],
+        emitted_events: Sequence[EmittedEvent],
     ) -> Optional[str]:
         ordered_function_invocations = list(
-            chain(*[e["data"] for e in emitted_tool_events_to_dicts(produced_events)])
+            chain(*[e["data"] for e in emitted_tool_events_to_dicts(emitted_events)])
         )
 
         if not ordered_function_invocations:

@@ -489,7 +489,7 @@ def given_a_session_with_a_few_messages(
     return new_session.id
 
 
-@when("processing is triggered", target_fixture="produced_events")
+@when("processing is triggered", target_fixture="emitted_events")
 def when_processing_is_triggered(
     sync_await: SyncAwaiter,
     engine: AlphaEngine,
@@ -511,7 +511,7 @@ def when_processing_is_triggered(
     return event_buffer.events
 
 
-@when("processing is triggered and cancelled in the middle", target_fixture="produced_events")
+@when("processing is triggered and cancelled in the middle", target_fixture="emitted_events")
 def when_processing_is_triggered_and_cancelled_in_the_middle(
     sync_await: SyncAwaiter,
     engine: AlphaEngine,
@@ -539,33 +539,33 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
     return event_buffer.events
 
 
-@then("no events are produced")
-def then_no_events_are_produced(
-    produced_events: list[EmittedEvent],
+@then("no events are emitted")
+def then_no_events_are_emitted(
+    emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len(produced_events) == 0
+    assert len(emitted_events) == 0
 
 
-@then("no message events are produced")
-def then_no_message_events_are_produced(
-    produced_events: list[EmittedEvent],
+@then("no message events are emitted")
+def then_no_message_events_are_emitted(
+    emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len([e for e in produced_events if e.kind == "message"]) == 0
+    assert len([e for e in emitted_events if e.kind == "message"]) == 0
 
 
-@then("a single message event is produced")
-def then_a_single_message_event_is_produced(
-    produced_events: list[EmittedEvent],
+@then("a single message event is emitted")
+def then_a_single_message_event_is_emitted(
+    emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == "message", produced_events))) == 1
+    assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
-    produced_events: list[EmittedEvent],
+    emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in produced_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == "message")
 
     assert nlp_test(
         context=cast(MessageEventData, message_event.data)["message"],
@@ -590,55 +590,53 @@ def _has_status_event(
     return False
 
 
-@then(
-    parsers.parse("a status event is produced, acknowledging event {acknowledged_event_offset:d}")
-)
-def then_an_acknowledgement_status_event_is_produced(
-    produced_events: list[EmittedEvent],
+@then(parsers.parse("a status event is emitted, acknowledging event {acknowledged_event_offset:d}"))
+def then_an_acknowledgement_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
     acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("acknowledged", acknowledged_event_offset, produced_events)
+    assert _has_status_event("acknowledged", acknowledged_event_offset, emitted_events)
 
 
-@then(parsers.parse("a status event is produced, processing event {acknowledged_event_offset:d}"))
-def then_a_processing_status_event_is_produced(
-    produced_events: list[EmittedEvent],
+@then(parsers.parse("a status event is emitted, processing event {acknowledged_event_offset:d}"))
+def then_a_processing_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
     acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("processing", acknowledged_event_offset, produced_events)
+    assert _has_status_event("processing", acknowledged_event_offset, emitted_events)
 
 
 @then(
     parsers.parse(
-        "a status event is produced, typing in response to event {acknowledged_event_offset:d}"
+        "a status event is emitted, typing in response to event {acknowledged_event_offset:d}"
     )
 )
-def then_a_typing_status_event_is_produced(
-    produced_events: list[EmittedEvent],
+def then_a_typing_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
     acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("typing", acknowledged_event_offset, produced_events)
+    assert _has_status_event("typing", acknowledged_event_offset, emitted_events)
 
 
 @then(
     parsers.parse(
-        "a status event is produced, cancelling the response to event {acknowledged_event_offset:d}"
+        "a status event is emitted, cancelling the response to event {acknowledged_event_offset:d}"
     )
 )
-def then_a_cancelled_status_event_is_produced(
-    produced_events: list[EmittedEvent],
+def then_a_cancelled_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
     acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("cancelled", acknowledged_event_offset, produced_events)
+    assert _has_status_event("cancelled", acknowledged_event_offset, emitted_events)
 
 
 @then(
     parsers.parse(
-        "a status event is produced, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
+        "a status event is emitted, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
     )
 )
-def then_a_ready_status_event_is_produced(
-    produced_events: list[EmittedEvent],
+def then_a_ready_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
     acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("ready", acknowledged_event_offset, produced_events)
+    assert _has_status_event("ready", acknowledged_event_offset, emitted_events)

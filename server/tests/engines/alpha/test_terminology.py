@@ -483,7 +483,7 @@ def given_a_tool(
     )
 
 
-@when("processing is triggered", target_fixture="produced_events")
+@when("processing is triggered", target_fixture="emitted_events")
 def when_processing_is_triggered(
     context: _TestContext,
     engine: AlphaEngine,
@@ -504,19 +504,19 @@ def when_processing_is_triggered(
     return buffer.events
 
 
-@then("a single message event is produced")
-def then_a_single_message_event_is_produced(
-    produced_events: list[EmittedEvent],
+@then("a single message event is emitted")
+def then_a_single_message_event_is_emitted(
+    emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == "message", produced_events))) == 1
+    assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
 
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
-    produced_events: list[EmittedEvent],
+    emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message = cast(MessageEventData, produced_events[-1].data)["message"]
+    message = cast(MessageEventData, emitted_events[-1].data)["message"]
 
     assert nlp_test(
         context=message,

@@ -134,7 +134,7 @@ def given_a_guideline_proposition(
     )
 
 
-@when("messages are produced", target_fixture="produced_events")
+@when("messages are emitted", target_fixture="emitted_events")
 def when_processing_is_triggered(
     context: _TestContext,
 ) -> list[EmittedEvent]:
@@ -169,10 +169,10 @@ def when_processing_is_triggered(
 
 @then(parsers.parse("the message should contain {something}"))
 def then_the_message_contains(
-    produced_events: list[EmittedEvent],
+    emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message = cast(MessageEventData, produced_events[-1].data)["message"]
+    message = cast(MessageEventData, emitted_events[-1].data)["message"]
 
     assert nlp_test(
         context=message,

@@ -118,7 +118,7 @@ class AlphaEngine(Engine):
             )
 
             terms = set(
-                await self._find_terminology(
+                await self._load_relevant_terms(
                     agents=[agent],
                     context_variables=context_variables,
                     interaction_history=interaction_history,
@@ -152,7 +152,7 @@ class AlphaEngine(Engine):
                 )
 
                 terms.update(
-                    await self._find_terminology(
+                    await self._load_relevant_terms(
                         agents=[agent],
                         propositions=list(
                             chain(
@@ -176,7 +176,7 @@ class AlphaEngine(Engine):
 
                     terms.update(
                         set(
-                            await self._find_terminology(
+                            await self._load_relevant_terms(
                                 agents=[agent],
                                 staged_events=tool_events,
                             )
@@ -425,7 +425,7 @@ class AlphaEngine(Engine):
 
         return dict(tools_for_guidelines)
 
-    async def _find_terminology(
+    async def _load_relevant_terms(
         self,
         agents: Sequence[Agent],
         context_variables: Optional[Sequence[tuple[ContextVariable, ContextVariableValue]]] = None,

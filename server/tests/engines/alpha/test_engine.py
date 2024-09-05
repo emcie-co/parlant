@@ -10,7 +10,14 @@ from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.engines.common import Context
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.guidelines import Guideline, GuidelineStore
-from emcie.server.core.sessions import MessageEventData, Session, SessionId, SessionStore
+from emcie.server.core.sessions import (
+    MessageEventData,
+    Session,
+    SessionId,
+    SessionStatus,
+    SessionStore,
+    StatusEventData,
+)
 
 from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
@@ -557,3 +564,74 @@ def then_the_message_contains(
         context=cast(MessageEventData, message_event.data)["message"],
         predicate=f"the text contains {something}",
     )
+
+
+def _has_status_event(
+    status: SessionStatus,
+    acknowledged_event_offset: int,
+    events: list[EmittedEvent],
+) -> bool:
+    for e in (e for e in events if e.kind == "status"):
+        data = cast(StatusEventData, e.data)
+
+        has_same_status = data["status"] == status
+        has_same_acknowledged_offset = data["acknowledged_offset"] == acknowledged_event_offset
+
+        if has_same_status and has_same_acknowledged_offset:
+            return True
+
+    return False
+
+
+@then(
+    parsers.parse("a status event is produced, acknowledging event {acknowledged_event_offset:d}")
+)
+def then_an_acknowledgement_status_event_is_produced(
+    produced_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("acknowledged", acknowledged_event_offset, produced_events)
+
+
+@then(parsers.parse("a status event is produced, processing event {acknowledged_event_offset:d}"))
+def then_a_processing_status_event_is_produced(
+    produced_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("processing", acknowledged_event_offset, produced_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is produced, typing in response to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_typing_status_event_is_produced(
+    produced_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("typing", acknowledged_event_offset, produced_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is produced, cancelling the response to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_cancelled_status_event_is_produced(
+    produced_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("cancelled", acknowledged_event_offset, produced_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is produced, ready for further engagement after responding to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_ready_status_event_is_produced(
+    produced_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("ready", acknowledged_event_offset, produced_events)

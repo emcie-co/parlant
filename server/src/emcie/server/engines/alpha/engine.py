@@ -100,6 +100,16 @@ class AlphaEngine(Engine):
     ) -> None:
         agent = await self.agent_store.read_agent(context.agent_id)
         interaction_history = list(await self.session_store.list_events(context.session_id))
+        last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
+
+        await event_emitter.emit_status_event(
+            correlation_id=self.correlator.correlation_id,
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "acknowledged",
+                "data": {},
+            },
+        )
 
         context_variables = await self._load_context_variables(
             agent_id=context.agent_id,
@@ -112,6 +122,15 @@ class AlphaEngine(Engine):
                 context_variables=context_variables,
                 interaction_history=interaction_history,
             )
+        )
+
+        await event_emitter.emit_status_event(
+            correlation_id=self.correlator.correlation_id,
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "processing",
+                "data": {},
+            },
         )
 
         all_tool_events: list[EmittedEvent] = []
@@ -169,6 +188,15 @@ class AlphaEngine(Engine):
                 self.logger.warning(f"Reached max tool call iterations ({tool_call_iterations})")
                 break
 
+        await event_emitter.emit_status_event(
+            correlation_id=self.correlator.correlation_id,
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "typing",
+                "data": {},
+            },
+        )
+
         message_events = await self.message_event_producer.produce_events(
             agents=[agent],
             context_variables=context_variables,
@@ -180,16 +208,25 @@ class AlphaEngine(Engine):
         )
 
         for e in all_tool_events:
-            await event_emitter.emit_tool_results(
+            await event_emitter.emit_tool_event(
                 self.correlator.correlation_id,
                 cast(ToolEventData, e.data),
             )
 
         for e in message_events:
-            await event_emitter.emit_message(
+            await event_emitter.emit_message_event(
                 self.correlator.correlation_id,
                 cast(MessageEventData, e.data),
             )
+
+        await event_emitter.emit_status_event(
+            correlation_id=self.correlator.correlation_id,
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "ready",
+                "data": {},
+            },
+        )
 
     async def _load_context_variables(
         self,

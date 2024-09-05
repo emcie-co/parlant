@@ -19,6 +19,7 @@ from emcie.server.core.sessions import (
     SessionId,
     SessionListener,
     SessionStore,
+    StatusEventData,
     ToolEventData,
 )
 from emcie.server.engines.common import Context, Engine
@@ -30,7 +31,23 @@ class EventBuffer(EventEmitter):
     def __init__(self) -> None:
         self.events: list[EmittedEvent] = []
 
-    async def emit_message(
+    async def emit_status_event(
+        self,
+        correlation_id: str,
+        data: StatusEventData,
+    ) -> EmittedEvent:
+        event = EmittedEvent(
+            source="server",
+            kind="status",
+            correlation_id=correlation_id,
+            data=cast(JSONSerializable, data),
+        )
+
+        self.events.append(event)
+
+        return event
+
+    async def emit_message_event(
         self,
         correlation_id: str,
         data: MessageEventData,
@@ -46,7 +63,7 @@ class EventBuffer(EventEmitter):
 
         return event
 
-    async def emit_tool_results(
+    async def emit_tool_event(
         self,
         correlation_id: str,
         data: ToolEventData,

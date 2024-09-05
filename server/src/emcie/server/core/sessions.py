@@ -18,7 +18,7 @@ EventId = NewType("EventId", str)
 
 
 EventSource: TypeAlias = Literal["client", "server"]
-EventKind: TypeAlias = Literal["message", "tool", "custom"]
+EventKind: TypeAlias = Literal["message", "tool", "status", "custom"]
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,22 @@ class ToolEventData(TypedDict):
     tool_calls: list[ToolCall]
 
 
-ConsumerId = Literal["client"]
+SessionStatus: TypeAlias = Literal[
+    "acknowledged",
+    "cancelled",
+    "processing",
+    "ready",
+    "typing",
+]
+
+
+class StatusEventData(TypedDict):
+    acknowledged_offset: int
+    status: SessionStatus
+    data: JSONSerializable
+
+
+ConsumerId: TypeAlias = Literal["client"]
 """In the future we may support multiple consumer IDs"""
 
 

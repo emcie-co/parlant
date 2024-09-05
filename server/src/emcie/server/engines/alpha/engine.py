@@ -111,58 +111,96 @@ class AlphaEngine(Engine):
             },
         )
 
-        context_variables = await self._load_context_variables(
-            agent_id=context.agent_id,
-            session_id=context.session_id,
-        )
-
-        terms = set(
-            await self._find_terminology(
-                agents=[agent],
-                context_variables=context_variables,
-                interaction_history=interaction_history,
-            )
-        )
-
-        await event_emitter.emit_status_event(
-            correlation_id=self.correlator.correlation_id,
-            data={
-                "acknowledged_offset": last_known_event_offset,
-                "status": "processing",
-                "data": {},
-            },
-        )
-
-        all_tool_events: list[EmittedEvent] = []
-        tool_call_iterations = 0
-
-        while True:
-            tool_call_iterations += 1
-
-            (
-                ordinary_guideline_propositions,
-                tool_enabled_guideline_propositions,
-            ) = await self._load_guideline_propositions(
-                agents=[agent],
-                context_variables=context_variables,
-                interaction_history=interaction_history,
-                terms=list(terms),
-                staged_events=all_tool_events,
+        try:
+            context_variables = await self._load_context_variables(
+                agent_id=context.agent_id,
+                session_id=context.session_id,
             )
 
-            terms.update(
+            terms = set(
                 await self._find_terminology(
                     agents=[agent],
-                    propositions=list(
-                        chain(
-                            ordinary_guideline_propositions,
-                            tool_enabled_guideline_propositions.keys(),
-                        ),
-                    ),
+                    context_variables=context_variables,
+                    interaction_history=interaction_history,
                 )
             )
-            if tool_events := await self.tool_event_producer.produce_events(
-                session_id=context.session_id,
+
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "processing",
+                    "data": {},
+                },
+            )
+
+            all_tool_events: list[EmittedEvent] = []
+            tool_call_iterations = 0
+
+            while True:
+                tool_call_iterations += 1
+
+                (
+                    ordinary_guideline_propositions,
+                    tool_enabled_guideline_propositions,
+                ) = await self._load_guideline_propositions(
+                    agents=[agent],
+                    context_variables=context_variables,
+                    interaction_history=interaction_history,
+                    terms=list(terms),
+                    staged_events=all_tool_events,
+                )
+
+                terms.update(
+                    await self._find_terminology(
+                        agents=[agent],
+                        propositions=list(
+                            chain(
+                                ordinary_guideline_propositions,
+                                tool_enabled_guideline_propositions.keys(),
+                            ),
+                        ),
+                    )
+                )
+                if tool_events := await self.tool_event_producer.produce_events(
+                    session_id=context.session_id,
+                    agents=[agent],
+                    context_variables=context_variables,
+                    interaction_history=interaction_history,
+                    terms=list(terms),
+                    ordinary_guideline_propositions=ordinary_guideline_propositions,
+                    tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+                    staged_events=all_tool_events,
+                ):
+                    all_tool_events += tool_events
+
+                    terms.update(
+                        set(
+                            await self._find_terminology(
+                                agents=[agent],
+                                staged_events=tool_events,
+                            )
+                        )
+                    )
+                else:
+                    break
+
+                if tool_call_iterations == self.max_tool_call_iterations:
+                    self.logger.warning(
+                        f"Reached max tool call iterations ({tool_call_iterations})"
+                    )
+                    break
+
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "typing",
+                    "data": {},
+                },
+            )
+
+            message_events = await self.message_event_producer.produce_events(
                 agents=[agent],
                 context_variables=context_variables,
                 interaction_history=interaction_history,
@@ -170,63 +208,39 @@ class AlphaEngine(Engine):
                 ordinary_guideline_propositions=ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
                 staged_events=all_tool_events,
-            ):
-                all_tool_events += tool_events
+            )
 
-                terms.update(
-                    set(
-                        await self._find_terminology(
-                            agents=[agent],
-                            staged_events=tool_events,
-                        )
-                    )
+            for e in all_tool_events:
+                await event_emitter.emit_tool_event(
+                    self.correlator.correlation_id,
+                    cast(ToolEventData, e.data),
                 )
-            else:
-                break
 
-            if tool_call_iterations == self.max_tool_call_iterations:
-                self.logger.warning(f"Reached max tool call iterations ({tool_call_iterations})")
-                break
+            for e in message_events:
+                await event_emitter.emit_message_event(
+                    self.correlator.correlation_id,
+                    cast(MessageEventData, e.data),
+                )
 
-        await event_emitter.emit_status_event(
-            correlation_id=self.correlator.correlation_id,
-            data={
-                "acknowledged_offset": last_known_event_offset,
-                "status": "typing",
-                "data": {},
-            },
-        )
-
-        message_events = await self.message_event_producer.produce_events(
-            agents=[agent],
-            context_variables=context_variables,
-            interaction_history=interaction_history,
-            terms=list(terms),
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
-            staged_events=all_tool_events,
-        )
-
-        for e in all_tool_events:
-            await event_emitter.emit_tool_event(
-                self.correlator.correlation_id,
-                cast(ToolEventData, e.data),
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "ready",
+                    "data": {},
+                },
+            )
+        except asyncio.CancelledError:
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "cancelled",
+                    "data": {},
+                },
             )
 
-        for e in message_events:
-            await event_emitter.emit_message_event(
-                self.correlator.correlation_id,
-                cast(MessageEventData, e.data),
-            )
-
-        await event_emitter.emit_status_event(
-            correlation_id=self.correlator.correlation_id,
-            data={
-                "acknowledged_offset": last_known_event_offset,
-                "status": "ready",
-                "data": {},
-            },
-        )
+            raise
 
     async def _load_context_variables(
         self,

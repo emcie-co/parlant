@@ -55,4 +55,5 @@ Feature: Alpha Engine
         And a user message, "Hi"
         And a guideline to do your job when the user says hello
         When processing is triggered and cancelled in the middle
-        Then no events are produced
+        Then no message events are produced
+        And a status event is produced, cancelling the response to event 0

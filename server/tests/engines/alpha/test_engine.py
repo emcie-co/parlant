@@ -546,6 +546,13 @@ def then_no_events_are_produced(
     assert len(produced_events) == 0
 
 
+@then("no message events are produced")
+def then_no_message_events_are_produced(
+    produced_events: list[EmittedEvent],
+) -> None:
+    assert len([e for e in produced_events if e.kind == "message"]) == 0
+
+
 @then("a single message event is produced")
 def then_a_single_message_event_is_produced(
     produced_events: list[EmittedEvent],

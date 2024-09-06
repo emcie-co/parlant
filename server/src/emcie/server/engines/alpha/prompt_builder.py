@@ -108,7 +108,7 @@ The following is a description of your identity: ###
                 name=BuiltInSection.INTERACTION_HISTORY,
                 content=f"""
 The following is a list of events describing a back-and-forth
-interaction between you, an AI assistant, and a user: ###
+interaction between you and a user: ###
 {events_as_json}
 ###
 """,

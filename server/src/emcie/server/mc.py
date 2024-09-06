@@ -158,6 +158,7 @@ class MC:
         end_user_id: EndUserId,
         agent_id: AgentId,
         title: Optional[str] = None,
+        allow_greeting: bool = False,
     ) -> Session:
         await self._collect_garbage()
 
@@ -167,7 +168,8 @@ class MC:
             title=title,
         )
 
-        await self._dispatch_processing_task(session)
+        if allow_greeting:
+            await self._dispatch_processing_task(session)
 
         return session
 

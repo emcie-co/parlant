@@ -4,7 +4,7 @@ Feature: Alpha Engine
         And an agent
         And an empty session
         When processing is triggered
-        Then no events are emitted
+        Then no message events are emitted
 
     Scenario: A single message event is emitted for a session with a user message
         Given the alpha engine

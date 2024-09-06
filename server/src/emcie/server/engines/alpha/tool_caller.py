@@ -127,7 +127,7 @@ class ToolCaller:
     ) -> str:
         assert len(agents) == 1
 
-        staged_function_calls = self._get_invoked_functions(staged_events)
+        staged_calls = self._get_staged_calls(staged_events)
         tools = list(chain(*tool_enabled_guideline_propositions.values()))
 
         builder = PromptBuilder()
@@ -139,7 +139,15 @@ class ToolCaller:
 
         builder.add_section(
             """
-Before generating your next response, you are highly encouraged to use tools that are provided to you, in order to generate a high-quality, well-informed response.
+Before generating your next response, you are highly encouraged to use tools that are provided to you,
+in order to generate a high-quality, well-informed response.
+
+Your task at this point is to evaluate what, if any, tools should be run in order to facilitate
+an informed continuation of your interaction with the user.
+
+You will also receive a list of tool calls that have already been staged, under the heading STAGED TOOL CALLS.
+If you find what you need in those staged calls, then you don't need to call the corresponding tool(s) again
+with the same arguments, as the staged calls' data is extremely fresh.
 """  # noqa
         )
 
@@ -152,51 +160,38 @@ Before generating your next response, you are highly encouraged to use tools tha
 
         builder.add_tool_definitions(tools)
 
-        if staged_function_calls:
-            builder.add_section(
-                f"""
-The following is a list of staged tool calls after the interaction's latest state.
-You can use this information to avoid redundant calls and inform your response.
-For example, if the data you need already exists in one of these calls, then you DO NOT
-need to ask for that exact tool call (with the same arguments) to be run again,
-because its information is fresh here!: ###
-{staged_function_calls}
-###
-"""
-            )
-
         builder.add_section(
             f"""
 Before generating your next response, you must now decide whether to use any of the tools provided.
 Here are the principles by which you can decide whether to use tools:
 
-1. Determine the tool functions that need to be called based on the provided instructions and the interaction's latest state.
-2. It is permissible to propose tool functions that do not directly answer the interaction's latest state but can compute based on the function definitions to promote a more advanced state for answering.
-3. A tool function may be called multiple times with different arguments.
-4. If a tool function is not called at all, it must still be mentioned in the results!
-5. Avoid calling a tool function that has already been called with the same arguments!
+1. Determine the tools that need to be called based on the provided instructions and the interaction's latest state.
+2. It is permissible to propose tools that do not directly answer the interaction's latest state but can compute based on the function definitions to promote a more advanced state for answering.
+3. A tool may be called multiple times with different arguments, but preferably not with the same ones unless the situation clearly merits it.
+4. If a tool is not to be called at all, it must still be mentioned in the results!
+5. Avoid calling a tool that has already been called with the same arguments!
 6. If the data required for a tool call is already given in previous invoked tool results, then the same tool call should not run.
-7. Ensure that each function proposed for invocation relies solely on the immediate context and previously invoked functions, without depending on other functions yet to be invoked. This prevents the proposal of interconnected functions unless their dependencies are already satisfied by previous calls.
+7. Ensure that each proposed tool call relies solely on the immediate context and the staged calls, without depending on other tools yet to be invoked. This prevents the proposal of interconnected tools unless their dependencies are already satisfied by previous calls.
 
 Produce a valid JSON object according to the following format:
 
 {{
     "tool_call_evaluations": [
         {{
-            "name": "<FUNCTION NAME>",
-            "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL FUNCTION NEEDS TO BE CALLED>",
+            "name": "<TOOL NAME>",
+            "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "should_run": <BOOLEAN>,
-            "arguments": <ARGUMENTS FOR THE TOOL FUNCTION>,
+            "arguments": <ARGUMENTS FOR THE TOOL>,
             "same_call_is_already_staged": <BOOLEAN>
         }},
         ...,
         {{
-            "name": "<FUNCTION NAME>",
-            "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL FUNCTION NEEDS TO BE CALLED>",
+            "name": "<TOOL NAME>",
+            "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND WHY THE TOOL NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "should_run": <BOOLEAN>,
-            "arguments": <ARGUMENTS FOR THE TOOL FUNCTION>,
+            "arguments": <ARGUMENTS FOR THE TOOL>,
             "same_call_is_already_staged": <BOOLEAN>
         }}
     ]
@@ -227,7 +222,7 @@ Here's a hypothetical example, for your reference:
         }},
         {{
             "name": "get_account_information",
-            "rationale": "The account information is already given in the list of staged tool calls",
+            "rationale": "Bob's account information is already given in the list of staged tool calls",
             "applicability_score": 9,
             "should_run": false,
             "same_call_is_already_staged": true
@@ -236,31 +231,54 @@ Here's a hypothetical example, for your reference:
 }}
 
 
-Note that the `tool_call_evaluations` list can be empty if no functions need to be called.
+Note that the `tool_call_evaluations` list can be empty if no tools need to be called.
 """  # noqa
         )
 
+        if staged_calls:
+            builder.add_section(
+                f"""
+STAGED TOOL CALLS
+-----------------
+The following is a list of staged tool calls after the interaction's latest state.
+You can use this information to avoid redundant calls and inform your response.
+If the same tool is already staged with the exact same arguments, then you must
+set "same_call_is_already_staged" to true, because its information is fresh here!: ###
+{staged_calls}
+###
+"""
+            )
+        else:
+            builder.add_section(
+                """
+STAGED TOOL CALLS
+-----------------
+There are no staged tool calls at this moment.
+###
+"""
+            )
+
         return builder.build()
 
-    def _get_invoked_functions(
+    def _get_staged_calls(
         self,
         emitted_events: Sequence[EmittedEvent],
     ) -> Optional[str]:
-        ordered_function_invocations = list(
+        staged_calls = list(
             chain(*[e["data"] for e in emitted_tool_events_to_dicts(emitted_events)])
         )
 
-        if not ordered_function_invocations:
+        if not staged_calls:
             return None
 
         return json.dumps(
             [
                 {
-                    "function_name": invocation["tool_name"],
+                    "name": invocation["tool_name"],
                     "arguments": invocation["arguments"],
                     "result": invocation["result"],
                 }
-                for invocation in ordered_function_invocations
+                for invocation in staged_calls
             ]
         )
 

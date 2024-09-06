@@ -1,5 +1,5 @@
 from typing import Any, Optional, Union
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from datetime import datetime
 
 from pydantic import Field
@@ -85,11 +85,15 @@ def create_router(
     router = APIRouter()
 
     @router.post("/")
-    async def create_session(request: CreateSessionRequest) -> CreateSessionResponse:
+    async def create_session(
+        request: CreateSessionRequest,
+        allow_greeting: bool = Query(default=True),
+    ) -> CreateSessionResponse:
         session = await mc.create_end_user_session(
             end_user_id=request.end_user_id,
             agent_id=request.agent_id,
             title=request.title,
+            allow_greeting=allow_greeting,
         )
 
         return CreateSessionResponse(session_id=session.id, title=session.title)

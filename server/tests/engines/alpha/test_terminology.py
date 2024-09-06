@@ -516,7 +516,8 @@ def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message = cast(MessageEventData, emitted_events[-1].data)["message"]
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
 
     assert nlp_test(
         context=message,

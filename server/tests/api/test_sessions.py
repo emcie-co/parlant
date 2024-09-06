@@ -38,12 +38,12 @@ def session_id(
     agent_id: AgentId,
 ) -> SessionId:
     response = client.post(
-        "/sessions",
+        "/sessions?allow_greeting=False",
         json={
             "end_user_id": "test_user",
             "agent_id": agent_id,
         },
-    )
+    ).raise_for_status()
     return SessionId(response.json()["session_id"])
 
 
@@ -54,12 +54,12 @@ async def long_session_id(
     agent_id: AgentId,
 ) -> SessionId:
     response = client.post(
-        "/sessions",
+        "/sessions?allow_greeting=False",
         json={
             "end_user_id": "test_user",
             "agent_id": agent_id,
         },
-    )
+    ).raise_for_status()
     session_id = SessionId(response.json()["session_id"])
 
     await populate_session_id(
@@ -87,6 +87,7 @@ def make_event_params(
         "source": source,
         "kind": kind,
         "creation_utc": str(datetime.now(timezone.utc)),
+        "correlation_id": "dummy_correlation_id",
         "data": data,
     }
 
@@ -388,7 +389,6 @@ async def test_that_tool_events_are_correlated_with_message_events(
         .json()["events"]
     )
 
-    assert len(events_in_session) == 2
     message_event = next(e for e in events_in_session if e["kind"] == "message")
     tool_call_event = next(e for e in events_in_session if e["kind"] == "tool")
     assert message_event["correlation_id"] == tool_call_event["correlation_id"]

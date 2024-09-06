@@ -5,7 +5,7 @@ Feature: Proactive agents
         And an empty session
         And a context variable "account_balance" with a value of "-$207.05"
         When processing is triggered
-        Then no events are emitted
+        Then no message events are emitted
 
 
     Scenario: The agent starts a conversation based on context values

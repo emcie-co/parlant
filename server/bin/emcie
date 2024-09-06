@@ -15,8 +15,6 @@ from rich.text import Text
 from tabulate import tabulate
 from textwrap import wrap
 
-from emcie.server.core.sessions import Event
-
 
 class Actions:
     @staticmethod
@@ -133,7 +131,7 @@ class Interface:
         response = requests.get(urljoin(ctx.obj.server_address, f"sessions/{session_id}/events"))
         response.raise_for_status()
 
-        message_events = [e for e in response.json()["events"] if e["kind"] == Event.MESSAGE_KIND]
+        message_events = [e for e in response.json()["events"] if e["kind"] == "message"]
 
         max_number_of_history_events_to_show = 5
 
@@ -181,7 +179,7 @@ class Interface:
                     # TODO: This current implementation does not support async polling mode,
                     #       but rather relies on request/response, which isn't comprehensive.
                     if message_events := [
-                        e for e in response.json()["events"] if e["kind"] == Event.MESSAGE_KIND
+                        e for e in response.json()["events"] if e["kind"] == "message"
                     ]:
                         for m in message_events:
                             print_message(m)

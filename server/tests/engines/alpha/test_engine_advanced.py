@@ -263,7 +263,6 @@ def given_a_guideline(
 def given_a_tool(
     sync_await: SyncAwaiter,
     container: Container,
-    agent_id: AgentId,
     tool_name: str,
     context: _TestContext,
 ) -> None:
@@ -691,7 +690,8 @@ def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message = cast(MessageEventData, emitted_events[-1].data)["message"]
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
 
     assert nlp_test(
         context=message,
@@ -704,6 +704,13 @@ def then_no_events_are_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
     assert len(emitted_events) == 0
+
+
+@then("no message events are emitted")
+def then_no_message_events_are_emitted(
+    emitted_events: list[EmittedEvent],
+) -> None:
+    assert len([e for e in emitted_events if e.kind == "message"]) == 0
 
 
 @then("a single message event is emitted")

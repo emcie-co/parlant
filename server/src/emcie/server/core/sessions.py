@@ -84,9 +84,9 @@ class SessionStore(ABC):
     @abstractmethod
     async def create_session(
         self,
-        creation_utc: datetime,
         end_user_id: EndUserId,
         agent_id: AgentId,
+        creation_utc: Optional[datetime] = None,
         title: Optional[str] = None,
     ) -> Session: ...
 
@@ -173,11 +173,13 @@ class SessionDocumentStore(SessionStore):
 
     async def create_session(
         self,
-        creation_utc: datetime,
         end_user_id: EndUserId,
         agent_id: AgentId,
+        creation_utc: Optional[datetime] = None,
         title: Optional[str] = None,
     ) -> Session:
+        creation_utc = creation_utc or datetime.now(timezone.utc)
+
         consumption_offsets: dict[ConsumerId, int] = {"client": 0}
 
         document = {

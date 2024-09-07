@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 from emcie.common.tools import ToolId, ToolResult
 from emcie.server.core.agents import AgentId
-from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guideline_tool_associations import GuidelineToolAssociationStore
 from emcie.server.core.guidelines import GuidelineStore
 from emcie.server.core.sessions import EventSource, SessionId, SessionStore

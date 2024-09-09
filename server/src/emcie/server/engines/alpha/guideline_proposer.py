@@ -99,7 +99,7 @@ class GuidelineProposer:
             guideline = batch[int(proposition["predicate_number"]) - 1]
 
             self.logger.debug(
-                f'Guideline evaluation for "When {guideline.predicate}, Then {guideline.content}":\n'  # noqa
+                f'Guideline evaluation for "When {guideline.content.predicate}, Then {guideline.content.action}":\n'  # noqa
                 f'  score: {proposition["applies_score"]}/10; rationale: "{proposition["rationale"]}"'
             )
 
@@ -133,7 +133,7 @@ class GuidelineProposer:
         result_structure = [
             {
                 "predicate_number": i,
-                "predicate": "<THE PREDICATE TEXT>",
+                "predicate": g.content.predicate,
                 "was_already_addressed_or_resolved_according_to_the_record_of_the_interaction": "<BOOL>",
                 "can_we_safely_presume_to_ascertain_whether_the_predicate_still_applies": "<BOOL>",
                 "rationale": "<EXPLANATION WHY THE PREDICATE IS RELEVANT OR IRRELEVANT FOR THE "

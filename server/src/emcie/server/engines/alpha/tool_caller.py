@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from itertools import chain
 import json
 import traceback
@@ -200,6 +200,9 @@ Produce a valid JSON object according to the following format:
 Here's a hypothetical example, for your reference:
 
 {{
+    "last_user_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
+    "most_recent_user_inquiry_or_need": "<...>",
+    "most_recent_user_inquiry_or_need_was_already_resolved": <BOOL>,
     "tool_call_evaluations": [
         {{
             "name": "transfer_money",
@@ -319,7 +322,7 @@ There are no staged tool calls at this moment.
                 tool_call.arguments,
             )
             self.logger.debug(
-                f"Tool call returned: {tool_call.name}/{tool_call.id}: {json.dumps(result, indent=2)}"
+                f"Tool call returned: {tool_call.name}/{tool_call.id}: {json.dumps(asdict(result), indent=2)}"
             )
 
             return ToolCallResult(

@@ -96,11 +96,13 @@ class GuidelineProposer:
 
         propositions = []
         for proposition in propositions_json:
+            guideline = batch[int(proposition["predicate_number"]) - 1]
+
             self.logger.debug(
-                f'Guideline proposer result for predicate "{batch[int(proposition["predicate_number"]) - 1].content.predicate}":\n'  # noqa
-                f'    applies_score: {proposition["applies_score"]},\n'
-                f'    rationale: "{proposition["rationale"]}"\n'
+                f'Guideline evaluation for "When {guideline.predicate}, Then {guideline.content}":\n'  # noqa
+                f'  score: {proposition["applies_score"]}/10; rationale: "{proposition["rationale"]}"'
             )
+
             if (proposition["applies_score"] >= 7) or (
                 proposition["applies_score"] >= 5
                 and not proposition[

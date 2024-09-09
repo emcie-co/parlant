@@ -45,6 +45,7 @@ class Logger(ABC):
     def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
         try:
             t_start = time.time()
+            self.info(f"OPERATION {name} [{props}] started")
             yield
             t_end = time.time()
             if props:

@@ -286,6 +286,8 @@ There are no staged tool calls at this moment.
         self,
         prompt: str,
     ) -> Sequence[ToolCallRequest]:
+        self.logger.debug(f"Tool call inference prompt: {prompt}")
+
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="gpt-4o-mini",
@@ -316,7 +318,9 @@ There are no staged tool calls at this moment.
                 context,
                 tool_call.arguments,
             )
-            self.logger.debug(f"Tool call returned: {tool_call.name}/{tool_call.id}: {result}")
+            self.logger.debug(
+                f"Tool call returned: {tool_call.name}/{tool_call.id}: {json.dumps(result, indent=2)}"
+            )
 
             return ToolCallResult(
                 id=ToolResultId(generate_id()),

@@ -166,36 +166,46 @@ def run_server(
 
     exec_args.extend(extra_args)
 
-    with subprocess.Popen(
-        args=exec_args,
-        text=True,
-        stdout=sys.stdout,
-        stderr=sys.stdout,
-        env={**os.environ, "EMCIE_HOME": context.home_dir.as_posix()},
-    ) as process:
-        yield process
+    caught_exception: Exception | None = None
 
-        if process.poll() is not None:
-            return
+    try:
+        with subprocess.Popen(
+            args=exec_args,
+            text=True,
+            stdout=sys.stdout,
+            stderr=sys.stdout,
+            env={**os.environ, "EMCIE_HOME": context.home_dir.as_posix()},
+        ) as process:
+            try:
+                yield process
+            except Exception as exc:
+                caught_exception = exc
 
-        process.send_signal(signal.SIGINT)
-
-        for i in range(5):
             if process.poll() is not None:
                 return
-            time.sleep(0.5)
 
-        process.terminate()
+            process.send_signal(signal.SIGINT)
 
-        for i in range(5):
-            if process.poll() is not None:
-                return
-            time.sleep(0.5)
+            for i in range(5):
+                if process.poll() is not None:
+                    return
+                time.sleep(0.5)
 
-        context.logger.error(
-            "Server process had to be killed. stderr="
-            + (process.stderr and process.stderr.read() or "None")
-        )
+            process.terminate()
 
-        process.kill()
-        process.wait()
+            for i in range(5):
+                if process.poll() is not None:
+                    return
+                time.sleep(0.5)
+
+            context.logger.error(
+                "Server process had to be killed. stderr="
+                + (process.stderr and process.stderr.read() or "None")
+            )
+
+            process.kill()
+            process.wait()
+
+    finally:
+        if caught_exception:
+            raise caught_exception

@@ -140,7 +140,7 @@ class GuidelineIndexer:
         guidelines: Sequence[Guideline],
         last_know_state_of_set: list[GuidelineIndexEntryItem],
     ) -> None:
-        introduced, existsing, deleted = self._assess_guideline_modifications(
+        introduced, existing, deleted = self._assess_guideline_modifications(
             guidelines, last_know_state_of_set
         )
 
@@ -155,14 +155,14 @@ class GuidelineIndexer:
                 ],
                 existing_guidelines=[
                     GuidelineContent(predicate=s.content.predicate, action=s.content.action)
-                    for s in existsing
+                    for s in existing
                 ],
             )
             if p.score >= 6
         )
 
         data_to_guideline = {
-            f"{s.content.predicate}_{s.content.action}": s for s in chain(introduced, existsing)
+            f"{s.content.predicate}_{s.content.action}": s for s in chain(introduced, existing)
         }
 
         for p in proposed_connections:
@@ -199,9 +199,9 @@ class Indexer:
                 return data
         return {}
 
-    def _write_index_file(self, indexes: JSONSerializable) -> None:
+    def _write_index_file(self, indices: JSONSerializable) -> None:
         with self._index_file.open("w") as f:
-            json.dump(indexes, f, indent=2)
+            json.dump(indices, f, indent=2)
 
     async def should_index(self) -> bool:
         indexed_data = self._read_index_file()

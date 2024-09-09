@@ -1,5 +1,4 @@
 import asyncio
-from asyncio.log import logger
 from dataclasses import dataclass
 from itertools import chain
 import json
@@ -95,7 +94,7 @@ class GuidelineConnectionProposer:
             for i, g in enumerate(comparison_set, start=1)
         )
         evaluated_guideline_string = (
-            f"{{when: {evaluated_guideline.predicate}, then: {evaluated_guideline.action}}}"
+            f"{{when: '{evaluated_guideline.predicate}', then: '{evaluated_guideline.action}'}}"
         )
 
         return f"""
@@ -107,32 +106,25 @@ Input:
 ###
 
 Task:
-Determine if there is a connection between the evaluated guideline and each of the guidelines in the comparison set.
-For each connection found, the output should be JSON structured as follows:
+1. Determine if there is a suggestive or entailed connection between the evaluated guideline and each of the guidelines in the comparison set.
+2. For example, if guideline A's "then" suggests or entails guideline B's "when", then A is considered the source of B, which here is the target. And vice versa.
+3. For each connection found, the output should be JSON structured as follows:
 
 {{
     "propositions": [
         {{
             "source": <The source guideline>,
             "target": <The target guideline>,
-            "rationale": <Explanation for the connection>,
+            "source_then": <The source guideline's 'then'>,
+            "target_when": <The target guideline's 'when'>,
+            "rationale": <Explanation for the connection between the source's 'then' and the target's 'when'>,
             "connection_score": <Score between 1-10 indicating the strength of the connection>
         }},
-        ...,
-        {{
-            "source": <The source guideline>,
-            "target": <The target guideline>,
-            "rationale": <Explanation for the connection>,
-            "connection_score": <Score between 1-10 indicating the strength of the connection>
-        }}
+        ...
     ]
 }}
 
-
-
 IMPORTANT: The evaluated guideline can serve as either the source or the target in the connection.
-Determine whether the evaluated guideline follows the compared guideline; if it does, it is the target. Otherwise, it is the source.
-
 
 ###Examples:
 
@@ -244,7 +236,7 @@ Example 10:###
 
         all_propositions: list[dict[str, Any]] = json.loads(content)["propositions"]
 
-        logger.debug(
+        self.logger.debug(
             f"""
 ----------------------------------------
 Connection Propositions Found:

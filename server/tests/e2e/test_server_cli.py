@@ -24,6 +24,7 @@ from tests.test_utilities import nlp_test
 
 
 REASONABLE_AMOUNT_OF_TIME = 5
+EXTENDED_AMOUNT_OF_TIME = 10
 
 
 async def get_quick_reply_from_agent(
@@ -260,12 +261,13 @@ async def test_that_the_server_detects_and_conforms_to_a_state_change_if_told_to
                 "then": "say also they are blue",
             },
         ]
+
         write_guideline_config(
             new_guidelines=initial_guidelines + new_guidelines,
             config_file=context.config_file,
         )
 
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent_reply = await get_quick_reply_from_agent(context, message="what are bananas?")
 

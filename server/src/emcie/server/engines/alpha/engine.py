@@ -1,7 +1,6 @@
 import asyncio
 from collections import defaultdict
 from itertools import chain
-import json
 import traceback
 from typing import Mapping, Optional, Sequence, cast
 
@@ -460,9 +459,6 @@ class AlphaEngine(Engine):
             context += str([e.data for e in staged_events])
 
         if context:
-            self.logger.debug(
-                f"Finding relevant terms for the context: {json.dumps(context, indent=2)}"
-            )
             return await self.terminology_store.find_relevant_terms(
                 term_set=agent.name,
                 query=context,

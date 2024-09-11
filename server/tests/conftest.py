@@ -27,8 +27,13 @@ from emcie.server.core.sessions import (
 from emcie.server.core.tools import MultiplexedToolService, LocalToolService, ToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
+from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
+from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionListSchema
+from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
+from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from emcie.server.llm_engines import GPT4o, JSONGenerator, Llama3_1_8B
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -57,22 +62,29 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
 async def container() -> AsyncIterator[Container]:
     container = Container(log_undefined_deps=True)
 
+    container[JSONGenerator[GuidelinePropositionListSchema]] = Singleton(
+        GPT4o(schema=GuidelinePropositionListSchema)
+    )
+
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])
     container[DocumentDatabase] = TransientDocumentDatabase
     container[AgentStore] = Singleton(AgentDocumentStore)
     container[GuidelineStore] = Singleton(GuidelineDocumentStore)
+    container[GuidelineProposer] = Singleton(GuidelineProposer)
     container[GuidelineConnectionStore] = Singleton(GuidelineConnectionDocumentStore)
     container[LocalToolService] = Singleton(LocalToolService)
     container[MultiplexedToolService] = MultiplexedToolService(
         services={"local": container[LocalToolService]}
     )
     container[ToolService] = lambda c: c[MultiplexedToolService]
+    container[ToolEventProducer] = Singleton(ToolEventProducer)
     container[SessionStore] = Singleton(SessionDocumentStore)
     container[ContextVariableStore] = Singleton(ContextVariableDocumentStore)
     container[EndUserStore] = Singleton(EndUserDocumentStore)
     container[GuidelineToolAssociationStore] = Singleton(GuidelineToolAssociationDocumentStore)
     container[SessionListener] = PollingSessionListener
+    container[MessageEventProducer] = Singleton(MessageEventProducer)
     container[EvaluationStore] = Singleton(EvaluationDocumentStore)
     container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
 

@@ -5,7 +5,11 @@ from pytest import fixture, mark
 from emcie.server.core.agents import Agent, AgentId
 from emcie.server.core.common import generate_id
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
+from emcie.server.engines.alpha.guideline_proposition import (
+    GuidelineProposition,
+    GuidelinePropositionListSchema,
+)
+from emcie.server.llm_engines import JSONGenerator
 from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter
 from datetime import datetime, timezone
@@ -18,6 +22,7 @@ from emcie.server.core.sessions import Event, EventId, EventSource
 class _TestContext:
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
+    guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionListSchema]
     logger: Logger
 
 
@@ -26,14 +31,23 @@ def context(
     sync_await: SyncAwaiter,
     container: Container,
 ) -> _TestContext:
-    return _TestContext(sync_await, guidelines=list(), logger=container[Logger])
+    return _TestContext(
+        sync_await,
+        guidelines=list(),
+        logger=container[Logger],
+        guideline_proposition_scehma_generator=container[
+            JSONGenerator[GuidelinePropositionListSchema]
+        ],
+    )
 
 
 def propose_guidelines(
     context: _TestContext,
     conversation_context: list[tuple[str, str]],
 ) -> Sequence[GuidelineProposition]:
-    guideline_filter = GuidelineProposer(context.logger)
+    guideline_filter = GuidelineProposer(
+        context.logger, context.guideline_proposition_scehma_generator
+    )
     agents = [
         Agent(
             id=AgentId("123"),

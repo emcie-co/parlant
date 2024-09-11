@@ -1,18 +1,19 @@
 import asyncio
-import json
 import math
-import jsonfinder  # type: ignore
 from typing import Sequence
 
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
+from emcie.server.engines.alpha.guideline_proposition import (
+    GuidelineProposition,
+    GuidelinePropositionListSchema,
+)
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
 from emcie.server.core.terminology import Term
-from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.engines.event_emitter import EmittedEvent
+from emcie.server.llm_engines import JSONGenerator
 from emcie.server.logger import Logger
 
 
@@ -20,10 +21,10 @@ class GuidelineProposer:
     def __init__(
         self,
         logger: Logger,
+        guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionListSchema],
     ) -> None:
         self.logger = logger
-
-        self._llm_client = make_llm_client("openai")
+        self._guideline_proposition_scehma_generator = guideline_proposition_scehma_generator
 
     async def propose_guidelines(
         self,
@@ -90,30 +91,30 @@ class GuidelineProposer:
         )
 
         with self.logger.operation("Guideline batch proposal"):
-            llm_response = await self._generate_llm_response(prompt)
-
-        propositions_json = json.loads(llm_response)["checks"]
+            propositions_json = await self._guideline_proposition_scehma_generator.generate(
+                prompt=prompt,
+                args={"temperature": 0.3},
+            )
 
         propositions = []
-        for proposition in propositions_json:
-            guideline = batch[int(proposition["predicate_number"]) - 1]
+
+        for proposition in propositions_json.content.checks:
+            guideline = batch[int(proposition.predicate_number) - 1]
 
             self.logger.debug(
                 f'Guideline evaluation for "When {guideline.content.predicate}, Then {guideline.content.action}":\n'  # noqa
-                f'  score: {proposition["applies_score"]}/10; rationale: "{proposition["rationale"]}"'
+                f'  score: {proposition.applies_score}/10; rationale: "{proposition.rationale}"'
             )
 
-            if (proposition["applies_score"] >= 7) or (
-                proposition["applies_score"] >= 5
-                and not proposition[
-                    "can_we_safely_presume_to_ascertain_whether_the_predicate_still_applies"
-                ]
+            if (proposition.applies_score >= 7) or (
+                proposition.applies_score >= 5
+                and not proposition.can_we_safely_presume_to_ascertain_whether_the_predicate_still_applies
             ):
                 propositions.append(
                     GuidelineProposition(
-                        guideline=batch[int(proposition["predicate_number"]) - 1],
-                        score=proposition["applies_score"],
-                        rationale=proposition["rationale"],
+                        guideline=batch[int(proposition.predicate_number) - 1],
+                        score=proposition.applies_score,
+                        rationale=proposition.rationale,
                     )
                 )
 
@@ -429,14 +430,3 @@ Expected Output
         )
 
         return builder.build()
-
-    async def _generate_llm_response(self, prompt: str) -> str:
-        response = await self._llm_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o",
-            temperature=0.3,
-            response_format={"type": "json_object"},
-        )
-
-        content = response.choices[0].message.content or "{}"
-        return json.dumps(jsonfinder.only_json(content)[2])  # type: ignore

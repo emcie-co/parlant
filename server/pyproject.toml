@@ -37,6 +37,7 @@ openapi3-parser = "^1.1.17"
 aiopenapi3 = "^0.6.0"
 coloredlogs = "^15.0.1"
 contextvars = "^2.4"
+together = "^1.2.12"
 
 
 [tool.poetry.group.dev.dependencies]

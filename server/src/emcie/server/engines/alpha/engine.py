@@ -7,6 +7,8 @@ from typing import Mapping, Optional, Sequence, cast
 from emcie.common.tools import Tool
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.common import generate_id
+from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
+from emcie.server.llm_engines import JSONGenerator
 from emcie.server.logger import Logger
 
 from emcie.server.core.agents import Agent, AgentId, AgentStore
@@ -18,8 +20,10 @@ from emcie.server.core.context_variables import (
 from emcie.server.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
 from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
-from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
+from emcie.server.engines.alpha.guideline_proposition import (
+    GuidelineProposition,
+    GuidelinePropositionListSchema,
+)
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
@@ -51,6 +55,9 @@ class AlphaEngine(Engine):
         guideline_connection_store: GuidelineConnectionStore,
         tool_service: ToolService,
         guideline_tool_association_store: GuidelineToolAssociationStore,
+        guideline_proposer: GuidelineProposer,
+        tool_event_producer: ToolEventProducer,
+        message_event_producer: MessageEventProducer,
     ) -> None:
         self.logger = logger
         self.correlator = correlator
@@ -66,13 +73,9 @@ class AlphaEngine(Engine):
 
         self.max_tool_call_iterations = 5
 
-        self.guideline_proposer = GuidelineProposer(self.logger)
-        self.tool_event_producer = ToolEventProducer(
-            self.logger,
-            self.correlator,
-            self.tool_service,
-        )
-        self.message_event_producer = MessageEventProducer(self.logger, self.correlator)
+        self.guideline_proposer = guideline_proposer
+        self.tool_event_producer = tool_event_producer
+        self.message_event_producer = message_event_producer
 
     async def process(
         self,

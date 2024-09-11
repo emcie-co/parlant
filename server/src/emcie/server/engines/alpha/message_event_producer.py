@@ -363,8 +363,8 @@ Example 4: Non-Adherence Due to Missing Data: ###
             final_revision = message_event_response.content.revisions[-1]
 
         if (
-            not final_revision.followed_all_rules
-            and not final_revision.rules_broken_due_to_prioritization
+            not final_revision.followed_all_guidelines
+            and not final_revision.guidelines_broken_only_due_to_prioritization
         ):
             self.logger.warning(f"PROBLEMATIC RESPONSE: {final_revision.content}")
 

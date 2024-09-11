@@ -39,7 +39,7 @@ async def nlp_test(context: str, predicate: str) -> bool:
                     If the answer is NO, answer "n".
                 """
         ),
-        arges={
+        args={
             "logit_bias": {
                 tokenizer.encode_single_token("y"): 100,  # type: ignore
                 tokenizer.encode_single_token("n"): 100,  # type: ignore

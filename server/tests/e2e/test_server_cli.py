@@ -120,7 +120,7 @@ async def test_that_the_server_hot_reloads_guideline_changes(
 
         agent_reply = await get_quick_reply_from_agent(context, message="what are bananas?")
 
-        assert nlp_test(agent_reply, "It says that bananas are very tasty")
+        assert await nlp_test(agent_reply, "It says that bananas are very tasty")
 
 
 async def test_that_the_server_loads_and_interacts_with_a_plugin(
@@ -162,7 +162,7 @@ async def test_that_the_server_loads_and_interacts_with_a_plugin(
 
                 agent_reply = await get_quick_reply_from_agent(context, message="Hello")
 
-                assert nlp_test(agent_reply, "It says that Dor makes great pizza")
+                assert await nlp_test(agent_reply, "It says that Dor makes great pizza")
 
         finally:
             await plugin_server.shutdown()
@@ -176,7 +176,7 @@ async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_n
 
         agent_reply = await get_quick_reply_from_agent(context, message="Hello")
 
-        assert nlp_test(agent_reply, "It greeting the user")
+        assert await nlp_test(agent_reply, "It greeting the user")
 
 
 async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_to_index(
@@ -187,7 +187,7 @@ async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_t
 
         agent_reply = await get_quick_reply_from_agent(context, message="Hello")
 
-        assert nlp_test(agent_reply, "It greeting the user")
+        assert await nlp_test(agent_reply, "It greeting the user")
 
 
 async def test_that_the_server_refuses_to_start_on_detecting_a_state_change_that_requires_indexing_if_told_not_to_index_changes(
@@ -238,7 +238,7 @@ async def test_that_the_server_does_not_conform_to_state_changes_if_forced_to_st
 
         agent_reply = await get_quick_reply_from_agent(context, message="what are bananas?")
 
-        assert nlp_test(
+        assert await nlp_test(
             agent_reply, "It says that bananas are very tasty but not mentioning they blue"
         )
 
@@ -271,7 +271,7 @@ async def test_that_the_server_detects_and_conforms_to_a_state_change_if_told_to
 
         agent_reply = await get_quick_reply_from_agent(context, message="what are bananas?")
 
-        assert nlp_test(agent_reply, "It says that bananas are very tasty and blue")
+        assert await nlp_test(agent_reply, "It says that bananas are very tasty and blue")
 
 
 async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(

@@ -537,14 +537,14 @@ def then_the_tool_calls_event_contains_n_tool_calls(
 
 
 @then(parsers.parse("the tool calls event contains {expected_content}"))
-def then_the_tool_calls_event_contains_expected_content(
+async def then_the_tool_calls_event_contains_expected_content(
     expected_content: str,
     emitted_events: list[EmittedEvent],
 ) -> None:
     tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
     tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_calls"]
 
-    assert nlp_test(
+    assert await nlp_test(
         context=f"The following is the result of tool (function) calls: {tool_calls}",
         predicate=f"The calls contain {expected_content}",
     )
@@ -689,14 +689,14 @@ def then_get_account_loans_tool_event_is_emitted(
 
 
 @then(parsers.parse("the message contains {something}"))
-def then_the_message_contains(
+async def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == "message")
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert nlp_test(
+    assert await nlp_test(
         context=message,
         predicate=f"the text contains {something}",
     )

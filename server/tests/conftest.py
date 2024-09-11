@@ -29,11 +29,12 @@ from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
 from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionListSchema
+from emcie.server.engines.alpha.message_event import MessageEventSchema
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
-from emcie.server.llm_engines import GPT4o, JSONGenerator, Llama3_1_8B
+from emcie.server.llm.json_generators import GPT4o, JSONGenerator
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -65,6 +66,7 @@ async def container() -> AsyncIterator[Container]:
     container[JSONGenerator[GuidelinePropositionListSchema]] = Singleton(
         GPT4o(schema=GuidelinePropositionListSchema)
     )
+    container[JSONGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])

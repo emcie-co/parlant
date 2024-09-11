@@ -7,13 +7,12 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
+from emcie.server.engines.alpha.message_event import MessageEventSchema
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from emcie.server.core.terminology import Term
-from emcie.server.engines.alpha.utils import (
-    make_llm_client,
-)
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.sessions import Event
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 
 
@@ -22,10 +21,11 @@ class MessageEventProducer:
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
+        message_event_generator: JSONGenerator[MessageEventSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator
-        self._llm_client = make_llm_client("openai")
+        self._message_event_generator = message_event_generator
 
     async def produce_events(
         self,
@@ -334,29 +334,23 @@ Example 4: Non-Adherence Due to Missing Data: ###
         return builder.build()
 
     async def _generate_response_message(self, prompt: str) -> Optional[str]:
-        response = await self._llm_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o",
-            response_format={"type": "json_object"},
-            temperature=0.5,
+        message_event_response = await self._message_event_generator.generate(
+            prompt=prompt,
+            args={"temperature": 0.5},
         )
 
-        content = response.choices[0].message.content or ""
-
-        json_content = json.loads(content)
-
-        if not json_content["produced_reply"]:
+        if not message_event_response.content.produced_reply:
             return None
 
-        revisions = json_content["revisions"]
-
-        self.logger.debug(f"Message event producer response: {json.dumps(json_content, indent=2)}")
+        self.logger.debug(
+            f"Message event producer response: {json.dumps([r.model_dump() for r in message_event_response.content.revisions], indent=2)}"
+        )
 
         if last_correct_revision := next(
             (
                 r
-                for r in reversed(revisions)
-                if r.get("guidelines_broken_only_due_to_prioritization")
+                for r in reversed(message_event_response.content.revisions)
+                if r.guidelines_broken_only_due_to_prioritization
             ),
             None,
         ):
@@ -366,14 +360,12 @@ Example 4: Non-Adherence Due to Missing Data: ###
             # This is a workaround.
             final_revision = last_correct_revision
         else:
-            final_revision = json_content["revisions"][-1]
+            final_revision = message_event_response.content.revisions[-1]
 
-        followed_all_guidelines = final_revision.get("followed_all_guidelines", False)
-        guidelines_broken_only_due_to_prioritization = final_revision.get(
-            "guidelines_broken_only_due_to_prioritization", False
-        )
+        if (
+            not final_revision.followed_all_rules
+            and not final_revision.rules_broken_due_to_prioritization
+        ):
+            self.logger.warning(f"PROBLEMATIC RESPONSE: {final_revision.content}")
 
-        if not followed_all_guidelines and not guidelines_broken_only_due_to_prioritization:
-            self.logger.warning(f"PROBLEMATIC RESPONSE: {content}")
-
-        return str(final_revision["content"])
+        return str(final_revision.content)

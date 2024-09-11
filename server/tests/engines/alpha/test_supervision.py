@@ -5,7 +5,6 @@ from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
 
-from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guidelines import Guideline, GuidelineStore
@@ -14,7 +13,6 @@ from emcie.server.engines.alpha.message_event_producer import MessageEventProduc
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.event_emitter import EmittedEvent
 
-from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter, nlp_test
 
 roles = Literal["client", "server"]
@@ -149,10 +147,7 @@ def when_processing_is_triggered(
         )
     ]
 
-    message_event_producer = MessageEventProducer(
-        context.container[Logger],
-        context.container[ContextualCorrelator],
-    )
+    message_event_producer = context.container[MessageEventProducer]
 
     message_events = context.sync_await(
         message_event_producer.produce_events(
@@ -170,14 +165,14 @@ def when_processing_is_triggered(
 
 
 @then(parsers.parse("the message should contain {something}"))
-def then_the_message_contains(
+async def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == "message")
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert nlp_test(
+    assert await nlp_test(
         context=message,
         predicate=f"the text contains {something}",
     )

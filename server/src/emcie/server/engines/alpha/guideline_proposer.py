@@ -13,7 +13,7 @@ from emcie.server.core.terminology import Term
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.engines.event_emitter import EmittedEvent
-from emcie.server.llm_engines import JSONGenerator
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 
 

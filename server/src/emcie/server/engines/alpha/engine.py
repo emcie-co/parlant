@@ -8,7 +8,6 @@ from emcie.common.tools import Tool
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.common import generate_id
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.llm_engines import JSONGenerator
 from emcie.server.logger import Logger
 
 from emcie.server.core.agents import Agent, AgentId, AgentStore
@@ -22,7 +21,6 @@ from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.guideline_proposition import (
     GuidelineProposition,
-    GuidelinePropositionListSchema,
 )
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,

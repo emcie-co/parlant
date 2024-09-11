@@ -515,14 +515,14 @@ def then_a_single_message_event_is_emitted(
 
 
 @then(parsers.parse("the message contains {something}"))
-def then_the_message_contains(
+async def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == "message")
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert nlp_test(
+    assert await nlp_test(
         context=message,
         predicate=f"the text contains {something}",
     )

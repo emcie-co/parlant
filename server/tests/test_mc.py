@@ -180,4 +180,4 @@ async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_on
     events = list(await context.container[SessionStore].list_events(session.id))
 
     assert len(events) == 4
-    assert nlp_test(str(events[-1].data), "It talks about pineapples")
+    assert await nlp_test(str(events[-1].data), "It talks about pineapples")

@@ -9,7 +9,7 @@ from emcie.server.engines.alpha.guideline_proposition import (
     GuidelineProposition,
     GuidelinePropositionListSchema,
 )
-from emcie.server.llm_engines import JSONGenerator
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter
 from datetime import datetime, timezone

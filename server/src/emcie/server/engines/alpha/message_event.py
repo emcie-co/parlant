@@ -5,8 +5,8 @@ from emcie.server.base_models import DefaultBaseModel
 class Revision(DefaultBaseModel):
     revision_number: int
     content: str
-    guidelines_followed: list[str]
-    guidelines_broken: list[str]
+    guidelines_followed: Optional[list[str]] = []
+    guidelines_broken: Optional[list[str]] = []
     followed_all_guidelines: Optional[bool] = False
     guidelines_broken_due_to_missing_data: Optional[bool] = False
     missing_data_rationale: Optional[str] = None

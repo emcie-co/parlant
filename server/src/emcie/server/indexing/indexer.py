@@ -30,6 +30,7 @@ class GuidelineIndexer:
         guideline_store: GuidelineStore,
         guideline_connection_store: GuidelineConnectionStore,
         agent_store: AgentStore,
+        guideline_connection_proposer: GuidelineConnectionProposer,
     ) -> None:
         self.logger = logger
 
@@ -37,7 +38,7 @@ class GuidelineIndexer:
         self._guideline_connection_store = guideline_connection_store
         self._agent_store = agent_store
 
-        self._guideline_connection_proposer = GuidelineConnectionProposer(self.logger)
+        self._guideline_connection_proposer = guideline_connection_proposer
 
     @staticmethod
     def _guideline_checksum(guideline: Guideline) -> str:
@@ -183,6 +184,7 @@ class Indexer:
         guideline_store: GuidelineStore,
         guideline_connection_store: GuidelineConnectionStore,
         agent_store: AgentStore,
+        guideline_connection_proposer: GuidelineConnectionProposer,
     ) -> None:
         self._index_file = index_file
         self._guideline_indexer = GuidelineIndexer(
@@ -190,6 +192,7 @@ class Indexer:
             guideline_store,
             guideline_connection_store,
             agent_store,
+            guideline_connection_proposer,
         )
 
     def _read_index_file(self) -> dict[str, Any]:

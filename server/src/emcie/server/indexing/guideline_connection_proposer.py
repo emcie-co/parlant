@@ -7,8 +7,24 @@ from typing import Any, Sequence
 from more_itertools import chunked
 from emcie.server.core.guideline_connections import ConnectionKind
 from emcie.server.core.guidelines import GuidelineContent
-from emcie.server.engines.alpha.utils import make_llm_client
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
+from emcie.server.base_models import DefaultBaseModel
+
+
+class GuidelineConnectionPropositionSchema(DefaultBaseModel):
+    source: dict[str, Any]
+    target: dict[str, Any]
+    source_then: str
+    target_when: str
+    is_target_when_implied_by_source_then: bool
+    is_target_then_suggestive_or_optional: bool = False
+    rationale: str
+    implication_score: int
+
+
+class GuidelineConnectionPropositionsSchema(DefaultBaseModel):
+    propositions: list[GuidelineConnectionPropositionSchema]
 
 
 @dataclass(frozen=True)
@@ -21,10 +37,17 @@ class GuidelineConnectionProposition:
 
 
 class GuidelineConnectionProposer:
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        guideline_connection_proposer_generator: JSONGenerator[
+            GuidelineConnectionPropositionsSchema
+        ],
+    ) -> None:
         self.logger = logger
-        self._llm_client = make_llm_client("openai")
         self._batch_size = 5
+
+        self._guideline_connection_proposer_generator = guideline_connection_proposer_generator
 
     async def propose_connections(
         self,
@@ -298,39 +321,35 @@ Implication candidates: ###
         guidelines_to_compare: Sequence[GuidelineContent],
     ) -> list[GuidelineConnectionProposition]:
         prompt = self._format_connection_propositions(guideline_to_test, guidelines_to_compare)
-        response = await self._llm_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o",
-            temperature=0.0,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content or ""
 
-        all_propositions: list[dict[str, Any]] = json.loads(content)["propositions"]
+        response = await self._guideline_connection_proposer_generator.generate(
+            prompt=prompt,
+            args={"temperature": 0.0},
+        )
 
         self.logger.debug(
             f"""
 ----------------------------------------
 Connection Propositions Found:
 ----------------------------------------
-{json.dumps(all_propositions, indent=2)}
+{json.dumps([p.model_dump() for p in response.content.propositions], indent=2)}
 ----------------------------------------
 """
         )
 
         relevant_propositions = [
             GuidelineConnectionProposition(
-                source=GuidelineContent(predicate=p["source"]["when"], action=p["source"]["then"]),
-                target=GuidelineContent(predicate=p["target"]["when"], action=p["target"]["then"]),
+                source=GuidelineContent(predicate=p.source["when"], action=p.source["then"]),
+                target=GuidelineContent(predicate=p.target["when"], action=p.target["then"]),
                 kind={
                     False: ConnectionKind.ENTAILS,
                     True: ConnectionKind.SUGGESTS,
-                }[p["is_target_then_suggestive_or_optional"]],
-                score=int(p["implication_score"]),
-                rationale=p["rationale"],
+                }[p.is_target_then_suggestive_or_optional],
+                score=int(p.implication_score),
+                rationale=p.rationale,
             )
-            for p in all_propositions
-            if p["implication_score"] >= 7
+            for p in response.content.propositions
+            if p.implication_score >= 7
         ]
 
         return relevant_propositions

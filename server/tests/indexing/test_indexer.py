@@ -10,6 +10,7 @@ from pytest import fixture
 from emcie.server.core.agents import Agent, AgentStore
 from emcie.server.core.guidelines import GuidelineStore
 from emcie.server.core.guideline_connections import GuidelineConnectionStore
+from emcie.server.indexing.guideline_connection_proposer import GuidelineConnectionProposer
 from emcie.server.indexing.indexer import GuidelineIndexer, Indexer
 from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter
@@ -56,6 +57,7 @@ async def test_that_guidelines_written_in_the_index_file(
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         )
         await indexer.index()
         with open(index_file, "r") as f:
@@ -103,6 +105,7 @@ async def test_that_removed_guidelines_are_also_removed_from_the_index_file(
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         ).index()
         with open(index_file, "r") as f:
             indexes = json.load(f)
@@ -122,6 +125,7 @@ async def test_that_removed_guidelines_are_also_removed_from_the_index_file(
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         ).index()
 
         with open(index_file, "r") as f:
@@ -160,6 +164,7 @@ async def test_that_guideline_connections_are_created(
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         )
         await indexer.index()
 
@@ -198,6 +203,7 @@ async def test_that_guideline_connections_are_removed_when_guideline_deleted(
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         )
         await indexer.index()
 

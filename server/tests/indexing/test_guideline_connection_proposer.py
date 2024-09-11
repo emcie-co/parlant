@@ -5,7 +5,6 @@ from pytest import fixture, mark
 from emcie.server.core.guideline_connections import ConnectionKind
 from emcie.server.core.guidelines import GuidelineContent
 from emcie.server.indexing.guideline_connection_proposer import GuidelineConnectionProposer
-from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter
 
 
@@ -63,7 +62,7 @@ def test_that_an_entailment_connection_is_proposed_for_two_guidelines_where_the_
     source_guideline_definition: dict[str, str],
     target_guideline_definition: dict[str, str],
 ) -> None:
-    connection_proposer = GuidelineConnectionProposer(context.container[Logger])
+    connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = _create_guideline_content(
         source_guideline_definition["predicate"],
@@ -126,7 +125,7 @@ def test_that_a_suggestion_connection_is_proposed_for_two_guidelines_where_the_c
     source_guideline_definition: dict[str, str],
     target_guideline_definition: dict[str, str],
 ) -> None:
-    connection_proposer = GuidelineConnectionProposer(context.container[Logger])
+    connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = _create_guideline_content(
         source_guideline_definition["predicate"],
@@ -196,7 +195,7 @@ def test_that_multiple_connections_are_detected_and_proposed_at_the_same_time(
         ]
     ]
 
-    connection_proposer = GuidelineConnectionProposer(context.container[Logger])
+    connection_proposer = context.container[GuidelineConnectionProposer]
 
     connection_propositions = list(
         context.sync_await(connection_proposer.propose_connections(introduced_guidelines, []))
@@ -255,7 +254,7 @@ def test_that_possible_connections_between_existing_guidelines_are_not_proposed(
         ]
     ]
 
-    connection_proposer = GuidelineConnectionProposer(context.container[Logger])
+    connection_proposer = context.container[GuidelineConnectionProposer]
 
     connection_propositions = list(
         context.sync_await(connection_proposer.propose_connections([], existing_guidelines))

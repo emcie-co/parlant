@@ -36,6 +36,10 @@ from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
 from emcie.server.indexing.coherence_checker import ContradictionTestsSchema
+from emcie.server.indexing.guideline_connection_proposer import (
+    GuidelineConnectionProposer,
+    GuidelineConnectionPropositionsSchema,
+)
 from emcie.server.llm.json_generators import GPT4o, GPT4oMini, JSONGenerator
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
@@ -75,6 +79,9 @@ async def container() -> AsyncIterator[Container]:
     container[JSONGenerator[ContradictionTestsSchema]] = Singleton(
         GPT4oMini(schema=ContradictionTestsSchema)
     )
+    container[JSONGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
+        GPT4oMini(schema=GuidelineConnectionPropositionsSchema)
+    )
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])
@@ -83,6 +90,7 @@ async def container() -> AsyncIterator[Container]:
     container[GuidelineStore] = Singleton(GuidelineDocumentStore)
     container[GuidelineProposer] = Singleton(GuidelineProposer)
     container[GuidelineConnectionStore] = Singleton(GuidelineConnectionDocumentStore)
+    container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     container[LocalToolService] = Singleton(LocalToolService)
     container[MultiplexedToolService] = MultiplexedToolService(
         services={"local": container[LocalToolService]}

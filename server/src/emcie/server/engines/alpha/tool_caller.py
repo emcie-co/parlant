@@ -293,9 +293,7 @@ There are no staged tool calls at this moment.
         )
 
         self.logger.debug(
-            f"Tool call request results: {json.dumps(
-                tool_call_evaluation.content.tool_call_evaluations, indent=2
-                )}"
+            f"Tool call request results: {json.dumps([t.model_dump() for t in tool_call_evaluation.content.tool_call_evaluations], indent=2),}"
         )
         return tool_call_evaluation.content.tool_call_evaluations
 

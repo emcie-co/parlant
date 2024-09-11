@@ -21,5 +21,5 @@ class GuidelinePropositionSchema(DefaultBaseModel):
     applies_score: int
 
 
-class GuidelinePropositionListSchema(DefaultBaseModel):
+class GuidelinePropositionsSchema(DefaultBaseModel):
     checks: Sequence[GuidelinePropositionSchema]

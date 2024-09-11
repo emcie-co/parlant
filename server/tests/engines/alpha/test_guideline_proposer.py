@@ -7,7 +7,7 @@ from emcie.server.core.common import generate_id
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
 from emcie.server.engines.alpha.guideline_proposition import (
     GuidelineProposition,
-    GuidelinePropositionListSchema,
+    GuidelinePropositionsSchema,
 )
 from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
@@ -22,7 +22,7 @@ from emcie.server.core.sessions import Event, EventId, EventSource
 class _TestContext:
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionListSchema]
+    guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionsSchema]
     logger: Logger
 
 
@@ -36,7 +36,7 @@ def context(
         guidelines=list(),
         logger=container[Logger],
         guideline_proposition_scehma_generator=container[
-            JSONGenerator[GuidelinePropositionListSchema]
+            JSONGenerator[GuidelinePropositionsSchema]
         ],
     )
 

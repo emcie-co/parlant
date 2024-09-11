@@ -6,7 +6,7 @@ from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.engines.alpha.guideline_proposition import (
     GuidelineProposition,
-    GuidelinePropositionListSchema,
+    GuidelinePropositionsSchema,
 )
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
 from emcie.server.core.terminology import Term
@@ -21,7 +21,7 @@ class GuidelineProposer:
     def __init__(
         self,
         logger: Logger,
-        guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionListSchema],
+        guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionsSchema],
     ) -> None:
         self.logger = logger
         self._guideline_proposition_scehma_generator = guideline_proposition_scehma_generator

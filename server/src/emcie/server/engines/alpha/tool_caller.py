@@ -3,8 +3,7 @@ from dataclasses import dataclass, asdict
 from itertools import chain
 import json
 import traceback
-import jsonfinder  # type: ignore
-from typing import Mapping, NewType, Optional, Sequence, TypedDict
+from typing import Mapping, NewType, Optional, Sequence
 
 
 from emcie.common.tools import Tool, ToolContext
@@ -16,8 +15,13 @@ from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
-from emcie.server.engines.alpha.utils import make_llm_client, emitted_tool_events_to_dicts
+from emcie.server.engines.alpha.tool_call_evaluation import (
+    ToolCallEvaluation,
+    ToolCallEvaluationsSchema,
+)
+from emcie.server.engines.alpha.utils import emitted_tool_events_to_dicts
 from emcie.server.engines.event_emitter import EmittedEvent
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 
 ToolCallId = NewType("ToolCallId", str)
@@ -39,22 +43,15 @@ class ToolCallResult:
 
 
 class ToolCaller:
-    class ToolCallRequest(TypedDict):
-        name: str
-        rationale: str
-        applicability_score: int
-        should_run: bool
-        arguments: Mapping[str, JSONSerializable]
-        same_call_is_already_staged: bool
-
     def __init__(
         self,
         logger: Logger,
         tool_service: ToolService,
+        tool_caller_evaluation_generator: JSONGenerator[ToolCallEvaluationsSchema],
     ) -> None:
         self._tool_service = tool_service
         self.logger = logger
-        self._llm_client = make_llm_client("openai")
+        self._tool_caller_evaluation_generator = tool_caller_evaluation_generator
 
     async def infer_tool_calls(
         self,
@@ -80,17 +77,17 @@ class ToolCaller:
             inference_output = await self._run_inference(inference_prompt)
 
         tool_calls_that_need_to_run = [
-            c for c in inference_output if not c["same_call_is_already_staged"]
+            c for c in inference_output if not c.same_call_is_already_staged
         ]
 
         return [
             ToolCall(
                 id=ToolCallId(generate_id()),
-                name=tc["name"],
-                arguments=tc["arguments"],
+                name=tc.name,
+                arguments=tc.arguments,
             )
             for tc in tool_calls_that_need_to_run
-            if tc["should_run"] and tc["applicability_score"] >= 7
+            if tc.should_run and tc.applicability_score >= 7
         ]
 
     async def execute_tool_calls(
@@ -288,25 +285,19 @@ There are no staged tool calls at this moment.
     async def _run_inference(
         self,
         prompt: str,
-    ) -> Sequence[ToolCallRequest]:
+    ) -> Sequence[ToolCallEvaluation]:
         self.logger.debug(f"Tool call inference prompt: {prompt}")
 
-        response = await self._llm_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
-            temperature=0.3,
+        tool_call_evaluation = await self._tool_caller_evaluation_generator.generate(
+            prompt=prompt, args={"temperature": 0.3}
         )
-
-        content = response.choices[0].message.content or ""
-        json_content = jsonfinder.only_json(content)[2]
 
         self.logger.debug(
             f"Tool call request results: {json.dumps(
-                json_content['tool_call_evaluations'], indent=2
+                tool_call_evaluation.content.tool_call_evaluations, indent=2
                 )}"
         )
-        return json_content["tool_call_evaluations"]  # type: ignore
+        return tool_call_evaluation.content.tool_call_evaluations
 
     async def _run_tool(
         self,

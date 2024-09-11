@@ -165,14 +165,17 @@ def when_processing_is_triggered(
 
 
 @then(parsers.parse("the message should contain {something}"))
-async def then_the_message_contains(
+def then_the_message_contains(
+    context: _TestContext,
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == "message")
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert await nlp_test(
-        context=message,
-        predicate=f"the text contains {something}",
+    assert context.sync_await(
+        nlp_test(
+            context=message,
+            predicate=f"the text contains {something}",
+        )
     )

@@ -3,6 +3,8 @@ from typing import Mapping, Sequence, cast
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
+from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable
@@ -22,12 +24,13 @@ class ToolEventProducer:
         logger: Logger,
         correlator: ContextualCorrelator,
         tool_service: ToolService,
+        tool_caller_evaluation_generator: JSONGenerator[ToolCallEvaluationsSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator
 
         self._llm_client = make_llm_client("openai")
-        self.tool_caller = ToolCaller(logger, tool_service)
+        self.tool_caller = ToolCaller(logger, tool_service, tool_caller_evaluation_generator)
 
     async def produce_events(
         self,

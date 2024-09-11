@@ -28,13 +28,14 @@ from emcie.server.core.tools import MultiplexedToolService, LocalToolService, To
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionListSchema
+from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionsSchema
 from emcie.server.engines.alpha.message_event import MessageEventSchema
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
+from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
-from emcie.server.llm.json_generators import GPT4o, JSONGenerator
+from emcie.server.llm.json_generators import GPT4o, GPT4oMini, JSONGenerator
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -63,10 +64,13 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
 async def container() -> AsyncIterator[Container]:
     container = Container(log_undefined_deps=True)
 
-    container[JSONGenerator[GuidelinePropositionListSchema]] = Singleton(
-        GPT4o(schema=GuidelinePropositionListSchema)
+    container[JSONGenerator[GuidelinePropositionsSchema]] = Singleton(
+        GPT4o(schema=GuidelinePropositionsSchema)
     )
     container[JSONGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
+    container[JSONGenerator[ToolCallEvaluationsSchema]] = Singleton(
+        GPT4oMini(schema=ToolCallEvaluationsSchema)
+    )
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])

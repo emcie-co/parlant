@@ -527,7 +527,6 @@ class CoherenceChecker:
     ) -> None:
         self.logger = logger
 
-        self._llm_client = make_llm_client("openai")
         self.hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(logger)
         self.parallel_contradiction_evaluator = ParallelContradictionEvaluator(logger)
         self.temporal_contradiction_evaluator = TemporalContradictionEvaluator(logger)

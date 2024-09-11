@@ -14,7 +14,6 @@ from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.tool_caller import ToolCaller
-from emcie.server.engines.alpha.utils import make_llm_client
 from emcie.server.engines.event_emitter import EmittedEvent
 
 
@@ -29,7 +28,6 @@ class ToolEventProducer:
         self.logger = logger
         self.correlator = correlator
 
-        self._llm_client = make_llm_client("openai")
         self.tool_caller = ToolCaller(logger, tool_service, tool_caller_evaluation_generator)
 
     async def produce_events(

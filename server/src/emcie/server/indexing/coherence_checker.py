@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime, timezone
 from enum import Enum, auto
 from itertools import chain
-import json
 from typing import Sequence
 from more_itertools import chunked
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -11,7 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.common import UniqueId, generate_id
 from emcie.server.core.guidelines import GuidelineContent
-from emcie.server.engines.alpha.utils import make_llm_client
+from emcie.server.llm.json_generators import JSONGenerator
 from emcie.server.logger import Logger
 
 LLM_RETRY_WAIT_TIME_SECONDS = 3.5
@@ -34,6 +33,16 @@ class ContradictionKind(Enum):
         }[self]
 
 
+class ContradictionTestSchema(DefaultBaseModel):
+    compared_guideline_id: UniqueId
+    severity_level: int
+    rationale: str
+
+
+class ContradictionTestsSchema(DefaultBaseModel):
+    contradictions: list[ContradictionTestSchema]
+
+
 class ContradictionTest(DefaultBaseModel):
     kind: ContradictionKind
     guideline_a: GuidelineContent
@@ -48,10 +57,11 @@ class ContradictionEvaluatorBase(ABC):
         self,
         logger: Logger,
         contradiction_kind: ContradictionKind,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
+        self.contradiction_generator = contradiction_generator
 
-        self._llm_client = make_llm_client("openai")
         self.contradiction_kind = contradiction_kind
 
     async def evaluate(
@@ -152,7 +162,7 @@ class ContradictionEvaluatorBase(ABC):
    - A list of results, each item detailing a potential contradiction, structured as follows:
      ```json
      {{
-         "{self.contradiction_kind._describe()}":
+         "contradictions":
             {result_structure}
      }}
      ```
@@ -169,28 +179,21 @@ class ContradictionEvaluatorBase(ABC):
         indexed_compared_guidelines: dict[UniqueId, GuidelineContent],
         prompt: str,
     ) -> Sequence[ContradictionTest]:
-        response = await self._llm_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o",
-            temperature=0.0,
-            response_format={"type": "json_object"},
+        contradiction_tests_response = await self.contradiction_generator.generate(
+            prompt=prompt,
+            args={"temperature": 0.0},
         )
-        content = response.choices[0].message.content or ""
-
-        json_content = json.loads(content)[self.contradiction_kind._describe()]
 
         contradictions = [
             ContradictionTest(
                 kind=self.contradiction_kind,
                 guideline_a=guideline_to_evaluate,
-                guideline_b=indexed_compared_guidelines[
-                    json_contradiction["compared_guideline_id"]
-                ],
-                severity=json_contradiction["severity_level"],
-                rationale=json_contradiction["rationale"],
+                guideline_b=indexed_compared_guidelines[c.compared_guideline_id],
+                severity=c.severity_level,
+                rationale=c.rationale,
                 creation_utc=datetime.now(timezone.utc),
             )
-            for json_contradiction in json_content
+            for c in contradiction_tests_response.content.contradictions
         ]
 
         return contradictions
@@ -200,8 +203,9 @@ class HierarchicalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.HIERARCHICAL)
+        super().__init__(logger, ContradictionKind.HIERARCHICAL, contradiction_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -217,7 +221,7 @@ This type of Contradiction occurs when the application of a general guideline is
 - **Expected Result**:
      ```json
      {{
-         "{self.contradiction_kind._describe()}": [
+         "contradictions": [
              {{
                  "compared_guideline_id": "3",
                  "severity_level": 9,
@@ -233,7 +237,7 @@ This type of Contradiction occurs when the application of a general guideline is
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                  "compared_guideline_id": "1",
                  "severity_level": 8,
@@ -249,7 +253,7 @@ This type of Contradiction occurs when the application of a general guideline is
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                  "compared_guideline_id": "5",
                  "severity_level": 1,
@@ -265,7 +269,7 @@ This type of Contradiction occurs when the application of a general guideline is
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                  "compared_guideline_id": "7",
                  "severity_level": 9,
@@ -281,8 +285,9 @@ class ParallelContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.PARALLEL)
+        super().__init__(logger, ContradictionKind.PARALLEL, contradiction_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -298,7 +303,7 @@ This happens when conditions for both guidelines are met simultaneously, without
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "1",
                 "severity_level": 9,
@@ -314,7 +319,7 @@ This happens when conditions for both guidelines are met simultaneously, without
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "3",
                 "severity_level": 8,
@@ -330,7 +335,7 @@ This happens when conditions for both guidelines are met simultaneously, without
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                  "compared_guideline_id": "5",
                  "severity_level": 7,
@@ -346,7 +351,7 @@ This happens when conditions for both guidelines are met simultaneously, without
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "7",
                 "severity_level": 1,
@@ -362,8 +367,9 @@ class TemporalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.TEMPORAL)
+        super().__init__(logger, ContradictionKind.TEMPORAL, contradiction_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -379,7 +385,7 @@ This arises from a lack of clear prioritization or differentiation between actio
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "1",
                 "severity_level": 9,
@@ -395,7 +401,7 @@ This arises from a lack of clear prioritization or differentiation between actio
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "3",
                 "severity_level": 8,
@@ -411,7 +417,7 @@ This arises from a lack of clear prioritization or differentiation between actio
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "5",
                 "severity_level": 9,
@@ -427,7 +433,7 @@ This arises from a lack of clear prioritization or differentiation between actio
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "7",
                 "severity_level": 1,
@@ -443,8 +449,9 @@ class ContextualContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.CONTEXTUAL)
+        super().__init__(logger, ContradictionKind.CONTEXTUAL, contradiction_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -476,7 +483,7 @@ These conflicts arise from different but potentially overlapping circumstances r
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "3",
                 "severity_level": 8,
@@ -492,7 +499,7 @@ These conflicts arise from different but potentially overlapping circumstances r
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "5",
                 "severity_level": 9,
@@ -508,7 +515,7 @@ These conflicts arise from different but potentially overlapping circumstances r
 - **Expected Result**:
      ```json
      {{
-        "{self.contradiction_kind._describe()}": [
+        "contradictions": [
              {{
                 "compared_guideline_id": "7",
                 "severity_level": 1,
@@ -524,13 +531,26 @@ class CoherenceChecker:
     def __init__(
         self,
         logger: Logger,
+        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
 
-        self.hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(logger)
-        self.parallel_contradiction_evaluator = ParallelContradictionEvaluator(logger)
-        self.temporal_contradiction_evaluator = TemporalContradictionEvaluator(logger)
-        self.contextual_contradiction_evaluator = ContextualContradictionEvaluator(logger)
+        self.hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
+            logger,
+            contradiction_generator,
+        )
+        self.parallel_contradiction_evaluator = ParallelContradictionEvaluator(
+            logger,
+            contradiction_generator,
+        )
+        self.temporal_contradiction_evaluator = TemporalContradictionEvaluator(
+            logger,
+            contradiction_generator,
+        )
+        self.contextual_contradiction_evaluator = ContextualContradictionEvaluator(
+            logger,
+            contradiction_generator,
+        )
 
     async def evaluate_coherence(
         self,

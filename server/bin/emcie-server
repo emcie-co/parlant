@@ -51,11 +51,21 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
 )
+from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
+from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionsSchema
+from emcie.server.engines.alpha.message_event import MessageEventSchema
+from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
+from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
+from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
-from emcie.server.indexing.coherence_checker import CoherenceChecker
-from emcie.server.indexing.guideline_connection_proposer import GuidelineConnectionProposer
+from emcie.server.indexing.coherence_checker import CoherenceChecker, ContradictionTestsSchema
+from emcie.server.indexing.guideline_connection_proposer import (
+    GuidelineConnectionProposer,
+    GuidelineConnectionPropositionsSchema,
+)
 from emcie.server.indexing.indexer import Indexer
+from emcie.server.llm.json_generators import GPT4o, GPT4oMini, JSONGenerator
 from emcie.server.logger import FileLogger, Logger
 from emcie.server.mc import MC
 from emcie.server.configuration_validator import ConfigurationFileValidator
@@ -178,6 +188,14 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
     c[ContextualCorrelator] = CORRELATOR
     c[Logger] = LOGGER
 
+    c[JSONGenerator[GuidelinePropositionsSchema]] = GPT4o(schema=GuidelinePropositionsSchema)
+    c[JSONGenerator[MessageEventSchema]] = GPT4o(schema=MessageEventSchema)
+    c[JSONGenerator[ToolCallEvaluationsSchema]] = GPT4oMini(schema=ToolCallEvaluationsSchema)
+    c[JSONGenerator[ContradictionTestsSchema]] = GPT4o(schema=ContradictionTestsSchema)
+    c[JSONGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
+        schema=GuidelineConnectionPropositionsSchema
+    )
+
     async with (
         JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "agents.json") as agents_db,
         JSONFileDocumentDatabase(
@@ -216,11 +234,38 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         c[TerminologyStore] = TerminologyChromaStore(ChromaDatabase(LOGGER, EMCIE_HOME_DIR))
 
         c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)
+
+        c[GuidelineProposer] = GuidelineProposer(
+            c[Logger],
+            c[JSONGenerator[GuidelinePropositionsSchema]],
+        )
+        c[GuidelineConnectionProposer] = GuidelineConnectionProposer(
+            c[Logger],
+            c[JSONGenerator[GuidelineConnectionPropositionsSchema]],
+        )
+        c[ToolEventProducer] = ToolEventProducer(
+            c[Logger],
+            c[ContextualCorrelator],
+            c[ToolService],
+            c[JSONGenerator[ToolCallEvaluationsSchema]],
+        )
+        c[MessageEventProducer] = MessageEventProducer(
+            c[Logger],
+            c[ContextualCorrelator],
+            c[JSONGenerator[MessageEventSchema]],
+        )
+
+        c[CoherenceChecker] = CoherenceChecker(
+            c[Logger],
+            c[JSONGenerator[ContradictionTestsSchema]],
+        )
+
         c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(
             c[Logger],
             c[EvaluationStore],
             c[GuidelineStore],
-            GuidelineConnectionProposer(c[Logger]),
+            c[GuidelineConnectionProposer],
+            c[CoherenceChecker],
         )
 
         c[Engine] = AlphaEngine
@@ -255,6 +300,7 @@ async def load_app(params: CLIParams) -> AsyncIterator[FastAPI]:
             guideline_store=container[GuidelineStore],
             guideline_connection_store=container[GuidelineConnectionStore],
             agent_store=container[AgentStore],
+            guideline_connection_proposer=container[GuidelineConnectionProposer],
         )
 
         if not params.index:
@@ -350,7 +396,10 @@ async def check_coherence(params: CLIParams) -> None:
     def render_guideline(g: GuidelineContent) -> str:
         return f"When {g.predicate}, then {g.action}"
 
-    checker = CoherenceChecker(logger=LOGGER)
+    checker = CoherenceChecker(
+        LOGGER,
+        GPT4o(schema=ContradictionTestsSchema),
+    )
 
     for agent, guideline_specs in params.config["guidelines"].items():
         guideline_to_evaluate = [

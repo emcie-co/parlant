@@ -7,13 +7,41 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
-from emcie.server.engines.alpha.message_event import MessageEventSchema
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from emcie.server.core.terminology import Term
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.core.sessions import Event
-from emcie.server.llm.json_generators import JSONGenerator
+from emcie.server.llm.schematic_generators import SchematicGenerator
+from emcie.server.base_models import DefaultBaseModel
 from emcie.server.logger import Logger
+
+
+class Revision(DefaultBaseModel):
+    revision_number: int
+    content: str
+    guidelines_followed: Optional[list[str]] = []
+    guidelines_broken: Optional[list[str]] = []
+    followed_all_guidelines: Optional[bool] = False
+    guidelines_broken_due_to_missing_data: Optional[bool] = False
+    missing_data_rationale: Optional[str] = None
+    guidelines_broken_only_due_to_prioritization: Optional[bool] = False
+    prioritization_rationale: Optional[str] = None
+
+
+class GuidelineEvaluation(DefaultBaseModel):
+    number: int
+    instruction: str
+    evaluation: str
+    adds_value: str
+    data_available: str
+
+
+class MessageEventSchema(DefaultBaseModel):
+    last_message_of_user: str
+    produced_reply: bool
+    rationale: str
+    revisions: list[Revision]
+    evaluations_for_each_of_the_provided_guidelines: list[GuidelineEvaluation]
 
 
 class MessageEventProducer:
@@ -21,11 +49,11 @@ class MessageEventProducer:
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
-        message_event_generator: JSONGenerator[MessageEventSchema],
+        schematic_generator: SchematicGenerator[MessageEventSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator
-        self._message_event_generator = message_event_generator
+        self._schematic_generator = schematic_generator
 
     async def produce_events(
         self,
@@ -334,9 +362,9 @@ Example 4: Non-Adherence Due to Missing Data: ###
         return builder.build()
 
     async def _generate_response_message(self, prompt: str) -> Optional[str]:
-        message_event_response = await self._message_event_generator.generate(
+        message_event_response = await self._schematic_generator.generate(
             prompt=prompt,
-            args={"temperature": 0.5},
+            hints={"temperature": 0.5},
         )
 
         if not message_event_response.content.produced_reply:

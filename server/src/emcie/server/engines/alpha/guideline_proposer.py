@@ -4,27 +4,38 @@ from typing import Sequence
 
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.engines.alpha.guideline_proposition import (
-    GuidelineProposition,
-    GuidelinePropositionsSchema,
-)
+from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
 from emcie.server.core.terminology import Term
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.engines.event_emitter import EmittedEvent
-from emcie.server.llm.json_generators import JSONGenerator
+from emcie.server.llm.schematic_generators import SchematicGenerator
+from emcie.server.base_models import DefaultBaseModel
 from emcie.server.logger import Logger
+
+
+class GuidelinePropositionSchema(DefaultBaseModel):
+    predicate_number: int
+    predicate: str
+    was_already_addressed_or_resolved_according_to_the_record_of_the_interaction: bool
+    can_we_safely_presume_to_ascertain_whether_the_predicate_still_applies: bool
+    rationale: str
+    applies_score: int
+
+
+class GuidelinePropositionsSchema(DefaultBaseModel):
+    checks: Sequence[GuidelinePropositionSchema]
 
 
 class GuidelineProposer:
     def __init__(
         self,
         logger: Logger,
-        guideline_proposition_scehma_generator: JSONGenerator[GuidelinePropositionsSchema],
+        schematic_generator: SchematicGenerator[GuidelinePropositionsSchema],
     ) -> None:
         self.logger = logger
-        self._guideline_proposition_scehma_generator = guideline_proposition_scehma_generator
+        self._schematic_generator = schematic_generator
 
     async def propose_guidelines(
         self,
@@ -91,9 +102,9 @@ class GuidelineProposer:
         )
 
         with self.logger.operation("Guideline batch proposal"):
-            propositions_json = await self._guideline_proposition_scehma_generator.generate(
+            propositions_json = await self._schematic_generator.generate(
                 prompt=prompt,
-                args={"temperature": 0.3},
+                hints={"temperature": 0.3},
             )
 
         propositions = []

@@ -14,20 +14,20 @@ T = TypeVar("T", bound=DefaultBaseModel)
 
 
 @dataclass(frozen=True)
-class JSONGenerationResult(Generic[T]):
+class SchematicGenerationResult(Generic[T]):
     content: T
 
 
-class JSONGenerator(ABC, Generic[T]):
+class SchematicGenerator(ABC, Generic[T]):
     @abstractmethod
     async def generate(
         self,
         prompt: str,
-        args: dict[str, Any],
-    ) -> JSONGenerationResult[T]: ...
+        hints: dict[str, Any],
+    ) -> SchematicGenerationResult[T]: ...
 
 
-class GPT4o(JSONGenerator[T]):
+class GPT4o(SchematicGenerator[T]):
     def __init__(self, schema: Type[T]) -> None:
         self._llm_client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._schema = schema
@@ -36,7 +36,7 @@ class GPT4o(JSONGenerator[T]):
         self,
         prompt: str,
         args: dict[str, Any],
-    ) -> JSONGenerationResult[T]:
+    ) -> SchematicGenerationResult[T]:
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="gpt-4o",
@@ -50,10 +50,10 @@ class GPT4o(JSONGenerator[T]):
 
         content = self._schema.model_validate(json_content)
 
-        return JSONGenerationResult(content=content)
+        return SchematicGenerationResult(content=content)
 
 
-class GPT4oMini(JSONGenerator[T]):
+class GPT4oMini(SchematicGenerator[T]):
     def __init__(self, schema: Type[T]) -> None:
         self._llm_client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._schema = schema
@@ -62,7 +62,7 @@ class GPT4oMini(JSONGenerator[T]):
         self,
         prompt: str,
         args: dict[str, Any],
-    ) -> JSONGenerationResult[T]:
+    ) -> SchematicGenerationResult[T]:
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="gpt-4o-mini",
@@ -76,10 +76,10 @@ class GPT4oMini(JSONGenerator[T]):
 
         content = self._schema.model_validate(json_content)
 
-        return JSONGenerationResult(content=content)
+        return SchematicGenerationResult(content=content)
 
 
-class Llama3_1_8B(JSONGenerator[T]):
+class Llama3_1_8B(SchematicGenerator[T]):
     def __init__(self, schema: Type[T]) -> None:
         self._llm_client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
         self._schema = schema
@@ -88,7 +88,7 @@ class Llama3_1_8B(JSONGenerator[T]):
         self,
         prompt: str,
         args: dict[str, Any],
-    ) -> JSONGenerationResult[T]:
+    ) -> SchematicGenerationResult[T]:
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -104,4 +104,4 @@ class Llama3_1_8B(JSONGenerator[T]):
 
         content = self._schema.model_validate(json_content)
 
-        return JSONGenerationResult(content=content)
+        return SchematicGenerationResult(content=content)

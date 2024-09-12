@@ -7,7 +7,7 @@ from typing import Any, Sequence
 from more_itertools import chunked
 from emcie.server.core.guideline_connections import ConnectionKind
 from emcie.server.core.guidelines import GuidelineContent
-from emcie.server.llm.json_generators import JSONGenerator
+from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 from emcie.server.base_models import DefaultBaseModel
 
@@ -40,14 +40,14 @@ class GuidelineConnectionProposer:
     def __init__(
         self,
         logger: Logger,
-        guideline_connection_proposer_generator: JSONGenerator[
+        schematic_generator: SchematicGenerator[
             GuidelineConnectionPropositionsSchema
         ],
     ) -> None:
         self.logger = logger
         self._batch_size = 5
 
-        self._guideline_connection_proposer_generator = guideline_connection_proposer_generator
+        self._schematic_generator = schematic_generator
 
     async def propose_connections(
         self,
@@ -322,9 +322,9 @@ Implication candidates: ###
     ) -> list[GuidelineConnectionProposition]:
         prompt = self._format_connection_propositions(guideline_to_test, guidelines_to_compare)
 
-        response = await self._guideline_connection_proposer_generator.generate(
+        response = await self._schematic_generator.generate(
             prompt=prompt,
-            args={"temperature": 0.0},
+            hints={"temperature": 0.0},
         )
 
         self.logger.debug(

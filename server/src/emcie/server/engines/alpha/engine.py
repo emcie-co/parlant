@@ -5,32 +5,20 @@ import traceback
 from typing import Mapping, Optional, Sequence, cast
 
 from emcie.common.tools import Tool
-from emcie.server.contextual_correlator import ContextualCorrelator
-from emcie.server.core.common import generate_id
-from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.logger import Logger
-
 from emcie.server.core.agents import Agent, AgentId, AgentStore
+from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import (
     ContextVariable,
     ContextVariableStore,
     ContextVariableValue,
 )
+from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
-from emcie.server.core.tools import ToolService
-from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
-from emcie.server.engines.alpha.guideline_proposition import (
-    GuidelineProposition,
-)
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
-from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.core.terminology import Term, TerminologyStore
-from emcie.server.engines.alpha.utils import context_variables_to_json
-from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
-from emcie.server.engines.common import Context, Engine
-from emcie.server.core.guidelines import Guideline, GuidelineStore
+from emcie.server.core.tools import ToolService
 from emcie.server.core.sessions import (
     Event,
     MessageEventData,
@@ -38,6 +26,17 @@ from emcie.server.core.sessions import (
     SessionStore,
     ToolEventData,
 )
+from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
+from emcie.server.engines.alpha.guideline_proposition import (
+    GuidelineProposition,
+)
+from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
+from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
+from emcie.server.engines.alpha.utils import context_variables_to_json
+from emcie.server.engines.common import Context, Engine
+from emcie.server.engines.event_emitter import EventEmitter, EmittedEvent
+from emcie.server.contextual_correlator import ContextualCorrelator
+from emcie.server.logger import Logger
 
 
 class AlphaEngine(Engine):
@@ -68,12 +67,11 @@ class AlphaEngine(Engine):
         self.guideline_connection_store = guideline_connection_store
         self.tool_service = tool_service
         self.guideline_tool_association_store = guideline_tool_association_store
-
-        self.max_tool_call_iterations = 5
-
         self.guideline_proposer = guideline_proposer
         self.tool_event_producer = tool_event_producer
         self.message_event_producer = message_event_producer
+
+        self.max_tool_call_iterations = 5
 
     async def process(
         self,

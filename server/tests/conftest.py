@@ -27,8 +27,10 @@ from emcie.server.core.sessions import (
 from emcie.server.core.tools import MultiplexedToolService, LocalToolService, ToolService
 from emcie.server.engines.alpha.engine import AlphaEngine
 from emcie.server.core.terminology import TerminologyChromaStore, TerminologyStore
-from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionsSchema
+from emcie.server.engines.alpha.guideline_proposer import (
+    GuidelineProposer,
+    GuidelinePropositionsSchema,
+)
 from emcie.server.engines.alpha.message_event import MessageEventSchema
 from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
 from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
@@ -40,7 +42,7 @@ from emcie.server.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
     GuidelineConnectionPropositionsSchema,
 )
-from emcie.server.llm.json_generators import GPT4o, GPT4oMini, JSONGenerator
+from emcie.server.llm.schematic_generators import GPT4o, GPT4oMini, SchematicGenerator
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -69,17 +71,17 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
 async def container() -> AsyncIterator[Container]:
     container = Container(log_undefined_deps=True)
 
-    container[JSONGenerator[GuidelinePropositionsSchema]] = Singleton(
+    container[SchematicGenerator[GuidelinePropositionsSchema]] = Singleton(
         GPT4o(schema=GuidelinePropositionsSchema)
     )
-    container[JSONGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
-    container[JSONGenerator[ToolCallEvaluationsSchema]] = Singleton(
+    container[SchematicGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
+    container[SchematicGenerator[ToolCallEvaluationsSchema]] = Singleton(
         GPT4oMini(schema=ToolCallEvaluationsSchema)
     )
-    container[JSONGenerator[ContradictionTestsSchema]] = Singleton(
+    container[SchematicGenerator[ContradictionTestsSchema]] = Singleton(
         GPT4oMini(schema=ContradictionTestsSchema)
     )
-    container[JSONGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
+    container[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
         GPT4oMini(schema=GuidelineConnectionPropositionsSchema)
     )
 

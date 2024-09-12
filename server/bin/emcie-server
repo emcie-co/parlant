@@ -51,10 +51,15 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
 )
-from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
-from emcie.server.engines.alpha.guideline_proposition import GuidelinePropositionsSchema
-from emcie.server.engines.alpha.message_event import MessageEventSchema
-from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
+from emcie.server.llm.schematic_generators import GPT4o, GPT4oMini, SchematicGenerator
+from emcie.server.engines.alpha.guideline_proposer import (
+    GuidelineProposer,
+    GuidelinePropositionsSchema,
+)
+from emcie.server.engines.alpha.message_event_producer import (
+    MessageEventProducer,
+    MessageEventSchema,
+)
 from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
@@ -65,7 +70,6 @@ from emcie.server.indexing.guideline_connection_proposer import (
     GuidelineConnectionPropositionsSchema,
 )
 from emcie.server.indexing.indexer import Indexer
-from emcie.server.llm.json_generators import GPT4o, GPT4oMini, JSONGenerator
 from emcie.server.logger import FileLogger, Logger
 from emcie.server.mc import MC
 from emcie.server.configuration_validator import ConfigurationFileValidator
@@ -188,11 +192,11 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
     c[ContextualCorrelator] = CORRELATOR
     c[Logger] = LOGGER
 
-    c[JSONGenerator[GuidelinePropositionsSchema]] = GPT4o(schema=GuidelinePropositionsSchema)
-    c[JSONGenerator[MessageEventSchema]] = GPT4o(schema=MessageEventSchema)
-    c[JSONGenerator[ToolCallEvaluationsSchema]] = GPT4oMini(schema=ToolCallEvaluationsSchema)
-    c[JSONGenerator[ContradictionTestsSchema]] = GPT4o(schema=ContradictionTestsSchema)
-    c[JSONGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
+    c[SchematicGenerator[GuidelinePropositionsSchema]] = GPT4o(schema=GuidelinePropositionsSchema)
+    c[SchematicGenerator[MessageEventSchema]] = GPT4o(schema=MessageEventSchema)
+    c[SchematicGenerator[ToolCallEvaluationsSchema]] = GPT4oMini(schema=ToolCallEvaluationsSchema)
+    c[SchematicGenerator[ContradictionTestsSchema]] = GPT4o(schema=ContradictionTestsSchema)
+    c[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
         schema=GuidelineConnectionPropositionsSchema
     )
 
@@ -237,27 +241,27 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
         c[GuidelineProposer] = GuidelineProposer(
             c[Logger],
-            c[JSONGenerator[GuidelinePropositionsSchema]],
+            c[SchematicGenerator[GuidelinePropositionsSchema]],
         )
         c[GuidelineConnectionProposer] = GuidelineConnectionProposer(
             c[Logger],
-            c[JSONGenerator[GuidelineConnectionPropositionsSchema]],
+            c[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
         )
         c[ToolEventProducer] = ToolEventProducer(
             c[Logger],
             c[ContextualCorrelator],
             c[ToolService],
-            c[JSONGenerator[ToolCallEvaluationsSchema]],
+            c[SchematicGenerator[ToolCallEvaluationsSchema]],
         )
         c[MessageEventProducer] = MessageEventProducer(
             c[Logger],
             c[ContextualCorrelator],
-            c[JSONGenerator[MessageEventSchema]],
+            c[SchematicGenerator[MessageEventSchema]],
         )
 
         c[CoherenceChecker] = CoherenceChecker(
             c[Logger],
-            c[JSONGenerator[ContradictionTestsSchema]],
+            c[SchematicGenerator[ContradictionTestsSchema]],
         )
 
         c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(

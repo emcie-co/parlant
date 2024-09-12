@@ -10,7 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.common import UniqueId, generate_id
 from emcie.server.core.guidelines import GuidelineContent
-from emcie.server.llm.json_generators import JSONGenerator
+from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 
 LLM_RETRY_WAIT_TIME_SECONDS = 3.5
@@ -57,10 +57,10 @@ class ContradictionEvaluatorBase(ABC):
         self,
         logger: Logger,
         contradiction_kind: ContradictionKind,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
-        self.contradiction_generator = contradiction_generator
+        self._schematic_generator = schematic_generator
 
         self.contradiction_kind = contradiction_kind
 
@@ -179,9 +179,9 @@ class ContradictionEvaluatorBase(ABC):
         indexed_compared_guidelines: dict[UniqueId, GuidelineContent],
         prompt: str,
     ) -> Sequence[ContradictionTest]:
-        contradiction_tests_response = await self.contradiction_generator.generate(
+        contradiction_tests_response = await self._schematic_generator.generate(
             prompt=prompt,
-            args={"temperature": 0.0},
+            hints={"temperature": 0.0},
         )
 
         contradictions = [
@@ -203,9 +203,9 @@ class HierarchicalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.HIERARCHICAL, contradiction_generator)
+        super().__init__(logger, ContradictionKind.HIERARCHICAL, schematic_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -285,9 +285,9 @@ class ParallelContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.PARALLEL, contradiction_generator)
+        super().__init__(logger, ContradictionKind.PARALLEL, schematic_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -367,9 +367,9 @@ class TemporalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.TEMPORAL, contradiction_generator)
+        super().__init__(logger, ContradictionKind.TEMPORAL, schematic_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -449,9 +449,9 @@ class ContextualContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
-        super().__init__(logger, ContradictionKind.CONTEXTUAL, contradiction_generator)
+        super().__init__(logger, ContradictionKind.CONTEXTUAL, schematic_generator)
 
     def _format_contradiction_type_definition(self) -> str:
         return """
@@ -531,25 +531,25 @@ class CoherenceChecker:
     def __init__(
         self,
         logger: Logger,
-        contradiction_generator: JSONGenerator[ContradictionTestsSchema],
+        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
 
         self.hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
             logger,
-            contradiction_generator,
+            schematic_generator,
         )
         self.parallel_contradiction_evaluator = ParallelContradictionEvaluator(
             logger,
-            contradiction_generator,
+            schematic_generator,
         )
         self.temporal_contradiction_evaluator = TemporalContradictionEvaluator(
             logger,
-            contradiction_generator,
+            schematic_generator,
         )
         self.contextual_contradiction_evaluator = ContextualContradictionEvaluator(
             logger,
-            contradiction_generator,
+            schematic_generator,
         )
 
     async def evaluate_coherence(

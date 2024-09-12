@@ -21,7 +21,7 @@ from emcie.server.engines.alpha.tool_call_evaluation import (
 )
 from emcie.server.engines.alpha.utils import emitted_tool_events_to_dicts
 from emcie.server.engines.event_emitter import EmittedEvent
-from emcie.server.llm.json_generators import JSONGenerator
+from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 
 ToolCallId = NewType("ToolCallId", str)
@@ -47,11 +47,11 @@ class ToolCaller:
         self,
         logger: Logger,
         tool_service: ToolService,
-        tool_caller_evaluation_generator: JSONGenerator[ToolCallEvaluationsSchema],
+        schematic_generator: SchematicGenerator[ToolCallEvaluationsSchema],
     ) -> None:
         self._tool_service = tool_service
         self.logger = logger
-        self._tool_caller_evaluation_generator = tool_caller_evaluation_generator
+        self._schematic_generator = schematic_generator
 
     async def infer_tool_calls(
         self,
@@ -288,8 +288,8 @@ There are no staged tool calls at this moment.
     ) -> Sequence[ToolCallEvaluation]:
         self.logger.debug(f"Tool call inference prompt: {prompt}")
 
-        tool_call_evaluation = await self._tool_caller_evaluation_generator.generate(
-            prompt=prompt, args={"temperature": 0.3}
+        tool_call_evaluation = await self._schematic_generator.generate(
+            prompt=prompt, hints={"temperature": 0.3}
         )
 
         self.logger.debug(

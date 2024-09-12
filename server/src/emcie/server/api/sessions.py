@@ -91,7 +91,7 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/", status_code=status.HTTP_201_CREATED)
+    @router.post("/")
     async def create_session(
         request: CreateSessionRequest,
         allow_greeting: bool = Query(default=True),
@@ -164,7 +164,7 @@ def create_router(
         deleted_session_id = await session_store.delete_session(session_id)
         return DeleteSessionResponse(deleted_session_id=deleted_session_id)
 
-    @router.post("/{session_id}/events", status_code=status.HTTP_201_CREATED)
+    @router.post("/{session_id}/events")
     async def create_event(
         session_id: SessionId,
         request: Union[CreateMessageRequest],

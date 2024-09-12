@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, status
+from fastapi import APIRouter
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.agents import AgentId, AgentStore
@@ -31,7 +31,7 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/", status_code=status.HTTP_201_CREATED)
+    @router.post("/")
     async def create_agent(
         request: Optional[CreateAgentRequest] = None,
     ) -> CreateAgentResponse:

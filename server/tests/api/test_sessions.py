@@ -161,7 +161,7 @@ def test_that_a_session_can_be_created(
             "agent_id": agent_id,
         },
     )
-    assert response.status_code == status.HTTP_201_CREATED
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     assert "session_id" in data
@@ -183,7 +183,7 @@ def test_that_a_session_can_be_created_with_title(
             "title": title,
         },
     )
-    assert response.status_code == status.HTTP_201_CREATED
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     assert "session_id" in data
@@ -203,7 +203,7 @@ def test_that_session_has_meaningful_creation_utc(
             "agent_id": agent_id,
         },
     )
-    assert response.status_code == status.HTTP_201_CREATED
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     assert "creation_utc" in data
@@ -396,20 +396,20 @@ async def test_that_tool_events_are_correlated_with_message_events(
         tool_function=ToolFunctions.GET_COW_UTTERING,
     )
 
-    response = client.post(
-        f"/sessions/{session_id}/events",
-        json={"content": "Hello there!"},
+    posted_event = (
+        client.post(
+            f"/sessions/{session_id}/events",
+            json={"content": "Hello there!"},
+        )
+        .raise_for_status()
+        .json()
     )
-
-    assert response.status_code == status.HTTP_201_CREATED
-
-    event_offset = response.json()["event_offset"]
 
     events_in_session = (
         client.get(
             f"/sessions/{session_id}/events",
             params={
-                "min_offset": event_offset + 1,
+                "min_offset": posted_event["event_offset"] + 1,
                 "wait": True,
             },
         )
@@ -494,20 +494,20 @@ def test_that_posting_a_message_elicits_a_response(
     client: TestClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
-        f"/sessions/{session_id}/events",
-        json={"content": "Hello there!"},
+    posted_event = (
+        client.post(
+            f"/sessions/{session_id}/events",
+            json={"content": "Hello there!"},
+        )
+        .raise_for_status()
+        .json()
     )
-
-    assert response.status_code == status.HTTP_201_CREATED
-
-    event_offset = response.json()["event_offset"]
 
     events_in_session = (
         client.get(
             f"/sessions/{session_id}/events",
             params={
-                "min_offset": event_offset + 1,
+                "min_offset": posted_event["event_offset"] + 1,
                 "wait": True,
             },
         )

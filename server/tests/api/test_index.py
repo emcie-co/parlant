@@ -17,23 +17,23 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
 ) -> None:
     evaluation_store = container[EvaluationStore]
 
-    response = client.post(
-        "/index/evaluations",
-        json={
-            "payloads": [
-                {
-                    "kind": "guideline",
-                    "guideline_set": "test-agent",
-                    "predicate": "the user greets you",
-                    "action": "greet them back with 'Hello'",
-                }
-            ]
-        },
+    evaluation_id = (
+        client.post(
+            "/index/evaluations",
+            json={
+                "payloads": [
+                    {
+                        "kind": "guideline",
+                        "guideline_set": "test-agent",
+                        "predicate": "the user greets you",
+                        "action": "greet them back with 'Hello'",
+                    }
+                ]
+            },
+        )
+        .raise_for_status()
+        .json()["evaluation_id"]
     )
-
-    assert response.status_code == status.HTTP_201_CREATED
-
-    evaluation_id = response.json()["evaluation_id"]
 
     evaluation = await evaluation_store.read_evaluation(evaluation_id=evaluation_id)
     assert evaluation.id == evaluation_id

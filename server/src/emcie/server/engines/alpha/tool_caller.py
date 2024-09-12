@@ -3,7 +3,7 @@ from dataclasses import dataclass, asdict
 from itertools import chain
 import json
 import traceback
-from typing import Mapping, NewType, Optional, Sequence
+from typing import Any, Mapping, NewType, Optional, Sequence
 
 
 from emcie.common.tools import Tool, ToolContext
@@ -15,17 +15,30 @@ from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
-from emcie.server.engines.alpha.tool_call_evaluation import (
-    ToolCallEvaluation,
-    ToolCallEvaluationsSchema,
-)
 from emcie.server.engines.alpha.utils import emitted_tool_events_to_dicts
 from emcie.server.engines.event_emitter import EmittedEvent
 from emcie.server.llm.schematic_generators import SchematicGenerator
+from emcie.server.base_models import DefaultBaseModel
 from emcie.server.logger import Logger
 
 ToolCallId = NewType("ToolCallId", str)
 ToolResultId = NewType("ToolResultId", str)
+
+
+class ToolCallEvaluation(DefaultBaseModel):
+    name: str
+    rationale: str
+    applicability_score: int
+    should_run: bool
+    arguments: Mapping[str, Any]
+    same_call_is_already_staged: bool
+
+
+class ToolCallEvaluationsSchema(DefaultBaseModel):
+    last_user_message: Optional[str] = None
+    most_recent_user_inquiry_or_need: Optional[str] = None
+    most_recent_user_inquiry_or_need_was_already_resolved: Optional[bool] = False
+    tool_call_evaluations: list[ToolCallEvaluation]
 
 
 @dataclass(frozen=True)

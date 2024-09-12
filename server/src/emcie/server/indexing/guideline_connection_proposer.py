@@ -40,9 +40,7 @@ class GuidelineConnectionProposer:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[
-            GuidelineConnectionPropositionsSchema
-        ],
+        schematic_generator: SchematicGenerator[GuidelineConnectionPropositionsSchema],
     ) -> None:
         self.logger = logger
         self._batch_size = 5

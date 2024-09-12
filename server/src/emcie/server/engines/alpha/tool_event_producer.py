@@ -3,7 +3,6 @@ from typing import Mapping, Sequence, cast
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
-from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
 from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
@@ -13,7 +12,7 @@ from emcie.server.core.sessions import Event, SessionId, ToolEventData
 from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
-from emcie.server.engines.alpha.tool_caller import ToolCaller
+from emcie.server.engines.alpha.tool_caller import ToolCallEvaluationsSchema, ToolCaller
 from emcie.server.engines.event_emitter import EmittedEvent
 
 

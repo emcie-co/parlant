@@ -31,9 +31,11 @@ from emcie.server.engines.alpha.guideline_proposer import (
     GuidelineProposer,
     GuidelinePropositionsSchema,
 )
-from emcie.server.engines.alpha.message_event import MessageEventSchema
-from emcie.server.engines.alpha.message_event_producer import MessageEventProducer
-from emcie.server.engines.alpha.tool_call_evaluation import ToolCallEvaluationsSchema
+from emcie.server.engines.alpha.message_event_producer import (
+    MessageEventProducer,
+    MessageEventSchema,
+)
+from emcie.server.engines.alpha.tool_caller import ToolCallEvaluationsSchema
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator

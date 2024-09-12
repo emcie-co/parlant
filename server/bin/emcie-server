@@ -51,7 +51,7 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
 )
-from emcie.server.engines.alpha.tool_caller import ToolCallEvaluationsSchema
+from emcie.server.engines.alpha.tool_caller import ToolCallInferenceSchema
 from emcie.server.llm.schematic_generators import GPT4o, GPT4oMini, SchematicGenerator
 from emcie.server.engines.alpha.guideline_proposer import (
     GuidelineProposer,
@@ -194,7 +194,7 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
     c[SchematicGenerator[GuidelinePropositionsSchema]] = GPT4o(schema=GuidelinePropositionsSchema)
     c[SchematicGenerator[MessageEventSchema]] = GPT4o(schema=MessageEventSchema)
-    c[SchematicGenerator[ToolCallEvaluationsSchema]] = GPT4oMini(schema=ToolCallEvaluationsSchema)
+    c[SchematicGenerator[ToolCallInferenceSchema]] = GPT4oMini(schema=ToolCallInferenceSchema)
     c[SchematicGenerator[ContradictionTestsSchema]] = GPT4o(schema=ContradictionTestsSchema)
     c[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
         schema=GuidelineConnectionPropositionsSchema
@@ -251,7 +251,7 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
             c[Logger],
             c[ContextualCorrelator],
             c[ToolService],
-            c[SchematicGenerator[ToolCallEvaluationsSchema]],
+            c[SchematicGenerator[ToolCallInferenceSchema]],
         )
         c[MessageEventProducer] = MessageEventProducer(
             c[Logger],

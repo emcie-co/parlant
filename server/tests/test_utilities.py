@@ -1,15 +1,19 @@
 import asyncio
 from textwrap import dedent
 from typing import Any, Awaitable, Generator, TypeVar
-import tiktoken
 
-from emcie.server.llm.text_generators import GPT4o
+from emcie.server.llm.schematic_generators import GPT4o
 from emcie.server.mc import EventBuffer as EventBuffer
+from emcie.server.base_models import DefaultBaseModel
 
 T = TypeVar("T")
 
-text_generator = GPT4o()
-tokenizer = tiktoken.encoding_for_model("gpt-4o")
+
+class NLPTestSchema(DefaultBaseModel):
+    answer: bool
+
+
+schematic_generator = GPT4o(schema=NLPTestSchema)
 
 
 class SyncAwaiter:
@@ -21,36 +25,37 @@ class SyncAwaiter:
 
 
 async def nlp_test(context: str, predicate: str) -> bool:
-    answer = await text_generator.generate(
+    inference = await schematic_generator.generate(
         prompt=dedent(
             f"""\
-                    Given a context and a predicate, determine whether the
-                    predicate applies with respect to the given context.
+                        Given a context and a predicate, determine whether the
+                        predicate applies with respect to the given context.
 
-                    Context: ###
-                    {context}
-                    ###
+                        Context: ###
+                        {context}
+                        ###
 
-                    Predicate: ###
-                    {predicate}
-                    ###
+                        Predicate: ###
+                        {predicate}
+                        ###
 
-                    If the answer is YES, answer "y".
-                    If the answer is NO, answer "n".
-                """
+                        Output JSON structure:
+                        {{
+                            answer: <BOOL>
+                        }}
+
+                        Example #1:
+                        {{
+                            answer: true
+                        }}
+
+                        Example #2:
+                        {{
+                            answer: false
+                        }}
+                    """
         ),
-        args={
-            "logit_bias": {
-                tokenizer.encode_single_token("y"): 100,  # type: ignore
-                tokenizer.encode_single_token("n"): 100,  # type: ignore
-            },
-            "max_tokens": 1,
-        },
+        hints={"temperature": 0.0},
     )
 
-    if answer == "y":
-        return True
-    elif answer == "n":
-        return False
-
-    raise Exception(f"NLP test error. Invalid answer '{answer}'.")
+    return inference.content.answer

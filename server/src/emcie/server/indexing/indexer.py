@@ -37,7 +37,6 @@ class GuidelineIndexer:
         self._guideline_store = guideline_store
         self._guideline_connection_store = guideline_connection_store
         self._agent_store = agent_store
-
         self._guideline_connection_proposer = guideline_connection_proposer
 
     @staticmethod

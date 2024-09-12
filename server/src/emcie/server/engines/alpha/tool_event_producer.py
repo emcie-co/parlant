@@ -12,7 +12,7 @@ from emcie.server.core.sessions import Event, SessionId, ToolEventData
 from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
-from emcie.server.engines.alpha.tool_caller import ToolCallEvaluationsSchema, ToolCaller
+from emcie.server.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller
 from emcie.server.engines.event_emitter import EmittedEvent
 
 
@@ -22,7 +22,7 @@ class ToolEventProducer:
         logger: Logger,
         correlator: ContextualCorrelator,
         tool_service: ToolService,
-        schematic_generator: SchematicGenerator[ToolCallEvaluationsSchema],
+        schematic_generator: SchematicGenerator[ToolCallInferenceSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator

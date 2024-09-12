@@ -34,7 +34,7 @@ class ToolCallEvaluation(DefaultBaseModel):
     same_call_is_already_staged: bool
 
 
-class ToolCallEvaluationsSchema(DefaultBaseModel):
+class ToolCallInferenceSchema(DefaultBaseModel):
     last_user_message: Optional[str] = None
     most_recent_user_inquiry_or_need: Optional[str] = None
     most_recent_user_inquiry_or_need_was_already_resolved: Optional[bool] = False
@@ -60,7 +60,7 @@ class ToolCaller:
         self,
         logger: Logger,
         tool_service: ToolService,
-        schematic_generator: SchematicGenerator[ToolCallEvaluationsSchema],
+        schematic_generator: SchematicGenerator[ToolCallInferenceSchema],
     ) -> None:
         self._tool_service = tool_service
         self.logger = logger
@@ -301,14 +301,14 @@ There are no staged tool calls at this moment.
     ) -> Sequence[ToolCallEvaluation]:
         self.logger.debug(f"Tool call inference prompt: {prompt}")
 
-        tool_call_evaluation = await self._schematic_generator.generate(
+        inference = await self._schematic_generator.generate(
             prompt=prompt, hints={"temperature": 0.3}
         )
 
         self.logger.debug(
-            f"Tool call request results: {json.dumps([t.model_dump() for t in tool_call_evaluation.content.tool_call_evaluations], indent=2),}"
+            f"Tool call request results: {json.dumps([t.model_dump(mode="json") for t in inference.content.tool_call_evaluations], indent=2),}"
         )
-        return tool_call_evaluation.content.tool_call_evaluations
+        return inference.content.tool_call_evaluations
 
     async def _run_tool(
         self,

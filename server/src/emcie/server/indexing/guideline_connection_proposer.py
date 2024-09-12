@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from itertools import chain
 import json
-from typing import Any, Sequence
+from typing import Sequence
 
 from more_itertools import chunked
 from emcie.server.core.guideline_connections import ConnectionKind
@@ -13,8 +13,8 @@ from emcie.server.base_models import DefaultBaseModel
 
 
 class GuidelineConnectionPropositionSchema(DefaultBaseModel):
-    source: dict[str, Any]
-    target: dict[str, Any]
+    source: dict[str, str]
+    target: dict[str, str]
     source_then: str
     target_when: str
     is_target_when_implied_by_source_then: bool
@@ -330,7 +330,7 @@ Implication candidates: ###
 ----------------------------------------
 Connection Propositions Found:
 ----------------------------------------
-{json.dumps([p.model_dump() for p in response.content.propositions], indent=2)}
+{json.dumps([p.model_dump(mode="json") for p in response.content.propositions], indent=2)}
 ----------------------------------------
 """
         )

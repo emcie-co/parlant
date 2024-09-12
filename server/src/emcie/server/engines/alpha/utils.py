@@ -1,21 +1,9 @@
 import json
-import os
-from typing import Any, Literal, Sequence, cast
-from openai import AsyncClient
+from typing import Any, Sequence, cast
 
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, ToolEventData
 from emcie.server.engines.event_emitter import EmittedEvent
-
-
-def make_llm_client(provider: Literal["openai", "together"]) -> AsyncClient:
-    if provider == "openai":
-        return AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
-    elif provider == "together":
-        return AsyncClient(
-            api_key=os.environ["TOGETHER_API_KEY"],
-            base_url="https://api.together.xyz/v1",
-        )
 
 
 def events_to_json(events: Sequence[Event]) -> str:

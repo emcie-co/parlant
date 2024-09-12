@@ -37,15 +37,16 @@ class GuidelineEvaluator:
         logger: Logger,
         guideline_store: GuidelineStore,
         guideline_connection_proposer: GuidelineConnectionProposer,
+        coherence_checker: CoherenceChecker,
     ) -> None:
         self.logger = logger
         self._guideline_store = guideline_store
         self._guideline_connection_proposer = guideline_connection_proposer
+        self._coherence_checker = coherence_checker
 
     async def evaluate(
         self,
         payloads: Sequence[Payload],
-        coherence_checker: CoherenceChecker,
     ) -> Sequence[InvoiceGuidelineData]:
         guideline_set = payloads[0].guideline_set
 
@@ -64,7 +65,6 @@ class GuidelineEvaluator:
         coherence_checks = await self._check_payloads_coherence(
             guideline_to_evaluate,
             existing_guidelines,
-            coherence_checker,
         )
 
         if not coherence_checks:
@@ -102,9 +102,8 @@ class GuidelineEvaluator:
         self,
         guidelines_to_evaluate: Sequence[GuidelineContent],
         existing_guidelines: Sequence[Guideline],
-        coherence_checker: CoherenceChecker,
     ) -> Optional[Iterable[Sequence[CoherenceCheck]]]:
-        coherence_checks = await coherence_checker.evaluate_coherence(
+        coherence_checks = await self._coherence_checker.evaluate_coherence(
             guidelines_to_evaluate=guidelines_to_evaluate,
             comparison_guidelines=[
                 GuidelineContent(predicate=g.content.predicate, action=g.content.action)
@@ -230,8 +229,8 @@ class BehavioralChangeEvaluator:
             logger=logger,
             guideline_store=guideline_store,
             guideline_connection_proposer=guideline_connection_proposer,
+            coherence_checker=coherence_checker,
         )
-        self.coherence_checker = coherence_checker
 
     async def validate_payloads(
         self,
@@ -327,7 +326,6 @@ class BehavioralChangeEvaluator:
                     for invoice in evaluation.invoices
                     if invoice.kind == PayloadKind.GUIDELINE
                 ],
-                coherence_checker=self.coherence_checker,
             )
 
             for i, result in enumerate(guideline_evaluation_data):

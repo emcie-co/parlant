@@ -35,13 +35,13 @@ class GPT4o(SchematicGenerator[T]):
     async def generate(
         self,
         prompt: str,
-        args: dict[str, Any],
+        hints: dict[str, Any],
     ) -> SchematicGenerationResult[T]:
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="gpt-4o",
             response_format={"type": "json_object"},
-            **args,
+            **hints,
         )
 
         raw_content = response.choices[0].message.content or "{}"
@@ -61,13 +61,13 @@ class GPT4oMini(SchematicGenerator[T]):
     async def generate(
         self,
         prompt: str,
-        args: dict[str, Any],
+        hints: dict[str, Any],
     ) -> SchematicGenerationResult[T]:
         response = await self._llm_client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="gpt-4o-mini",
             response_format={"type": "json_object"},
-            **args,
+            **hints,
         )
 
         raw_content = response.choices[0].message.content or "{}"

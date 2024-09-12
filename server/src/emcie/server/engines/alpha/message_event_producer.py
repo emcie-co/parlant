@@ -371,7 +371,7 @@ Example 4: Non-Adherence Due to Missing Data: ###
             return None
 
         self.logger.debug(
-            f"Message event producer response: {json.dumps([r.model_dump() for r in message_event_response.content.revisions], indent=2)}"
+            f"Message event producer response: {json.dumps([r.model_dump(mode="json") for r in message_event_response.content.revisions], indent=2)}"
         )
 
         if last_correct_revision := next(

@@ -35,7 +35,7 @@ from emcie.server.engines.alpha.message_event_producer import (
     MessageEventProducer,
     MessageEventSchema,
 )
-from emcie.server.engines.alpha.tool_caller import ToolCallEvaluationsSchema
+from emcie.server.engines.alpha.tool_caller import ToolCallInferenceSchema
 from emcie.server.engines.alpha.tool_event_producer import ToolEventProducer
 from emcie.server.engines.common import Engine
 from emcie.server.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
@@ -77,14 +77,14 @@ async def container() -> AsyncIterator[Container]:
         GPT4o(schema=GuidelinePropositionsSchema)
     )
     container[SchematicGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
-    container[SchematicGenerator[ToolCallEvaluationsSchema]] = Singleton(
-        GPT4oMini(schema=ToolCallEvaluationsSchema)
+    container[SchematicGenerator[ToolCallInferenceSchema]] = Singleton(
+        GPT4oMini(schema=ToolCallInferenceSchema)
     )
     container[SchematicGenerator[ContradictionTestsSchema]] = Singleton(
-        GPT4oMini(schema=ContradictionTestsSchema)
+        GPT4o(schema=ContradictionTestsSchema)
     )
     container[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
-        GPT4oMini(schema=GuidelineConnectionPropositionsSchema)
+        GPT4o(schema=GuidelineConnectionPropositionsSchema)
     )
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)

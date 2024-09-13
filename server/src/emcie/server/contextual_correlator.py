@@ -28,7 +28,7 @@ class ContextualCorrelator:
 
     @property
     def correlation_id(self) -> str:
-        if scopes := self.scopes.get():
+        if scopes := self.scopes.get([]):
             chained_scopes = ".".join(scopes)
             return chained_scopes
         return "<main>"

@@ -5,3 +5,4 @@ __pycache__
 tests/core/persistence/test_cache/*.json
 data/*.json
 cache/
+.coverage

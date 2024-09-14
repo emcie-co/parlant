@@ -13,6 +13,7 @@ from emcie.server.engines.alpha.message_event_producer import MessageEventProduc
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.event_emitter import EmittedEvent
 
+from emcie.server.logger import Logger
 from tests.test_utilities import SyncAwaiter, nlp_test
 
 roles = Literal["client", "server"]
@@ -175,6 +176,7 @@ def then_the_message_contains(
 
     assert context.sync_await(
         nlp_test(
+            logger=context.container[Logger],
             context=message,
             predicate=f"the text contains {something}",
         )

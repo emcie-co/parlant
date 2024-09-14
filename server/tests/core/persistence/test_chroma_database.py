@@ -5,11 +5,8 @@ from typing import AsyncIterator, Iterator
 from lagom import Container
 from pytest import fixture
 
-from emcie.server.core.persistence.chroma_database import (
-    ChromaCollection,
-    ChromaDatabase,
-    ChromaDocument,
-)
+from emcie.server.core.generation.embedders import Ada002Embedder
+from emcie.server.core.persistence.chroma_database import ChromaCollection, ChromaDatabase
 from emcie.server.core.persistence.common import ObjectId
 from emcie.server.logger import Logger
 
@@ -48,7 +45,11 @@ def chroma_database(context: _TestContext) -> ChromaDatabase:
 async def chroma_collection(
     chroma_database: ChromaDatabase,
 ) -> AsyncIterator[ChromaCollection[_TestModel]]:
-    collection = chroma_database.get_or_create_collection("test_collection", _TestModel)
+    collection = chroma_database.get_or_create_collection(
+        "test_collection",
+        _TestModel,
+        embedder_type=Ada002Embedder,
+    )
     yield collection
     chroma_database.delete_collection("test_collection")
 
@@ -233,7 +234,11 @@ async def test_find_similar_documents(
 
 async def test_loading_collections_succeed(context: _TestContext) -> None:
     chroma_database_1 = ChromaDatabase(logger=context.logger, dir_path=context.home_dir)
-    chroma_collection_1 = chroma_database_1.get_or_create_collection("test_collection", _TestModel)
+    chroma_collection_1 = chroma_database_1.get_or_create_collection(
+        "test_collection",
+        _TestModel,
+        embedder_type=Ada002Embedder,
+    )
 
     document = _TestModel(
         id=ObjectId("1"),

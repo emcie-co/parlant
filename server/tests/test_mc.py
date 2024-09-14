@@ -5,6 +5,7 @@ from pytest import fixture
 from datetime import datetime, timezone
 
 from emcie.server.async_utils import Timeout
+from emcie.server.logger import Logger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.end_users import EndUserId, EndUserStore
@@ -180,4 +181,6 @@ async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_on
     events = list(await context.container[SessionStore].list_events(session.id))
 
     assert len(events) == 4
-    assert await nlp_test(str(events[-1].data), "It talks about pineapples")
+    assert await nlp_test(
+        context.container[Logger], str(events[-1].data), "It talks about pineapples"
+    )

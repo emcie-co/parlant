@@ -4,13 +4,13 @@ from typing import Sequence
 
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
+from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import PromptBuilder
 from emcie.server.core.terminology import Term
 from emcie.server.core.guidelines import Guideline
 from emcie.server.core.sessions import Event
 from emcie.server.engines.event_emitter import EmittedEvent
-from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.logger import Logger
 
@@ -32,7 +32,7 @@ class GuidelineProposer:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[GuidelinePropositionsSchema],
+        schematic_generator: BaseSchematicGenerator[GuidelinePropositionsSchema],
     ) -> None:
         self.logger = logger
         self._schematic_generator = schematic_generator

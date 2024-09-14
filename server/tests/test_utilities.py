@@ -2,7 +2,8 @@ import asyncio
 from textwrap import dedent
 from typing import Any, Awaitable, Generator, TypeVar
 
-from emcie.server.llm.schematic_generators import GPT4o
+from emcie.server.core.generation.schematic_generators import GPT4o
+from emcie.server.logger import Logger
 from emcie.server.mc import EventBuffer as EventBuffer
 from emcie.server.base_models import DefaultBaseModel
 
@@ -13,9 +14,6 @@ class NLPTestSchema(DefaultBaseModel):
     answer: bool
 
 
-schematic_generator = GPT4o(schema=NLPTestSchema)
-
-
 class SyncAwaiter:
     def __init__(self, event_loop: asyncio.AbstractEventLoop) -> None:
         self.event_loop = event_loop
@@ -24,7 +22,8 @@ class SyncAwaiter:
         return self.event_loop.run_until_complete(awaitable)  # type: ignore
 
 
-async def nlp_test(context: str, predicate: str) -> bool:
+async def nlp_test(logger: Logger, context: str, predicate: str) -> bool:
+    schematic_generator = GPT4o(logger, schema=NLPTestSchema)
     inference = await schematic_generator.generate(
         prompt=dedent(
             f"""\

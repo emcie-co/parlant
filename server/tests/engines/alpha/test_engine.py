@@ -20,6 +20,7 @@ from emcie.server.core.sessions import (
     StatusEventData,
 )
 
+from emcie.server.logger import Logger
 from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
 scenarios(
@@ -564,6 +565,7 @@ def then_a_single_message_event_is_emitted(
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
+    container: Container,
     sync_await: SyncAwaiter,
     emitted_events: list[EmittedEvent],
     something: str,
@@ -572,6 +574,7 @@ def then_the_message_contains(
 
     assert sync_await(
         nlp_test(
+            logger=container[Logger],
             context=cast(MessageEventData, message_event.data)["message"],
             predicate=f"the text contains {something}",
         )

@@ -11,6 +11,12 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStore
+from emcie.server.core.generation.embedders import Ada002Embedder
+from emcie.server.core.generation.schematic_generators import (
+    BaseSchematicGenerator,
+    GPT4o,
+    GPT4oMini,
+)
 from emcie.server.core.guideline_connections import (
     GuidelineConnectionDocumentStore,
     GuidelineConnectionStore,
@@ -44,7 +50,6 @@ from emcie.server.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
     GuidelineConnectionPropositionsSchema,
 )
-from emcie.server.llm.schematic_generators import GPT4o, GPT4oMini, SchematicGenerator
 from emcie.server.logger import Logger, StdoutLogger
 from emcie.server.mc import MC
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -73,22 +78,25 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
 async def container() -> AsyncIterator[Container]:
     container = Container(log_undefined_deps=True)
 
-    container[SchematicGenerator[GuidelinePropositionsSchema]] = Singleton(
-        GPT4o(schema=GuidelinePropositionsSchema)
+    container[Logger] = StdoutLogger(container[ContextualCorrelator])
+
+    container[BaseSchematicGenerator[GuidelinePropositionsSchema]] = Singleton(
+        GPT4o(logger=container[Logger], schema=GuidelinePropositionsSchema)
     )
-    container[SchematicGenerator[MessageEventSchema]] = Singleton(GPT4o(schema=MessageEventSchema))
-    container[SchematicGenerator[ToolCallInferenceSchema]] = Singleton(
-        GPT4oMini(schema=ToolCallInferenceSchema)
+    container[BaseSchematicGenerator[MessageEventSchema]] = Singleton(
+        GPT4o(logger=container[Logger], schema=MessageEventSchema)
     )
-    container[SchematicGenerator[ContradictionTestsSchema]] = Singleton(
-        GPT4o(schema=ContradictionTestsSchema)
+    container[BaseSchematicGenerator[ToolCallInferenceSchema]] = Singleton(
+        GPT4oMini(logger=container[Logger], schema=ToolCallInferenceSchema)
     )
-    container[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
-        GPT4o(schema=GuidelineConnectionPropositionsSchema)
+    container[BaseSchematicGenerator[ContradictionTestsSchema]] = Singleton(
+        GPT4o(logger=container[Logger], schema=ContradictionTestsSchema)
+    )
+    container[BaseSchematicGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
+        GPT4o(logger=container[Logger], schema=GuidelineConnectionPropositionsSchema)
     )
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
-    container[Logger] = StdoutLogger(container[ContextualCorrelator])
     container[DocumentDatabase] = TransientDocumentDatabase
     container[AgentStore] = Singleton(AgentDocumentStore)
     container[GuidelineStore] = Singleton(GuidelineDocumentStore)
@@ -114,7 +122,8 @@ async def container() -> AsyncIterator[Container]:
 
     with tempfile.TemporaryDirectory() as chroma_db_dir:
         container[TerminologyStore] = TerminologyChromaStore(
-            ChromaDatabase(container[Logger], Path(chroma_db_dir))
+            ChromaDatabase(container[Logger], Path(chroma_db_dir)),
+            embedder_type=Ada002Embedder,
         )
         async with MC(container) as mc:
             container[MC] = mc

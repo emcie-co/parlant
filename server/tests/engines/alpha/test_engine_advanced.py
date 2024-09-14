@@ -32,6 +32,7 @@ from emcie.server.core.sessions import (
     ToolEventData,
 )
 
+from emcie.server.logger import Logger
 from tests import tool_utilities
 from tests.test_utilities import EventBuffer, SyncAwaiter, nlp_test
 
@@ -538,6 +539,7 @@ def then_the_tool_calls_event_contains_n_tool_calls(
 
 @then(parsers.parse("the tool calls event contains {expected_content}"))
 def then_the_tool_calls_event_contains_expected_content(
+    container: Container,
     sync_await: SyncAwaiter,
     expected_content: str,
     emitted_events: list[EmittedEvent],
@@ -547,6 +549,7 @@ def then_the_tool_calls_event_contains_expected_content(
 
     assert sync_await(
         nlp_test(
+            logger=container[Logger],
             context=f"The following is the result of tool (function) calls: {tool_calls}",
             predicate=f"The calls contain {expected_content}",
         )
@@ -693,6 +696,7 @@ def then_get_account_loans_tool_event_is_emitted(
 
 @then(parsers.parse("the message contains {something}"))
 def then_the_message_contains(
+    container: Container,
     sync_await: SyncAwaiter,
     emitted_events: list[EmittedEvent],
     something: str,
@@ -702,6 +706,7 @@ def then_the_message_contains(
 
     assert sync_await(
         nlp_test(
+            logger=container[Logger],
             context=message,
             predicate=f"the text contains {something}",
         )

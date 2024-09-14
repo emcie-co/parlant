@@ -3,7 +3,7 @@ from typing import Mapping, Sequence, cast
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
-from emcie.server.llm.schematic_generators import SchematicGenerator
+from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable
@@ -22,7 +22,7 @@ class ToolEventProducer:
         logger: Logger,
         correlator: ContextualCorrelator,
         tool_service: ToolService,
-        schematic_generator: SchematicGenerator[ToolCallInferenceSchema],
+        schematic_generator: BaseSchematicGenerator[ToolCallInferenceSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator

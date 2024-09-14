@@ -4,10 +4,8 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 
 from emcie.server.core.common import ItemNotFoundError, UniqueId, generate_id
-from emcie.server.core.persistence.chroma_database import (
-    ChromaDatabase,
-    ChromaDocument,
-)
+from emcie.server.core.generation.embedders import Embedder
+from emcie.server.core.persistence.chroma_database import ChromaDatabase, ChromaDocument
 from emcie.server.core.persistence.common import ObjectId
 
 TermId = NewType("TermId", str)
@@ -89,17 +87,11 @@ class TerminologyChromaStore(TerminologyStore):
         description: str
         synonyms: Optional[str]
 
-    def __init__(
-        self,
-        chroma_db: ChromaDatabase,
-    ):
-        try:
-            chroma_db.delete_collection("terminology")
-        except ValueError:
-            pass
-        self._collection = chroma_db.create_collection(
+    def __init__(self, chroma_db: ChromaDatabase, embedder_type: type[Embedder]):
+        self._collection = chroma_db.get_or_create_collection(
             name="terminology",
             schema=self.TermDocument,
+            embedder_type=embedder_type,
         )
         self._n_results = 20
 

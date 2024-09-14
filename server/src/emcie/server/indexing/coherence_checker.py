@@ -9,8 +9,8 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.core.common import UniqueId, generate_id
+from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
 from emcie.server.core.guidelines import GuidelineContent
-from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 
 LLM_RETRY_WAIT_TIME_SECONDS = 3.5
@@ -57,7 +57,7 @@ class ContradictionEvaluatorBase(ABC):
         self,
         logger: Logger,
         contradiction_kind: ContradictionKind,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
         self._schematic_generator = schematic_generator
@@ -203,7 +203,7 @@ class HierarchicalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         super().__init__(logger, ContradictionKind.HIERARCHICAL, schematic_generator)
 
@@ -285,7 +285,7 @@ class ParallelContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         super().__init__(logger, ContradictionKind.PARALLEL, schematic_generator)
 
@@ -367,7 +367,7 @@ class TemporalContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         super().__init__(logger, ContradictionKind.TEMPORAL, schematic_generator)
 
@@ -449,7 +449,7 @@ class ContextualContradictionEvaluator(ContradictionEvaluatorBase):
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         super().__init__(logger, ContradictionKind.CONTEXTUAL, schematic_generator)
 
@@ -531,7 +531,7 @@ class CoherenceChecker:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[ContradictionTestsSchema],
+        schematic_generator: BaseSchematicGenerator[ContradictionTestsSchema],
     ) -> None:
         self.logger = logger
 

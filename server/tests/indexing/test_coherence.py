@@ -3,6 +3,7 @@ from lagom import Container
 from pytest import fixture, mark
 
 from emcie.server.core.agents import AgentId, AgentStore
+from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
 from emcie.server.core.guidelines import GuidelineContent
 from emcie.server.indexing.coherence_checker import (
     CoherenceChecker,
@@ -13,7 +14,6 @@ from emcie.server.indexing.coherence_checker import (
     ParallelContradictionEvaluator,
     TemporalContradictionEvaluator,
 )
-from emcie.server.llm.schematic_generators import SchematicGenerator
 from emcie.server.logger import Logger
 
 from tests.test_utilities import SyncAwaiter, nlp_test
@@ -178,7 +178,7 @@ def test_that_hierarchical_evaluator_detects_contradictions(
 
     hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -197,6 +197,7 @@ def test_that_hierarchical_evaluator_detects_contradictions(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {hierarchical_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{hierarchical_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -254,7 +255,7 @@ def test_that_hierarchical_evaluator_does_not_produce_false_positives(
 
     hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -273,6 +274,7 @@ def test_that_hierarchical_evaluator_does_not_produce_false_positives(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {hierarchical_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{hierarchical_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -329,7 +331,7 @@ def test_that_parallel_evaluator_detects_contradictions(
 
     parallel_contradiction_evaluator = ParallelContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -348,6 +350,7 @@ def test_that_parallel_evaluator_detects_contradictions(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {parallel_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{parallel_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -405,7 +408,7 @@ def test_that_parallel_evaluator_does_not_produce_false_positives(
 
     parallel_contradiction_evaluator = ParallelContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -424,6 +427,7 @@ def test_that_parallel_evaluator_does_not_produce_false_positives(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {parallel_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{parallel_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -480,7 +484,7 @@ def test_that_temporal_evaluator_detects_contradictions(
 
     temporal_contradiction_evaluator = TemporalContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -499,6 +503,7 @@ def test_that_temporal_evaluator_detects_contradictions(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {temporal_contradiction_evaluator.contradiction_kind._describe()} type is:\n"  # noqa
             f"{temporal_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -556,7 +561,7 @@ def test_that_temporal_evaluator_does_not_produce_false_positives(
 
     temporal_contradiction_evaluator = TemporalContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -575,6 +580,7 @@ def test_that_temporal_evaluator_does_not_produce_false_positives(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {temporal_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{temporal_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -631,7 +637,7 @@ def test_that_contextual_evaluator_detects_contradictions(
 
     contextual_contradiction_evaluator = ContextualContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -650,6 +656,7 @@ def test_that_contextual_evaluator_detects_contradictions(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             f"Here is an explanation of what {contextual_contradiction_evaluator.contradiction_kind._describe()} type is:"  # noqa
             f"{contextual_contradiction_evaluator._format_contradiction_type_definition()}"
             "Here are two behavioral guidelines:"
@@ -707,7 +714,7 @@ def test_that_contextual_evaluator_does_not_produce_false_positives(
 
     contextual_contradiction_evaluator = ContextualContradictionEvaluator(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -726,6 +733,7 @@ def test_that_contextual_evaluator_does_not_produce_false_positives(
 
     assert context.sync_await(
         nlp_test(
+            context.container[Logger],
             "Here are two behavioral guidelines:"
             "a semantic contradiction test was conducted, regarding the following two behavioral guidelines:"  # noqa
             f"1. {contradiction.guideline_a}\n"
@@ -744,7 +752,7 @@ def test_that_coherence_check_does_not_produce_false_positives(
 ) -> None:
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = sync_await(
@@ -761,7 +769,7 @@ def test_that_coherence_check_produces_multiple_contradictions(
 ) -> None:
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -795,7 +803,7 @@ def test_that_existing_guidelines_are_not_evaluated_as_proposed_guidelines(
 
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[SchematicGenerator[ContradictionTestsSchema]],
+        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(

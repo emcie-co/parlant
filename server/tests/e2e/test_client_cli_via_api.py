@@ -271,3 +271,62 @@ async def test_that_a_term_can_be_deleted(
             except:
                 traceback.print_exc()
                 raise
+
+
+async def test_that_terms_are_loaded_on_server_startup(
+    context: _TestContext,
+    agent_name: str = DEFAULT_AGENT_NAME,
+) -> None:
+    term_name = "guideline_no_synonyms"
+    description = "simple guideline with no synonyms"
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = load_active_agent(home_dir=context.home_dir, agent_name=agent_name)
+
+        exec_args = [
+            "poetry",
+            "run",
+            "python",
+            CLI_CLIENT_PATH.as_posix(),
+            "--server",
+            SERVER_ADDRESS,
+            "terminology",
+            "add",
+            "--agent-id",
+            agent["id"],
+            "--name",
+            term_name,
+            "--description",
+            description,
+        ]
+
+        result_delete = await asyncio.create_subprocess_exec(*exec_args)
+        await result_delete.wait()
+
+        assert result_delete.returncode == os.EX_OK
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = load_active_agent(home_dir=context.home_dir, agent_name=agent_name)
+
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(30),
+        ) as client:
+            try:
+                terminology_response = await client.get(
+                    f"{SERVER_ADDRESS}/terminology/{agent['id']}/{term_name}",
+                )
+                terminology_response.raise_for_status()
+
+                term = terminology_response.json()
+                assert term["name"] == term_name
+                assert term["description"] == description
+                assert term["synonyms"] is None
+
+            except:
+                traceback.print_exc()
+                raise

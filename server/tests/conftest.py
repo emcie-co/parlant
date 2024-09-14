@@ -11,7 +11,7 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStore
-from emcie.server.core.generation.embedders import Ada002Embedder
+from emcie.server.core.generation.embedders import Large3Embedder
 from emcie.server.core.generation.schematic_generators import (
     BaseSchematicGenerator,
     GPT4o,
@@ -123,7 +123,7 @@ async def container() -> AsyncIterator[Container]:
     with tempfile.TemporaryDirectory() as chroma_db_dir:
         container[TerminologyStore] = TerminologyChromaStore(
             ChromaDatabase(container[Logger], Path(chroma_db_dir)),
-            embedder_type=Ada002Embedder,
+            embedder_type=Large3Embedder,
         )
         async with MC(container) as mc:
             container[MC] = mc

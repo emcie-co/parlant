@@ -77,7 +77,7 @@ class OpenAIBaseSchematicGenerator(BaseSchematicGenerator[T], ABC):
             **filtered_hints,
         )
 
-        raw_content = response.choices[0].message["content"] or "{}"
+        raw_content = response.choices[0].message.content or "{}"
 
         try:
             json_content = json.loads(raw_content)

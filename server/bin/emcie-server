@@ -26,6 +26,12 @@ from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStatus, EvaluationStore
+from emcie.server.core.generation.embedders import Large3Embedder
+from emcie.server.core.generation.schematic_generators import (
+    BaseSchematicGenerator,
+    GPT4o,
+    GPT4oMini,
+)
 from emcie.server.core.guideline_connections import (
     GuidelineConnectionDocumentStore,
     GuidelineConnectionStore,
@@ -52,7 +58,6 @@ from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from emcie.server.engines.alpha.tool_caller import ToolCallInferenceSchema
-from emcie.server.llm.schematic_generators import GPT4o, GPT4oMini, SchematicGenerator
 from emcie.server.engines.alpha.guideline_proposer import (
     GuidelineProposer,
     GuidelinePropositionsSchema,
@@ -192,12 +197,20 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
     c[ContextualCorrelator] = CORRELATOR
     c[Logger] = LOGGER
 
-    c[SchematicGenerator[GuidelinePropositionsSchema]] = GPT4o(schema=GuidelinePropositionsSchema)
-    c[SchematicGenerator[MessageEventSchema]] = GPT4o(schema=MessageEventSchema)
-    c[SchematicGenerator[ToolCallInferenceSchema]] = GPT4oMini(schema=ToolCallInferenceSchema)
-    c[SchematicGenerator[ContradictionTestsSchema]] = GPT4o(schema=ContradictionTestsSchema)
-    c[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
-        schema=GuidelineConnectionPropositionsSchema
+    c[BaseSchematicGenerator[GuidelinePropositionsSchema]] = GPT4o(
+        logger=c[Logger], schema=GuidelinePropositionsSchema
+    )
+    c[BaseSchematicGenerator[MessageEventSchema]] = GPT4o(
+        logger=c[Logger], schema=MessageEventSchema
+    )
+    c[BaseSchematicGenerator[ToolCallInferenceSchema]] = GPT4oMini(
+        logger=c[Logger], schema=ToolCallInferenceSchema
+    )
+    c[BaseSchematicGenerator[ContradictionTestsSchema]] = GPT4o(
+        logger=c[Logger], schema=ContradictionTestsSchema
+    )
+    c[BaseSchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT4o(
+        logger=c[Logger], schema=GuidelineConnectionPropositionsSchema
     )
 
     async with (
@@ -235,33 +248,35 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
         c[SessionStore] = SessionDocumentStore(sessions_db)
         c[SessionListener] = PollingSessionListener
-        c[TerminologyStore] = TerminologyChromaStore(ChromaDatabase(LOGGER, EMCIE_HOME_DIR))
+        c[TerminologyStore] = TerminologyChromaStore(
+            ChromaDatabase(LOGGER, EMCIE_HOME_DIR), embedder_type=Large3Embedder
+        )
 
         c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)
 
         c[GuidelineProposer] = GuidelineProposer(
             c[Logger],
-            c[SchematicGenerator[GuidelinePropositionsSchema]],
+            c[BaseSchematicGenerator[GuidelinePropositionsSchema]],
         )
         c[GuidelineConnectionProposer] = GuidelineConnectionProposer(
             c[Logger],
-            c[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
+            c[BaseSchematicGenerator[GuidelineConnectionPropositionsSchema]],
         )
         c[ToolEventProducer] = ToolEventProducer(
             c[Logger],
             c[ContextualCorrelator],
             c[ToolService],
-            c[SchematicGenerator[ToolCallInferenceSchema]],
+            c[BaseSchematicGenerator[ToolCallInferenceSchema]],
         )
         c[MessageEventProducer] = MessageEventProducer(
             c[Logger],
             c[ContextualCorrelator],
-            c[SchematicGenerator[MessageEventSchema]],
+            c[BaseSchematicGenerator[MessageEventSchema]],
         )
 
         c[CoherenceChecker] = CoherenceChecker(
             c[Logger],
-            c[SchematicGenerator[ContradictionTestsSchema]],
+            c[BaseSchematicGenerator[ContradictionTestsSchema]],
         )
 
         c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(
@@ -402,7 +417,7 @@ async def check_coherence(params: CLIParams) -> None:
 
     checker = CoherenceChecker(
         LOGGER,
-        GPT4o(schema=ContradictionTestsSchema),
+        GPT4o(logger=LOGGER, schema=ContradictionTestsSchema),
     )
 
     for agent, guideline_specs in params.config["guidelines"].items():

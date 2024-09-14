@@ -106,11 +106,16 @@ class Ada002Embedder(OpenAIEmbedder):
         return "text-embedding-ada-002"
 
 
-class Curie001Embedder(OpenAIEmbedder):
+class Large3Embedder(OpenAIEmbedder):
     def _get_model_name(self) -> str:
-        return "text-embedding-curie-001"
+        return "text-embedding-3-large"
 
 
-class SomeTogetherAIEmbedder(TogetherAIEmbedder):
+class Small3Embedder(OpenAIEmbedder):
     def _get_model_name(self) -> str:
-        return "togetherai-embedding-model"
+        return "text-embedding-3-small"
+
+
+class M2Bert32K(TogetherAIEmbedder):
+    def _get_model_name(self) -> str:
+        return "togethercomputer/m2-bert-80M-32k-retrieval"

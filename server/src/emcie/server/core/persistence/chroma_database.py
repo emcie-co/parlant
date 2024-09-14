@@ -5,8 +5,8 @@ import json
 import operator
 from pathlib import Path
 import threading
-from typing import Any, Coroutine, Generic, Optional, Sequence, Type, cast
-from typing_extensions import TypeVar
+from typing import Any, Coroutine, Generic, Optional, Sequence, Type, TypeVar, cast
+
 import chromadb
 from chromadb.api.types import Embeddable
 

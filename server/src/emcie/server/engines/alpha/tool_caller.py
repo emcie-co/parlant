@@ -302,7 +302,8 @@ There are no staged tool calls at this moment.
         self.logger.debug(f"Tool call inference prompt: {prompt}")
 
         inference = await self._schematic_generator.generate(
-            prompt=prompt, hints={"temperature": 0.3}
+            prompt=prompt,
+            hints={"temperature": 0.3},
         )
 
         self.logger.debug(

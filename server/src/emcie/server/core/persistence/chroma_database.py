@@ -4,11 +4,9 @@ import importlib
 import json
 import operator
 from pathlib import Path
-import threading
-from typing import Any, Coroutine, Generic, Optional, Sequence, Type, TypeVar, cast
+from typing import Generic, Optional, Sequence, TypeVar, cast
 
 import chromadb
-from chromadb.api.types import Embeddable
 
 from emcie.server.core.generation.embedders import Embedder
 from emcie.server.core.persistence.common import (
@@ -24,43 +22,6 @@ class ChromaDocument(BaseDocument):
 
 
 TChromaDocument = TypeVar("TChromaDocument", bound=ChromaDocument)
-
-
-class EmbeddingFunctionAdapter(chromadb.EmbeddingFunction[Embeddable]):
-    def __init__(self, embedder: Embedder) -> None:
-        self.embedder = embedder
-
-    def __call__(self, input: Embeddable) -> chromadb.Embeddings:
-        async def call_embedder() -> Sequence[Sequence[float]]:
-            return (await self.embedder.embed([str(i) for i in input])).vectors
-
-        def run_coroutine_in_thread(
-            coro: Coroutine[Any, Any, Sequence[Sequence[float]]],
-        ) -> Sequence[Sequence[float]]:
-            result_container = []
-            exception_container = []
-
-            def target() -> None:
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    result = loop.run_until_complete(coro)
-                    loop.close()
-                    result_container.append(result)
-                except Exception as e:
-                    exception_container.append(e)
-
-            thread = threading.Thread(target=target)
-            thread.start()
-            thread.join()
-
-            if exception_container:
-                raise exception_container[0]
-            return result_container[0]
-
-        vectors = run_coroutine_in_thread(call_embedder())
-
-        return [v for v in vectors]
 
 
 class ChromaDatabase:
@@ -82,11 +43,10 @@ class ChromaDatabase:
                 embedder_module,
                 chromadb_collection.metadata["embedder_type_path"],
             )
-            embedding_function = EmbeddingFunctionAdapter(embedder_type(logger=self.logger))
 
             chroma_collection = self._chroma_client.get_collection(
                 name=chromadb_collection.name,
-                embedding_function=embedding_function,
+                embedding_function=None,
             )
 
             collections[chromadb_collection.name] = ChromaCollection(
@@ -96,14 +56,15 @@ class ChromaDatabase:
                 schema=operator.attrgetter(chromadb_collection.metadata["schema_model_path"])(
                     importlib.import_module(chromadb_collection.metadata["schema_module_path"])
                 ),
+                embedder_type=embedder_type,
             )
         return collections
 
     def create_collection(
         self,
         name: str,
-        schema: Type[TChromaDocument],
-        embedder_type: Type[Embedder],
+        schema: type[TChromaDocument],
+        embedder_type: type[Embedder],
     ) -> ChromaCollection[TChromaDocument]:
         if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
@@ -120,10 +81,11 @@ class ChromaDatabase:
                     "embedder_module_path": embedder_type.__module__,
                     "embedder_type_path": embedder_type.__qualname__,
                 },
-                embedding_function=EmbeddingFunctionAdapter(embedder_type(logger=self.logger)),
+                embedding_function=None,
             ),
             name=name,
             schema=schema,
+            embedder_type=embedder_type,
         )
 
         return cast(ChromaCollection[TChromaDocument], self._collections[name])
@@ -140,8 +102,8 @@ class ChromaDatabase:
     def get_or_create_collection(
         self,
         name: str,
-        schema: Type[TChromaDocument],
-        embedder_type: Type[Embedder],
+        schema: type[TChromaDocument],
+        embedder_type: type[Embedder],
     ) -> ChromaCollection[TChromaDocument]:
         if collection := self._collections.get(name):
             assert schema == collection._schema
@@ -159,10 +121,11 @@ class ChromaDatabase:
                     "embedder_module_path": embedder_type.__module__,
                     "embedder_type_path": embedder_type.__qualname__,
                 },
-                embedding_function=EmbeddingFunctionAdapter(embedder_type(logger=self.logger)),
+                embedding_function=None,
             ),
             name=name,
             schema=schema,
+            embedder_type=embedder_type,
         )
 
         return cast(ChromaCollection[TChromaDocument], self._collections[name])
@@ -183,11 +146,13 @@ class ChromaCollection(Generic[TChromaDocument]):
         logger: Logger,
         chromadb_collection: chromadb.Collection,
         name: str,
-        schema: Type[TChromaDocument],
+        schema: type[TChromaDocument],
+        embedder_type: type[Embedder],  # FIXME: We need to pass an EmbedderFactory here
     ) -> None:
         self.logger = logger
         self._name = name
         self._schema = schema
+        self._embedder = embedder_type(logger)
 
         self._lock = asyncio.Lock()
         self._chroma_collection = chromadb_collection
@@ -218,11 +183,14 @@ class ChromaCollection(Generic[TChromaDocument]):
         self,
         document: TChromaDocument,
     ) -> InsertResult:
+        embeddings = list((await self._embedder.embed([document.content])).vectors)
+
         async with self._lock:
             self._chroma_collection.add(
                 ids=[document.id],
                 documents=[document.content],
                 metadatas=[document.model_dump(mode="json")],
+                embeddings=embeddings,
             )
 
         return InsertResult(acknowledged=True)
@@ -233,12 +201,15 @@ class ChromaCollection(Generic[TChromaDocument]):
         updated_document: TChromaDocument,
         upsert: bool = False,
     ) -> UpdateResult[TChromaDocument]:
+        embeddings = list((await self._embedder.embed([updated_document.content])).vectors)
+
         async with self._lock:
             if self._chroma_collection.get(where=cast(chromadb.Where, filters))["metadatas"]:
                 self._chroma_collection.update(
                     ids=[updated_document.id],
                     documents=[updated_document.content],
                     metadatas=[updated_document.model_dump(mode="json")],
+                    embeddings=embeddings,
                 )
 
                 return UpdateResult(
@@ -253,6 +224,7 @@ class ChromaCollection(Generic[TChromaDocument]):
                     ids=[updated_document.id],
                     documents=[updated_document.content],
                     metadatas=[updated_document.model_dump(mode="json")],
+                    embeddings=embeddings,
                 )
 
                 return UpdateResult(
@@ -303,9 +275,11 @@ class ChromaCollection(Generic[TChromaDocument]):
         query: str,
         k: int,
     ) -> Sequence[TChromaDocument]:
+        query_embeddings = list((await self._embedder.embed([query])).vectors)
+
         docs = self._chroma_collection.query(
             where=cast(chromadb.Where, filters),
-            query_texts=[query],
+            query_embeddings=query_embeddings,
             n_results=k,
         )
 

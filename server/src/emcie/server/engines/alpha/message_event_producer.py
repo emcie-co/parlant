@@ -6,7 +6,7 @@ from emcie.common.tools import Tool
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import Agent
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
+from emcie.server.core.generation.schematic_generators import SchematicGenerator
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from emcie.server.core.terminology import Term
@@ -49,7 +49,7 @@ class MessageEventProducer:
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
-        schematic_generator: BaseSchematicGenerator[MessageEventSchema],
+        schematic_generator: SchematicGenerator[MessageEventSchema],
     ) -> None:
         self.logger = logger
         self.correlator = correlator

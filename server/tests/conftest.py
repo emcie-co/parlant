@@ -11,11 +11,11 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStore
-from emcie.server.core.generation.embedders import EmbedderFactory, Large3Embedder
+from emcie.server.core.generation.embedders import EmbedderFactory, OpenAITextEmbedding3Large
 from emcie.server.core.generation.schematic_generators import (
-    BaseSchematicGenerator,
-    GPT4o,
-    GPT4oMini,
+    SchematicGenerator,
+    GPT_4o,
+    GPT_4o_Mini,
 )
 from emcie.server.core.guideline_connections import (
     GuidelineConnectionDocumentStore,
@@ -80,21 +80,15 @@ async def container() -> AsyncIterator[Container]:
 
     container[Logger] = StdoutLogger(container[ContextualCorrelator])
 
-    container[BaseSchematicGenerator[GuidelinePropositionsSchema]] = Singleton(
-        GPT4o(logger=container[Logger], schema=GuidelinePropositionsSchema)
-    )
-    container[BaseSchematicGenerator[MessageEventSchema]] = Singleton(
-        GPT4o(logger=container[Logger], schema=MessageEventSchema)
-    )
-    container[BaseSchematicGenerator[ToolCallInferenceSchema]] = Singleton(
-        GPT4oMini(logger=container[Logger], schema=ToolCallInferenceSchema)
-    )
-    container[BaseSchematicGenerator[ContradictionTestsSchema]] = Singleton(
-        GPT4o(logger=container[Logger], schema=ContradictionTestsSchema)
-    )
-    container[BaseSchematicGenerator[GuidelineConnectionPropositionsSchema]] = Singleton(
-        GPT4o(logger=container[Logger], schema=GuidelineConnectionPropositionsSchema)
-    )
+    container[SchematicGenerator[GuidelinePropositionsSchema]] = GPT_4o[
+        GuidelinePropositionsSchema
+    ]()
+    container[SchematicGenerator[MessageEventSchema]] = GPT_4o[MessageEventSchema]()
+    container[SchematicGenerator[ToolCallInferenceSchema]] = GPT_4o_Mini[ToolCallInferenceSchema]()
+    container[SchematicGenerator[ContradictionTestsSchema]] = GPT_4o[ContradictionTestsSchema]()
+    container[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT_4o[
+        GuidelineConnectionPropositionsSchema
+    ]()
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[DocumentDatabase] = TransientDocumentDatabase
@@ -123,7 +117,7 @@ async def container() -> AsyncIterator[Container]:
     with tempfile.TemporaryDirectory() as chroma_db_dir:
         container[TerminologyStore] = TerminologyChromaStore(
             ChromaDatabase(container[Logger], Path(chroma_db_dir), EmbedderFactory(container)),
-            embedder_type=Large3Embedder,
+            embedder_type=OpenAITextEmbedding3Large,
         )
         async with MC(container) as mc:
             container[MC] = mc

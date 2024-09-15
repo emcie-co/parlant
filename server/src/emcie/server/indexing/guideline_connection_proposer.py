@@ -5,7 +5,7 @@ import json
 from typing import Sequence
 
 from more_itertools import chunked
-from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
+from emcie.server.core.generation.schematic_generators import SchematicGenerator
 from emcie.server.core.guideline_connections import ConnectionKind
 from emcie.server.core.guidelines import GuidelineContent
 from emcie.server.logger import Logger
@@ -40,7 +40,7 @@ class GuidelineConnectionProposer:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: BaseSchematicGenerator[GuidelineConnectionPropositionsSchema],
+        schematic_generator: SchematicGenerator[GuidelineConnectionPropositionsSchema],
     ) -> None:
         self.logger = logger
         self._batch_size = 5

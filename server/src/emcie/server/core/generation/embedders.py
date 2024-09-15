@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from lagom import Container
 from together import AsyncTogether  # type: ignore
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 import openai
 import os
-
-from emcie.server.logger import Logger
 
 
 @dataclass(frozen=True)
@@ -15,16 +14,11 @@ class EmbeddingResult:
 
 
 class Embedder(ABC):
-    supported_arguments: list[str] = []
-
-    def __init__(self, logger: Logger) -> None:
-        self.logger = logger
-
     @abstractmethod
     async def embed(
         self,
         texts: list[str],
-        hints: Optional[dict[str, Any]] = None,
+        hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         pass
 
@@ -40,90 +34,58 @@ class EmbedderFactory:
 class OpenAIEmbedder(Embedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(logger=logger)
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
         self._client = openai.AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
-
-    @abstractmethod
-    def _get_model_name(self) -> str:
-        pass
 
     async def embed(
         self,
         texts: list[str],
-        hints: Optional[dict[str, Any]] = None,
+        hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {}
-        if hints:
-            for k, v in hints.items():
-                if k not in self.supported_arguments:
-                    self.logger.warning(
-                        f"Key '{k}' is not supported in the provided embedding model. Skipping..."
-                    )
-                    continue
-                filtered_hints[k] = v
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
         response = await self._client.embeddings.create(
-            model=self._get_model_name(),
+            model=self.model_name,
             input=texts,
             **filtered_hints,
         )
 
         vectors = [data_point.embedding for data_point in response.data]
         return EmbeddingResult(vectors=vectors)
+
+
+class OpenAITextEmbedding3Large(OpenAIEmbedder):
+    def __init__(self) -> None:
+        super().__init__(model_name="text-embedding-3-large")
+
+
+class OpenAITextEmbedding3Small(OpenAIEmbedder):
+    def __init__(self) -> None:
+        super().__init__(model_name="text-embedding-3-small")
 
 
 class TogetherAIEmbedder(Embedder, ABC):
-    supported_arguments = []
-
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(logger=logger)
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
-
-    @abstractmethod
-    def _get_model_name(self) -> str:
-        pass
 
     async def embed(
         self,
         texts: list[str],
-        hints: Optional[dict[str, Any]] = None,
+        hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {}
-        if hints:
-            for k, v in hints.items():
-                if k not in self.supported_arguments:
-                    self.logger.warning(
-                        f"Key '{k}' is not supported in the the provided embedding model. Skipping..."
-                    )
-                    continue
-                filtered_hints[k] = v
+        _ = hints
 
         response = await self._client.embeddings.create(
-            model=self._get_model_name(),
+            model=self.model_name,
             input=texts,
-            **filtered_hints,
         )
 
         vectors = [data_point.embedding for data_point in response.data]
         return EmbeddingResult(vectors=vectors)
 
 
-class Ada002Embedder(OpenAIEmbedder):
-    def _get_model_name(self) -> str:
-        return "text-embedding-ada-002"
-
-
-class Large3Embedder(OpenAIEmbedder):
-    def _get_model_name(self) -> str:
-        return "text-embedding-3-large"
-
-
-class Small3Embedder(OpenAIEmbedder):
-    def _get_model_name(self) -> str:
-        return "text-embedding-3-small"
-
-
 class M2Bert32K(TogetherAIEmbedder):
-    def _get_model_name(self) -> str:
-        return "togethercomputer/m2-bert-80M-32k-retrieval"
+    def __init__(self) -> None:
+        super().__init__(model_name="togethercomputer/m2-bert-80M-32k-retrieval")

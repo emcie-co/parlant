@@ -5,7 +5,7 @@ from typing import AsyncIterator, Iterator
 from lagom import Container
 from pytest import fixture
 
-from emcie.server.core.generation.embedders import EmbedderFactory, Large3Embedder
+from emcie.server.core.generation.embedders import EmbedderFactory, OpenAITextEmbedding3Large
 from emcie.server.core.persistence.chroma_database import (
     ChromaCollection,
     ChromaDatabase,
@@ -57,7 +57,7 @@ async def chroma_collection(
     collection = chroma_database.get_or_create_collection(
         "test_collection",
         _TestModel,
-        embedder_type=Large3Embedder,
+        embedder_type=OpenAITextEmbedding3Large,
     )
     yield collection
     chroma_database.delete_collection("test_collection")
@@ -246,7 +246,7 @@ async def test_loading_collections_succeed(context: _TestContext, container: Con
     chroma_collection_1 = chroma_database_1.get_or_create_collection(
         "test_collection",
         _TestModel,
-        embedder_type=Large3Embedder,
+        embedder_type=OpenAITextEmbedding3Large,
     )
 
     document = _TestModel(

@@ -10,7 +10,7 @@ from emcie.common.tools import Tool, ToolContext
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
+from emcie.server.core.generation.schematic_generators import SchematicGenerator
 from emcie.server.core.sessions import Event, ToolResult
 from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term
@@ -60,7 +60,7 @@ class ToolCaller:
         self,
         logger: Logger,
         tool_service: ToolService,
-        schematic_generator: BaseSchematicGenerator[ToolCallInferenceSchema],
+        schematic_generator: SchematicGenerator[ToolCallInferenceSchema],
     ) -> None:
         self._tool_service = tool_service
         self.logger = logger

@@ -4,7 +4,7 @@ from lagom import Container
 from pytest import fixture, mark
 from emcie.server.core.agents import Agent, AgentId
 from emcie.server.core.common import generate_id
-from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
+from emcie.server.core.generation.schematic_generators import SchematicGenerator
 from emcie.server.engines.alpha.guideline_proposer import (
     GuidelineProposer,
     GuidelinePropositionsSchema,
@@ -24,7 +24,7 @@ from emcie.server.core.sessions import Event, EventId, EventSource
 class _TestContext:
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    schematic_generator: BaseSchematicGenerator[GuidelinePropositionsSchema]
+    schematic_generator: SchematicGenerator[GuidelinePropositionsSchema]
     logger: Logger
 
 
@@ -37,7 +37,7 @@ def context(
         sync_await,
         guidelines=list(),
         logger=container[Logger],
-        schematic_generator=container[BaseSchematicGenerator[GuidelinePropositionsSchema]],
+        schematic_generator=container[SchematicGenerator[GuidelinePropositionsSchema]],
     )
 
 

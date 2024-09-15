@@ -3,7 +3,7 @@ from lagom import Container
 from pytest import fixture, mark
 
 from emcie.server.core.agents import AgentId, AgentStore
-from emcie.server.core.generation.schematic_generators import BaseSchematicGenerator
+from emcie.server.core.generation.schematic_generators import SchematicGenerator
 from emcie.server.core.guidelines import GuidelineContent
 from emcie.server.indexing.coherence_checker import (
     CoherenceChecker,
@@ -178,7 +178,7 @@ def test_that_hierarchical_evaluator_detects_contradictions(
 
     hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -255,7 +255,7 @@ def test_that_hierarchical_evaluator_does_not_produce_false_positives(
 
     hierarchical_contradiction_evaluator = HierarchicalContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -331,7 +331,7 @@ def test_that_parallel_evaluator_detects_contradictions(
 
     parallel_contradiction_evaluator = ParallelContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -408,7 +408,7 @@ def test_that_parallel_evaluator_does_not_produce_false_positives(
 
     parallel_contradiction_evaluator = ParallelContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -484,7 +484,7 @@ def test_that_temporal_evaluator_detects_contradictions(
 
     temporal_contradiction_evaluator = TemporalContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -561,7 +561,7 @@ def test_that_temporal_evaluator_does_not_produce_false_positives(
 
     temporal_contradiction_evaluator = TemporalContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -637,7 +637,7 @@ def test_that_contextual_evaluator_detects_contradictions(
 
     contextual_contradiction_evaluator = ContextualContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -714,7 +714,7 @@ def test_that_contextual_evaluator_does_not_produce_false_positives(
 
     contextual_contradiction_evaluator = ContextualContradictionEvaluator(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(
@@ -752,7 +752,7 @@ def test_that_coherence_check_does_not_produce_false_positives(
 ) -> None:
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = sync_await(
@@ -769,7 +769,7 @@ def test_that_coherence_check_produces_multiple_contradictions(
 ) -> None:
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
 
     contradiction_results = list(
@@ -803,7 +803,7 @@ def test_that_existing_guidelines_are_not_evaluated_as_proposed_guidelines(
 
     coherence_checker = CoherenceChecker(
         context.container[Logger],
-        context.container[BaseSchematicGenerator[ContradictionTestsSchema]],
+        context.container[SchematicGenerator[ContradictionTestsSchema]],
     )
     contradiction_results = list(
         context.sync_await(

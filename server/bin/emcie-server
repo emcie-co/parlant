@@ -26,7 +26,7 @@ from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStatus, EvaluationStore
-from emcie.server.core.generation.embedders import EmbedderFactory, Large3Embedder
+from emcie.server.core.generation.embedders import EmbedderFactory, OpenAITextEmbedding3Large
 from emcie.server.core.generation.schematic_generators import (
     SchematicGenerator,
     GPT_4o,
@@ -240,10 +240,9 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
         c[SessionStore] = SessionDocumentStore(sessions_db)
         c[SessionListener] = PollingSessionListener
-        c[ChromaDatabase] = ChromaDatabase(LOGGER, EMCIE_HOME_DIR)
         c[TerminologyStore] = TerminologyChromaStore(
             ChromaDatabase(LOGGER, EMCIE_HOME_DIR, EmbedderFactory(c)),
-            embedder_type=Large3Embedder,
+            embedder_type=OpenAITextEmbedding3Large,
         )
 
         c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)

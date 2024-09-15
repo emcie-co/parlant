@@ -11,8 +11,8 @@ from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStore
-from emcie.server.core.generation.embedders import EmbedderFactory, OpenAITextEmbedding3Large
-from emcie.server.core.generation.schematic_generators import (
+from emcie.server.core.generation.embedding import EmbedderFactory, OpenAITextEmbedding3Large
+from emcie.server.core.generation.schematic import (
     SchematicGenerator,
     GPT_4o,
     GPT_4o_Mini,

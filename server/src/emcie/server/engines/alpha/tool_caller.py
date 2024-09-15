@@ -10,7 +10,7 @@ from emcie.common.tools import Tool, ToolContext
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable, generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.generation.schematic_generators import SchematicGenerator
+from emcie.server.core.generation.schematic import SchematicGenerator
 from emcie.server.core.sessions import Event, ToolResult
 from emcie.server.core.tools import ToolService
 from emcie.server.core.terminology import Term

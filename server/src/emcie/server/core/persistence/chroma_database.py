@@ -8,7 +8,7 @@ from typing import Generic, Optional, Sequence, TypeVar, cast
 
 import chromadb
 
-from emcie.server.core.generation.embedders import Embedder, EmbedderFactory
+from emcie.server.core.generation.embedding import Embedder, EmbedderFactory
 from emcie.server.core.persistence.common import (
     BaseDocument,
     Where,

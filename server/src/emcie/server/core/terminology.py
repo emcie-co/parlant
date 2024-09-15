@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 
 from emcie.server.core.common import ItemNotFoundError, UniqueId, generate_id
-from emcie.server.core.generation.embedders import Embedder
+from emcie.server.core.generation.embedding import Embedder
 from emcie.server.core.persistence.chroma_database import ChromaDatabase, ChromaDocument
 from emcie.server.core.persistence.common import ObjectId
 

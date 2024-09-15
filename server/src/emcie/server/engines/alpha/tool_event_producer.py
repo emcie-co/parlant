@@ -3,7 +3,7 @@ from typing import Mapping, Sequence, cast
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
-from emcie.server.core.generation.schematic_generators import SchematicGenerator
+from emcie.server.core.generation.schematic import SchematicGenerator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import JSONSerializable

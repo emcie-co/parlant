@@ -8,7 +8,7 @@ from typing import Generic, Optional, Sequence, TypeVar, cast
 
 import chromadb
 
-from emcie.server.core.generation.embedders import Embedder
+from emcie.server.core.generation.embedders import Embedder, EmbedderFactory
 from emcie.server.core.persistence.common import (
     BaseDocument,
     Where,
@@ -25,8 +25,14 @@ TChromaDocument = TypeVar("TChromaDocument", bound=ChromaDocument)
 
 
 class ChromaDatabase:
-    def __init__(self, logger: Logger, dir_path: Path) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        dir_path: Path,
+        embedder_factory: EmbedderFactory,
+    ) -> None:
         self.logger = logger
+        self._embedder_factory = embedder_factory
 
         self._chroma_client = chromadb.PersistentClient(str(dir_path))
         self._collections: dict[str, ChromaCollection[ChromaDocument]] = (
@@ -43,6 +49,7 @@ class ChromaDatabase:
                 embedder_module,
                 chromadb_collection.metadata["embedder_type_path"],
             )
+            embedder = self._embedder_factory.create_embedder(embedder_type)
 
             chroma_collection = self._chroma_client.get_collection(
                 name=chromadb_collection.name,
@@ -56,7 +63,7 @@ class ChromaDatabase:
                 schema=operator.attrgetter(chromadb_collection.metadata["schema_model_path"])(
                     importlib.import_module(chromadb_collection.metadata["schema_module_path"])
                 ),
-                embedder_type=embedder_type,
+                embedder=embedder,
             )
         return collections
 
@@ -85,7 +92,7 @@ class ChromaDatabase:
             ),
             name=name,
             schema=schema,
-            embedder_type=embedder_type,
+            embedder=self._embedder_factory.create_embedder(embedder_type),
         )
 
         return cast(ChromaCollection[TChromaDocument], self._collections[name])
@@ -125,7 +132,7 @@ class ChromaDatabase:
             ),
             name=name,
             schema=schema,
-            embedder_type=embedder_type,
+            embedder=self._embedder_factory.create_embedder(embedder_type),
         )
 
         return cast(ChromaCollection[TChromaDocument], self._collections[name])
@@ -147,12 +154,12 @@ class ChromaCollection(Generic[TChromaDocument]):
         chromadb_collection: chromadb.Collection,
         name: str,
         schema: type[TChromaDocument],
-        embedder_type: type[Embedder],  # FIXME: We need to pass an EmbedderFactory here
+        embedder: Embedder,
     ) -> None:
         self.logger = logger
         self._name = name
         self._schema = schema
-        self._embedder = embedder_type(logger)
+        self._embedder = embedder
 
         self._lock = asyncio.Lock()
         self._chroma_collection = chromadb_collection

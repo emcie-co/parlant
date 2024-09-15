@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import os
-from typing import Any, Optional, Sequence
-
-import openai
+from lagom import Container
 from together import AsyncTogether  # type: ignore
+from typing import Any, Optional, Sequence
+import openai
+import os
 
 from emcie.server.logger import Logger
 
@@ -27,6 +27,14 @@ class Embedder(ABC):
         hints: Optional[dict[str, Any]] = None,
     ) -> EmbeddingResult:
         pass
+
+
+class EmbedderFactory:
+    def __init__(self, container: Container):
+        self._container = container
+
+    def create_embedder(self, embedder_type: type[Embedder]) -> Embedder:
+        return self._container[embedder_type]
 
 
 class OpenAIEmbedder(Embedder):

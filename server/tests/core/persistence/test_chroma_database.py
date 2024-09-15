@@ -5,7 +5,7 @@ from typing import AsyncIterator, Iterator
 from lagom import Container
 from pytest import fixture
 
-from emcie.server.core.generation.embedders import Large3Embedder
+from emcie.server.core.generation.embedders import EmbedderFactory, Large3Embedder
 from emcie.server.core.persistence.chroma_database import (
     ChromaCollection,
     ChromaDatabase,
@@ -24,7 +24,7 @@ class _TestModel(ChromaDocument):
 @dataclass(frozen=True)
 class _TestContext:
     home_dir: Path
-    logger: Logger
+    container: Container
 
 
 @fixture
@@ -32,16 +32,21 @@ def context(container: Container) -> Iterator[_TestContext]:
     with tempfile.TemporaryDirectory() as home_dir:
         home_dir_path = Path(home_dir)
         yield _TestContext(
-            logger=container[Logger],
+            container=container,
             home_dir=home_dir_path,
         )
 
 
 @fixture
 def chroma_database(context: _TestContext) -> ChromaDatabase:
+    return create_database(context)
+
+
+def create_database(context: _TestContext) -> ChromaDatabase:
     return ChromaDatabase(
-        logger=context.logger,
+        logger=context.container[Logger],
         dir_path=context.home_dir,
+        embedder_factory=EmbedderFactory(context.container),
     )
 
 
@@ -236,8 +241,8 @@ async def test_find_similar_documents(
     assert cherry_document in result
 
 
-async def test_loading_collections_succeed(context: _TestContext) -> None:
-    chroma_database_1 = ChromaDatabase(logger=context.logger, dir_path=context.home_dir)
+async def test_loading_collections_succeed(context: _TestContext, container: Container) -> None:
+    chroma_database_1 = create_database(context)
     chroma_collection_1 = chroma_database_1.get_or_create_collection(
         "test_collection",
         _TestModel,
@@ -252,7 +257,7 @@ async def test_loading_collections_succeed(context: _TestContext) -> None:
 
     await chroma_collection_1.insert_one(document)
 
-    chroma_database_2 = ChromaDatabase(logger=context.logger, dir_path=context.home_dir)
+    chroma_database_2 = create_database(context)
     chroma_collection_2: ChromaCollection[_TestModel] = chroma_database_2.get_collection(
         "test_collection"
     )

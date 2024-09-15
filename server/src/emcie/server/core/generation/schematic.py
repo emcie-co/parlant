@@ -108,10 +108,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
 
         raw_content = response.choices[0].message.content or "{}"
 
-        try:
-            json_content = json.loads(raw_content)
-        except json.JSONDecodeError:
-            json_content = jsonfinder.only_json(raw_content)[2]
+        json_content = jsonfinder.only_json(raw_content)[2]
 
         content = self.schema.model_validate(json_content)
         return SchematicGenerationResult(content=content)

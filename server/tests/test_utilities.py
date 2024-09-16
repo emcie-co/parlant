@@ -1,5 +1,4 @@
 import asyncio
-from textwrap import dedent
 from typing import Any, Awaitable, Generator, TypeVar
 
 from emcie.server.core.generation.schematic import GPT_4o
@@ -23,38 +22,42 @@ class SyncAwaiter:
 
 
 async def nlp_test(logger: Logger, context: str, predicate: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema]()
+    schematic_generator = GPT_4o[NLPTestSchema](logger=logger)
+
     inference = await schematic_generator.generate(
-        prompt=dedent(
-            f"""\
-                        Given a context and a predicate, determine whether the
-                        predicate applies with respect to the given context.
+        prompt=f"""\
+Given a context and a predicate, determine whether the
+predicate applies with respect to the given context.
+If the predicate applies, the answer is true;
+otherwise, the answer is false.
 
-                        Context: ###
-                        {context}
-                        ###
+Context: ###
+{context}
+###
 
-                        Predicate: ###
-                        {predicate}
-                        ###
+Predicate: ###
+{predicate}
+###
 
-                        Output JSON structure:
-                        {{
-                            answer: <BOOL>
-                        }}
+Output JSON structure: ###
+{{
+    answer: <BOOL>
+}}
+###
 
-                        Example #1:
-                        {{
-                            answer: true
-                        }}
+Example #1: ###
+{{
+    answer: true
+}}
+###
 
-                        Example #2:
-                        {{
-                            answer: false
-                        }}
-                    """
-        ),
-        hints={"temperature": 0.0},
+Example #2: ###
+{{
+    answer: false
+}}
+###
+""",
+        hints={"temperature": 0.0, "strict": True},
     )
 
     return inference.content.answer

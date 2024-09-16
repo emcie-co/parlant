@@ -26,8 +26,8 @@ from emcie.server.core.agents import AgentDocumentStore, AgentStore
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from emcie.server.core.end_users import EndUserDocumentStore, EndUserStore
 from emcie.server.core.evaluations import EvaluationDocumentStore, EvaluationStatus, EvaluationStore
-from emcie.server.core.generation.embedders import EmbedderFactory, OpenAITextEmbedding3Large
-from emcie.server.core.generation.schematic_generators import (
+from emcie.server.core.generation.embedding import EmbedderFactory, OpenAITextEmbedding3Large
+from emcie.server.core.generation.schematic import (
     SchematicGenerator,
     GPT_4o,
     GPT_4o_Mini,
@@ -197,13 +197,19 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
     c[ContextualCorrelator] = CORRELATOR
     c[Logger] = LOGGER
 
-    c[SchematicGenerator[GuidelinePropositionsSchema]] = GPT_4o[GuidelinePropositionsSchema]()
-    c[SchematicGenerator[MessageEventSchema]] = GPT_4o[MessageEventSchema]()
-    c[SchematicGenerator[ToolCallInferenceSchema]] = GPT_4o_Mini[ToolCallInferenceSchema]()
-    c[SchematicGenerator[ContradictionTestsSchema]] = GPT_4o[ContradictionTestsSchema]()
+    c[SchematicGenerator[GuidelinePropositionsSchema]] = GPT_4o[GuidelinePropositionsSchema](
+        logger=LOGGER
+    )
+    c[SchematicGenerator[MessageEventSchema]] = GPT_4o[MessageEventSchema](logger=LOGGER)
+    c[SchematicGenerator[ToolCallInferenceSchema]] = GPT_4o_Mini[ToolCallInferenceSchema](
+        logger=LOGGER
+    )
+    c[SchematicGenerator[ContradictionTestsSchema]] = GPT_4o[ContradictionTestsSchema](
+        logger=LOGGER
+    )
     c[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT_4o[
         GuidelineConnectionPropositionsSchema
-    ]()
+    ](logger=LOGGER)
 
     async with (
         JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "agents.json") as agents_db,
@@ -410,7 +416,7 @@ async def check_coherence(params: CLIParams) -> None:
 
     checker = CoherenceChecker(
         LOGGER,
-        GPT_4o[ContradictionTestsSchema](),
+        GPT_4o[ContradictionTestsSchema](logger=LOGGER),
     )
 
     for agent, guideline_specs in params.config["guidelines"].items():

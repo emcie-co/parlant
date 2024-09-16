@@ -82,13 +82,19 @@ async def container() -> AsyncIterator[Container]:
 
     container[SchematicGenerator[GuidelinePropositionsSchema]] = GPT_4o[
         GuidelinePropositionsSchema
-    ]()
-    container[SchematicGenerator[MessageEventSchema]] = GPT_4o[MessageEventSchema]()
-    container[SchematicGenerator[ToolCallInferenceSchema]] = GPT_4o_Mini[ToolCallInferenceSchema]()
-    container[SchematicGenerator[ContradictionTestsSchema]] = GPT_4o[ContradictionTestsSchema]()
+    ](logger=container[Logger])
+    container[SchematicGenerator[MessageEventSchema]] = GPT_4o[MessageEventSchema](
+        logger=container[Logger]
+    )
+    container[SchematicGenerator[ToolCallInferenceSchema]] = GPT_4o_Mini[ToolCallInferenceSchema](
+        logger=container[Logger]
+    )
+    container[SchematicGenerator[ContradictionTestsSchema]] = GPT_4o[ContradictionTestsSchema](
+        logger=container[Logger]
+    )
     container[SchematicGenerator[GuidelineConnectionPropositionsSchema]] = GPT_4o[
         GuidelineConnectionPropositionsSchema
-    ]()
+    ](logger=container[Logger])
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[DocumentDatabase] = TransientDocumentDatabase

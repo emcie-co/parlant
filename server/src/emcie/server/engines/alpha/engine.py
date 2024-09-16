@@ -2,7 +2,7 @@ import asyncio
 from collections import defaultdict
 from itertools import chain
 import traceback
-from typing import Mapping, Optional, Sequence, cast
+from typing import Mapping, Optional, Sequence
 
 from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent, AgentId, AgentStore
@@ -21,10 +21,8 @@ from emcie.server.core.terminology import Term, TerminologyStore
 from emcie.server.core.tools import ToolService
 from emcie.server.core.sessions import (
     Event,
-    MessageEventData,
     SessionId,
     SessionStore,
-    ToolEventData,
 )
 from emcie.server.engines.alpha.guideline_proposer import GuidelineProposer
 from emcie.server.engines.alpha.guideline_proposition import (
@@ -161,6 +159,7 @@ class AlphaEngine(Engine):
                     )
                 )
                 if tool_events := await self.tool_event_producer.produce_events(
+                    event_emitter=event_emitter,
                     session_id=context.session_id,
                     agents=[agent],
                     context_variables=context_variables,
@@ -189,16 +188,8 @@ class AlphaEngine(Engine):
                     )
                     break
 
-            await event_emitter.emit_status_event(
-                correlation_id=self.correlator.correlation_id,
-                data={
-                    "acknowledged_offset": last_known_event_offset,
-                    "status": "typing",
-                    "data": {},
-                },
-            )
-
-            message_events = await self.message_event_producer.produce_events(
+            await self.message_event_producer.produce_events(
+                event_emitter=event_emitter,
                 agents=[agent],
                 context_variables=context_variables,
                 interaction_history=interaction_history,
@@ -207,18 +198,6 @@ class AlphaEngine(Engine):
                 tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
                 staged_events=all_tool_events,
             )
-
-            for e in all_tool_events:
-                await event_emitter.emit_tool_event(
-                    self.correlator.correlation_id,
-                    cast(ToolEventData, e.data),
-                )
-
-            for e in message_events:
-                await event_emitter.emit_message_event(
-                    self.correlator.correlation_id,
-                    cast(MessageEventData, e.data),
-                )
         except asyncio.CancelledError:
             await event_emitter.emit_status_event(
                 correlation_id=self.correlator.correlation_id,

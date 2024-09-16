@@ -10,7 +10,7 @@ from emcie.server.core.generation.schematic import SchematicGenerator
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from emcie.server.core.terminology import Term
-from emcie.server.engines.event_emitter import EmittedEvent
+from emcie.server.engines.event_emitter import EmittedEvent, EventEmitter
 from emcie.server.core.sessions import Event
 from emcie.server.base_models import DefaultBaseModel
 from emcie.server.logger import Logger
@@ -57,6 +57,7 @@ class MessageEventProducer:
 
     async def produce_events(
         self,
+        event_emitter: EventEmitter,
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
@@ -99,18 +100,28 @@ class MessageEventProducer:
                 staged_events=staged_events,
             )
 
-            self.logger.debug(f"Message generation prompt: \n{prompt}")
+            self.logger.debug(f"Message production prompt:\n{prompt}")
+
+            last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
+
+            await event_emitter.emit_status_event(
+                correlation_id=self.correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "typing",
+                    "data": {},
+                },
+            )
 
             if response_message := await self._generate_response_message(prompt):
                 self.logger.debug(f'Message production result: "{response_message}"')
-                return [
-                    EmittedEvent(
-                        source="server",
-                        kind="message",
-                        correlation_id=self.correlator.correlation_id,
-                        data={"message": response_message},
-                    )
-                ]
+
+                event = await event_emitter.emit_message_event(
+                    correlation_id=self.correlator.correlation_id,
+                    data={"message": response_message},
+                )
+
+                return [event]
             else:
                 self.logger.debug("Skipping response; no response deemed necessary")
 

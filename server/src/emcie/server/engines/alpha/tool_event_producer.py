@@ -1,19 +1,18 @@
 from itertools import chain
-from typing import Mapping, Sequence, cast
+from typing import Mapping, Sequence
 
 from emcie.common.tools import Tool, ToolContext
 from emcie.server.contextual_correlator import ContextualCorrelator
 from emcie.server.core.generation.schematic import SchematicGenerator
 from emcie.server.logger import Logger
 from emcie.server.core.agents import Agent
-from emcie.server.core.common import JSONSerializable
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.sessions import Event, SessionId, ToolEventData
 from emcie.server.core.tools import ToolService
 from emcie.server.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.terminology import Term
 from emcie.server.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller
-from emcie.server.engines.event_emitter import EmittedEvent
+from emcie.server.engines.event_emitter import EmittedEvent, EventEmitter
 
 
 class ToolEventProducer:
@@ -31,6 +30,7 @@ class ToolEventProducer:
 
     async def produce_events(
         self,
+        event_emitter: EventEmitter,
         session_id: SessionId,
         agents: Sequence[Agent],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
@@ -41,8 +41,6 @@ class ToolEventProducer:
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[EmittedEvent]:
         assert len(agents) == 1
-
-        emitted_events = []
 
         if not tool_enabled_guideline_propositions:
             self.logger.debug("Skipping tool calling; no tools associated with guidelines found")
@@ -74,7 +72,7 @@ class ToolEventProducer:
         if not tool_results:
             return []
 
-        data: ToolEventData = {
+        event_data: ToolEventData = {
             "tool_calls": [
                 {
                     "tool_name": r.tool_call.name,
@@ -85,13 +83,9 @@ class ToolEventProducer:
             ]
         }
 
-        emitted_events.append(
-            EmittedEvent(
-                source="server",
-                kind="tool",
-                correlation_id=self.correlator.correlation_id,
-                data=cast(JSONSerializable, data),
-            )
+        event = await event_emitter.emit_tool_event(
+            correlation_id=self.correlator.correlation_id,
+            data=event_data,
         )
 
-        return emitted_events
+        return [event]

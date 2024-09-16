@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Any, cast
+from typing import Any, Optional, cast
 from lagom import Container
 from pytest import fixture
 from pytest_bdd import scenarios, given, when, then, parsers
@@ -28,7 +28,9 @@ from emcie.server.core.guidelines import Guideline, GuidelineStore
 from emcie.server.core.sessions import (
     MessageEventData,
     SessionId,
+    SessionStatus,
     SessionStore,
+    StatusEventData,
     ToolEventData,
 )
 
@@ -742,3 +744,85 @@ def then_the_tool_calls_event_is_correlated_with_the_message_event(
     tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
 
     assert message_event.correlation_id == tool_calls_event.correlation_id
+
+
+def _has_status_event(
+    status: SessionStatus,
+    acknowledged_event_offset: Optional[int],
+    events: list[EmittedEvent],
+) -> bool:
+    for e in (e for e in events if e.kind == "status"):
+        data = cast(StatusEventData, e.data)
+
+        has_same_status = data["status"] == status
+
+        if acknowledged_event_offset is not None:
+            has_same_acknowledged_offset = data["acknowledged_offset"] == acknowledged_event_offset
+
+            if has_same_status and has_same_acknowledged_offset:
+                return True
+        else:
+            if has_same_status:
+                return True
+
+    return False
+
+
+@then(parsers.parse("a status event is emitted, acknowledging event {acknowledged_event_offset:d}"))
+def then_an_acknowledgement_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("acknowledged", acknowledged_event_offset, emitted_events)
+
+
+@then(parsers.parse("a status event is emitted, processing event {acknowledged_event_offset:d}"))
+def then_a_processing_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("processing", acknowledged_event_offset, emitted_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is emitted, typing in response to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_typing_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("typing", acknowledged_event_offset, emitted_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is emitted, cancelling the response to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_cancelled_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("cancelled", acknowledged_event_offset, emitted_events)
+
+
+@then(
+    parsers.parse(
+        "a status event is emitted, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
+    )
+)
+def then_a_ready_status_event_is_emitted(
+    emitted_events: list[EmittedEvent],
+    acknowledged_event_offset: int,
+) -> None:
+    assert _has_status_event("ready", acknowledged_event_offset, emitted_events)
+
+
+@then(parsers.parse("a {status_type} status event is not emitted"))
+def then_a_status_event_is_not_emitted(
+    emitted_events: list[EmittedEvent],
+    status_type: SessionStatus,
+) -> None:
+    assert not _has_status_event(status_type, None, emitted_events)

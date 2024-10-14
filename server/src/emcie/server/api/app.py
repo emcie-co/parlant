@@ -8,6 +8,7 @@ from emcie.server.api import sessions
 from emcie.server.api import glossary
 from emcie.server.api import guidelines
 from emcie.server.api import context_variables as variables
+from emcie.server.api import plugins
 from emcie.server.core.context_variables import ContextVariableStore
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentStore
@@ -15,6 +16,7 @@ from emcie.server.core.common import ItemNotFoundError, generate_id
 from emcie.server.core.evaluations import EvaluationStore
 from emcie.server.core.guideline_connections import GuidelineConnectionStore
 from emcie.server.core.guidelines import GuidelineStore
+from emcie.server.core.services.tools.service_registry import ServiceRegistry
 from emcie.server.core.sessions import SessionListener, SessionStore
 from emcie.server.core.glossary import GlossaryStore
 from emcie.server.core.services.indexing.behavioral_change_evaluation import (
@@ -38,6 +40,7 @@ async def create_app(container: Container) -> FastAPI:
     guideline_connection_store = container[GuidelineConnectionStore]
     context_variable_store = container[ContextVariableStore]
     tool_service = container[ToolService]
+    service_registry = container[ServiceRegistry]
     mc = container[MC]
 
     app = FastAPI()
@@ -109,6 +112,13 @@ async def create_app(container: Container) -> FastAPI:
             mc=mc,
             session_store=session_store,
             session_listener=session_listener,
+        ),
+    )
+
+    app.include_router(
+        prefix="/plugins",
+        router=plugins.create_router(
+            service_registry=service_registry,
         ),
     )
 

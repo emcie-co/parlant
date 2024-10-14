@@ -24,6 +24,10 @@ from emcie.server.core.guideline_connections import (
 from emcie.server.core.guidelines import GuidelineDocumentStore, GuidelineStore
 from emcie.server.adapters.db.chroma.database import ChromaDatabase
 from emcie.server.adapters.db.transient import TransientDocumentDatabase
+from emcie.server.core.services.tools.service_registry import (
+    ServiceRegistry,
+    ServiceRegistryDocument,
+)
 from emcie.server.core.sessions import (
     PollingSessionListener,
     SessionDocumentStore,
@@ -129,6 +133,7 @@ async def container() -> AsyncIterator[Container]:
     container[EvaluationStore] = Singleton(EvaluationDocumentStore)
     container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
     container[EventEmitterFactory] = Singleton(EventPublisherFactory)
+    container[ServiceRegistry] = Singleton(ServiceRegistryDocument)
     container[Engine] = AlphaEngine
 
     with tempfile.TemporaryDirectory() as chroma_db_dir:

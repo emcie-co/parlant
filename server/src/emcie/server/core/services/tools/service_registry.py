@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Sequence, TypedDict, cast
+from contextlib import AsyncExitStack
+from typing import Optional, Sequence, TypedDict, cast
 from typing_extensions import Literal
 
 from emcie.server.core.contextual_correlator import ContextualCorrelator
@@ -13,19 +14,23 @@ from emcie.server.core.persistence.document_database import (
     ObjectId,
 )
 
+ToolServiceKind = Literal["openapi", "sdk"]
+
 
 class ServiceRegistry(ABC):
     @abstractmethod
-    async def create_tool_service(
+    async def update_tool_service(
         self,
-        service_name: str,
-        service: ToolService,
-    ) -> None: ...
+        name: str,
+        kind: ToolServiceKind,
+        url: str,
+        openapi_json: Optional[str] = None,
+    ) -> ToolService: ...
 
     @abstractmethod
     async def read_tool_service(
         self,
-        service_name: str,
+        name: str,
     ) -> ToolService: ...
 
     @abstractmethod
@@ -36,108 +41,105 @@ class ServiceRegistry(ABC):
     @abstractmethod
     async def delete_service(
         self,
-        service_name: str,
+        name: str,
     ) -> None: ...
 
 
-class _BaseToolServiceDocument(TypedDict, total=False):
+class _ToolServiceDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
-    creation_utc: str
-    service_name: str
-    service_type: Literal["openapi", "sdk"]
-
-
-class _OpenAPIClientDocument(_BaseToolServiceDocument, total=False):
-    server_url: str
-    openapi_json: str
-
-
-class _PluginClientDocument(_BaseToolServiceDocument, total=False):
+    name: str
+    kind: ToolServiceKind
     url: str
+    openapi_json: Optional[str]
 
 
-class ServiceRegistryDocumentStore(ServiceRegistry):
+class ServiceRegistryDocument(ServiceRegistry):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(
         self,
         database: DocumentDatabase,
-        event_emitter: EventEmitterFactory,
+        event_emitter_factory: EventEmitterFactory,
         correlator: ContextualCorrelator,
+        exit_stack: AsyncExitStack,
     ):
         self._tool_services_collection = database.get_or_create_collection(
             name="tool_services",
-            schema=_BaseToolServiceDocument,
+            schema=_ToolServiceDocument,
         )
 
-        self._event_emitter = event_emitter
+        self._event_emitter_factory = event_emitter_factory
         self._correlator = correlator
+        self._exit_stack = exit_stack
 
     def _serialize_tool_service(
         self,
-        service_name: str,
+        name: str,
         service: ToolService,
-    ) -> _BaseToolServiceDocument:
-        if isinstance(service, OpenAPIClient):
-            return _OpenAPIClientDocument(
-                id=ObjectId(service_name),
-                version=self.VERSION.to_string(),
-                service_name=service_name,
-                service_type="openapi",
-                server_url=service.server_url,
-                openapi_json=service.openapi_json,
-            )
-        elif isinstance(service, PluginClient):
-            return _PluginClientDocument(
-                id=ObjectId(service_name),
-                version=self.VERSION.to_string(),
-                service_name=service_name,
-                service_type="sdk",
-                url=service.url,
-            )
-        else:
-            raise ValueError("Unsupported ToolService type.")
+    ) -> _ToolServiceDocument:
+        return _ToolServiceDocument(
+            id=ObjectId(name),
+            version=self.VERSION.to_string(),
+            name=name,
+            kind="openapi" if isinstance(service, OpenAPIClient) else "sdk",
+            url=service.server_url
+            if isinstance(service, OpenAPIClient)
+            else cast(PluginClient, service).url,
+            openapi_json=service.openapi_json if isinstance(service, OpenAPIClient) else None,
+        )
 
-    def _deserialize_tool_service(self, document: _BaseToolServiceDocument) -> ToolService:
-        if document["service_type"] == "openapi":
+    def _deserialize_tool_service(self, document: _ToolServiceDocument) -> ToolService:
+        if document["kind"] == "openapi":
             return OpenAPIClient(
-                server_url=cast(_OpenAPIClientDocument, document)["server_url"],
-                openapi_json=cast(_OpenAPIClientDocument, document)["openapi_json"],
+                server_url=document["url"],
+                openapi_json=cast(str, document["openapi_json"]),
             )
-        elif document["service_type"] == "sdk":
+        elif document["kind"] == "sdk":
             return PluginClient(
-                url=cast(_PluginClientDocument, document)["url"],
-                event_emitter_factory=self._event_emitter,
+                url=document["url"],
+                event_emitter_factory=self._event_emitter_factory,
                 correlator=self._correlator,
             )
         else:
-            raise ValueError("Unsupported ToolService type.")
+            raise ValueError("Unsupported ToolService kind.")
 
-    async def create_tool_service(
+    async def update_tool_service(
         self,
-        service_name: str,
-        service: ToolService,
-    ) -> None:
-        existing_service = await self._tool_services_collection.find_one(
-            {"service_name": {"$eq": service_name}}
+        name: str,
+        kind: ToolServiceKind,
+        url: str,
+        openapi_json: Optional[str] = None,
+    ) -> ToolService:
+        # TODO: In case a service is running and we override it, the service that is already running needs to exit.
+        service: ToolService
+
+        if kind == "openapi":
+            assert openapi_json
+            service = OpenAPIClient(server_url=url, openapi_json=openapi_json)
+        else:
+            service = PluginClient(
+                url=url,
+                event_emitter_factory=self._event_emitter_factory,
+                correlator=self._correlator,
+            )
+            await self._exit_stack.enter_async_context(service)
+
+        await self._tool_services_collection.update_one(
+            filters={"name": {"$eq": name}},
+            params=self._serialize_tool_service(name, service),
+            upsert=True,
         )
-        if existing_service:
-            raise ValueError(f"Service with name '{service_name}' already exists.")
 
-        document = self._serialize_tool_service(service_name, service)
-
-        await self._tool_services_collection.insert_one(document)
+        return service
 
     async def read_tool_service(
         self,
-        service_name: str,
+        name: str,
     ) -> ToolService:
-        document = await self._tool_services_collection.find_one(
-            {"service_name": {"$eq": service_name}}
-        )
+        document = await self._tool_services_collection.find_one({"name": {"$eq": name}})
         if not document:
-            raise ItemNotFoundError(item_id=UniqueId(service_name))
+            raise ItemNotFoundError(item_id=UniqueId(name))
 
         service = self._deserialize_tool_service(document)
 
@@ -150,9 +152,7 @@ class ServiceRegistryDocumentStore(ServiceRegistry):
 
         return [self._deserialize_tool_service(doc) for doc in documents]
 
-    async def delete_service(self, service_name: str) -> None:
-        result = await self._tool_services_collection.delete_one(
-            {"service_name": {"$eq": service_name}}
-        )
+    async def delete_service(self, name: str) -> None:
+        result = await self._tool_services_collection.delete_one({"name": {"$eq": name}})
         if not result.deleted_count:
-            raise ItemNotFoundError(item_id=UniqueId(service_name))
+            raise ItemNotFoundError(item_id=UniqueId(name))

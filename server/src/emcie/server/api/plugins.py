@@ -35,7 +35,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
 
     @router.put("/{name}")
     async def create_plugin(name: str, request: CreatePluginRequest) -> CreateOpenAPIPluginResponse:
-        _ = await service_registry.create_tool_service(
+        _ = await service_registry.update_tool_service(
             name=name,
             kind=request.kind,
             url=request.url,

@@ -1,4 +1,3 @@
-from fastapi import status
 from fastapi.testclient import TestClient
 
 from tests.core.services.tools.test_openapi import (

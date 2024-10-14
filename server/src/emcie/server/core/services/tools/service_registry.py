@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
-from typing import Optional, Sequence, TypedDict, cast
+from typing import Optional, Sequence, TypeAlias, TypedDict, cast
 from typing_extensions import Literal
 
 from emcie.server.core.contextual_correlator import ContextualCorrelator
@@ -15,6 +15,7 @@ from emcie.server.core.persistence.document_database import (
 )
 
 ToolServiceKind = Literal["openapi", "sdk"]
+ServiceName: TypeAlias = str
 
 
 class ServiceRegistry(ABC):
@@ -36,7 +37,7 @@ class ServiceRegistry(ABC):
     @abstractmethod
     async def list_tool_services(
         self,
-    ) -> Sequence[ToolService]: ...
+    ) -> Sequence[tuple[ServiceName, ToolService]]: ...
 
     @abstractmethod
     async def delete_service(
@@ -147,10 +148,10 @@ class ServiceRegistryDocument(ServiceRegistry):
 
     async def list_tool_services(
         self,
-    ) -> Sequence[ToolService]:
+    ) -> Sequence[tuple[ServiceName, ToolService]]:
         documents = await self._tool_services_collection.find({})
 
-        return [self._deserialize_tool_service(doc) for doc in documents]
+        return [(d["name"], self._deserialize_tool_service(d)) for d in documents]
 
     async def delete_service(self, name: str) -> None:
         result = await self._tool_services_collection.delete_one({"name": {"$eq": name}})

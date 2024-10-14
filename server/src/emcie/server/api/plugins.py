@@ -3,7 +3,8 @@ from fastapi import APIRouter
 from typing_extensions import Literal
 
 from emcie.server.core.common import DefaultBaseModel
-from emcie.server.core.services.tools.service_registry import ServiceRegistry
+from emcie.server.core.services.tools.openapi import OpenAPIClient
+from emcie.server.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
 
 
 class CreateSDKPluginRequest(DefaultBaseModel):
@@ -34,6 +35,16 @@ class DeletePluginResponse(DefaultBaseModel):
     name: str
 
 
+class PluginDTO(DefaultBaseModel):
+    name: str
+    kind: ToolServiceKind
+    url: str
+
+
+class ListPluginsResponse(DefaultBaseModel):
+    plugins: list[PluginDTO]
+
+
 def create_router(service_registry: ServiceRegistry) -> APIRouter:
     router = APIRouter()
 
@@ -48,10 +59,25 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
 
         return CreateOpenAPIPluginResponse(name=name)
 
-    @router.delete("/{name}", response_model=DeletePluginResponse)
+    @router.delete("/{name}")
     async def delete_plugin(name: str) -> DeletePluginResponse:
         await service_registry.delete_service(name)
 
         return DeletePluginResponse(name=name)
+
+    @router.get("/")
+    async def list_plugins() -> ListPluginsResponse:
+        return ListPluginsResponse(
+            plugins=[
+                PluginDTO(
+                    name=name,
+                    kind="openapi" if isinstance(service, OpenAPIClient) else "sdk",
+                    url=getattr(service, "server_url")
+                    if isinstance(service, OpenAPIClient)
+                    else getattr(service, "url"),
+                )
+                for name, service in await service_registry.list_tool_services()
+            ]
+        )
 
     return router

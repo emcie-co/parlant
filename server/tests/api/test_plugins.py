@@ -99,3 +99,56 @@ async def test_that_openapi_plugin_is_created_and_deleted(
 
         response = client.delete("/plugins/my_openapi_plugin")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_plugins_are_listed_correctly(
+    client: TestClient,
+) -> None:
+    response = client.get("/plugins/")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["plugins"] == []
+
+    _ = (
+        client.put(
+            "/plugins/my_sdk_plugin",
+            json={
+                "kind": "sdk",
+                "url": "https://example.com/sdk",
+            },
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    async with run_openapi_server(rng_app()):
+        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+        _ = (
+            client.put(
+                "/plugins/my_openapi_plugin",
+                json={
+                    "kind": "openapi",
+                    "url": OPENAPI_SERVER_URL,
+                    "openapi_json": openapi_json,
+                },
+            )
+            .raise_for_status()
+            .json()
+        )
+
+    response = client.get("/plugins/")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    plugins = data["plugins"]
+
+    assert len(plugins) == 2
+
+    sdk_plugin = next((p for p in plugins if p["name"] == "my_sdk_plugin"), None)
+    assert sdk_plugin is not None
+    assert sdk_plugin["kind"] == "sdk"
+    assert sdk_plugin["url"] == "https://example.com/sdk"
+
+    openapi_plugin = next((p for p in plugins if p["name"] == "my_openapi_plugin"), None)
+    assert openapi_plugin is not None
+    assert openapi_plugin["kind"] == "openapi"
+    assert openapi_plugin["url"] == OPENAPI_SERVER_URL

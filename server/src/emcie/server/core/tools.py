@@ -135,7 +135,7 @@ class MultiplexedToolService(ToolService):
         )
 
 
-class _ToolDocument(TypedDict, total=False):
+class _LocalToolDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -156,15 +156,15 @@ class LocalToolService(ToolService):
     ) -> None:
         self._collection = database.get_or_create_collection(
             name="tools",
-            schema=_ToolDocument,
+            schema=_LocalToolDocument,
         )
 
     def _serialize(
         self,
         tool: Tool,
         module_path: str,
-    ) -> _ToolDocument:
-        return _ToolDocument(
+    ) -> _LocalToolDocument:
+        return _LocalToolDocument(
             id=ObjectId(tool.id),
             version=self.VERSION.to_string(),
             creation_utc=tool.creation_utc.isoformat(),
@@ -178,7 +178,7 @@ class LocalToolService(ToolService):
 
     def _deserialize(
         self,
-        tool_document: _ToolDocument,
+        tool_document: _LocalToolDocument,
     ) -> Tool:
         return Tool(
             id=ToolId(tool_document["id"]),

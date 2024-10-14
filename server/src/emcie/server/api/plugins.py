@@ -30,6 +30,10 @@ class CreateOpenAPIPluginResponse(DefaultBaseModel):
     name: str
 
 
+class DeletePluginResponse(DefaultBaseModel):
+    name: str
+
+
 def create_router(service_registry: ServiceRegistry) -> APIRouter:
     router = APIRouter()
 
@@ -43,5 +47,11 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         )
 
         return CreateOpenAPIPluginResponse(name=name)
+
+    @router.delete("/{name}", response_model=DeletePluginResponse)
+    async def delete_plugin(name: str) -> DeletePluginResponse:
+        await service_registry.delete_service(name)
+
+        return DeletePluginResponse(name=name)
 
     return router

@@ -1,8 +1,11 @@
 import asyncio
+from contextlib import AsyncExitStack
 from pathlib import Path
 import tempfile
 from typing import Any, AsyncIterator
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
 from lagom import Container, Singleton
 from pytest import fixture, Config
 
@@ -26,7 +29,7 @@ from emcie.server.adapters.db.chroma.database import ChromaDatabase
 from emcie.server.adapters.db.transient import TransientDocumentDatabase
 from emcie.server.core.services.tools.service_registry import (
     ServiceRegistry,
-    ServiceRegistryDocument,
+    ServiceDocumentRegistry,
 )
 from emcie.server.core.sessions import (
     PollingSessionListener,
@@ -133,23 +136,43 @@ async def container() -> AsyncIterator[Container]:
     container[EvaluationStore] = Singleton(EvaluationDocumentStore)
     container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
     container[EventEmitterFactory] = Singleton(EventPublisherFactory)
-    container[ServiceRegistry] = Singleton(ServiceRegistryDocument)
     container[Engine] = AlphaEngine
 
-    with tempfile.TemporaryDirectory() as chroma_db_dir:
+    async with AsyncExitStack() as stack:
+        chroma_temp_dir = stack.enter_context(tempfile.TemporaryDirectory())
         container[GlossaryStore] = GlossaryChromaStore(
-            ChromaDatabase(container[Logger], Path(chroma_db_dir), EmbedderFactory(container)),
+            ChromaDatabase(container[Logger], Path(chroma_temp_dir), EmbedderFactory(container)),
             embedder_type=OpenAITextEmbedding3Large,
         )
 
-        async with MC(container) as mc:
-            container[MC] = mc
-            yield container
+        container[ServiceRegistry] = await stack.enter_async_context(
+            ServiceDocumentRegistry(
+                database=container[DocumentDatabase],
+                event_emitter_factory=container[EventEmitterFactory],
+                correlator=container[ContextualCorrelator],
+            )
+        )
+
+        container[MC] = await stack.enter_async_context(MC(container))
+
+        yield container
 
 
 @fixture
-async def client(container: Container) -> AsyncIterator[TestClient]:
-    app = await create_app(container)
+async def api_app(container: Container) -> FastAPI:
+    return await create_app(container)
 
-    with TestClient(app) as client:
+
+@fixture
+async def client(api_app: FastAPI) -> AsyncIterator[TestClient]:
+    with TestClient(api_app) as client:
+        yield client
+
+
+@fixture
+async def async_client(api_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=api_app),
+        base_url="http://testserver",
+    ) as client:
         yield client

@@ -30,7 +30,7 @@ def context() -> ToolContext:
 
 
 @asynccontextmanager
-async def run_plugin_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServer]:
+async def run_service_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServer]:
     async with PluginServer(
         tools=tools,
         host="127.0.0.1",
@@ -53,7 +53,7 @@ def create_client(
 
 
 async def test_that_a_plugin_with_no_configured_tools_returns_no_tools() -> None:
-    async with run_plugin_server([]) as server:
+    async with run_service_server([]) as server:
         async with create_client(server) as client:
             tools = await client.list_tools()
             assert not tools
@@ -77,7 +77,7 @@ async def test_that_a_plugin_with_one_configured_tool_returns_that_tool() -> Non
         """My tool's description"""
         return ToolResult(arg_1 * (arg_2 or 0))
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(server) as client:
             listed_tools = await client.list_tools()
             assert len(listed_tools) == 1
@@ -90,7 +90,7 @@ async def test_that_a_plugin_reads_a_tool() -> None:
         """My tool's description"""
         return ToolResult(arg_1 * (arg_2 or 0))
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(server) as client:
             returned_tool = await client.read_tool(my_tool.tool.id)
             assert my_tool.tool == returned_tool
@@ -101,7 +101,7 @@ async def test_that_a_plugin_calls_a_tool(context: ToolContext) -> None:
     def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
         return ToolResult(arg_1 * arg_2)
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(server) as client:
             result = await client.call_tool(
                 my_tool.tool.id,
@@ -116,7 +116,7 @@ async def test_that_a_plugin_calls_an_async_tool(context: ToolContext) -> None:
     async def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
         return ToolResult(arg_1 * arg_2)
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(server) as client:
             result = await client.call_tool(
                 my_tool.tool.id,
@@ -133,7 +133,7 @@ async def test_that_a_plugin_tool_has_access_to_the_current_session(
     async def my_tool(context: ToolContext) -> ToolResult:
         return ToolResult(context.session_id)
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(server) as client:
             result = await client.call_tool(
                 my_tool.tool.id,
@@ -156,7 +156,7 @@ async def test_that_a_plugin_tool_can_emit_events(
 
     buffers = SessionBuffers()
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(
             server,
             event_emitter_factory=buffers,
@@ -195,7 +195,7 @@ async def test_that_a_plugin_tool_can_emit_events_and_ultimately_fail_with_an_er
 
     buffers = SessionBuffers()
 
-    async with run_plugin_server([my_tool]) as server:
+    async with run_service_server([my_tool]) as server:
         async with create_client(
             server,
             event_emitter_factory=buffers,

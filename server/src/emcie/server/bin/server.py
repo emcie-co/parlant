@@ -39,6 +39,10 @@ from emcie.server.adapters.db.chroma.database import ChromaDatabase
 from emcie.server.adapters.db.json_file import JSONFileDocumentDatabase
 from emcie.server.core.nlp.embedding import EmbedderFactory
 from emcie.server.core.nlp.generation import SchematicGenerator
+from emcie.server.core.services.tools.service_registry import (
+    ServiceRegistry,
+    ServiceDocumentRegistry,
+)
 from emcie.server.core.sessions import (
     PollingSessionListener,
     SessionDocumentStore,
@@ -223,95 +227,113 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
         GuidelineConnectionPropositionsSchema
     ](logger=LOGGER)
 
-    async with (
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "agents.json") as agents_db,
-        JSONFileDocumentDatabase(
-            LOGGER, EMCIE_HOME_DIR / "context_variables.json"
-        ) as context_variables_db,
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "end_users.json") as end_users_db,
+    agents_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "agents.json")
+    )
+    context_variables_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "context_variables.json")
+    )
+    end_users_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "end_users.json")
+    )
+    sessions_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(
             LOGGER,
             EMCIE_HOME_DIR / "sessions.json",
-        ) as sessions_db,
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guidelines.json") as guidelines_db,
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "tools.json") as tools_db,
-        JSONFileDocumentDatabase(
-            LOGGER, EMCIE_HOME_DIR / "guideline_tool_associations.json"
-        ) as guideline_tool_associations_db,
-        JSONFileDocumentDatabase(
-            LOGGER, EMCIE_HOME_DIR / "guideline_connections.json"
-        ) as guideline_connections_db,
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "evaluations.json") as evaluations_db,
-    ):
-        c[AgentStore] = AgentDocumentStore(agents_db)
-        c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
-        c[EndUserStore] = EndUserDocumentStore(end_users_db)
-        c[GuidelineStore] = GuidelineDocumentStore(guidelines_db)
-
-        c[LocalToolService] = LocalToolService(tools_db)
-        MULTIPLEXED_TOOL_SERVICE.services["local"] = c[LocalToolService]
-        c[ToolService] = MULTIPLEXED_TOOL_SERVICE
-
-        c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
-            guideline_tool_associations_db
         )
-        c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
-        c[SessionStore] = SessionDocumentStore(sessions_db)
-        c[SessionListener] = PollingSessionListener
-        c[GlossaryStore] = GlossaryChromaStore(
-            ChromaDatabase(LOGGER, EMCIE_HOME_DIR, EmbedderFactory(c)),
-            embedder_type=OpenAITextEmbedding3Large,
-        )
+    )
+    guidelines_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guidelines.json")
+    )
+    tools_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "tools.json")
+    )
+    guideline_tool_associations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guideline_tool_associations.json")
+    )
+    guideline_connections_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guideline_connections.json")
+    )
+    evaluations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "evaluations.json")
+    )
+    services_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "services.json")
+    )
 
-        c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)
+    c[AgentStore] = AgentDocumentStore(agents_db)
+    c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
+    c[EndUserStore] = EndUserDocumentStore(end_users_db)
+    c[GuidelineStore] = GuidelineDocumentStore(guidelines_db)
 
-        c[GuidelineProposer] = GuidelineProposer(
-            c[Logger],
-            c[SchematicGenerator[GuidelinePropositionsSchema]],
-        )
-        c[GuidelineConnectionProposer] = GuidelineConnectionProposer(
-            c[Logger],
-            c[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
-            c[GlossaryStore],
-        )
-        c[ToolEventProducer] = ToolEventProducer(
-            c[Logger],
+    c[LocalToolService] = LocalToolService(tools_db)
+    MULTIPLEXED_TOOL_SERVICE.services["local"] = c[LocalToolService]
+    c[ToolService] = MULTIPLEXED_TOOL_SERVICE
+
+    c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
+        guideline_tool_associations_db
+    )
+    c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
+    c[SessionStore] = SessionDocumentStore(sessions_db)
+    c[SessionListener] = PollingSessionListener
+    c[GlossaryStore] = GlossaryChromaStore(
+        ChromaDatabase(LOGGER, EMCIE_HOME_DIR, EmbedderFactory(c)),
+        embedder_type=OpenAITextEmbedding3Large,
+    )
+
+    c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)
+
+    c[GuidelineProposer] = GuidelineProposer(
+        c[Logger],
+        c[SchematicGenerator[GuidelinePropositionsSchema]],
+    )
+    c[GuidelineConnectionProposer] = GuidelineConnectionProposer(
+        c[Logger],
+        c[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
+        c[GlossaryStore],
+    )
+    c[ToolEventProducer] = ToolEventProducer(
+        c[Logger],
+        c[ContextualCorrelator],
+        c[ToolService],
+        c[SchematicGenerator[ToolCallInferenceSchema]],
+    )
+    c[MessageEventProducer] = MessageEventProducer(
+        c[Logger],
+        c[ContextualCorrelator],
+        c[SchematicGenerator[MessageEventSchema]],
+    )
+
+    c[CoherenceChecker] = CoherenceChecker(
+        c[Logger],
+        c[SchematicGenerator[ContradictionTestsSchema]],
+    )
+
+    c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(
+        c[Logger],
+        c[AgentStore],
+        c[EvaluationStore],
+        c[GuidelineStore],
+        c[GuidelineConnectionProposer],
+        c[CoherenceChecker],
+    )
+
+    c[EventEmitterFactory] = Singleton(EventPublisherFactory)
+
+    c[ServiceRegistry] = await EXIT_STACK.enter_async_context(
+        ServiceDocumentRegistry(
+            services_db,
+            c[EventEmitterFactory],
             c[ContextualCorrelator],
-            c[ToolService],
-            c[SchematicGenerator[ToolCallInferenceSchema]],
         )
-        c[MessageEventProducer] = MessageEventProducer(
-            c[Logger],
-            c[ContextualCorrelator],
-            c[SchematicGenerator[MessageEventSchema]],
-        )
+    )
 
-        c[CoherenceChecker] = CoherenceChecker(
-            c[Logger],
-            c[SchematicGenerator[PredicatesEntailmentTestsSchema]],
-            c[SchematicGenerator[ActionsContradictionTestsSchema]],
-            c[GlossaryStore],
-        )
+    c[Engine] = AlphaEngine
 
-        c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(
-            c[Logger],
-            c[AgentStore],
-            c[EvaluationStore],
-            c[GuidelineStore],
-            c[GuidelineConnectionProposer],
-            c[CoherenceChecker],
-        )
-
-        c[EventEmitterFactory] = Singleton(EventPublisherFactory)
-
-        c[Engine] = AlphaEngine
-
-        for loader in load_agents, load_tools, load_guidelines:
-            await loader(c, config)
-
-        async with MC(c) as mc:
-            c[MC] = mc
-            yield c
+    for loader in load_agents, load_tools, load_guidelines:
+        await loader(c, config)
+    c[MC] = await EXIT_STACK.enter_async_context(MC(c))
+    yield c
 
 
 async def recover_server_tasks(

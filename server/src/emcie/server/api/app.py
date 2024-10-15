@@ -8,7 +8,7 @@ from emcie.server.api import sessions
 from emcie.server.api import glossary
 from emcie.server.api import guidelines
 from emcie.server.api import context_variables as variables
-from emcie.server.api import plugins
+from emcie.server.api import services
 from emcie.server.core.context_variables import ContextVariableStore
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentStore
@@ -116,8 +116,8 @@ async def create_app(container: Container) -> FastAPI:
     )
 
     app.include_router(
-        prefix="/plugins",
-        router=plugins.create_router(
+        prefix="/services",
+        router=services.create_router(
             service_registry=service_registry,
         ),
     )

@@ -1612,3 +1612,50 @@ async def test_that_service_can_be_removed(
             response.raise_for_status()
             services = response.json()["services"]
             assert not any(s["name"] == service_name for s in services)
+
+
+async def test_that_services_can_be_list(context: ContextOfTest) -> None:
+    service_name_1 = "test_openapi_service_1"
+    service_name_2 = "test_openapi_service_2"
+    url_1 = "http://localhost:8001"
+    url_2 = "http://localhost:8002"
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_openapi_server(rng_app()):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response.raise_for_status()
+                openapi_json = response.text
+
+        await create_openapi_service(service_name_1, openapi_json, url_1)
+        await create_openapi_service(service_name_2, openapi_json, url_2)
+
+        exec_args = [
+            "poetry",
+            "run",
+            "python",
+            CLI_CLIENT_PATH.as_posix(),
+            "--server",
+            SERVER_ADDRESS,
+            "service",
+            "list",
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *exec_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await process.communicate()
+        output = stdout.decode() + stderr.decode()
+
+        assert process.returncode == os.EX_OK
+
+        assert service_name_1 in output
+        assert service_name_2 in output
+        assert "openapi" in output, "Service type 'openapi' was not found in the output"
+        assert url_1 in output
+        assert url_2 in output

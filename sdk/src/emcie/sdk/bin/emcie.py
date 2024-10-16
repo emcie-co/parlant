@@ -605,6 +605,12 @@ class Actions:
         response = requests.delete(urljoin(ctx.obj.server_address, f"/services/{name}"))
         response.raise_for_status()
 
+    @staticmethod
+    def list_services(ctx: click.Context) -> list[ServiceMetaDataDTO]:
+        response = requests.get(urljoin(ctx.obj.server_address, "services"))
+        response.raise_for_status()
+        return cast(list[ServiceMetaDataDTO], response.json()["services"])
+
 
 class Interface:
     @staticmethod
@@ -1242,6 +1248,25 @@ class Interface:
         except Exception as e:
             Interface._write_error(f"Error: {type(e).__name__}: {e}")
 
+    @staticmethod
+    def list_services(ctx: click.Context) -> None:
+        services = Actions.list_services(ctx)
+
+        if not services:
+            rich.print("No services available")
+            return
+
+        service_items = [
+            {
+                "Service name": service["name"],
+                "Service type": service["kind"],
+                "Service source": service["url"],
+            }
+            for service in services
+        ]
+
+        Interface._print_table(service_items)
+
 
 async def async_main() -> None:
     click_completion.init()
@@ -1818,6 +1843,11 @@ async def async_main() -> None:
     @click.pass_context
     def service_remove(ctx: click.Context, name: str) -> None:
         Interface.remove_service(ctx, name)
+
+    @service.command("list", help="List all services")
+    @click.pass_context
+    def service_list(ctx: click.Context) -> None:
+        Interface.list_services(ctx)
 
     cli()
 

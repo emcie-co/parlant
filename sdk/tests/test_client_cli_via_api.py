@@ -1659,3 +1659,52 @@ async def test_that_services_can_be_list(context: ContextOfTest) -> None:
         assert "openapi" in output, "Service type 'openapi' was not found in the output"
         assert url_1 in output
         assert url_2 in output
+
+
+async def test_that_services_can_be_view(context: ContextOfTest) -> None:
+    service_name = "test_service_view"
+    service_url = OPENAPI_SERVER_URL
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_openapi_server(rng_app()):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response.raise_for_status()
+                openapi_json = response.text
+
+            await create_openapi_service(service_name, openapi_json, service_url)
+
+        view_service_args = [
+            "poetry",
+            "run",
+            "python",
+            CLI_CLIENT_PATH.as_posix(),
+            "--server",
+            SERVER_ADDRESS,
+            "service",
+            "view",
+            service_name,
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *view_service_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await process.communicate()
+        output = stdout.decode() + stderr.decode()
+
+        assert process.returncode == os.EX_OK
+        assert service_name in output
+        assert "openapi" in output
+        assert service_url in output
+
+        assert "one_required_query_param" in output
+        assert "query_param:"
+
+        assert "two_required_query_params" in output
+        assert "query_param_1:"
+        assert "query_param_2:"

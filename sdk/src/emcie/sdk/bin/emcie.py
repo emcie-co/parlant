@@ -6,7 +6,7 @@ from datetime import datetime
 import os
 import sys
 import time
-from typing import Any, Iterable, Literal, NotRequired, Optional, TypedDict, cast
+from typing import Any, Iterable, Literal, NotRequired, Optional, TypedDict, Union, cast
 from urllib.parse import urljoin
 import click
 import click.shell_completion
@@ -164,6 +164,27 @@ class ServiceMetaDataDTO(TypedDict):
     name: str
     kind: str
     url: str
+
+
+class ToolParameter(TypedDict):
+    type: str
+    description: NotRequired[str]
+    enum: NotRequired[list[Union[str, int, float, bool]]]
+
+
+class ToolDTO(TypedDict):
+    id: str
+    creation_utc: datetime
+    name: str
+    description: str
+    parameters: dict[str, ToolParameter]
+    required: list[str]
+    consequential: bool
+
+
+class ServiceDTO(TypedDict):
+    metadata: ServiceMetaDataDTO
+    tools: list[ToolDTO]
 
 
 def format_datetime(datetime_str: str) -> str:
@@ -610,6 +631,13 @@ class Actions:
         response = requests.get(urljoin(ctx.obj.server_address, "services"))
         response.raise_for_status()
         return cast(list[ServiceMetaDataDTO], response.json()["services"])
+
+    @staticmethod
+    def get_service(ctx: click.Context, service_name: str) -> ServiceDTO:
+        response = requests.get(urljoin(ctx.obj.server_address, f"/services/{service_name}"))
+        response.raise_for_status()
+
+        return cast(ServiceDTO, response.json())
 
 
 class Interface:
@@ -1267,6 +1295,33 @@ class Interface:
 
         Interface._print_table(service_items)
 
+    @staticmethod
+    def view_service(ctx: click.Context, service_name: str) -> None:
+        try:
+            service = Actions.get_service(ctx, service_name)
+            rich.print(Text("Name:", style="bold"), service["metadata"]["name"])
+            rich.print(Text("Kind:", style="bold"), service["metadata"]["kind"])
+            rich.print(Text("Source:", style="bold"), service["metadata"]["url"])
+
+            if service["tools"]:
+                rich.print("\n", Text("Tools:", style="bold"))
+                for tool in service["tools"]:
+                    rich.print(Text("ID:", style="bold"), tool["id"])
+                    rich.print(Text("Name:", style="bold"), tool["name"])
+                    if tool["description"]:
+                        rich.print(Text("Description:", style="bold"), tool["description"])
+
+                    rich.print(Text("Parameters:", style="bold"))
+                    for param_name, param_desc in tool["parameters"].items():
+                        rich.print(Text(f"  - {param_name}:", style="bold"), end=" ")
+                        rich.print(param_desc)
+
+                    rich.print("\n")
+            else:
+                rich.print("\nNo tools available for this service.")
+        except Exception as e:
+            Interface._write_error(f"Error: {type(e).__name__}: {e}")
+
 
 async def async_main() -> None:
     click_completion.init()
@@ -1848,6 +1903,12 @@ async def async_main() -> None:
     @click.pass_context
     def service_list(ctx: click.Context) -> None:
         Interface.list_services(ctx)
+
+    @service.command("view", help="View a specific service and its tools")
+    @click.argument("name", type=str)
+    @click.pass_context
+    def service_view(ctx: click.Context, name: str) -> None:
+        Interface.view_service(ctx, name)
 
     cli()
 

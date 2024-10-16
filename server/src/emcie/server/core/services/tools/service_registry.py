@@ -159,6 +159,12 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 event_emitter_factory=self._event_emitter_factory,
                 correlator=self._correlator,
             )
+
+        if name in self._running_services:
+            await (
+                self._cast_to_specific_tool_service_class(self._running_services[name])
+            ).__aexit__(None, None, None)
+
         await self._exit_stack.enter_async_context(
             self._cast_to_specific_tool_service_class(service)
         )

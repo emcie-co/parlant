@@ -600,6 +600,11 @@ class Actions:
 
         return cast(ServiceMetaDataDTO, response.json())
 
+    @staticmethod
+    def remove_service(ctx: click.Context, name: str) -> None:
+        response = requests.delete(urljoin(ctx.obj.server_address, f"/services/{name}"))
+        response.raise_for_status()
+
 
 class Interface:
     @staticmethod
@@ -1229,6 +1234,14 @@ class Interface:
         except Exception as e:
             Interface._write_error(f"Error: {type(e).__name__}: {e}")
 
+    @staticmethod
+    def remove_service(ctx: click.Context, name: str) -> None:
+        try:
+            Actions.remove_service(ctx, name)
+            Interface._write_success(f"Removed service '{name}'")
+        except Exception as e:
+            Interface._write_error(f"Error: {type(e).__name__}: {e}")
+
 
 async def async_main() -> None:
     click_completion.init()
@@ -1799,6 +1812,12 @@ async def async_main() -> None:
         ctx: click.Context, kind: str, source: str, name: str, url: Optional[str]
     ) -> None:
         Interface.add_service(ctx, name, kind, source, url)
+
+    @service.command("remove", help="Remove a service")
+    @click.argument("name", type=str)
+    @click.pass_context
+    def service_remove(ctx: click.Context, name: str) -> None:
+        Interface.remove_service(ctx, name)
 
     cli()
 

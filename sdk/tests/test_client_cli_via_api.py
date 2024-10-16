@@ -370,6 +370,14 @@ async def test_that_agent_can_be_updated(
             assert agent["max_engine_iterations"] == new_max_engine_iterations
 
 
+async def create_openapi_service(service_name: str, openapi_json: str, url: str) -> None:
+    payload = {"kind": "openapi", "openapi_json": openapi_json, "url": url}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.put(f"{SERVER_ADDRESS}/services/{service_name}", json=payload)
+        response.raise_for_status()
+
+
 async def test_that_a_term_can_be_created_with_synonyms(
     context: ContextOfTest,
 ) -> None:
@@ -1566,3 +1574,41 @@ async def test_that_sdk_service_can_be_added(
                 assert any(
                     s["name"] == service_name and s["kind"] == service_kind for s in services
                 )
+
+
+async def test_that_service_can_be_removed(
+    context: ContextOfTest,
+) -> None:
+    service_name = "test_service_to_remove"
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_openapi_server(rng_app()):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response.raise_for_status()
+                openapi_json = response.text
+
+            await create_openapi_service(service_name, openapi_json, OPENAPI_SERVER_URL)
+
+        remove_service_args = [
+            "poetry",
+            "run",
+            "python",
+            CLI_CLIENT_PATH.as_posix(),
+            "--server",
+            SERVER_ADDRESS,
+            "service",
+            "remove",
+            service_name,
+        ]
+        process = await asyncio.create_subprocess_exec(*remove_service_args)
+        await process.wait()
+        assert process.returncode == os.EX_OK
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(30)) as client:
+            response = await client.get(f"{SERVER_ADDRESS}/services/")
+            response.raise_for_status()
+            services = response.json()["services"]
+            assert not any(s["name"] == service_name for s in services)

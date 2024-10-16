@@ -306,7 +306,9 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
     c[CoherenceChecker] = CoherenceChecker(
         c[Logger],
-        c[SchematicGenerator[ContradictionTestsSchema]],
+        c[SchematicGenerator[PredicatesEntailmentTestsSchema]],
+        c[SchematicGenerator[ActionsContradictionTestsSchema]],
+        c[GlossaryStore],
     )
 
     c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(

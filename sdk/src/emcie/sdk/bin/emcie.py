@@ -160,6 +160,12 @@ class ReadInteractionResponse(TypedDict):
     preparation_iterations: list[PreparationIterationDTO]
 
 
+class ServiceMetaDataDTO(TypedDict):
+    name: str
+    kind: str
+    url: str
+
+
 def format_datetime(datetime_str: str) -> str:
     return datetime.fromisoformat(datetime_str).strftime("%Y-%m-%d %I:%M:%S %p %Z")
 
@@ -549,6 +555,50 @@ class Actions:
         )
         response.raise_for_status()
         return cast(ContextVariableValueDTO, response.json())
+
+    @staticmethod
+    def add_service(
+        ctx: click.Context, name: str, kind: str, source: str, url: Optional[str]
+    ) -> ServiceMetaDataDTO:
+        if kind == "sdk":
+            payload = {
+                "kind": "sdk",
+                "url": source,
+            }
+        elif kind == "openapi":
+            if os.path.isfile(source):
+                if not url:
+                    raise ValueError("Url is required when source is file and kind is openapi")
+
+                with open(source, "r") as f:
+                    openapi_json = f.read()
+
+                payload = {
+                    "kind": "openapi",
+                    "url": url,
+                    "openapi_json": openapi_json,
+                }
+
+            else:
+                response = requests.get(source)
+                response.raise_for_status()
+
+                openapi_json = response.text
+                payload = {
+                    "kind": "openapi",
+                    "url": source,
+                    "openapi_json": openapi_json,
+                }
+        else:
+            raise ValueError(f"Unsupported kind: {kind}")
+
+        response = requests.put(
+            urljoin(ctx.obj.server_address, f"/services/{name}"),
+            json=payload,
+        )
+        response.raise_for_status()
+
+        return cast(ServiceMetaDataDTO, response.json())
 
 
 class Interface:
@@ -1167,6 +1217,18 @@ class Interface:
             Interface._write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
+    @staticmethod
+    def add_service(
+        ctx: click.Context, name: str, kind: str, source: str, url: Optional[str]
+    ) -> None:
+        try:
+            result = Actions.add_service(ctx, name, kind, source, url)
+
+            Interface._write_success(f"Added service '{name}'")
+            Interface._print_table([result])
+        except Exception as e:
+            Interface._write_error(f"Error: {type(e).__name__}: {e}")
+
 
 async def async_main() -> None:
     click_completion.init()
@@ -1706,6 +1768,37 @@ async def async_main() -> None:
                 agent_id=agent_id,
                 name=name,
             )
+
+    @cli.group(help="Manage services")
+    def service() -> None:
+        pass
+
+    @service.command("add", help="Add a new service")
+    @click.option(
+        "-k",
+        "--kind",
+        type=click.Choice(["sdk", "openapi"], case_sensitive=False),
+        required=True,
+        help="Kind of the service (sdk or openapi)",
+    )
+    @click.option(
+        "-s",
+        "--source",
+        required=True,
+        help="For 'sdk', source must be a URL. For 'openapi', source can be a URL or a file path.",
+    )
+    @click.option(
+        "-u",
+        "--url",
+        required=False,
+        help="Base URL of the OpenAPI service (required if source is a file for 'openapi' kind)",
+    )
+    @click.argument("name", type=str)
+    @click.pass_context
+    def service_add(
+        ctx: click.Context, kind: str, source: str, name: str, url: Optional[str]
+    ) -> None:
+        Interface.add_service(ctx, name, kind, source, url)
 
     cli()
 

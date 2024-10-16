@@ -4,8 +4,12 @@ import json
 import os
 import time
 import traceback
-from typing import Any, AsyncIterator, Optional
+import tempfile
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional
+from fastapi import FastAPI, Query, Request, Response
+from fastapi.responses import JSONResponse
 import httpx
+import uvicorn
 
 from tests.test_utilities import (
     CLI_CLIENT_PATH,
@@ -13,9 +17,74 @@ from tests.test_utilities import (
     ContextOfTest,
     run_server,
 )
+from emcie.common.plugin import tool, ToolEntry, PluginServer
+from emcie.common.tools import ToolResult, ToolContext
 
 REASONABLE_AMOUNT_OF_TIME = 5
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
+
+OPENAPI_SERVER_PORT = 8091
+OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"
+
+
+@asynccontextmanager
+async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
+    config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    yield
+    server.should_exit = True
+    await task
+
+
+async def one_required_query_param(
+    query_param: int = Query(),
+) -> JSONResponse:
+    return JSONResponse({"result": query_param})
+
+
+async def two_required_query_params(
+    query_param_1: int = Query(),
+    query_param_2: int = Query(),
+) -> JSONResponse:
+    return JSONResponse({"result": query_param_1 + query_param_2})
+
+
+TOOLS = (
+    one_required_query_param,
+    two_required_query_params,
+)
+
+
+def rng_app() -> FastAPI:
+    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+
+    @app.middleware("http")
+    async def debug_request(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        return response
+
+    for t in TOOLS:
+        registration_func = app.post if "body" in t.__name__ else app.get
+        registration_func(f"/{t.__name__}", operation_id=t.__name__)(t)
+
+    return app
+
+
+@asynccontextmanager
+async def run_service_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServer]:
+    async with PluginServer(
+        tools=tools,
+        port=8091,
+        host="127.0.0.1",
+    ) as server:
+        try:
+            yield server
+        finally:
+            await server.shutdown()
 
 
 async def run_cli(*args: str, **kwargs: Any) -> asyncio.subprocess.Process:
@@ -48,7 +117,7 @@ async def run_cli_and_get_exit_status(*args: str) -> int:
 class API:
     @staticmethod
     @asynccontextmanager
-    async def _make_client() -> AsyncIterator[httpx.AsyncClient]:
+    async def make_client() -> AsyncIterator[httpx.AsyncClient]:
         async with httpx.AsyncClient(
             base_url=SERVER_ADDRESS,
             follow_redirects=True,
@@ -58,14 +127,14 @@ class API:
 
     @staticmethod
     async def get_first_agent_id() -> str:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get("/agents/")
             agent = response.raise_for_status().json()["agents"][0]
             return str(agent["id"])
 
     @staticmethod
     async def create_session(agent_id: str, end_user_id: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.post(
                 "/sessions",
                 params={"allow_greeting": False},
@@ -87,7 +156,7 @@ class API:
         message: str,
         number_of_replies_to_expect: int,
     ) -> list[Any]:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             try:
                 user_message_response = await client.post(
                     f"/sessions/{session_id}/events",
@@ -131,7 +200,7 @@ class API:
 
     @staticmethod
     async def create_term(agent_id: str, name: str, description: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.post(
                 f"/agents/{agent_id}/terms/",
                 json={
@@ -144,7 +213,7 @@ class API:
 
     @staticmethod
     async def list_terms(agent_id: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(
                 f"/agents/{agent_id}/terms/",
             )
@@ -154,7 +223,7 @@ class API:
 
     @staticmethod
     async def read_term(agent_id: str, term_name: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(
                 f"/agents/{agent_id}/terms/{term_name}",
             )
@@ -164,7 +233,7 @@ class API:
 
     @staticmethod
     async def list_guidelines(agent_id: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(
                 f"/agents/{agent_id}/guidelines/",
             )
@@ -175,7 +244,7 @@ class API:
 
     @staticmethod
     async def read_guideline(agent_id: str, guideline_id: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(
                 f"/agents/{agent_id}/guidelines/{guideline_id}",
             )
@@ -192,7 +261,7 @@ class API:
         coherence_check: Optional[dict[str, Any]] = None,
         connection_propositions: Optional[dict[str, Any]] = None,
     ) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.post(
                 f"/agents/{agent_id}/guidelines/",
                 json={
@@ -223,7 +292,7 @@ class API:
 
     @staticmethod
     async def create_context_variable(agent_id: str, name: str, description: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.post(
                 f"/agents/{agent_id}/context-variables",
                 json={
@@ -238,7 +307,7 @@ class API:
 
     @staticmethod
     async def list_context_variables(agent_id: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(f"/agents/{agent_id}/context-variables/")
 
             response.raise_for_status()
@@ -252,7 +321,7 @@ class API:
         key: str,
         value: Any,
     ) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.put(
                 f"/agents/{agent_id}/context-variables/{variable_id}/{key}",
                 json={"data": value},
@@ -261,7 +330,7 @@ class API:
 
     @staticmethod
     async def read_context_variable_value(agent_id: str, variable_id: str, key: str) -> Any:
-        async with API._make_client() as client:
+        async with API.make_client() as client:
             response = await client.get(
                 f"{SERVER_ADDRESS}/agents/{agent_id}/context-variables/{variable_id}/{key}",
             )
@@ -1379,3 +1448,121 @@ async def test_that_a_message_interaction_can_be_inspected(
         assert term["description"] in output
         assert variable["name"] in output
         assert end_user_id in output
+
+
+async def test_that_openapi_service_can_be_added_via_file(
+    context: ContextOfTest,
+) -> None:
+    service_name = "test_openapi_service"
+    service_kind = "openapi"
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_openapi_server(rng_app()):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response.raise_for_status()
+                openapi_json = response.text
+
+            with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as temp_file:
+                temp_file.write(openapi_json)
+                temp_file.flush()
+                source = temp_file.name
+
+                assert (
+                    await run_cli_and_get_exit_status(
+                        "service",
+                        "add",
+                        service_name,
+                        "-k",
+                        service_kind,
+                        "-s",
+                        source,
+                        "-u",
+                        OPENAPI_SERVER_URL,
+                    )
+                    == os.EX_OK
+                )
+
+                async with API.make_client() as client:
+                    response = await client.get("/services/")
+                    response.raise_for_status()
+                    services = response.json()["services"]
+                    assert any(
+                        s["name"] == service_name and s["kind"] == service_kind for s in services
+                    )
+
+
+async def test_that_openapi_service_can_be_added_via_url(
+    context: ContextOfTest,
+) -> None:
+    service_name = "test_openapi_service_via_url"
+    service_kind = "openapi"
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_openapi_server(rng_app()):
+            source = OPENAPI_SERVER_URL + "/openapi.json"
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "add",
+                    service_name,
+                    "-k",
+                    service_kind,
+                    "-s",
+                    source,
+                    "-u",
+                    OPENAPI_SERVER_URL,
+                )
+                == os.EX_OK
+            )
+
+            async with API.make_client() as client:
+                response = await client.get("/services/")
+                response.raise_for_status()
+                services = response.json()["services"]
+                assert any(
+                    s["name"] == service_name and s["kind"] == service_kind for s in services
+                )
+
+
+async def test_that_sdk_service_can_be_added(
+    context: ContextOfTest,
+) -> None:
+    service_name = "test_sdk_service"
+    service_kind = "sdk"
+
+    @tool
+    def sample_tool(context: ToolContext, param: int) -> ToolResult:
+        return ToolResult(param * 2)
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_service_server([sample_tool]) as server:
+            source_url = server.url
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "add",
+                    service_name,
+                    "-k",
+                    service_kind,
+                    "-s",
+                    source_url,
+                )
+                == os.EX_OK
+            )
+
+            async with API.make_client() as client:
+                response = await client.get("/services/")
+                response.raise_for_status()
+                services = response.json()["services"]
+                assert any(
+                    s["name"] == service_name and s["kind"] == service_kind for s in services
+                )

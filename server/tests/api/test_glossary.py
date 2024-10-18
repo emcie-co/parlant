@@ -23,7 +23,9 @@ def test_create_term(
 
     assert response.status_code == status.HTTP_201_CREATED
 
-    data = response.json()
+    assert "term" in response.json()
+    data = response.json()["term"]
+
     assert data["name"] == name
     assert data["description"] == description
     assert data["synonyms"] == synonyms
@@ -46,7 +48,9 @@ def test_create_term_without_synonyms(
 
     assert response.status_code == status.HTTP_201_CREATED
 
-    data = response.json()
+    assert "term" in response.json()
+    data = response.json()["term"]
+
     assert data["name"] == name
     assert data["description"] == description
     assert data["synonyms"] is None
@@ -152,21 +156,24 @@ def test_update_term(
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
-    create_response = client.post(
-        f"/agents/{agent_id}/terms/",
-        json={
-            "name": name,
-            "description": description,
-            "synonyms": synonyms,
-        },
+    term = (
+        client.post(
+            f"/agents/{agent_id}/terms/",
+            json={
+                "name": name,
+                "description": description,
+                "synonyms": synonyms,
+            },
+        )
+        .raise_for_status()
+        .json()["term"]
     )
-    assert create_response.status_code == status.HTTP_201_CREATED
 
     updated_description = "Updated guideline description"
     updated_synonyms = ["rule", "updated"]
 
     update_response = client.patch(
-        f"/agents/{agent_id}/terms/{create_response.json()["id"]}",
+        f"/agents/{agent_id}/terms/{term["id"]}",
         json={
             "description": updated_description,
             "synonyms": updated_synonyms,
@@ -199,7 +206,7 @@ def test_delete_term(
             },
         )
         .raise_for_status()
-        .json()
+        .json()["term"]
     )
 
     delete_response = client.delete(f"/agents/{agent_id}/terms/{name}").raise_for_status().json()

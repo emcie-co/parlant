@@ -19,6 +19,10 @@ class TermDTO(DefaultBaseModel):
     synonyms: list[str] = []
 
 
+class CreateTermResponse(DefaultBaseModel):
+    term: TermDTO
+
+
 class ListTermsResponse(DefaultBaseModel):
     terms: list[TermDTO]
 
@@ -39,7 +43,7 @@ def create_router(
     router = APIRouter()
 
     @router.post("/{agent_id}/terms/", status_code=status.HTTP_201_CREATED)
-    async def create_term(agent_id: AgentId, request: CreateTermRequest) -> TermDTO:
+    async def create_term(agent_id: AgentId, request: CreateTermRequest) -> CreateTermResponse:
         term = await glossary_store.create_term(
             term_set=agent_id,
             name=request.name,
@@ -47,11 +51,13 @@ def create_router(
             synonyms=request.synonyms,
         )
 
-        return TermDTO(
-            id=term.id,
-            name=term.name,
-            description=term.description,
-            synonyms=term.synonyms,
+        return CreateTermResponse(
+            term=TermDTO(
+                id=term.id,
+                name=term.name,
+                description=term.description,
+                synonyms=term.synonyms,
+            )
         )
 
     @router.get("/{agent_id}/terms/{name}")

@@ -295,7 +295,7 @@ class Actions:
             },
         )
         response.raise_for_status()
-        return cast(TermDTO, response.json())
+        return cast(TermDTO, response.json()["term"])
 
     @staticmethod
     def remove_term(ctx: click.Context, agent_id: str, name: str) -> None:

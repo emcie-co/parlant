@@ -199,17 +199,18 @@ class API:
                 raise
 
     @staticmethod
-    async def create_term(agent_id: str, name: str, description: str) -> Any:
+    async def create_term(agent_id: str, name: str, description: str, synonyms: str = "") -> Any:
         async with API.make_client() as client:
             response = await client.post(
                 f"/agents/{agent_id}/terms/",
                 json={
                     "name": name,
                     "description": description,
+                    **({"synonyms": synonyms.split(",")} if synonyms else {}),
                 },
             )
 
-            return response.raise_for_status().json()
+            return response.raise_for_status().json()["term"]
 
     @staticmethod
     async def list_terms(agent_id: str) -> Any:
@@ -442,31 +443,11 @@ async def test_that_terms_can_be_listed(
 
         agent_id = await API.get_first_agent_id()
 
-        assert (
-            await run_cli_and_get_exit_status(
-                "glossary",
-                "add",
-                "--agent-id",
-                agent_id,
-                guideline_term_name,
-                guideline_description,
-                "--synonyms",
-                guideline_synonyms,
-            )
-            == os.EX_OK
+        _ = await API.create_term(
+            agent_id, guideline_term_name, guideline_description, guideline_synonyms
         )
 
-        assert (
-            await run_cli_and_get_exit_status(
-                "glossary",
-                "add",
-                "--agent-id",
-                agent_id,
-                tool_term_name,
-                tool_description,
-            )
-            == os.EX_OK
-        )
+        _ = await API.create_term(agent_id, tool_term_name, tool_description)
 
         terms = await API.list_terms(agent_id)
         assert len(terms) == 2
@@ -488,19 +469,7 @@ async def test_that_a_term_can_be_deleted(
 
         agent_id = await API.get_first_agent_id()
 
-        assert (
-            await run_cli_and_get_exit_status(
-                "glossary",
-                "add",
-                "--agent-id",
-                agent_id,
-                name,
-                description,
-                "--synonyms",
-                synonyms,
-            )
-            == os.EX_OK
-        )
+        _ = await API.create_term(agent_id, name, description, synonyms)
 
         assert (
             await run_cli_and_get_exit_status(
@@ -520,7 +489,7 @@ async def test_that_a_term_can_be_deleted(
 async def test_that_terms_are_loaded_on_server_startup(
     context: ContextOfTest,
 ) -> None:
-    term_name = "guideline_no_synonyms"
+    name = "guideline_no_synonyms"
     description = "simple guideline with no synonyms"
 
     with run_server(context):
@@ -528,25 +497,15 @@ async def test_that_terms_are_loaded_on_server_startup(
 
         agent_id = await API.get_first_agent_id()
 
-        assert (
-            await run_cli_and_get_exit_status(
-                "glossary",
-                "add",
-                "--agent-id",
-                agent_id,
-                term_name,
-                description,
-            )
-            == os.EX_OK
-        )
+        _ = await API.create_term(agent_id, name, description)
 
     with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         agent_id = await API.get_first_agent_id()
 
-        term = await API.read_term(agent_id, term_name)
-        assert term["name"] == term_name
+        term = await API.read_term(agent_id, name)
+        assert term["name"] == name
         assert term["description"] == description
         assert term["synonyms"] == []
 
@@ -1592,29 +1551,23 @@ async def test_that_service_can_be_removed(
 
             await create_openapi_service(service_name, openapi_json, OPENAPI_SERVER_URL)
 
-        remove_service_args = [
-            "poetry",
-            "run",
-            "python",
-            CLI_CLIENT_PATH.as_posix(),
-            "--server",
-            SERVER_ADDRESS,
-            "service",
-            "remove",
-            service_name,
-        ]
-        process = await asyncio.create_subprocess_exec(*remove_service_args)
-        await process.wait()
-        assert process.returncode == os.EX_OK
+        assert (
+            await run_cli_and_get_exit_status(
+                "service",
+                "remove",
+                service_name,
+            )
+            == os.EX_OK
+        )
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(30)) as client:
-            response = await client.get(f"{SERVER_ADDRESS}/services/")
+        async with API.make_client() as client:
+            response = await client.get("/services/")
             response.raise_for_status()
             services = response.json()["services"]
             assert not any(s["name"] == service_name for s in services)
 
 
-async def test_that_services_can_be_list(context: ContextOfTest) -> None:
+async def test_that_services_can_be_listed(context: ContextOfTest) -> None:
     service_name_1 = "test_openapi_service_1"
     service_name_2 = "test_openapi_service_2"
     url_1 = "http://localhost:8001"
@@ -1632,26 +1585,15 @@ async def test_that_services_can_be_list(context: ContextOfTest) -> None:
         await create_openapi_service(service_name_1, openapi_json, url_1)
         await create_openapi_service(service_name_2, openapi_json, url_2)
 
-        exec_args = [
-            "poetry",
-            "run",
-            "python",
-            CLI_CLIENT_PATH.as_posix(),
-            "--server",
-            SERVER_ADDRESS,
+        process = await run_cli(
             "service",
             "list",
-        ]
-
-        process = await asyncio.create_subprocess_exec(
-            *exec_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
-
         assert process.returncode == os.EX_OK
 
         assert service_name_1 in output
@@ -1661,7 +1603,7 @@ async def test_that_services_can_be_list(context: ContextOfTest) -> None:
         assert url_2 in output
 
 
-async def test_that_services_can_be_view(context: ContextOfTest) -> None:
+async def test_that_services_can_be_viewed(context: ContextOfTest) -> None:
     service_name = "test_service_view"
     service_url = OPENAPI_SERVER_URL
 
@@ -1676,28 +1618,18 @@ async def test_that_services_can_be_view(context: ContextOfTest) -> None:
 
             await create_openapi_service(service_name, openapi_json, service_url)
 
-        view_service_args = [
-            "poetry",
-            "run",
-            "python",
-            CLI_CLIENT_PATH.as_posix(),
-            "--server",
-            SERVER_ADDRESS,
+        process = await run_cli(
             "service",
             "view",
             service_name,
-        ]
-
-        process = await asyncio.create_subprocess_exec(
-            *view_service_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
-
         assert process.returncode == os.EX_OK
+
         assert service_name in output
         assert "openapi" in output
         assert service_url in output

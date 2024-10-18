@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
-import json
 import logging
 import os
 from pathlib import Path
@@ -8,13 +7,68 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any, Iterator, Literal, TypedDict, Union, cast
+from typing import Any, Iterator, Optional, TypedDict, cast
+from typing_extensions import Literal
+
+import httpx
+
+
+class _ServiceMetaDataDTO(TypedDict):
+    name: str
+    kind: str
+    url: str
+
+
+class _TermDTO(TypedDict):
+    id: str
+    name: str
+    description: str
+    synonyms: Optional[list[str]]
+
+
+class _FreshnessRulesDTO(TypedDict):
+    months: Optional[list[int]]
+    days_of_month: Optional[list[int]]
+    days_of_week: Optional[
+        list[
+            Literal[
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+            ]
+        ]
+    ]
+    hours: Optional[list[int]]
+    minutes: Optional[list[int]]
+    seconds: Optional[list[int]]
+
+
+class _ContextVariableDTO(TypedDict):
+    id: str
+    name: str
+    description: Optional[str]
+    tool_id: Optional[str]
+    freshness_rules: Optional[_FreshnessRulesDTO]
+
+
+class _GuidelineDTO(TypedDict):
+    id: str
+    predicate: str
+    action: str
+
+
+class _ContextVariableValueDTO(TypedDict):
+    id: str
+    last_modified: str
+    data: Any
 
 
 SERVER_PORT = 8089
 SERVER_ADDRESS = f"http://localhost:{SERVER_PORT}"
-
-DEFAULT_AGENT_NAME = "Default Agent"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,111 +93,6 @@ CLI_SERVER_PATH = get_package_path() / "src/emcie/server/bin/server.py"
 @dataclass(frozen=True)
 class ContextOfTest:
     home_dir: Path
-    config_file: Path
-    index_file: Path
-
-
-class _Agent(TypedDict):
-    id: str
-    name: str
-    description: str
-
-
-class _Guideline(TypedDict, total=False):
-    id: str
-    when: str
-    then: str
-    enabled_tools: list[str]
-
-
-class _LocalService(TypedDict):
-    type: Literal["local"]
-    tools: list[Any]
-
-
-class _PluginService(TypedDict):
-    type: Literal["plugin"]
-    name: str
-    url: str
-
-
-_Service = Union[_LocalService, _PluginService]
-
-
-def read_guideline_config(
-    config_file: Path,
-    agent: str = DEFAULT_AGENT_NAME,
-) -> list[_Guideline]:
-    config = json.loads(config_file.read_text())
-    assert agent in config["guidelines"]
-    return cast(list[_Guideline], config["guidelines"][agent])
-
-
-def write_guideline_config(
-    new_guidelines: list[_Guideline],
-    config_file: Path,
-    agent: str = DEFAULT_AGENT_NAME,
-) -> None:
-    config = json.loads(config_file.read_text())
-    assert agent in config["guidelines"]
-    config["guidelines"][agent] = new_guidelines
-    config_file.write_text(json.dumps(config))
-
-
-def write_service_config(
-    new_services: list[_Service],
-    config_file: Path,
-) -> None:
-    config = json.loads(config_file.read_text())
-    config["services"] = new_services
-    config_file.write_text(json.dumps(config))
-
-
-def load_active_agents(home_dir: Path) -> list[_Agent]:
-    agent_store = home_dir / "agents.json"
-
-    agent_data = json.loads(agent_store.read_text())
-
-    return [
-        {
-            "id": a["id"],
-            "name": a["name"],
-            "description": a.get("description"),
-        }
-        for a in agent_data["agents"]
-    ]
-
-
-def load_active_agent(home_dir: Path, agent_name: str) -> _Agent:
-    agents = load_active_agents(home_dir)
-    matching_agents = [a for a in agents if a["name"] == agent_name]
-    assert len(matching_agents) == 1
-    return matching_agents[0]
-
-
-def read_loaded_guidelines(
-    home_dir: Path,
-    agent: str = DEFAULT_AGENT_NAME,
-) -> list[_Guideline]:
-    guideline_store = home_dir / "guidelines.json"
-    guideline_data = json.loads(guideline_store.read_text())
-
-    agent_id = load_active_agent(home_dir, agent)["id"]
-
-    return [
-        {
-            "when": g["predicate"],
-            "then": g["action"],
-        }
-        for g in guideline_data["guidelines"]
-        if g["guideline_set"] == agent_id
-    ]
-
-
-def find_guideline(guideline: _Guideline, within: list[_Guideline]) -> bool:
-    return bool(
-        [g for g in within if g["when"] == guideline["when"] and g["then"] == guideline["then"]]
-    )
 
 
 @contextmanager
@@ -156,8 +105,6 @@ def run_server(
         "run",
         "python",
         CLI_SERVER_PATH.as_posix(),
-        "-c",
-        context.config_file.as_posix(),
         "run",
         "-p",
         str(SERVER_PORT),
@@ -208,3 +155,189 @@ def run_server(
     finally:
         if caught_exception:
             raise caught_exception
+
+
+async def get_first_agent_id() -> str:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        agents_response = await client.get(
+            f"{SERVER_ADDRESS}/agents/",
+        )
+        agents_response.raise_for_status()
+
+        assert len(agents_response.json()["agents"]) > 0
+        agent = agents_response.json()["agents"][0]
+        return str(agent["id"])
+
+
+async def get_term_list(agent_id: str) -> list[_TermDTO]:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.get(
+            f"{SERVER_ADDRESS}/agents/{agent_id}/terms/",
+        )
+        response.raise_for_status()
+
+        return cast(list[_TermDTO], response.json()["terms"])
+
+
+async def create_term(agent_id: str, term_name: str, description: str) -> _TermDTO:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.post(
+            f"{SERVER_ADDRESS}/agents/{agent_id}/terms/",
+            json={"name": term_name, "description": description},
+        )
+        response.raise_for_status()
+
+        return cast(_TermDTO, response.json()["term"])
+
+
+async def get_guideline_list(agent_id: str) -> list[_GuidelineDTO]:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.get(
+            f"{SERVER_ADDRESS}/agents/{agent_id}/guidelines/",
+        )
+
+        response.raise_for_status()
+
+        return cast(list[_GuidelineDTO], response.json()["guidelines"])
+
+
+async def create_guideline(
+    agent_id: str,
+    predicate: str,
+    action: str,
+    coherence_check: Optional[dict[str, Any]] = None,
+    connection_propositions: Optional[dict[str, Any]] = None,
+) -> _GuidelineDTO:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.post(
+            f"{SERVER_ADDRESS}/agents/{agent_id}/guidelines/",
+            json={
+                "invoices": [
+                    {
+                        "payload": {
+                            "kind": "guideline",
+                            "predicate": predicate,
+                            "action": action,
+                        },
+                        "checksum": "checksum_value",
+                        "approved": True if coherence_check is None else False,
+                        "data": {
+                            "coherence_checks": coherence_check if coherence_check else [],
+                            "connection_propositions": connection_propositions
+                            if connection_propositions
+                            else None,
+                        },
+                        "error": None,
+                    }
+                ]
+            },
+        )
+
+        response.raise_for_status()
+
+        return cast(_GuidelineDTO, response.json()["items"][0]["guideline"])
+
+
+async def create_context_variable(
+    agent_id: str, name: str, description: str
+) -> _ContextVariableDTO:
+    async with httpx.AsyncClient(
+        base_url=SERVER_ADDRESS,
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.post(
+            f"/agents/{agent_id}/context-variables",
+            json={
+                "name": name,
+                "description": description,
+            },
+        )
+
+        response.raise_for_status()
+
+        return cast(_ContextVariableDTO, response.json()["context_variable"])
+
+
+async def get_context_variable_list(agent_id: str) -> list[_ContextVariableDTO]:
+    async with httpx.AsyncClient(
+        base_url=SERVER_ADDRESS,
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.get(f"/agents/{agent_id}/context-variables/")
+
+        response.raise_for_status()
+
+        return cast(list[_ContextVariableDTO], response.json()["context_variables"])
+
+
+async def create_context_variable_value(
+    agent_id: str,
+    variable_id: str,
+    key: str,
+    data: Any,
+) -> _ContextVariableValueDTO:
+    async with httpx.AsyncClient(
+        base_url=SERVER_ADDRESS,
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.put(
+            f"/agents/{agent_id}/context-variables/{variable_id}/{key}",
+            json={
+                "data": data,
+            },
+        )
+
+        response.raise_for_status()
+
+        return cast(_ContextVariableValueDTO, response.json()["context_variable_value"])
+
+
+async def get_context_variable_value(
+    agent_id: str, variable_id: str, key: str
+) -> _ContextVariableValueDTO:
+    async with httpx.AsyncClient(
+        base_url=SERVER_ADDRESS,
+        follow_redirects=True,
+        timeout=httpx.Timeout(30),
+    ) as client:
+        response = await client.get(
+            f"{SERVER_ADDRESS}/agents/{agent_id}/context-variables/{variable_id}/{key}",
+        )
+
+        response.raise_for_status()
+
+        return cast(_ContextVariableValueDTO, response.json())
+
+
+async def create_sdk_service(service_name: str, url: str) -> None:
+    payload = {"kind": "sdk", "url": url}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.put(f"{SERVER_ADDRESS}/services/{service_name}", json=payload)
+        response.raise_for_status()
+
+
+async def get_services_list() -> list[_ServiceMetaDataDTO]:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{SERVER_ADDRESS}/services/")
+        response.raise_for_status()
+
+    return cast(list[_ServiceMetaDataDTO], response.json()["services"])

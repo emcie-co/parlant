@@ -39,11 +39,10 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         self._collections: dict[str, JSONFileDocumentCollection[BaseDocument]]
 
     async def _sync_if_needed(self) -> None:
-        # FIXME: When the CLI can retrieve all different stores, reintroduce the modulo condition.
         async with self._lock:
             self._op_counter += 1
-            # if self._op_counter % 5 == 0:
-            await self.flush()
+            if self._op_counter % 5 == 0:
+                await self.flush()
 
     async def __aenter__(self) -> JSONFileDocumentDatabase:
         async with self._lock:

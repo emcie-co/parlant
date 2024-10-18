@@ -40,7 +40,6 @@ CLI_SERVER_PATH = get_package_path() / "../server/src/emcie/server/bin/server.py
 @dataclass(frozen=True)
 class ContextOfTest:
     home_dir: Path
-    config_file: Path
     index_file: Path
 
 
@@ -116,8 +115,6 @@ def run_server(
         "run",
         "python",
         CLI_SERVER_PATH.as_posix(),
-        "-c",
-        context.config_file.as_posix(),
         "run",
         "-p",
         str(SERVER_PORT),

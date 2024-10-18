@@ -5,23 +5,26 @@ import traceback
 import httpx
 
 from emcie.common.tools import ToolContext, ToolResult
-from emcie.common.plugin import PluginServer, tool
-
+from emcie.common.plugin import tool
 from emcie.server.core.async_utils import Timeout
 from emcie.server.core.agents import Agent
 
 from tests.e2e.test_utilities import (
     SERVER_ADDRESS,
-    _Guideline,
     ContextOfTest,
-    find_guideline,
-    read_guideline_config,
-    read_loaded_guidelines,
+    create_context_variable,
+    create_context_variable_value,
+    create_guideline,
+    create_sdk_service,
+    create_term,
+    get_context_variable_value,
+    get_guideline_list,
+    get_services_list,
+    get_term_list,
     run_server,
-    write_guideline_config,
-    write_service_config,
 )
 from tests.test_utilities import nlp_test
+from tests.core.services.tools.test_plugin_clients import run_service_server
 
 
 REASONABLE_AMOUNT_OF_TIME = 5
@@ -127,109 +130,10 @@ async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(
         assert server_process.returncode == os.EX_OK
 
 
-async def test_that_the_server_hot_reloads_guideline_changes(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context, extra_args=["--no-index", "--force"]):
-        initial_guidelines = read_guideline_config(context.config_file)
-
-        new_guideline: _Guideline = {
-            "when": "talking about bananas",
-            "then": "say they're very tasty",
-        }
-
-        write_guideline_config(
-            new_guidelines=initial_guidelines + [new_guideline],
-            config_file=context.config_file,
-        )
-
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-        loaded_guidelines = read_loaded_guidelines(context.home_dir)
-
-        assert find_guideline(new_guideline, within=loaded_guidelines)
-
-        agent = await get_first_agent()
-
-        agent_replies = await get_agent_replies(
-            context,
-            message="what are bananas?",
-            agent=agent,
-            number_of_replies_to_expect=1,
-        )
-
-        assert await nlp_test(
-            agent_replies[0],
-            "It says that bananas are very tasty",
-        )
-
-
-async def test_that_the_server_loads_and_interacts_with_a_plugin(
-    context: ContextOfTest,
-) -> None:
-    @tool(id="about_dor", name="about_dor")
-    async def about_dor(context: ToolContext) -> ToolResult:
-        """Gets information about Dor"""
-        await context.emit_message("Dor makes the worst pizza")
-        await asyncio.sleep(1)
-        return ToolResult("Dor makes great pizza", {"metadata_item": 123})
-
-    plugin_port = 8090
-
-    write_service_config(
-        [
-            {
-                "type": "plugin",
-                "name": "my_plugin",
-                "url": f"http://localhost:{plugin_port}",
-            }
-        ],
-        context.config_file,
-    )
-
-    write_guideline_config(
-        [
-            {
-                "when": "the user says hello",
-                "then": "tell the user about Dor",
-                "enabled_tools": ["my_plugin__about_dor"],
-            }
-        ],
-        config_file=context.config_file,
-    )
-
-    async with PluginServer(tools=[about_dor], port=plugin_port) as plugin_server:
-        try:
-            with run_server(context, extra_args=["--no-index", "--force"]):
-                await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-                agent = await get_first_agent()
-
-                agent_replies = await get_agent_replies(
-                    context,
-                    message="Hello",
-                    agent=agent,
-                    number_of_replies_to_expect=2,
-                )
-
-                assert await nlp_test(
-                    agent_replies[0],
-                    "It says that Dor makes the worst pizza",
-                )
-
-                assert await nlp_test(
-                    agent_replies[1],
-                    "It says that Dor makes great pizza",
-                )
-
-        finally:
-            await plugin_server.shutdown()
-
-
 async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_not_to_(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context, extra_args=["--no-index"]):
+    with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
@@ -247,10 +151,10 @@ async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_n
         )
 
 
-async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_to_index(
+async def test_that_the_server_starts_and_gernerate_a_message(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context, extra_args=["--index"]):
+    with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
@@ -265,108 +169,6 @@ async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_t
         assert await nlp_test(
             agent_replies[0],
             "It greeting the user",
-        )
-
-
-async def test_that_the_server_refuses_to_start_on_detecting_a_state_change_that_requires_indexing_if_told_not_to_index_changes(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context, extra_args=["--no-index"]) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-        new_guideline: _Guideline = {
-            "when": "talking about bananas",
-            "then": "say they're very tasty",
-        }
-
-        write_guideline_config(
-            new_guidelines=[new_guideline],
-            config_file=context.config_file,
-        )
-
-        server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
-        assert server_process.returncode == 1
-
-
-async def test_that_the_server_does_not_conform_to_state_changes_if_forced_to_start_and_told_not_to_index(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context, extra_args=["--no-index", "--force"]):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-        new_guidelines: list[_Guideline] = [
-            {
-                "when": "talking about bananas",
-                "then": "say bananas are very tasty",
-            },
-            {
-                "when": "saying bananas are very tasty",
-                "then": "say also they are blue",
-            },
-        ]
-
-        write_guideline_config(
-            new_guidelines=new_guidelines,
-            config_file=context.config_file,
-        )
-
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-        assert not context.index_file.exists()
-
-        agent = await get_first_agent()
-
-        agent_replies = await get_agent_replies(
-            context,
-            message="what are bananas?",
-            agent=agent,
-            number_of_replies_to_expect=1,
-        )
-
-        assert await nlp_test(
-            agent_replies[0],
-            "It says that bananas are very tasty but not mentioning they blue",
-        )
-
-
-async def test_that_the_server_detects_and_conforms_to_a_state_change_if_told_to_index_changes(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context, extra_args=["--index"]):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
-
-        initial_guidelines = read_guideline_config(context.config_file)
-
-        new_guidelines: list[_Guideline] = [
-            {
-                "when": "talking about bananas",
-                "then": "say bananas are very tasty",
-            },
-            {
-                "when": "saying bananas are very tasty",
-                "then": "say also they are blue",
-            },
-        ]
-
-        write_guideline_config(
-            new_guidelines=initial_guidelines + new_guidelines,
-            config_file=context.config_file,
-        )
-
-        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
-
-        agent = await get_first_agent()
-
-        agent_replies = await get_agent_replies(
-            context,
-            message="what are bananas?",
-            agent=agent,
-            number_of_replies_to_expect=1,
-        )
-
-        assert await nlp_test(
-            agent_replies[0],
-            "It says that bananas are very tasty and blue",
         )
 
 
@@ -428,3 +230,121 @@ async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(
             except:
                 traceback.print_exc()
                 raise
+
+
+async def test_that_guidelines_are_loaded_after_server_restarts(
+    context: ContextOfTest,
+) -> None:
+    with run_server(context) as server_process:
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+
+        first = await create_guideline(
+            agent_id=agent.id,
+            predicate="the user greets you",
+            action="greet them back with 'Hello'",
+        )
+
+        second = await create_guideline(
+            agent_id=agent.id,
+            predicate="the user say goodbye",
+            action="say goodbye",
+        )
+
+        server_process.send_signal(signal.SIGINT)
+        server_process.wait(timeout=1)
+        assert server_process.returncode == os.EX_OK
+
+    with run_server(context) as server_process:
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+
+        guidelines = await get_guideline_list(agent_id=agent.id)
+
+        assert any(first["predicate"] == g["predicate"] for g in guidelines)
+        assert any(first["action"] == g["action"] for g in guidelines)
+
+        assert any(second["predicate"] == g["predicate"] for g in guidelines)
+        assert any(second["action"] == g["action"] for g in guidelines)
+
+
+async def test_that_context_variable_values_load_after_server_restart(
+    context: ContextOfTest,
+) -> None:
+    variable_name = "test_variable_with_value"
+    variable_description = "Variable with values"
+    key = "test_key"
+    data = "test_value"
+
+    with run_server(context) as server_process:
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+
+        variable = await create_context_variable(agent.id, variable_name, variable_description)
+        await create_context_variable_value(agent.id, variable["id"], key, data)
+
+        server_process.send_signal(signal.SIGINT)
+        server_process.wait(timeout=1)
+        assert server_process.returncode == os.EX_OK
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+        variable_value = await get_context_variable_value(agent.id, variable["id"], key)
+
+        assert variable_value["data"] == data
+
+
+async def test_that_services_load_after_server_restart(context: ContextOfTest) -> None:
+    service_name = "test_service"
+    service_kind = "sdk"
+
+    @tool
+    def sample_tool(context: ToolContext, param: int) -> ToolResult:
+        return ToolResult(param * 2)
+
+    with run_server(context) as server_process:
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        async with run_service_server([sample_tool]) as server:
+            await create_sdk_service(service_name, server.url)
+
+        server_process.send_signal(signal.SIGINT)
+        server_process.wait(timeout=1)
+        assert server_process.returncode == os.EX_OK
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        services = await get_services_list()
+        assert any(s["name"] == service_name for s in services)
+        assert any(s["kind"] == service_kind for s in services)
+
+
+async def test_that_glossary_terms_load_after_server_restart(context: ContextOfTest) -> None:
+    term_name = "test_term"
+    description = "Term added before server restart"
+
+    with run_server(context) as server_process:
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+
+        await create_term(agent.id, term_name, description)
+
+        server_process.send_signal(signal.SIGINT)
+        server_process.wait(timeout=3)
+        assert server_process.returncode == os.EX_OK
+
+    with run_server(context):
+        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+
+        agent = await get_first_agent()
+        terms = await get_term_list(agent.id)
+
+        assert any(t["name"] == term_name for t in terms)
+        assert any(t["description"] == description for t in terms)

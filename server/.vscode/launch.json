@@ -10,8 +10,6 @@
           "request": "launch",
           "program": "${workspaceFolder}/bin/emcie-server",
           "args": [
-              "-c",
-              "_config.json",
               "run"
           ],
           "console": "integratedTerminal",

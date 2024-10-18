@@ -7,10 +7,9 @@ from enum import Enum, auto
 import os
 from fastapi import FastAPI
 from lagom import Container, Singleton
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator
 import click
 import click_completion
-import json
 from pathlib import Path
 import sys
 import uvicorn
@@ -51,7 +50,6 @@ from emcie.server.core.sessions import (
 )
 from emcie.server.core.glossary import GlossaryStore
 from emcie.server.core.tools import LocalToolService, ToolService, MultiplexedToolService
-from emcie.server.core.services.tools.plugins import PluginClient
 from emcie.server.core.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -80,10 +78,8 @@ from emcie.server.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
     GuidelineConnectionPropositionsSchema,
 )
-from emcie.server.core.services.indexing.indexer import Indexer
 from emcie.server.core.logging import FileLogger, Logger
 from emcie.server.core.mc import MC
-from emcie.server.configuration_validator import ConfigurationFileValidator
 
 DEFAULT_PORT = 8000
 SERVER_ADDRESS = "https://localhost"
@@ -95,6 +91,8 @@ MULTIPLEXED_TOOL_SERVICE = MultiplexedToolService()
 TOOL_NAME_TO_ID: dict[str, ToolId] = {}
 
 EXIT_STACK: AsyncExitStack
+
+DEFAULT_AGENT_NAME = "Default Agent"
 
 sys.path.append(EMCIE_HOME_DIR.as_posix())
 
@@ -113,11 +111,7 @@ class StartupError(Exception):
 
 @dataclass
 class CLIParams:
-    config_file: Path
-    config: dict[str, Any]
     port: int
-    index: bool
-    force: bool
 
 
 class ShutdownReason(Enum):
@@ -125,85 +119,16 @@ class ShutdownReason(Enum):
     SHUTDOWN_REQUEST = auto()
 
 
-async def load_agents(c: Container, config: Any) -> None:
-    store = c[AgentStore]
-    existing_agents = await store.list_agents()
-
-    for agent in config["agents"]:
-        if not [a for a in existing_agents if a.name == agent["name"]]:
-            await store.create_agent(
-                name=agent["name"],
-                description=agent.get("description"),
-            )
-
-
-async def load_tools(c: Container, config: Any) -> None:
-    local_tool_service = c[LocalToolService]
-
-    for service in config["services"]:
-        if service["type"] == "local":
-            for tool_name, tool_entry in service["tools"].items():
-                tool = await local_tool_service.create_tool(
-                    name=tool_entry["function_name"],
-                    module_path=tool_entry["module_path"],
-                    description=tool_entry["description"],
-                    parameters=tool_entry["parameters"],
-                    required=tool_entry["required"],
-                    consequential=False,
-                )
-
-                TOOL_NAME_TO_ID[tool_name] = tool.id
-        elif service["type"] == "plugin":
-            name = str(service["name"])
-            url = str(service["url"])
-
-            client = PluginClient(
-                url=url,
-                event_emitter_factory=c[EventEmitterFactory],
-                correlator=CORRELATOR,
-            )
-
-            await EXIT_STACK.enter_async_context(client)
-
-            MULTIPLEXED_TOOL_SERVICE.add_service(name, client)
-
-
-async def load_guidelines(c: Container, config: Any) -> None:
-    agent_store = c[AgentStore]
-    guideline_store = c[GuidelineStore]
-    guideline_tool_association_store = c[GuidelineToolAssociationStore]
-
+async def create_agent_if_absent(agent_store: AgentStore) -> None:
     agents = await agent_store.list_agents()
-
-    for agent_name, guidelines in config["guidelines"].items():
-        agent_id = next(a.id for a in agents if a.name == agent_name)
-
-        for guideline_spec in guidelines:
-            guideline = await guideline_store.create_guideline(
-                guideline_set=agent_id,
-                predicate=guideline_spec["when"],
-                action=guideline_spec["then"],
-            )
-
-            for tool_name in guideline_spec.get("enabled_tools", []):
-                await guideline_tool_association_store.create_association(
-                    guideline_id=guideline.id,
-                    tool_id=TOOL_NAME_TO_ID.get(tool_name, ToolId(tool_name)),
-                )
+    if not agents:
+        await agent_store.create_agent(name=DEFAULT_AGENT_NAME)
 
 
 @asynccontextmanager
-async def setup_container(config: Any) -> AsyncIterator[Container]:
+async def setup_container() -> AsyncIterator[Container]:
     TOOL_NAME_TO_ID.clear()
     MULTIPLEXED_TOOL_SERVICE.services.clear()
-
-    for store_name in [
-        "guidelines",
-        "tools",
-        "guideline_tool_associations",
-        "context_variables",
-    ]:
-        (EMCIE_HOME_DIR / f"{store_name}.json").unlink(missing_ok=True)
 
     c = Container()
 
@@ -332,8 +257,8 @@ async def setup_container(config: Any) -> AsyncIterator[Container]:
 
     c[Engine] = AlphaEngine
 
-    for loader in load_agents, load_tools, load_guidelines:
-        await loader(c, config)
+    await create_agent_if_absent(c[AgentStore])
+
     c[MC] = await EXIT_STACK.enter_async_context(MC(c))
     yield c
 
@@ -353,25 +278,7 @@ async def load_app(params: CLIParams) -> AsyncIterator[FastAPI]:
 
     EXIT_STACK = AsyncExitStack()
 
-    async with setup_container(params.config) as container, EXIT_STACK:
-        indexer = Indexer(
-            index_file=EMCIE_HOME_DIR / "index.json",
-            logger=container[Logger],
-            guideline_store=container[GuidelineStore],
-            guideline_connection_store=container[GuidelineConnectionStore],
-            agent_store=container[AgentStore],
-            guideline_connection_proposer=container[GuidelineConnectionProposer],
-        )
-
-        if not params.index:
-            if params.force:
-                LOGGER.warning("Skipping indexing. This might cause unpredictable behavior.")
-
-            elif await indexer.should_index():
-                raise StartupError("indexing needs to be perform.")
-        else:
-            await indexer.index()
-
+    async with setup_container() as container, EXIT_STACK:
         await recover_server_tasks(
             evaluation_store=container[EvaluationStore],
             evaluator=container[BehavioralChangeEvaluator],
@@ -383,7 +290,6 @@ async def load_app(params: CLIParams) -> AsyncIterator[FastAPI]:
 async def serve_app(
     app: FastAPI,
     port: int,
-    should_hot_reload: Callable[[], Awaitable[bool]],
 ) -> ShutdownReason:
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -394,10 +300,7 @@ async def serve_app(
             while True:
                 await asyncio.sleep(1)
 
-                if await should_hot_reload():
-                    server.should_exit = True
-                    return ShutdownReason.HOT_RELOAD
-                elif interrupted:
+                if interrupted:
                     return ShutdownReason.SHUTDOWN_REQUEST
         except asyncio.CancelledError:
             return ShutdownReason.SHUTDOWN_REQUEST
@@ -417,29 +320,11 @@ async def serve_app(
 
 
 async def start_server(params: CLIParams) -> None:
-    assert ConfigurationFileValidator(LOGGER).validate(config_file=params.config_file)
-
-    last_config_update_time = params.config_file.stat().st_mtime
-
-    async def config_file_changed() -> bool:
-        nonlocal last_config_update_time
-        current_mtime = params.config_file.stat().st_mtime
-
-        if current_mtime > last_config_update_time:
-            validated = ConfigurationFileValidator(LOGGER).validate(config_file=params.config_file)
-
-            last_config_update_time = current_mtime
-
-            return validated
-
-        return False
-
     while True:
         async with load_app(params) as app:
             shutdown_reason = await serve_app(
                 app,
                 params.port,
-                should_hot_reload=config_file_changed,
             )
 
             if shutdown_reason == ShutdownReason.SHUTDOWN_REQUEST:
@@ -447,43 +332,17 @@ async def start_server(params: CLIParams) -> None:
             elif shutdown_reason == ShutdownReason.HOT_RELOAD:
                 LOGGER.info("***** HOT RELOAD *****")
 
-                with open(params.config_file) as f:
-                    params.config = json.load(f)
-                    last_config_update_time = params.config_file.stat().st_mtime
-
 
 def main() -> None:
     click_completion.init()
 
     @click.group
-    @click.option(
-        "-c",
-        "--config-file",
-        type=str,
-        help="Server configuration file",
-        metavar="FILE",
-        required=True,
-        default=EMCIE_HOME_DIR / "config.json",
-    )
     @click.pass_context
-    def cli(ctx: click.Context, config_file: str) -> None:
+    def cli(ctx: click.Context) -> None:
         if not ctx.obj:
-            config_file_path = Path(config_file)
-
-            if not config_file_path.exists():
-                print(f"error: config file not found: {config_file_path}", file=sys.stderr)
-                sys.exit(1)
-
-            with open(config_file_path, "r") as f:
-                config = json.load(f)
-
-                ctx.obj = CLIParams(
-                    config_file=config_file_path,
-                    config=config,
-                    port=DEFAULT_PORT,
-                    index=False,
-                    force=True,
-                )
+            ctx.obj = CLIParams(
+                port=DEFAULT_PORT,
+            )
 
     @cli.command(help="Run the Emcie server")
     @click.option(
@@ -493,26 +352,9 @@ def main() -> None:
         default=DEFAULT_PORT,
         help="Server port",
     )
-    @click.option(
-        "--index/--no-index",
-        type=bool,
-        show_default=True,
-        default=False,
-        help="Index configuration changes on startup",
-    )
-    @click.option(
-        "-f",
-        "--force",
-        type=bool,
-        default=False,
-        is_flag=True,
-        help="Ignore warnings and checks",
-    )
     @click.pass_context
-    def run(ctx: click.Context, port: int, index: bool, force: bool) -> None:
+    def run(ctx: click.Context, port: int) -> None:
         ctx.obj.port = port
-        ctx.obj.index = index
-        ctx.obj.force = force
         asyncio.run(start_server(ctx.obj))
 
     try:

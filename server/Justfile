@@ -5,7 +5,6 @@ EMCIE_HOME := "./cache"
 
 setup-cache:
   mkdir -p {{EMCIE_HOME}}
-  cp _config.json {{EMCIE_HOME}}/config.json
 
 @server *args: setup-cache
   EMCIE_HOME={{EMCIE_HOME}} poetry run emcie-server run {{args}}

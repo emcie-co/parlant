@@ -33,6 +33,7 @@ def context() -> ToolContext:
 async def run_service_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServer]:
     async with PluginServer(
         tools=tools,
+        port=8091,
         host="127.0.0.1",
     ) as server:
         try:

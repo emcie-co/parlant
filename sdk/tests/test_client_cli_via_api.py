@@ -1286,7 +1286,7 @@ async def test_that_variable_value_can_be_set_with_string(
                 agent_id,
                 variable_name,
                 key,
-                json.dumps(data),
+                data,
             )
             == os.EX_OK
         )

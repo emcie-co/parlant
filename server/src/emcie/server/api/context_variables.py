@@ -189,7 +189,7 @@ def create_router(
         )
 
     @router.put("/{agent_id}/context-variables/{variable_id}/{key}")
-    async def set_value(
+    async def update_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
         key: str,
@@ -216,7 +216,7 @@ def create_router(
         )
 
     @router.get("/{agent_id}/context-variables/{variable_id}/{key}")
-    async def get_value(
+    async def read_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
         key: str,

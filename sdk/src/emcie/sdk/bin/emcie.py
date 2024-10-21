@@ -183,8 +183,10 @@ class ToolDTO(TypedDict):
 
 
 class ServiceDTO(TypedDict):
-    metadata: ServiceMetaDataDTO
-    tools: list[ToolDTO]
+    name: str
+    kind: str
+    url: str
+    tools: Optional[list[ToolDTO]]
 
 
 def format_datetime(datetime_str: str) -> str:
@@ -580,7 +582,7 @@ class Actions:
     @staticmethod
     def add_service(
         ctx: click.Context, name: str, kind: str, source: str, url: Optional[str]
-    ) -> ServiceMetaDataDTO:
+    ) -> ServiceDTO:
         if kind == "sdk":
             payload = {
                 "kind": "sdk",
@@ -619,7 +621,7 @@ class Actions:
         )
         response.raise_for_status()
 
-        return cast(ServiceMetaDataDTO, response.json())
+        return cast(ServiceDTO, response.json())
 
     @staticmethod
     def remove_service(ctx: click.Context, name: str) -> None:
@@ -627,10 +629,10 @@ class Actions:
         response.raise_for_status()
 
     @staticmethod
-    def list_services(ctx: click.Context) -> list[ServiceMetaDataDTO]:
+    def list_services(ctx: click.Context) -> list[ServiceDTO]:
         response = requests.get(urljoin(ctx.obj.server_address, "services"))
         response.raise_for_status()
-        return cast(list[ServiceMetaDataDTO], response.json()["services"])
+        return cast(list[ServiceDTO], response.json()["services"])
 
     @staticmethod
     def get_service(ctx: click.Context, service_name: str) -> ServiceDTO:
@@ -1299,9 +1301,9 @@ class Interface:
     def view_service(ctx: click.Context, service_name: str) -> None:
         try:
             service = Actions.get_service(ctx, service_name)
-            rich.print(Text("Name:", style="bold"), service["metadata"]["name"])
-            rich.print(Text("Kind:", style="bold"), service["metadata"]["kind"])
-            rich.print(Text("Source:", style="bold"), service["metadata"]["url"])
+            rich.print(Text("Name:", style="bold"), service["name"])
+            rich.print(Text("Kind:", style="bold"), service["kind"])
+            rich.print(Text("Source:", style="bold"), service["url"])
 
             if service["tools"]:
                 rich.print(Text("Tools:", style="bold"))

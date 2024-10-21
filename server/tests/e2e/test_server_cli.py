@@ -17,14 +17,14 @@ from tests.e2e.test_utilities import (
     create_guideline,
     create_sdk_service,
     create_term,
-    get_context_variable_value,
-    get_guideline_list,
-    get_services_list,
+    read_context_variable_value,
+    list_guidelines,
+    list_services,
     get_term_list,
     run_server,
 )
 from tests.test_utilities import nlp_test
-from tests.core.services.tools.test_plugin_clients import run_service_server
+from tests.core.services.tools.test_plugin_client import run_service_server
 
 
 REASONABLE_AMOUNT_OF_TIME = 5
@@ -261,7 +261,7 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
 
         agent = await get_first_agent()
 
-        guidelines = await get_guideline_list(agent_id=agent.id)
+        guidelines = await list_guidelines(agent_id=agent.id)
 
         assert any(first["predicate"] == g["predicate"] for g in guidelines)
         assert any(first["action"] == g["action"] for g in guidelines)
@@ -294,7 +294,7 @@ async def test_that_context_variable_values_load_after_server_restart(
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
-        variable_value = await get_context_variable_value(agent.id, variable["id"], key)
+        variable_value = await read_context_variable_value(agent.id, variable["id"], key)
 
         assert variable_value["data"] == data
 
@@ -320,7 +320,7 @@ async def test_that_services_load_after_server_restart(context: ContextOfTest) -
     with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
-        services = await get_services_list()
+        services = await list_services()
         assert any(s["name"] == service_name for s in services)
         assert any(s["kind"] == service_kind for s in services)
 

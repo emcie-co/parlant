@@ -14,7 +14,7 @@ from tests.core.services.tools.test_openapi import (
 from emcie.common.plugin import tool
 from emcie.common.tools import ToolResult, ToolContext
 
-from tests.core.services.tools.test_plugin_clients import run_service_server
+from tests.core.services.tools.test_plugin_client import run_service_server
 
 
 async def test_that_sdk_service_is_created(
@@ -179,9 +179,9 @@ async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and
 
         service_data = client.get("/services/my_openapi_service").raise_for_status().json()
 
-        assert service_data["metadata"]["name"] == "my_openapi_service"
-        assert service_data["metadata"]["kind"] == "openapi"
-        assert service_data["metadata"]["url"] == OPENAPI_SERVER_URL
+        assert service_data["name"] == "my_openapi_service"
+        assert service_data["kind"] == "openapi"
+        assert service_data["url"] == OPENAPI_SERVER_URL
 
         tools = service_data["tools"]
         assert len(tools) > 0
@@ -217,9 +217,9 @@ async def test_that_reading_an_existing_sdk_service_returns_its_metadata_and_too
         response.raise_for_status()
         service_data = response.json()
 
-        assert service_data["metadata"]["name"] == "my_sdk_service"
-        assert service_data["metadata"]["kind"] == "sdk"
-        assert service_data["metadata"]["url"] == server.url
+        assert service_data["name"] == "my_sdk_service"
+        assert service_data["kind"] == "sdk"
+        assert service_data["url"] == server.url
 
         tools_list = service_data["tools"]
         assert len(tools_list) == 2

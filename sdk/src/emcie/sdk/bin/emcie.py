@@ -166,7 +166,7 @@ class ServiceMetaDataDTO(TypedDict):
     url: str
 
 
-class ToolParameter(TypedDict):
+class ToolParameterDTO(TypedDict):
     type: str
     description: NotRequired[str]
     enum: NotRequired[list[Union[str, int, float, bool]]]
@@ -177,7 +177,7 @@ class ToolDTO(TypedDict):
     creation_utc: datetime
     name: str
     description: str
-    parameters: dict[str, ToolParameter]
+    parameters: dict[str, ToolParameterDTO]
     required: list[str]
     consequential: bool
 
@@ -1286,9 +1286,9 @@ class Interface:
 
         service_items = [
             {
-                "Service name": service["name"],
-                "Service type": service["kind"],
-                "Service source": service["url"],
+                "Name": service["name"],
+                "Type": service["kind"],
+                "Source": service["url"],
             }
             for service in services
         ]
@@ -1304,16 +1304,22 @@ class Interface:
             rich.print(Text("Source:", style="bold"), service["metadata"]["url"])
 
             if service["tools"]:
-                rich.print("\n", Text("Tools:", style="bold"))
+                rich.print(Text("Tools:", style="bold"))
                 for tool in service["tools"]:
-                    rich.print(Text("ID:", style="bold"), tool["id"])
-                    rich.print(Text("Name:", style="bold"), tool["name"])
+                    rich.print(Text("    ID:", style="bold"), tool["id"])
+                    rich.print(Text("    Name:", style="bold"), tool["name"])
                     if tool["description"]:
-                        rich.print(Text("Description:", style="bold"), tool["description"])
+                        # description_lines = wrap(tool["description"], width=70)
+                        # formatted_description = "\n".join(
+                        #     " " * 8 + line for line in description_lines
+                        # )
+                        rich.print(
+                            Text("    Description:\n       ", style="bold"), tool["description"]
+                        )
 
-                    rich.print(Text("Parameters:", style="bold"))
+                    rich.print(Text("    Parameters:", style="bold"))
                     for param_name, param_desc in tool["parameters"].items():
-                        rich.print(Text(f"  - {param_name}:", style="bold"), end=" ")
+                        rich.print(Text(f"      - {param_name}:", style="bold"), end=" ")
                         rich.print(param_desc)
 
                     rich.print("\n")
@@ -1872,7 +1878,7 @@ async def async_main() -> None:
         "--kind",
         type=click.Choice(["sdk", "openapi"], case_sensitive=False),
         required=True,
-        help="Kind of the service (sdk or openapi)",
+        help="Service kind (sdk or openapi)",
     )
     @click.option(
         "-s",

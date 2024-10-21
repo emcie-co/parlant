@@ -49,7 +49,7 @@ from emcie.server.core.sessions import (
     SessionStore,
 )
 from emcie.server.core.glossary import GlossaryStore
-from emcie.server.core.tools import LocalToolService, ToolService, MultiplexedToolService
+from emcie.server.core.tools import ToolService, MultiplexedToolService
 from emcie.server.core.engines.alpha.engine import AlphaEngine
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -170,9 +170,6 @@ async def setup_container() -> AsyncIterator[Container]:
     guidelines_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guidelines.json")
     )
-    tools_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "tools.json")
-    )
     guideline_tool_associations_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, EMCIE_HOME_DIR / "guideline_tool_associations.json")
     )
@@ -191,8 +188,6 @@ async def setup_container() -> AsyncIterator[Container]:
     c[EndUserStore] = EndUserDocumentStore(end_users_db)
     c[GuidelineStore] = GuidelineDocumentStore(guidelines_db)
 
-    c[LocalToolService] = LocalToolService(tools_db)
-    MULTIPLEXED_TOOL_SERVICE.services["local"] = c[LocalToolService]
     c[ToolService] = MULTIPLEXED_TOOL_SERVICE
 
     c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
@@ -257,8 +252,6 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[Engine] = AlphaEngine
 
-    await create_agent_if_absent(c[AgentStore])
-
     c[MC] = await EXIT_STACK.enter_async_context(MC(c))
     yield c
 
@@ -283,6 +276,8 @@ async def load_app(params: CLIParams) -> AsyncIterator[FastAPI]:
             evaluation_store=container[EvaluationStore],
             evaluator=container[BehavioralChangeEvaluator],
         )
+
+        await create_agent_if_absent(container[AgentStore])
 
         yield await create_app(container)
 

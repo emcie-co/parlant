@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Optional, Self, Sequence, TypeAlias, TypedDict, cast
+from typing import Optional, Self, Sequence, TypedDict, cast
 from typing_extensions import Literal
 
 from emcie.server.core.contextual_correlator import ContextualCorrelator
@@ -16,14 +16,13 @@ from emcie.server.core.persistence.document_database import (
 )
 
 ToolServiceKind = Literal["openapi", "sdk"]
-ServiceName: TypeAlias = str
 
 
 class ServiceRegistry(ABC):
     @abstractmethod
     async def update_tool_service(
         self,
-        name: ServiceName,
+        name: str,
         kind: ToolServiceKind,
         url: str,
         openapi_json: Optional[str] = None,
@@ -32,25 +31,25 @@ class ServiceRegistry(ABC):
     @abstractmethod
     async def read_tool_service(
         self,
-        name: ServiceName,
+        name: str,
     ) -> ToolService: ...
 
     @abstractmethod
     async def list_tool_services(
         self,
-    ) -> Sequence[tuple[ServiceName, ToolService]]: ...
+    ) -> Sequence[tuple[str, ToolService]]: ...
 
     @abstractmethod
     async def delete_service(
         self,
-        name: ServiceName,
+        name: str,
     ) -> None: ...
 
 
 class _ToolServiceDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
-    name: ServiceName
+    name: str
     kind: ToolServiceKind
     url: str
     openapi_json: Optional[str]
@@ -73,7 +72,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._event_emitter_factory = event_emitter_factory
         self._correlator = correlator
         self._exit_stack: AsyncExitStack
-        self._running_services: dict[ServiceName, ToolService] = {}
+        self._running_services: dict[str, ToolService] = {}
 
     def _cast_to_specific_tool_service_class(
         self,
@@ -112,7 +111,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     def _serialize_tool_service(
         self,
-        name: ServiceName,
+        name: str,
         service: ToolService,
     ) -> _ToolServiceDocument:
         return _ToolServiceDocument(
@@ -143,7 +142,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     async def update_tool_service(
         self,
-        name: ServiceName,
+        name: str,
         kind: ToolServiceKind,
         url: str,
         openapi_json: Optional[str] = None,
@@ -181,7 +180,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     async def read_tool_service(
         self,
-        name: ServiceName,
+        name: str,
     ) -> ToolService:
         if name not in self._running_services:
             raise ItemNotFoundError(item_id=UniqueId(name))
@@ -189,10 +188,10 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     async def list_tool_services(
         self,
-    ) -> Sequence[tuple[ServiceName, ToolService]]:
+    ) -> Sequence[tuple[str, ToolService]]:
         return list(self._running_services.items())
 
-    async def delete_service(self, name: ServiceName) -> None:
+    async def delete_service(self, name: str) -> None:
         if name in self._running_services:
             service = self._running_services[name]
             await (self._cast_to_specific_tool_service_class(service)).__aexit__(None, None, None)

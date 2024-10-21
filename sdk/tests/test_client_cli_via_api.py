@@ -1505,6 +1505,10 @@ async def test_that_sdk_service_can_be_added(
 
     @tool
     def sample_tool(context: ToolContext, param: int) -> ToolResult:
+        """I want to check also the description here.
+        So for that, I will just write multiline text, so I can test both the
+        limit of chars in one line, and also, test the multiline work as expected
+        and displayed such that the user can easily read and understand."""
         return ToolResult(param * 2)
 
     with run_server(context):

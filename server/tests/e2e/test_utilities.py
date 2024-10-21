@@ -13,7 +13,7 @@ from typing_extensions import Literal
 import httpx
 
 
-class _ServiceMetaDataDTO(TypedDict):
+class _ServiceDTO(TypedDict):
     name: str
     kind: str
     url: str
@@ -199,7 +199,7 @@ async def create_term(agent_id: str, term_name: str, description: str) -> _TermD
         return cast(_TermDTO, response.json()["term"])
 
 
-async def get_guideline_list(agent_id: str) -> list[_GuidelineDTO]:
+async def list_guidelines(agent_id: str) -> list[_GuidelineDTO]:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=httpx.Timeout(30),
@@ -274,7 +274,7 @@ async def create_context_variable(
         return cast(_ContextVariableDTO, response.json()["context_variable"])
 
 
-async def get_context_variable_list(agent_id: str) -> list[_ContextVariableDTO]:
+async def list_context_variables(agent_id: str) -> list[_ContextVariableDTO]:
     async with httpx.AsyncClient(
         base_url=SERVER_ADDRESS,
         follow_redirects=True,
@@ -310,7 +310,7 @@ async def create_context_variable_value(
         return cast(_ContextVariableValueDTO, response.json()["context_variable_value"])
 
 
-async def get_context_variable_value(
+async def read_context_variable_value(
     agent_id: str, variable_id: str, key: str
 ) -> _ContextVariableValueDTO:
     async with httpx.AsyncClient(
@@ -335,9 +335,9 @@ async def create_sdk_service(service_name: str, url: str) -> None:
         response.raise_for_status()
 
 
-async def get_services_list() -> list[_ServiceMetaDataDTO]:
+async def list_services() -> list[_ServiceDTO]:
     async with httpx.AsyncClient() as client:
         response = await client.get(f"{SERVER_ADDRESS}/services/")
         response.raise_for_status()
 
-    return cast(list[_ServiceMetaDataDTO], response.json()["services"])
+    return cast(list[_ServiceDTO], response.json()["services"])

@@ -1,11 +1,12 @@
 from datetime import datetime
-from typing import Union
+from typing import Optional, Union, cast
 from fastapi import APIRouter
 from typing_extensions import Literal
 
 from emcie.server.core.common import DefaultBaseModel
-from emcie.common.tools import Tool, ToolParameter, ToolId
+from emcie.common.tools import Tool, ToolParameter, ToolParameterType, ToolId
 from emcie.server.core.services.tools.openapi import OpenAPIClient
+from emcie.server.core.services.tools.plugins import PluginClient
 from emcie.server.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
 from emcie.server.core.tools import ToolService
 
@@ -34,18 +35,17 @@ class CreateOpenAPIServiceResponse(DefaultBaseModel):
     name: str
 
 
+CreateServiceResponse = Union[CreateSDKServiceResponse, CreateOpenAPIServiceResponse]
+
+
 class DeleteServiceResponse(DefaultBaseModel):
     name: str
 
 
-class ServiceMetaDataDTO(DefaultBaseModel):
-    name: str
-    kind: ToolServiceKind
-    url: str
-
-
-class ListServicesResponse(DefaultBaseModel):
-    services: list[ServiceMetaDataDTO]
+class ToolParameterDTO(DefaultBaseModel):
+    type: ToolParameterType
+    description: Optional[str]
+    enum: Optional[list[Union[str, int, float, bool]]]
 
 
 class ToolDTO(DefaultBaseModel):
@@ -53,14 +53,27 @@ class ToolDTO(DefaultBaseModel):
     creation_utc: datetime
     name: str
     description: str
-    parameters: dict[str, ToolParameter]
+    parameters: dict[str, ToolParameterDTO]
     required: list[str]
-    consequential: bool
 
 
 class ServiceDTO(DefaultBaseModel):
-    metadata: ServiceMetaDataDTO
-    tools: list[ToolDTO]
+    name: str
+    kind: ToolServiceKind
+    url: str
+    tools: Optional[list[ToolDTO]] = None
+
+
+class ListServicesResponse(DefaultBaseModel):
+    services: list[ServiceDTO]
+
+
+def _tool_parameters_to_dto(parameters: ToolParameter) -> ToolParameterDTO:
+    return ToolParameterDTO(
+        type=parameters["type"],
+        description=parameters["description"] if "description" in parameters else None,
+        enum=parameters["enum"] if "enum" in parameters else None,
+    )
 
 
 def _tool_to_dto(tool: Tool) -> ToolDTO:
@@ -69,23 +82,25 @@ def _tool_to_dto(tool: Tool) -> ToolDTO:
         creation_utc=tool.creation_utc,
         name=tool.name,
         description=tool.description,
-        parameters=tool.parameters,
+        parameters={k: _tool_parameters_to_dto(p) for k, p in tool.parameters.items()},
         required=tool.required,
-        consequential=tool.consequential,
+    )
+
+
+def _get_service_kind(service: ToolService) -> ToolServiceKind:
+    return "openapi" if isinstance(service, OpenAPIClient) else "sdk"
+
+
+def _get_service_url(service: ToolService) -> str:
+    return (
+        service.server_url
+        if isinstance(service, OpenAPIClient)
+        else cast(PluginClient, service).url
     )
 
 
 def create_router(service_registry: ServiceRegistry) -> APIRouter:
     router = APIRouter()
-
-    def get_service_metadata(name: str, service: ToolService) -> ServiceMetaDataDTO:
-        return ServiceMetaDataDTO(
-            name=name,
-            kind="openapi" if isinstance(service, OpenAPIClient) else "sdk",
-            url=getattr(service, "server_url")
-            if isinstance(service, OpenAPIClient)
-            else getattr(service, "url"),
-        )
 
     @router.put("/{name}")
     async def create_service(
@@ -110,7 +125,11 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
     async def list_services() -> ListServicesResponse:
         return ListServicesResponse(
             services=[
-                get_service_metadata(name, service)
+                ServiceDTO(
+                    name=name,
+                    kind=_get_service_kind(service),
+                    url=_get_service_url(service),
+                )
                 for name, service in await service_registry.list_tool_services()
             ]
         )
@@ -118,8 +137,11 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
     @router.get("/{name}")
     async def read_service(name: str) -> ServiceDTO:
         service = await service_registry.read_tool_service(name)
+
         return ServiceDTO(
-            metadata=get_service_metadata(name, service),
+            name=name,
+            kind=_get_service_kind(service),
+            url=_get_service_url(service),
             tools=[_tool_to_dto(t) for t in await service.list_tools()],
         )
 

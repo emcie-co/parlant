@@ -3,7 +3,7 @@ import tempfile
 from typing import Iterator
 from pytest import fixture
 
-from tests.test_utilities import ContextOfTest, get_package_path
+from tests.test_utilities import ContextOfTest
 
 
 @fixture
@@ -13,5 +13,4 @@ def context() -> Iterator[ContextOfTest]:
 
         yield ContextOfTest(
             home_dir=home_dir_path,
-            index_file=home_dir_path / "index.json",
         )

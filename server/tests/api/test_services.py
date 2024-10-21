@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 from fastapi import status
 from fastapi.testclient import TestClient
 import httpx
@@ -6,7 +9,6 @@ from lagom import Container
 from emcie.server.core.services.tools.service_registry import ServiceRegistry
 from tests.core.services.tools.test_openapi import (
     OPENAPI_SERVER_URL,
-    get_openapi_spec,
     rng_app,
     run_openapi_server,
 )
@@ -33,28 +35,73 @@ async def test_that_sdk_service_is_created(
     )
 
     assert content["name"] == "my_sdk_service"
+    assert content["kind"] == "sdk"
+    assert content["url"] == "https://example.com/sdk"
 
 
-async def test_that_openapi_service_is_created(
-    client: TestClient,
+async def test_that_openapi_service_is_created_with_url_source(
+    async_client: httpx.AsyncClient,
 ) -> None:
     async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+        source = f"{OPENAPI_SERVER_URL}/openapi.json"
 
-    content = (
-        client.put(
+        response = await async_client.put(
             "/services/my_openapi_service",
             json={
                 "kind": "openapi",
                 "url": OPENAPI_SERVER_URL,
-                "openapi_json": openapi_json,
+                "source": source,
             },
         )
-        .raise_for_status()
-        .json()
-    )
+        response.raise_for_status()
+        content = response.json()
 
-    assert content["name"] == "my_openapi_service"
+        assert content["name"] == "my_openapi_service"
+        assert content["kind"] == "openapi"
+        assert content["url"] == OPENAPI_SERVER_URL
+
+
+async def test_that_openapi_service_is_created_with_file_source(
+    async_client: httpx.AsyncClient,
+) -> None:
+    openapi_json = {
+        "openapi": "3.0.0",
+        "info": {"title": "TestAPI", "version": "1.0.0"},
+        "paths": {
+            "/hello": {
+                "get": {
+                    "summary": "Say Hello",
+                    "operationId": "print_hello__get",
+                    "responses": {
+                        "200": {
+                            "description": "Successful Response",
+                            "content": {"application/json": {"schema": {"type": "string"}}},
+                        }
+                    },
+                }
+            }
+        },
+    }
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tmp_file:
+        json.dump(openapi_json, tmp_file)
+        source = tmp_file.name
+
+    response = await async_client.put(
+        "/services/my_openapi_file_service",
+        json={
+            "kind": "openapi",
+            "url": "http://localhost",
+            "source": source,
+        },
+    )
+    response.raise_for_status()
+    content = response.json()
+
+    assert content["name"] == "my_openapi_file_service"
+    assert content["kind"] == "openapi"
+    assert content["url"] == "http://localhost"
+
+    os.remove(source)
 
 
 def test_that_sdk_service_is_created_and_deleted(
@@ -83,34 +130,34 @@ def test_that_sdk_service_is_created_and_deleted(
 
 async def test_that_openapi_service_is_created_and_deleted(
     client: TestClient,
+    async_client: httpx.AsyncClient,
 ) -> None:
     async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+        source = f"{OPENAPI_SERVER_URL}/openapi.json"
 
         _ = (
-            client.put(
+            await async_client.put(
                 "/services/my_openapi_service",
                 json={
                     "kind": "openapi",
                     "url": OPENAPI_SERVER_URL,
-                    "openapi_json": openapi_json,
+                    "source": source,
                 },
             )
-            .raise_for_status()
-            .json()
-        )
+        ).raise_for_status()
 
-        response = client.delete("/services/my_openapi_service")
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["name"] == "my_openapi_service"
+    response = client.delete("/services/my_openapi_service")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["name"] == "my_openapi_service"
 
-        response = client.delete("/services/my_openapi_service")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+    response = client.delete("/services/my_openapi_service")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_services_are_listed_correctly(
     client: TestClient,
+    async_client: httpx.AsyncClient,
 ) -> None:
     response = client.get("/services/")
     assert response.status_code == status.HTTP_200_OK
@@ -130,19 +177,16 @@ async def test_that_services_are_listed_correctly(
     )
 
     async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
-        _ = (
-            client.put(
-                "/services/my_openapi_service",
-                json={
-                    "kind": "openapi",
-                    "url": OPENAPI_SERVER_URL,
-                    "openapi_json": openapi_json,
-                },
-            )
-            .raise_for_status()
-            .json()
+        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+        response = await async_client.put(
+            "/services/my_openapi_service",
+            json={
+                "kind": "openapi",
+                "url": OPENAPI_SERVER_URL,
+                "source": source,
+            },
         )
+        response.raise_for_status()
 
     response = client.get("/services/")
     assert response.status_code == status.HTTP_200_OK
@@ -169,27 +213,27 @@ async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and
     service_registry = container[ServiceRegistry]
 
     async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+        source = f"{OPENAPI_SERVER_URL}/openapi.json"
         await service_registry.update_tool_service(
             name="my_openapi_service",
             kind="openapi",
             url=OPENAPI_SERVER_URL,
-            openapi_json=openapi_json,
+            source=source,
         )
 
-        service_data = client.get("/services/my_openapi_service").raise_for_status().json()
+    service_data = client.get("/services/my_openapi_service").raise_for_status().json()
 
-        assert service_data["name"] == "my_openapi_service"
-        assert service_data["kind"] == "openapi"
-        assert service_data["url"] == OPENAPI_SERVER_URL
+    assert service_data["name"] == "my_openapi_service"
+    assert service_data["kind"] == "openapi"
+    assert service_data["url"] == OPENAPI_SERVER_URL
 
-        tools = service_data["tools"]
-        assert len(tools) > 0
+    tools = service_data["tools"]
+    assert len(tools) > 0
 
-        for tool in tools:
-            assert "id" in tool
-            assert "name" in tool
-            assert "description" in tool
+    for t in tools:
+        assert "id" in t
+        assert "name" in t
+        assert "description" in t
 
 
 async def test_that_reading_an_existing_sdk_service_returns_its_metadata_and_tools(

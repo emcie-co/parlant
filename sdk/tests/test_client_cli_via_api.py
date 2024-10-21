@@ -371,8 +371,8 @@ async def test_that_agent_can_be_updated(
             assert agent["max_engine_iterations"] == new_max_engine_iterations
 
 
-async def create_openapi_service(service_name: str, openapi_json: str, url: str) -> None:
-    payload = {"kind": "openapi", "openapi_json": openapi_json, "url": url}
+async def create_openapi_service(service_name: str, url: str) -> None:
+    payload = {"kind": "openapi", "source": f"{url}/openapi.json", "url": url}
 
     async with httpx.AsyncClient() as client:
         response = await client.put(f"{SERVER_ADDRESS}/services/{service_name}", json=payload)
@@ -1548,12 +1548,7 @@ async def test_that_service_can_be_removed(
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
-                response.raise_for_status()
-                openapi_json = response.text
-
-            await create_openapi_service(service_name, openapi_json, OPENAPI_SERVER_URL)
+            await create_openapi_service(service_name, OPENAPI_SERVER_URL)
 
         assert (
             await run_cli_and_get_exit_status(
@@ -1574,20 +1569,13 @@ async def test_that_service_can_be_removed(
 async def test_that_services_can_be_listed(context: ContextOfTest) -> None:
     service_name_1 = "test_openapi_service_1"
     service_name_2 = "test_openapi_service_2"
-    url_1 = "http://localhost:8001"
-    url_2 = "http://localhost:8002"
 
     with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
-                response.raise_for_status()
-                openapi_json = response.text
-
-        await create_openapi_service(service_name_1, openapi_json, url_1)
-        await create_openapi_service(service_name_2, openapi_json, url_2)
+            await create_openapi_service(service_name_1, OPENAPI_SERVER_URL)
+            await create_openapi_service(service_name_2, OPENAPI_SERVER_URL)
 
         process = await run_cli(
             "service",
@@ -1603,8 +1591,6 @@ async def test_that_services_can_be_listed(context: ContextOfTest) -> None:
         assert service_name_1 in output
         assert service_name_2 in output
         assert "openapi" in output, "Service type 'openapi' was not found in the output"
-        assert url_1 in output
-        assert url_2 in output
 
 
 async def test_that_services_can_be_viewed(context: ContextOfTest) -> None:
@@ -1615,12 +1601,7 @@ async def test_that_services_can_be_viewed(context: ContextOfTest) -> None:
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
-                response.raise_for_status()
-                openapi_json = response.text
-
-            await create_openapi_service(service_name, openapi_json, service_url)
+            await create_openapi_service(service_name, service_url)
 
         process = await run_cli(
             "service",

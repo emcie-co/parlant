@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import Optional, Self, Sequence, TypedDict, cast
+import aiofiles
+import httpx
 from typing_extensions import Literal
 
 from emcie.server.core.contextual_correlator import ContextualCorrelator
@@ -25,7 +27,7 @@ class ServiceRegistry(ABC):
         name: str,
         kind: ToolServiceKind,
         url: str,
-        openapi_json: Optional[str] = None,
+        source: Optional[str] = None,
     ) -> ToolService: ...
 
     @abstractmethod
@@ -52,7 +54,7 @@ class _ToolServiceDocument(TypedDict, total=False):
     name: str
     kind: ToolServiceKind
     url: str
-    openapi_json: Optional[str]
+    source: Optional[str]
 
 
 class ServiceDocumentRegistry(ServiceRegistry):
@@ -73,6 +75,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._correlator = correlator
         self._exit_stack: AsyncExitStack
         self._running_services: dict[str, ToolService] = {}
+        self._service_sources: dict[str, str] = {}
 
     def _cast_to_specific_tool_service_class(
         self,
@@ -90,11 +93,13 @@ class ServiceDocumentRegistry(ServiceRegistry):
         documents = await self._tool_services_collection.find({})
 
         for document in documents:
-            service = self._deserialize_tool_service(document)
+            service = await self._deserialize_tool_service(document)
             await self._exit_stack.enter_async_context(
                 self._cast_to_specific_tool_service_class(service)
             )
             self._running_services[document["name"]] = service
+            if document["source"]:
+                self._service_sources[document["name"]] = document["source"]
 
         return self
 
@@ -107,7 +112,18 @@ class ServiceDocumentRegistry(ServiceRegistry):
         if self._exit_stack:
             await self._exit_stack.__aexit__(exc_type, exc_value, traceback)
             self._running_services.clear()
+            self._service_sources.clear()
         return False
+
+    async def _get_openapi_json_from_source(self, source: str) -> str:
+        if source.startswith("http://") or source.startswith("https://"):
+            async with httpx.AsyncClient() as client:
+                response = await client.get(source)
+                response.raise_for_status()
+                return response.text
+        else:
+            async with aiofiles.open(source, "r") as f:
+                return await f.read()
 
     def _serialize_tool_service(
         self,
@@ -122,14 +138,16 @@ class ServiceDocumentRegistry(ServiceRegistry):
             url=service.server_url
             if isinstance(service, OpenAPIClient)
             else cast(PluginClient, service).url,
-            openapi_json=service.openapi_json if isinstance(service, OpenAPIClient) else None,
+            source=self._service_sources.get(name) if isinstance(service, OpenAPIClient) else None,
         )
 
-    def _deserialize_tool_service(self, document: _ToolServiceDocument) -> ToolService:
+    async def _deserialize_tool_service(self, document: _ToolServiceDocument) -> ToolService:
         if document["kind"] == "openapi":
+            openapi_json = await self._get_openapi_json_from_source(cast(str, document["source"]))
+
             return OpenAPIClient(
                 server_url=document["url"],
-                openapi_json=cast(str, document["openapi_json"]),
+                openapi_json=openapi_json,
             )
         elif document["kind"] == "sdk":
             return PluginClient(
@@ -145,13 +163,15 @@ class ServiceDocumentRegistry(ServiceRegistry):
         name: str,
         kind: ToolServiceKind,
         url: str,
-        openapi_json: Optional[str] = None,
+        source: Optional[str] = None,
     ) -> ToolService:
         service: ToolService
 
         if kind == "openapi":
-            assert openapi_json
+            assert source
+            openapi_json = await self._get_openapi_json_from_source(source)
             service = OpenAPIClient(server_url=url, openapi_json=openapi_json)
+            self._service_sources[name] = source
         else:
             service = PluginClient(
                 url=url,
@@ -196,6 +216,8 @@ class ServiceDocumentRegistry(ServiceRegistry):
             service = self._running_services[name]
             await (self._cast_to_specific_tool_service_class(service)).__aexit__(None, None, None)
             del self._running_services[name]
+            if name in self._service_sources:
+                del self._service_sources[name]
 
         result = await self._tool_services_collection.delete_one({"name": {"$eq": name}})
         if not result.deleted_count:

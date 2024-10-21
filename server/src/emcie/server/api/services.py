@@ -19,23 +19,16 @@ class CreateSDKServiceRequest(DefaultBaseModel):
 class CreateOpenAPIServiceRequest(DefaultBaseModel):
     kind: Literal["openapi"]
     url: str
-    openapi_json: str
+    source: str
 
 
 CreateServiceRequest = Union[CreateSDKServiceRequest, CreateOpenAPIServiceRequest]
 
 
-class CreateSDKServiceResponse(DefaultBaseModel):
+class CreateServiceResponse(DefaultBaseModel):
     name: str
-    kind: Literal["sdk"] = "sdk"
+    kind: ToolServiceKind
     url: str
-
-
-class CreateOpenAPIServiceResponse(DefaultBaseModel):
-    name: str
-
-
-CreateServiceResponse = Union[CreateSDKServiceResponse, CreateOpenAPIServiceResponse]
 
 
 class DeleteServiceResponse(DefaultBaseModel):
@@ -103,17 +96,19 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
     router = APIRouter()
 
     @router.put("/{name}")
-    async def create_service(
-        name: str, request: CreateServiceRequest
-    ) -> CreateOpenAPIServiceResponse:
-        _ = await service_registry.update_tool_service(
+    async def create_service(name: str, request: CreateServiceRequest) -> CreateServiceResponse:
+        service = await service_registry.update_tool_service(
             name=name,
             kind=request.kind,
             url=request.url,
-            openapi_json=getattr(request, "openapi_json", None),
+            source=getattr(request, "source", None),
         )
 
-        return CreateOpenAPIServiceResponse(name=name)
+        return CreateServiceResponse(
+            name=name,
+            kind=_get_service_kind(service),
+            url=_get_service_url(service),
+        )
 
     @router.delete("/{name}")
     async def delete_service(name: str) -> DeleteServiceResponse:

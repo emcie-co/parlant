@@ -3,7 +3,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from lagom import Container
 
-from emcie.server.api import agents, evaluations
+from emcie.server.api import agents, index
 from emcie.server.api import sessions
 from emcie.server.api import glossary
 from emcie.server.api import guidelines
@@ -83,7 +83,7 @@ async def create_app(container: Container) -> FastAPI:
         )
     )
     agent_router.include_router(
-        evaluations.create_router(
+        index.create_router(
             evaluation_service=evaluation_service,
             evaluation_store=evaluation_store,
             agent_store=agent_store,

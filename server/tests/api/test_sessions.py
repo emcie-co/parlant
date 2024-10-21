@@ -437,13 +437,13 @@ def test_that_posting_a_message_elicits_a_response(
 
     assert response.status_code == status.HTTP_201_CREATED
 
-    event_offset = response.json()["event_offset"]
+    event = response.json()["event"]
 
     events_in_session = (
         client.get(
             f"/sessions/{session_id}/events",
             params={
-                "min_offset": event_offset + 1,
+                "min_offset": event["offset"] + 1,
                 "kinds": "message",
                 "wait": True,
             },
@@ -502,7 +502,7 @@ def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
     client.get(
         f"/sessions/{session_id}/events",
         params={
-            "min_offset": posted_event["event_offset"] + 1,
+            "min_offset": posted_event["event"]["offset"] + 1,
             "wait": False,
         },
     )

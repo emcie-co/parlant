@@ -848,9 +848,9 @@ class Interface:
                     json={"content": new_message},
                 )
                 response.raise_for_status()
-                new_event = response.json()
+                new_event = response.json()["event"]
 
-                last_known_offset = new_event["event_offset"]
+                last_known_offset = new_event["offset"]
 
                 while True:
                     response = requests.get(

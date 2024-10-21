@@ -54,9 +54,18 @@ class CreateMessageRequest(DefaultBaseModel):
     content: str
 
 
+class EventDTO(DefaultBaseModel):
+    id: EventId
+    source: EventSource
+    kind: str
+    offset: int
+    creation_utc: datetime
+    correlation_id: str
+    data: Any
+
+
 class CreateEventResponse(DefaultBaseModel):
-    event_id: EventId
-    event_offset: int
+    event: EventDTO
 
 
 class ConsumptionOffsetsPatchDTO(DefaultBaseModel):
@@ -66,16 +75,6 @@ class ConsumptionOffsetsPatchDTO(DefaultBaseModel):
 class PatchSessionRequest(DefaultBaseModel):
     consumption_offsets: Optional[ConsumptionOffsetsPatchDTO] = None
     title: Optional[str] = None
-
-
-class EventDTO(DefaultBaseModel):
-    id: EventId
-    source: EventSource
-    kind: str
-    offset: int
-    creation_utc: datetime
-    correlation_id: str
-    data: Any
 
 
 class ListEventsResponse(DefaultBaseModel):
@@ -272,8 +271,15 @@ def create_router(
         )
 
         return CreateEventResponse(
-            event_id=event.id,
-            event_offset=event.offset,
+            event=EventDTO(
+                id=event.id,
+                source=event.source,
+                kind=event.kind,
+                offset=event.offset,
+                creation_utc=event.creation_utc,
+                correlation_id=event.correlation_id,
+                data=event.data,
+            )
         )
 
     @router.get("/{session_id}/events")

@@ -87,7 +87,7 @@ async def get_agent_replies(
                 },
             )
             user_message_response.raise_for_status()
-            user_message_offset = int(user_message_response.json()["event_offset"])
+            user_message_offset = int(user_message_response.json()["event"]["offset"])
 
             last_known_offset = user_message_offset
 

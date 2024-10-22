@@ -133,6 +133,12 @@ class API:
             return str(agent["id"])
 
     @staticmethod
+    async def list_agents() -> Any:
+        async with API.make_client() as client:
+            response = await client.get("/agents/")
+            return response.raise_for_status().json()["agents"]
+
+    @staticmethod
     async def create_session(agent_id: str, end_user_id: str) -> Any:
         async with API.make_client() as client:
             response = await client.post(
@@ -165,7 +171,7 @@ class API:
                     },
                 )
                 user_message_response.raise_for_status()
-                user_message_offset = int(user_message_response.json()["event_offset"])
+                user_message_offset = int(user_message_response.json()["event"]["offset"])
 
                 last_known_offset = user_message_offset
 
@@ -340,6 +346,14 @@ class API:
 
             return response.json()
 
+    @staticmethod
+    async def create_openapi_service(service_name: str, url: str) -> None:
+        payload = {"kind": "openapi", "source": f"{url}/openapi.json", "url": url}
+
+        async with API.make_client() as client:
+            response = await client.put(f"/services/{service_name}", json=payload)
+            response.raise_for_status()
+
 
 async def test_that_agent_can_be_updated(
     context: ContextOfTest,
@@ -359,24 +373,10 @@ async def test_that_agent_can_be_updated(
             str(new_max_engine_iterations),
         ) == os.EX_OK
 
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=httpx.Timeout(30),
-        ) as client:
-            response = await client.get(f"{SERVER_ADDRESS}/agents")
-            response.raise_for_status()
-            agent = response.json()["agents"][0]
+        agent = (await API.list_agents())[0]
 
-            assert agent["description"] == new_description
-            assert agent["max_engine_iterations"] == new_max_engine_iterations
-
-
-async def create_openapi_service(service_name: str, url: str) -> None:
-    payload = {"kind": "openapi", "source": f"{url}/openapi.json", "url": url}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.put(f"{SERVER_ADDRESS}/services/{service_name}", json=payload)
-        response.raise_for_status()
+        assert agent["description"] == new_description
+        assert agent["max_engine_iterations"] == new_max_engine_iterations
 
 
 async def test_that_a_term_can_be_created_with_synonyms(
@@ -1261,7 +1261,7 @@ async def test_that_variable_value_can_be_set_with_json(
         )
 
         value = await API.read_context_variable_value(agent_id, variable["id"], key)
-        assert value["data"] == data
+        assert json.loads(value["data"]) == data
 
 
 async def test_that_variable_value_can_be_set_with_string(
@@ -1507,16 +1507,14 @@ async def test_that_sdk_service_can_be_added(
     def sample_tool(context: ToolContext, param: int) -> ToolResult:
         """I want to check also the description here.
         So for that, I will just write multiline text, so I can test both the
-        limit of chars in one line, and also, test the multiline work as expected
-        and displayed such that the user can easily read and understand."""
+        limit of chars in one line, and also, test that multiline works as expected
+        and displayed such that the user can easily read and understand it."""
         return ToolResult(param * 2)
 
     with run_server(context):
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_service_server([sample_tool]) as server:
-            source_url = server.url
-
             assert (
                 await run_cli_and_get_exit_status(
                     "service",
@@ -1524,8 +1522,8 @@ async def test_that_sdk_service_can_be_added(
                     service_name,
                     "-k",
                     service_kind,
-                    "-s",
-                    source_url,
+                    "-u",
+                    server.url,
                 )
                 == os.EX_OK
             )
@@ -1548,7 +1546,7 @@ async def test_that_service_can_be_removed(
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            await create_openapi_service(service_name, OPENAPI_SERVER_URL)
+            await API.create_openapi_service(service_name, OPENAPI_SERVER_URL)
 
         assert (
             await run_cli_and_get_exit_status(
@@ -1574,8 +1572,8 @@ async def test_that_services_can_be_listed(context: ContextOfTest) -> None:
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            await create_openapi_service(service_name_1, OPENAPI_SERVER_URL)
-            await create_openapi_service(service_name_2, OPENAPI_SERVER_URL)
+            await API.create_openapi_service(service_name_1, OPENAPI_SERVER_URL)
+            await API.create_openapi_service(service_name_2, OPENAPI_SERVER_URL)
 
         process = await run_cli(
             "service",
@@ -1601,7 +1599,7 @@ async def test_that_services_can_be_viewed(context: ContextOfTest) -> None:
         await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
         async with run_openapi_server(rng_app()):
-            await create_openapi_service(service_name, service_url)
+            await API.create_openapi_service(service_name, service_url)
 
         process = await run_cli(
             "service",

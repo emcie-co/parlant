@@ -576,37 +576,23 @@ class Actions:
 
     @staticmethod
     def add_service(
-        ctx: click.Context, name: str, kind: str, source: str, url: Optional[str]
+        ctx: click.Context,
+        name: str,
+        kind: str,
+        url: str,
+        source: str,
     ) -> ServiceDTO:
         if kind == "sdk":
             payload = {
                 "kind": "sdk",
-                "url": source,
+                "url": url,
             }
         elif kind == "openapi":
-            if os.path.isfile(source):
-                if not url:
-                    raise ValueError("Url is required when source is file and kind is openapi")
-
-                with open(source, "r") as f:
-                    openapi_json = f.read()
-
-                payload = {
-                    "kind": "openapi",
-                    "url": url,
-                    "openapi_json": openapi_json,
-                }
-
-            else:
-                response = requests.get(source)
-                response.raise_for_status()
-
-                openapi_json = response.text
-                payload = {
-                    "kind": "openapi",
-                    "url": source,
-                    "openapi_json": openapi_json,
-                }
+            payload = {
+                "kind": "openapi",
+                "url": url,
+                "source": source,
+            }
         else:
             raise ValueError(f"Unsupported kind: {kind}")
 
@@ -1255,11 +1241,14 @@ class Interface:
 
     @staticmethod
     def add_service(
-        ctx: click.Context, name: str, kind: str, source: str, url: Optional[str]
+        ctx: click.Context,
+        name: str,
+        kind: str,
+        url: str,
+        source: str,
     ) -> None:
         try:
-            result = Actions.add_service(ctx, name, kind, source, url)
-
+            result = Actions.add_service(ctx, name, kind, url, source)
             Interface._write_success(f"Added service '{name}'")
             Interface._print_table([result])
         except Exception as e:
@@ -1875,26 +1864,32 @@ async def async_main() -> None:
         "--kind",
         type=click.Choice(["sdk", "openapi"], case_sensitive=False),
         required=True,
-        help="Service kind (sdk or openapi)",
-    )
-    @click.option(
-        "-s",
-        "--source",
-        required=True,
-        help="For 'sdk', source must be a URL. For 'openapi', source can be a URL or a file path.",
+        help="Service kind",
     )
     @click.option(
         "-u",
         "--url",
+        metavar="URL",
+        required=True,
+        help="Service root URL",
+    )
+    @click.option(
+        "-s",
+        "--source",
         required=False,
-        help="Base URL of the OpenAPI service (required if source is a file for 'openapi' kind)",
+        metavar="SOURCE",
+        help="For an OpenAPI service, this is the local path or URL to its openapi.json",
     )
     @click.argument("name", type=str)
     @click.pass_context
     def service_add(
-        ctx: click.Context, kind: str, source: str, name: str, url: Optional[str]
+        ctx: click.Context,
+        name: str,
+        kind: str,
+        url: str,
+        source: str,
     ) -> None:
-        Interface.add_service(ctx, name, kind, source, url)
+        Interface.add_service(ctx, name, kind, url, source)
 
     @service.command("remove", help="Remove a service")
     @click.argument("name", type=str)

@@ -53,7 +53,7 @@ def test_create_term_without_synonyms(
 
     assert data["name"] == name
     assert data["description"] == description
-    assert data["synonyms"] is None
+    assert data["synonyms"] == []
 
 
 def test_read_term(
@@ -105,7 +105,7 @@ def test_read_term_without_synonyms(
     data = read_response.json()
     assert data["name"] == name
     assert data["description"] == description
-    assert data["synonyms"] is None
+    assert data["synonyms"] == []
 
 
 def test_list_terms(

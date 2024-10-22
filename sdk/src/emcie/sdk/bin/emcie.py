@@ -155,12 +155,6 @@ class ReadInteractionResponse(TypedDict):
     preparation_iterations: list[PreparationIterationDTO]
 
 
-class ServiceMetadataDTO(TypedDict):
-    name: str
-    kind: str
-    url: str
-
-
 class ToolParameterDTO(TypedDict):
     type: str
     description: NotRequired[str]

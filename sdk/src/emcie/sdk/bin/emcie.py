@@ -155,7 +155,7 @@ class ReadInteractionResponse(TypedDict):
     preparation_iterations: list[PreparationIterationDTO]
 
 
-class ServiceMetaDataDTO(TypedDict):
+class ServiceMetadataDTO(TypedDict):
     name: str
     kind: str
     url: str

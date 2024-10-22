@@ -49,11 +49,6 @@ class EventDTO(TypedDict):
     data: Any
 
 
-class CreateEventResponse(TypedDict):
-    event_id: str
-    event_offset: int
-
-
 class TermDTO(TypedDict):
     id: str
     name: str
@@ -272,13 +267,13 @@ class Actions:
         return cast(list[EventDTO], response.json()["events"])
 
     @staticmethod
-    def create_event(ctx: click.Context, session_id: str, message: str) -> CreateEventResponse:
+    def create_event(ctx: click.Context, session_id: str, message: str) -> EventDTO:
         response = requests.post(
             urljoin(ctx.obj.server_address, f"/sessions/{session_id}/events"),
             json={"content": message},
         )
         response.raise_for_status()
-        return cast(CreateEventResponse, response.json())
+        return cast(EventDTO, response.json()["event"])
 
     @staticmethod
     def create_term(
@@ -795,7 +790,7 @@ class Interface:
     @staticmethod
     def create_event(ctx: click.Context, session_id: str, message: str) -> None:
         event = Actions.create_event(ctx, session_id, message)
-        Interface._write_success(f"Added event (id={event['event_id']})")
+        Interface._write_success(f"Added event (id={event['id']})")
 
     @staticmethod
     def chat(ctx: click.Context, session_id: str) -> None:

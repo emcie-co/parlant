@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Optional, Self, Sequence, TypedDict, cast
+from typing import Mapping, Optional, Self, Sequence, TypedDict, cast
 import aiofiles
 import httpx
 from typing_extensions import Literal
 
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.emissions import EventEmitterFactory
+from emcie.server.core.nlp.moderation import ModerationService
 from emcie.server.core.services.tools.openapi import OpenAPIClient
 from emcie.server.core.services.tools.plugins import PluginClient
 from emcie.server.core.tools import ToolService
@@ -42,6 +43,17 @@ class ServiceRegistry(ABC):
     ) -> Sequence[tuple[str, ToolService]]: ...
 
     @abstractmethod
+    async def read_moderation_service(
+        self,
+        name: str,
+    ) -> ModerationService: ...
+
+    @abstractmethod
+    async def list_moderation_services(
+        self,
+    ) -> Sequence[tuple[str, ModerationService]]: ...
+
+    @abstractmethod
     async def delete_service(
         self,
         name: str,
@@ -65,17 +77,20 @@ class ServiceDocumentRegistry(ServiceRegistry):
         database: DocumentDatabase,
         event_emitter_factory: EventEmitterFactory,
         correlator: ContextualCorrelator,
+        moderation_services: Mapping[str, ModerationService],
     ):
+        self._event_emitter_factory = event_emitter_factory
+        self._correlator = correlator
+        self._moderation_services = moderation_services
+
+        self._exit_stack: AsyncExitStack
+        self._running_services: dict[str, ToolService] = {}
+        self._service_sources: dict[str, str] = {}
+
         self._tool_services_collection = database.get_or_create_collection(
             name="tool_services",
             schema=_ToolServiceDocument,
         )
-
-        self._event_emitter_factory = event_emitter_factory
-        self._correlator = correlator
-        self._exit_stack: AsyncExitStack
-        self._running_services: dict[str, ToolService] = {}
-        self._service_sources: dict[str, str] = {}
 
     def _cast_to_specific_tool_service_class(
         self,
@@ -210,6 +225,19 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self,
     ) -> Sequence[tuple[str, ToolService]]:
         return list(self._running_services.items())
+
+    async def read_moderation_service(
+        self,
+        name: str,
+    ) -> ModerationService:
+        if name not in self._moderation_services:
+            raise ItemNotFoundError(item_id=UniqueId(name))
+        return self._moderation_services[name]
+
+    async def list_moderation_services(
+        self,
+    ) -> Sequence[tuple[str, ModerationService]]:
+        return list(self._moderation_services.items())
 
     async def delete_service(self, name: str) -> None:
         if name in self._running_services:

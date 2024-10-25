@@ -112,6 +112,7 @@ async def create_app(container: Container) -> FastAPI:
             mc=mc,
             session_store=session_store,
             session_listener=session_listener,
+            service_registry=service_registry,
         ),
     )
 

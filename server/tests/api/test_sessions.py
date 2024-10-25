@@ -431,6 +431,24 @@ async def test_that_events_can_be_filtered_by_offset(
         assert event_is_according_to_params(event=listed_event, params=event_params)
 
 
+def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_to_be_flagged_and_tagged_as_such(
+    client: TestClient,
+    session_id: SessionId,
+) -> None:
+    response = client.post(
+        f"/sessions/{session_id}/events",
+        params={"moderation": "auto"},
+        json={"content": "Fuck all those guys"},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()["event"]
+
+    assert event["data"].get("flagged")
+    assert "harassment" in event["data"].get("tags")
+
+
 def test_that_posting_a_message_elicits_a_response(
     client: TestClient,
     session_id: SessionId,

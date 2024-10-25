@@ -12,6 +12,7 @@ from emcie.server.core.context_variables import ContextVariableId
 from emcie.server.core.agents import AgentId
 from emcie.server.core.end_users import EndUserId
 from emcie.server.core.guidelines import GuidelineId
+from emcie.server.core.services.tools.service_registry import ServiceRegistry
 from emcie.server.core.sessions import (
     EventId,
     EventKind,
@@ -155,6 +156,7 @@ def create_router(
     mc: MC,
     session_store: SessionStore,
     session_listener: SessionListener,
+    service_registry: ServiceRegistry,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -267,11 +269,25 @@ def create_router(
     async def create_event(
         session_id: SessionId,
         request: Union[CreateMessageRequest],
+        moderation: Literal["none", "auto"] = "none",
     ) -> CreateEventResponse:
+        flagged = False
+        tags = set()
+
+        if moderation == "auto":
+            for _, moderation_service in await service_registry.list_moderation_services():
+                check = await moderation_service.check(request.content)
+                flagged |= check.flagged
+                tags.update(check.tags)
+
         event = await mc.post_client_event(
             session_id=session_id,
             kind=request.kind,
-            data={"message": request.content},
+            data={
+                "message": request.content,
+                "flagged": flagged,
+                "tags": list(tags),
+            },
         )
 
         return CreateEventResponse(

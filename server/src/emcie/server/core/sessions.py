@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 import asyncio
 from dataclasses import dataclass
@@ -55,6 +56,8 @@ class Event:
 
 class MessageEventData(TypedDict):
     message: str
+    flagged: NotRequired[bool]
+    tags: NotRequired[list[str]]
 
 
 class ToolResult(TypedDict):

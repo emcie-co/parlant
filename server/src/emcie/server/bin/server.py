@@ -17,7 +17,12 @@ import uvicorn
 from emcie.common.tools import ToolId
 from emcie.server import VERSION
 from emcie.server.adapters.db.chroma.glossary import GlossaryChromaStore
-from emcie.server.adapters.nlp.openai import GPT_4o, GPT_4o_Mini, OpenAITextEmbedding3Large
+from emcie.server.adapters.nlp.openai import (
+    GPT_4o,
+    GPT_4o_Mini,
+    OmniModeration,
+    OpenAITextEmbedding3Large,
+)
 from emcie.server.api.app import create_app
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.agents import AgentDocumentStore, AgentStore
@@ -244,9 +249,10 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[ServiceRegistry] = await EXIT_STACK.enter_async_context(
         ServiceDocumentRegistry(
-            services_db,
-            c[EventEmitterFactory],
-            c[ContextualCorrelator],
+            database=services_db,
+            event_emitter_factory=c[EventEmitterFactory],
+            correlator=c[ContextualCorrelator],
+            moderation_services={"openai": OmniModeration(logger=c[Logger])},
         )
     )
 

@@ -10,7 +10,12 @@ from lagom import Container, Singleton
 from pytest import fixture, Config
 
 from emcie.server.adapters.db.chroma.glossary import GlossaryChromaStore
-from emcie.server.adapters.nlp.openai import GPT_4o, GPT_4o_Mini, OpenAITextEmbedding3Large
+from emcie.server.adapters.nlp.openai import (
+    GPT_4o,
+    GPT_4o_Mini,
+    OmniModeration,
+    OpenAITextEmbedding3Large,
+)
 from emcie.server.api.app import create_app
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
@@ -150,6 +155,7 @@ async def container() -> AsyncIterator[Container]:
                 database=container[DocumentDatabase],
                 event_emitter_factory=container[EventEmitterFactory],
                 correlator=container[ContextualCorrelator],
+                moderation_services={"openai": OmniModeration(logger=container[Logger])},
             )
         )
 

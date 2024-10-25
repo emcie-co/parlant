@@ -1,9 +1,10 @@
 from typing import Optional, cast
-from pytest_bdd import given, then, parsers
+from pytest_bdd import given, then, parsers, when
 
 from emcie.common.tools import ToolId
 from emcie.server.core.engines.alpha.utils import emitted_tool_event_to_dict
 from emcie.server.core.emissions import EmittedEvent
+from emcie.server.core.nlp.moderation import ModerationTag
 from emcie.server.core.sessions import (
     MessageEventData,
     SessionId,
@@ -71,9 +72,40 @@ def given_a_user_message(
 
 
 @step(
-    given, parsers.parse("delete the last {num_messages:d} messages"), target_fixture="session_id"
+    given,
+    parsers.parse('a user message, "{user_message}", flagged for {moderation_tag}'),
+    target_fixture="session_id",
 )
-def given_delete_last_n_messages(
+def given_a_flagged_user_message(
+    context: ContextOfTest,
+    session_id: SessionId,
+    user_message: str,
+    moderation_tag: ModerationTag,
+) -> SessionId:
+    store = context.container[SessionStore]
+    session = context.sync_await(store.read_session(session_id=session_id))
+
+    event = context.sync_await(
+        store.create_event(
+            session_id=session.id,
+            source="client",
+            kind="message",
+            correlation_id="test_correlation_id",
+            data={"message": user_message, "flagged": True, "tags": [moderation_tag]},
+        )
+    )
+
+    context.events.append(event)
+
+    return session.id
+
+
+@step(
+    when,
+    parsers.parse("the last {num_messages:d} messages are deleted"),
+    target_fixture="session_id",
+)
+def when_the_last_few_messages_are_deleted(
     context: ContextOfTest,
     session_id: SessionId,
     num_messages: int,
@@ -109,6 +141,23 @@ def then_the_message_contains(
         nlp_test(
             context=f"Here's a message in the context of a conversation: {message}",
             predicate=f"the text contains {something}",
+        )
+    )
+
+
+@step(then, parsers.parse("the message mentions {something}"))
+def then_the_message_mentions(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"Here's a message in the context of a conversation: {message}",
+            predicate=f"the text mentions {something}",
         )
     )
 

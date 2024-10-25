@@ -20,6 +20,7 @@ scenarios(
             "conversation",
             "errors",
             "guideline_connections",
+            "moderation",
             "proactivity",
             "supervision",
             "glossary",

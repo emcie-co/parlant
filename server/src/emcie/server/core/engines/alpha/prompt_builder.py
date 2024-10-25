@@ -1,18 +1,18 @@
 from __future__ import annotations
 from enum import Enum, auto
 from itertools import chain
+import json
 from typing import Any, Mapping, Optional, Sequence, cast
 
 from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.sessions import Event
+from emcie.server.core.sessions import Event, MessageEventData
 from emcie.server.core.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.glossary import Term
 from emcie.server.core.engines.alpha.utils import (
     context_variables_to_json,
-    events_to_json,
     emitted_tool_events_to_dicts,
 )
 from emcie.server.core.emissions import EmittedEvent
@@ -100,16 +100,40 @@ The following is a description of your identity: ###
         self,
         events: Sequence[Event],
     ) -> PromptBuilder:
+        def adapt(e: Event) -> str:
+            data = e.data
+
+            if e.kind == "message":
+                message_data = cast(MessageEventData, e.data)
+
+                if message_data.get("flagged"):
+                    data = {
+                        "message": "<N/A>",
+                        "censured": True,
+                        "reasons": message_data["tags"],
+                    }
+
+            return json.dumps(
+                {
+                    "id": e.id,
+                    "kind": e.kind,
+                    "source": {
+                        "client": "user",
+                        "server": "assistant",
+                    }.get(e.source),
+                    "data": data,
+                }
+            )
+
         if events:
-            interaction_events = [e for e in events if e.kind != "status"]
-            interaction_events_as_json = events_to_json(interaction_events)
+            interaction_events = [adapt(e) for e in events if e.kind != "status"]
 
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
                 content=f"""
 The following is a list of events describing a back-and-forth
 interaction between you and a user: ###
-{interaction_events_as_json}
+{interaction_events}
 ###
 """,
                 status=SectionStatus.ACTIVE,

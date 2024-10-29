@@ -172,11 +172,17 @@ class MessageEventProducer:
             """
 You are an AI agent who is interacting with a user. The current state of this interaction will be provided to you later in this message.
 You must generate your reply message to the current (latest) state of the interaction.
-IMPORTANT: Strive to continue the interaction/conversation in the most natural way for a normal human conversation,
-and when replying—if you're asked a question you've already been asked—try to avoid repeating yourself
-word-for-word and prefer to slightly adjust the answer in a natural way each time you're asked the same question.
-Also please note that things like farewelling the back user when the user farewells you
-are considered appropriate in a natural conversation.
+"""
+        )
+
+        builder.add_agent_identity(agents[0])
+        builder.add_section(
+            """
+Task Description:
+Continue the provided interaction in a natural and human-like manner. 
+Some further clarifications:
+1. When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new way to approach the question altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
+2. If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it. 
 """
         )
 
@@ -390,7 +396,6 @@ Produce a valid JSON object in the following format: ###
 ###"""
             )
 
-        builder.add_agent_identity(agents[0])
         builder.add_interaction_history(interaction_history)
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)

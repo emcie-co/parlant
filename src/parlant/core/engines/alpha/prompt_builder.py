@@ -286,7 +286,7 @@ Guidelines: ###
                 name=BuiltInSection.GUIDELINE_PROPOSITIONS,
                 content="""
 In formulating your reply, you are normally required to follow a number of behavioral guidelines.
-However, in this case, no special behavrioal guidelines were provided.
+However, in this case, no special behavioral guidelines were provided.
 """,
                 status=SectionStatus.PASSIVE,
             )

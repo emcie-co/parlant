@@ -178,13 +178,11 @@ You must generate your reply message to the current (latest) state of the intera
         builder.add_section(
             """
 Task Description:
-Continue the provided interaction in a natural and human-like manner. 
-Some further clarifications:
-1. Make your response as human-like as possible. 
-2. Be concise and avoid being overly polite when not necessary. 
-3. When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new way to approach the question altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
-4. Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
-5. If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it.
+Continue the provided interaction in a natural and human-like manner. Your task is to produce a response to the latest state of the interaction.
+Always do the following:
+1. GENERAL BEHAVIOR: Make your response as human-like as possible. Be concise and avoid being overly polite when not necessary. 
+2. AVOID REPEATING YOURSELF: When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new approach altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
+3. DO NOT HALLUCINATE: Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
 """
         )
         if any([event.kind == "message" for event in staged_events]):
@@ -378,9 +376,11 @@ Example 3: Non-Adherence Due to Missing Data: ###
 ###
 """  # noqa
             )
-        else:
-            builder.add_section(  # TODO mention that they must produce a reply
-                f"""
+
+        # output_guideline_format = "\n".join("")  # TODO rewrite here
+
+        builder.add_section(
+            """
 Produce a valid JSON object in the following format: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
@@ -393,18 +393,26 @@ Produce a valid JSON object in the following format: ###
             "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
             "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
             "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
-        }}
+        }},
+        {{
+            "number": 2,
+            "instruction": "<the instruction as given by guideline #1>"
+            "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
+            "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
+            "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
+        }},
+        ...
     ],
     "revisions": [
         {{
             "revision_number": 1,
             "content": "<your message here>",
-            "followed_all_guidelines": {'true'}
+            "followed_all_guidelines": true
         }}
     ]
 }}
 ###"""
-            )
+        )
 
         builder.add_interaction_history(interaction_history)
         builder.add_context_variables(context_variables)
@@ -412,6 +420,11 @@ Produce a valid JSON object in the following format: ###
         builder.add_guideline_propositions(
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,
+        )
+        builder.add_section(
+            """
+If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
+        """
         )
         builder.add_staged_events(staged_events)
 

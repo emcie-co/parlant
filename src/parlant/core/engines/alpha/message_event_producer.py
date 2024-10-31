@@ -46,7 +46,7 @@ class MessageGenerationError(Exception):
 
 class MessageEventSchema(DefaultBaseModel):
     last_message_of_user: str
-    produced_reply: bool
+    produced_reply: Optional[bool] = True
     rationale: str
     revisions: list[Revision]
     evaluations_for_each_of_the_provided_guidelines: Optional[list[GuidelineEvaluation]] = None
@@ -181,11 +181,30 @@ You must generate your reply message to the current (latest) state of the intera
 Task Description:
 Continue the provided interaction in a natural and human-like manner. 
 Some further clarifications:
-1. Make your response as humanlike as possible. Be concise and avoid being overly polite when not neccessary. 
-2. When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new way to approach the question altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
-3. If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it. 
+1. Make your response as humanlike as possible. 
+2. Be concise and avoid being overly polite when not necessary. 
+3. When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new way to approach the question altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
+4. Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
+5. If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it.
 """
         )
+        produced_reply_arg_text = ""
+        if any([event.kind == "message" for event in staged_events]):
+            produced_reply_arg_text = "\"produced_reply\": <BOOL, return 'true' unless the user explicitly asked you to not respond>"
+            builder.add_section(
+                """
+The interaction with the user has just began, and no messages were sent by either party.
+If told so by a guideline or some other contextual condition, send the first message. Otherwise, do not produce a reply.
+If you decide not to emit a message, output the following:
+{{
+    “last_message_of_user”: None,
+    "produced_reply": false,
+    "rationale": "<a few words to justify why a reply was NOT produced here>",
+    "revisions": []
+}}
+Otherwise, follow the rest of this prompt to choose the content of your response. 
+        """
+            )
 
         if tool_enabled_guideline_propositions:
             builder.add_section(
@@ -199,7 +218,7 @@ If a given guideline contradicts a previous request made by the user, or if it's
 Use your best judgement in applying prioritization.
 Note too that it is permissible for the final revision to break rules IF AND ONLY IF
 all of the broken rules were broken due to conscious prioritization of guidelines,
-due to either (1) conflicting with another guideline, (2) contradicting a user's request or (3) lack of neccesarry context / data.
+due to either (1) conflicting with another guideline, (2) contradicting a user's request or (3) lack of necessary context / data.
 If you do not fulfill a guideline, you must clearly justify your reasoning for doing so in your reply.
 
 Continuously critique each revision to refine the reply.
@@ -217,19 +236,9 @@ DO NOT PRODUCE MORE THAN 5 REVISIONS. IF YOU REACH the 5th REVISION, STOP THERE.
 
 Produce a valid JSON object in the format according to the following examples.
 
-Example 1: When no reply was deemed appropriate: ###
+Example 1: A reply that took critique in a few revisions to get right: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
-    "produced_reply": false,
-    "rationale": "<a few words to justify why a reply was NOT produced here>",
-    "revisions": []
-}}
-###
-
-Example 2: A reply that took critique in a few revisions to get right: ###
-{{
-    “last_message_of_user”: “<the user’s last message in the interaction>”,
-    "produced_reply": true,
     "rationale": "<a few words to justify why you decided to respond to the user at all>",
     "evaluations_for_each_of_the_provided_guidelines": [
         {{
@@ -294,10 +303,9 @@ Example 2: A reply that took critique in a few revisions to get right: ###
 }}
 ###
 
-Example 3: A reply where one guideline was prioritized over another: ###
+Example 2: A reply where one guideline was prioritized over another: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
-    "produced_reply": true,
     "rationale": "<a few words to justify why you decided to respond to the user at all>",
     "evaluations_for_each_of_the_provided_guidelines": [
         {{
@@ -335,10 +343,9 @@ Example 3: A reply where one guideline was prioritized over another: ###
 ###
 
 
-Example 4: Non-Adherence Due to Missing Data: ###
+Example 3: Non-Adherence Due to Missing Data: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
-    "produced_reply": true,
     "rationale": "<a few words to justify why you decided to respond to the user at all>",
     "evaluations_for_each_of_the_provided_guidelines": [
         {{
@@ -370,12 +377,12 @@ Example 4: Non-Adherence Due to Missing Data: ###
             )
         else:
             builder.add_section(
-                """
+                f"""
 Produce a valid JSON object in the following format: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
     "rationale": "<a few words to explain why you should or shouldn't produce a reply to the user in this case>",
-    "produced_reply": <BOOL>,
+    {produced_reply_arg_text}
     "evaluations_for_each_of_the_provided_guidelines": [
         {{
             "number": 1,
@@ -386,11 +393,11 @@ Produce a valid JSON object in the following format: ###
         }}
     ],
     "revisions": [
-        {
+        {{
             "revision_number": 1,
             "content": "<your message here>",
-            "followed_all_guidelines": true
-        }
+            "followed_all_guidelines": {'true'}
+        }}
     ]
 }}
 ###"""
@@ -406,6 +413,8 @@ Produce a valid JSON object in the following format: ###
         builder.add_staged_events(staged_events)
 
         prompt = builder.build()
+        with open("message event prompt.txt", "w") as f:  # TODO delete
+            f.write(prompt)
 
         return prompt
 
@@ -420,6 +429,7 @@ Produce a valid JSON object in the following format: ###
         )
 
         if not message_event_response.content.produced_reply:
+            self._logger.debug(f"MessageEventProducer produced no reply: {message_event_response}")
             return None
 
         if message_event_response.content.evaluations_for_each_of_the_provided_guidelines:
@@ -456,4 +466,6 @@ Produce a valid JSON object in the following format: ###
         ):
             self._logger.warning(f"PROBLEMATIC RESPONSE: {final_revision.content}")
 
+        with open("message event response.txt", "w") as f:  # TODO delete
+            f.write(str(final_revision.content))
         return str(final_revision.content)

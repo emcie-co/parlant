@@ -62,3 +62,44 @@ Feature: Supervision
         And that the "table_price" guideline is proposed with a priority of 10 because "The user directly asks for the price of a table"
         When messages are emitted
         Then the message contains that a table costs 100$
+
+    Scenario: the agent replies to farewell messages
+        Given the alpha engine
+        And an agent
+        And a user message, "What Pizza toppings do you offer?"
+        And an agent message, "Olives, tomatoes and mushrooms"
+        And a user message, "What Pizza toppings do you offer?"
+        And an agent message, "Olives, tomatoes and mushrooms"
+        And a user message, "I'm not interested in those. Goodbye."
+        And an agent message, "Goodbye!"
+        And a user message, "See ya"
+        When processing is triggered
+        Then a single message event is emitted
+
+    Scenario: the agent stops replying when asked explicitly
+        Given the alpha engine
+        And an agent
+        And a user message, "What Pizza toppings do you offer?"
+        And an agent message, "Olives, tomatoes and mushrooms"
+        And a user message, "What Pizza toppings do you offer?"
+        And an agent message, "Olives, tomatoes and mushrooms"
+        And a user message, "I'm not interested in those. Goodbye."
+        And an agent message, "Goodbye!"
+        And a user message, "Bye, please stop responding now"
+        When processing is triggered
+        Then no message events are emitted
+
+    Scenario: the agent doesnt initiate conversation unprompted
+        Given the alpha engine
+        And an agent
+        When processing is triggered
+        Then no message events are emitted
+
+    Scenario: the agent initiates conversation when instructed
+        Given the alpha engine
+        And an agent
+        And a guideline "initiate_conversation", to greet the user when the conversation begins
+        And that the "initiate_conversation" guideline is proposed with a priority of 10 because "The interaction has just began"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a greeting to the user

@@ -132,25 +132,27 @@ class MC:
 
         return session
 
-    async def post_client_event(
+    async def post_event(
         self,
         session_id: SessionId,
         kind: EventKind,
         data: Mapping[str, Any],
+        source: EventSource = "end_user",
+        trigger_processing: bool = True,
     ) -> Event:
         await self._collect_garbage()
 
         event = await self._session_store.create_event(
             session_id=session_id,
-            source="end_user",
+            source=source,
             kind=kind,
             correlation_id=self._correlator.correlation_id,
             data=data,
         )
 
-        session = await self._session_store.read_session(session_id)
-
-        await self._dispatch_processing_task(session)
+        if trigger_processing:
+            session = await self._session_store.read_session(session_id)
+            await self._dispatch_processing_task(session)
 
         return event
 

@@ -77,8 +77,8 @@ Feature: Conversation
 
     Scenario: The agent ignores deleted messages when responding
         Given an agent
-        And a guideline to recommend Pepsi when the user says they are thirsty
         And an empty session
+        And a guideline to recommend Pepsi when the user says they are thirsty
         And a user message, "Hello"
         And an agent message, "Hi there! How can I help you today?"
         And a user message, "I'm thirsty"
@@ -88,3 +88,13 @@ Feature: Conversation
         And processing is triggered
         Then a single message event is emitted
         And the message contains an offering of a Pepsi
+
+    Scenario: The agent continues a conversation that was started on its behalf
+        Given an agent
+        And an empty session
+        And a guideline to recommend Pepsi when the user says they are thirsty
+        And a human message on behalf of the agent, "Hi there! How can I help you today?"
+        And a user message, "I'm thirsty"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a recommendation of a Pepsi

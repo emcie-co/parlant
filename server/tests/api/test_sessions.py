@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Any, cast
 import dateutil
@@ -450,13 +451,17 @@ def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_t
     assert "harassment" in event["data"].get("tags")
 
 
-def test_that_posting_a_message_elicits_a_response(
+def test_that_posting_a_user_message_elicits_a_response(
     client: TestClient,
     session_id: SessionId,
 ) -> None:
     response = client.post(
         f"/sessions/{session_id}/events",
-        json={"content": "Hello there!"},
+        json={
+            "kind": "message",
+            "source": "end_user",
+            "content": "Hello there!",
+        },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
@@ -477,6 +482,41 @@ def test_that_posting_a_message_elicits_a_response(
     )
 
     assert events_in_session
+
+
+async def test_that_posting_an_agent_message_does_not_elicit_a_response(
+    client: TestClient,
+    session_id: SessionId,
+) -> None:
+    response = client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "human_agent_on_behalf_of_ai_agent",
+            "content": "Hello there!",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()["event"]
+
+    await asyncio.sleep(10)
+
+    events_in_session = (
+        client.get(
+            f"/sessions/{session_id}/events",
+            params={
+                "min_offset": event["offset"] + 1,
+                "kinds": "message",
+                "wait": False,
+            },
+        )
+        .raise_for_status()
+        .json()["events"]
+    )
+
+    assert not events_in_session
 
 
 async def test_that_status_updates_can_be_retrieved_separately_after_posting_a_message(

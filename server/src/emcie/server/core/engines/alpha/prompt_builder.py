@@ -8,7 +8,7 @@ from emcie.common.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
-from emcie.server.core.sessions import Event, MessageEventData
+from emcie.server.core.sessions import Event, EventSource, MessageEventData
 from emcie.server.core.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.glossary import Term
 from emcie.server.core.engines.alpha.utils import (
@@ -114,13 +114,21 @@ The following is a description of your identity: ###
                         "reasons": message_data["tags"],
                     }
 
+            source_map: dict[EventSource, str] = {
+                "end_user": "user",
+                "end_user_ui": "frontend_application",
+                "human_agent": "human_operator",
+                "human_agent_on_behalf_of_ai_agent": "agent",
+                "ai_agent": "agent",
+            }
+
             return json.dumps(
                 {
                     "event_kind": e.kind,
-                    "source": e.source,
+                    "source_kind": source_map[e.source],
                     **(
                         {
-                            "participant_name": cast(MessageEventData, e.data)["participant"][
+                            "participant": cast(MessageEventData, e.data)["participant"][
                                 "display_name"
                             ]
                         }

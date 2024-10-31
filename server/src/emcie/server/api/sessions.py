@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import chain, groupby
-from typing import Any, Literal, Mapping, Optional, Union, cast
+from typing import Any, Literal, Mapping, Optional, cast
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import Field
@@ -51,8 +51,9 @@ class CreateSessionResponse(DefaultBaseModel):
     session: SessionDTO
 
 
-class CreateMessageRequest(DefaultBaseModel):
-    kind: EventKind = Field("message", description='Internal (leave as "message")')
+class CreateEventRequest(DefaultBaseModel):
+    kind: EventKind
+    source: EventSource
     content: str
 
 
@@ -271,7 +272,22 @@ def create_router(
     @router.post("/{session_id}/events", status_code=status.HTTP_201_CREATED)
     async def create_event(
         session_id: SessionId,
-        request: Union[CreateMessageRequest],
+        request: CreateEventRequest,
+        moderation: Literal["none", "auto"] = "none",
+    ) -> CreateEventResponse:
+        if request.source == "end_user":
+            return await _add_end_user_message(session_id, request, moderation)
+        elif request.source == "human_agent_on_behalf_of_ai_agent":
+            return await _add_agent_message(session_id, request)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Only "end_user" and "human_agent_on_behalf_of_ai_agent" sources are supported for direct posting.',
+            )
+
+    async def _add_end_user_message(
+        session_id: SessionId,
+        request: CreateEventRequest,
         moderation: Literal["none", "auto"] = "none",
     ) -> CreateEventResponse:
         flagged = False
@@ -295,10 +311,47 @@ def create_router(
             "tags": list(tags),
         }
 
-        event = await mc.post_client_event(
+        event = await mc.post_event(
             session_id=session_id,
             kind=request.kind,
             data=message_data,
+            source="end_user",
+            trigger_processing=True,
+        )
+
+        return CreateEventResponse(
+            event=EventDTO(
+                id=event.id,
+                source=event.source,
+                kind=event.kind,
+                offset=event.offset,
+                creation_utc=event.creation_utc,
+                correlation_id=event.correlation_id,
+                data=event.data,
+            )
+        )
+
+    async def _add_agent_message(
+        session_id: SessionId,
+        request: CreateEventRequest,
+    ) -> CreateEventResponse:
+        session = await session_store.read_session(session_id)
+        agent = await agent_store.read_agent(session.agent_id)
+
+        message_data: MessageEventData = {
+            "message": request.content,
+            "participant": {
+                "id": agent.id,
+                "display_name": agent.name,
+            },
+        }
+
+        event = await mc.post_event(
+            session_id=session_id,
+            kind=request.kind,
+            data=message_data,
+            source="human_agent_on_behalf_of_ai_agent",
+            trigger_processing=False,
         )
 
         return CreateEventResponse(

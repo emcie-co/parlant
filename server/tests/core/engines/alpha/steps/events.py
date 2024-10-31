@@ -59,6 +59,43 @@ def given_an_agent_message(
     return session.id
 
 
+@step(
+    given,
+    parsers.parse('a human message on behalf of the agent, "{agent_message}"'),
+    target_fixture="session_id",
+)
+def given_a_human_message_on_behalf_of_the_agent(
+    context: ContextOfTest,
+    agent_message: str,
+    session_id: SessionId,
+    agent: Agent,
+) -> SessionId:
+    store = context.container[SessionStore]
+    session = context.sync_await(store.read_session(session_id=session_id))
+
+    message_data: MessageEventData = {
+        "message": agent_message,
+        "participant": {
+            "id": agent.id,
+            "display_name": agent.name,
+        },
+    }
+
+    event = context.sync_await(
+        store.create_event(
+            session_id=session.id,
+            source="human_agent_on_behalf_of_ai_agent",
+            kind="message",
+            correlation_id="test_correlation_id",
+            data=cast(JSONSerializable, message_data),
+        )
+    )
+
+    context.events.append(event)
+
+    return session.id
+
+
 @step(given, parsers.parse('a user message, "{user_message}"'), target_fixture="session_id")
 def given_a_user_message(
     context: ContextOfTest,

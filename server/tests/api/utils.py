@@ -165,7 +165,7 @@ async def post_message(
         },
     }
 
-    event = await container[MC].post_client_event(
+    event = await container[MC].post_event(
         session_id=session_id,
         kind="message",
         data=data,

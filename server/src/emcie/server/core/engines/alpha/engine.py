@@ -89,7 +89,7 @@ class AlphaEngine(Engine):
         interaction_state = await self._load_interaction_state(context)
 
         try:
-            with self._correlator.correlation_scope(f"process-session({context.session_id})"):
+            with self._correlator.correlation_scope(generate_id()):
                 await self._do_process(context, interaction_state, event_emitter)
             return True
         except asyncio.CancelledError:

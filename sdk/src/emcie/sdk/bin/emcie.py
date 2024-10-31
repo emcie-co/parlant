@@ -13,8 +13,9 @@ import click.shell_completion
 import click_completion
 import requests
 import rich
+from rich import box
+from rich.table import Table
 from rich.text import Text
-from tabulate import tabulate
 from textwrap import wrap
 from tqdm import tqdm
 
@@ -275,6 +276,7 @@ class Actions:
     ) -> SessionDTO:
         response = requests.post(
             urljoin(ctx.obj.server_address, "/sessions"),
+            params={"allow_greeting": False},
             json={
                 "agent_id": agent_id,
                 "end_user_id": end_user_id,
@@ -311,7 +313,10 @@ class Actions:
         correlation_id: str,
     ) -> ReadInteractionResponse:
         response = requests.get(
-            urljoin(ctx.obj.server_address, f"/sessions/{session_id}/interactions/{correlation_id}")
+            urljoin(
+                ctx.obj.server_address,
+                f"/sessions/{session_id}/interactions/{correlation_id}",
+            )
         )
 
         response.raise_for_status()
@@ -639,7 +644,10 @@ class Actions:
             None,
         ):
             association_response = requests.patch(
-                urljoin(ctx.obj.server_address, f"/agents/{agent_id}/guidelines/{guideline_id}"),
+                urljoin(
+                    ctx.obj.server_address,
+                    f"/agents/{agent_id}/guidelines/{guideline_id}",
+                ),
                 json={
                     "tool_associations": {
                         "remove": [
@@ -846,18 +854,18 @@ class Interface:
         rich.print(Text(message, style="bold red"), file=sys.stderr)
 
     @staticmethod
-    def _print_table(
-        data: Iterable[Any],
-        **kwargs: Any,
-    ) -> None:
-        rich.print(
-            tabulate(
-                data,
-                headers="keys",
-                tablefmt="rounded_grid",
-                **kwargs,
-            )
-        )
+    def _print_table(data: Iterable[Any]) -> None:
+        table = Table(box=box.ROUNDED, border_style="bright_green")
+
+        headers = list(list(data)[0].keys())
+
+        for header in headers:
+            table.add_column(header, header_style="bright_green")
+
+        for row in data:
+            table.add_row(*list(map(str, row.values())))
+
+        rich.print(table)
 
     @staticmethod
     def _render_agents(agents: list[AgentDTO]) -> None:
@@ -872,7 +880,7 @@ class Interface:
             for a in agents
         ]
 
-        Interface._print_table(agent_items, maxcolwidths=[None, None, None, 60, None])
+        Interface._print_table(agent_items)
 
     @staticmethod
     def create_agent(
@@ -940,13 +948,13 @@ class Interface:
             for s in sessions
         ]
 
-        Interface._print_table(session_items, maxcolwidths=[None, 40, None, None])
+        Interface._print_table(session_items)
 
     @staticmethod
     def _render_events(events: list[EventDTO]) -> None:
         event_items = [
             {
-                "ID": e["id"],
+                "Event ID": e["id"],
                 "Creation Date": format_datetime(e["creation_utc"]),
                 "Correlation ID": e["correlation_id"],
                 "Source": e["source"],
@@ -957,7 +965,7 @@ class Interface:
             for e in events
         ]
 
-        Interface._print_table(event_items, maxcolwidths=[None, None, None, None, None, 40])
+        Interface._print_table(event_items)
 
     @staticmethod
     def view_session(
@@ -1195,7 +1203,7 @@ class Interface:
             for guideline in guidelines
         ]
 
-        Interface._print_table(guideline_items, maxcolwidths=[None, 40, 40])
+        Interface._print_table(guideline_items)
 
     @staticmethod
     def _render_guideline_entailments(
@@ -1277,11 +1285,8 @@ class Interface:
         except CoherenceCheckFailure as e:
             contradictions = e.contradictions
             Interface._write_error("Failed to add guideline")
-            rich.print("Detected incoherence with other guidelines:")
-            Interface._print_table(
-                contradictions,
-                maxcolwidths=[20, 20, 20, 40, 10],
-            )
+            rich.print("Detected potential incoherence with other guidelines:")
+            Interface._print_table(contradictions)
             rich.print(
                 Text(
                     "\nTo force-add despite these errors, re-run with --no-check",
@@ -1530,7 +1535,9 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def _render_variable_key_value_pairs(pairs: dict[str, ContextVariableValueDTO]) -> None:
+    def _render_variable_key_value_pairs(
+        pairs: dict[str, ContextVariableValueDTO],
+    ) -> None:
         values_items = [
             {
                 "ID": value["id"],
@@ -1541,7 +1548,7 @@ class Interface:
             for key, value in pairs.items()
         ]
 
-        Interface._print_table(values_items, maxcolwidths=[None, None, 80, 30])
+        Interface._print_table(values_items)
 
     @staticmethod
     def set_variable_value(
@@ -1676,7 +1683,8 @@ class Interface:
                     rich.print(Text("    Name:", style="bold"), tool["name"])
                     if tool["description"]:
                         rich.print(
-                            Text("    Description:\n       ", style="bold"), tool["description"]
+                            Text("    Description:\n       ", style="bold"),
+                            tool["description"],
                         )
 
                     if tool["parameters"]:
@@ -1726,7 +1734,12 @@ async def async_main() -> None:
     @agent.command("add", help="Add a new agent")
     @click.argument("name")
     @click.option("-d", "--description", type=str, help="Agent description", required=False)
-    @click.option("--max-engine-iterations", type=int, help="Max engine iterations", required=False)
+    @click.option(
+        "--max-engine-iterations",
+        type=int,
+        help="Max engine iterations",
+        required=False,
+    )
     @click.pass_context
     def agent_add(
         ctx: click.Context,
@@ -1762,7 +1775,12 @@ async def async_main() -> None:
         required=False,
     )
     @click.option("-d", "--description", type=str, help="Agent description", required=False)
-    @click.option("--max-engine-iterations", type=int, help="Max engine iterations", required=False)
+    @click.option(
+        "--max-engine-iterations",
+        type=int,
+        help="Max engine iterations",
+        required=False,
+    )
     @click.pass_context
     def agent_update(
         ctx: click.Context,

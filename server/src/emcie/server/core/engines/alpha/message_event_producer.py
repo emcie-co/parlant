@@ -139,7 +139,7 @@ class MessageEventProducer:
 
                         event = await event_emitter.emit_message_event(
                             correlation_id=self._correlator.correlation_id,
-                            data={"message": response_message},
+                            data=response_message,
                         )
 
                         return [event]

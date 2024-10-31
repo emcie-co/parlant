@@ -1,7 +1,8 @@
 import asyncio
 from pytest_bdd import given, when
+from unittest.mock import AsyncMock
 
-from emcie.server.core.agents import Agent, AgentId
+from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.engines.alpha.engine import AlphaEngine
 
 from emcie.server.core.engines.alpha.message_event_producer import MessageEventProducer
@@ -19,6 +20,14 @@ def given_the_alpha_engine(
     return context.container[AlphaEngine]
 
 
+@step(given, "a faulty message production mechanism")
+def given_a_faulty_message_production_mechanism(
+    context: ContextOfTest,
+) -> None:
+    producer = context.container[MessageEventProducer]
+    producer.produce_events = AsyncMock(side_effect=Exception())  # type: ignore
+
+
 @step(when, "processing is triggered", target_fixture="emitted_events")
 def when_processing_is_triggered(
     context: ContextOfTest,
@@ -26,7 +35,11 @@ def when_processing_is_triggered(
     session_id: SessionId,
     agent_id: AgentId,
 ) -> list[EmittedEvent]:
-    buffer = EventBuffer()
+    buffer = EventBuffer(
+        context.sync_await(
+            context.container[AgentStore].read_agent(agent_id),
+        )
+    )
 
     context.sync_await(
         engine.process(
@@ -48,7 +61,11 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
     agent_id: AgentId,
     session_id: SessionId,
 ) -> list[EmittedEvent]:
-    event_buffer = EventBuffer()
+    event_buffer = EventBuffer(
+        context.sync_await(
+            context.container[AgentStore].read_agent(agent_id),
+        )
+    )
 
     processing_task = context.sync_await.event_loop.create_task(
         engine.process(
@@ -74,11 +91,17 @@ def when_messages_are_emitted(
     context: ContextOfTest,
     agent: Agent,
 ) -> list[EmittedEvent]:
+    event_buffer = EventBuffer(
+        context.sync_await(
+            context.container[AgentStore].read_agent(agent.id),
+        )
+    )
+
     message_event_producer = context.container[MessageEventProducer]
 
     message_events = context.sync_await(
         message_event_producer.produce_events(
-            event_emitter=EventBuffer(),
+            event_emitter=event_buffer,
             agents=[agent],
             context_variables=[],
             interaction_history=context.events,

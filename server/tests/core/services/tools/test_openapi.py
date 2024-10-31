@@ -177,6 +177,6 @@ async def test_that_a_tool_can_be_called_via_an_openapi_server(
         openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
 
         async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
-            stub_context = ToolContext(session_id="test_session")
+            stub_context = ToolContext(agent_id="test-agent", session_id="test_session")
             result = await client.call_tool(tool_name, stub_context, tool_args)
             assert result.data == expected_result

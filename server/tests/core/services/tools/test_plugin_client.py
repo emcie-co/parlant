@@ -4,8 +4,10 @@ from typing import AsyncIterator, Optional
 
 from emcie.common.tools import ToolContext, ToolResult
 from emcie.common.plugin import PluginServer, ToolEntry, tool
+from lagom import Container
 from pytest import fixture
 import pytest
+from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.emission.event_buffer import EventBuffer, EventBufferFactory
 from emcie.server.core.emissions import EventEmitter, EventEmitterFactory
@@ -15,18 +17,32 @@ from emcie.server.core.tools import ToolExecutionError
 
 
 class SessionBuffers(EventEmitterFactory):
-    def __init__(self) -> None:
+    def __init__(self, agent_store: AgentStore) -> None:
+        self.agent_store = agent_store
         self.for_session: dict[SessionId, EventBuffer] = {}
 
-    def create_event_emitter(self, session_id: SessionId) -> EventEmitter:
-        buffer = EventBuffer()
+    async def create_event_emitter(
+        self,
+        emitting_agent_id: AgentId,
+        session_id: SessionId,
+    ) -> EventEmitter:
+        agent = await self.agent_store.read_agent(emitting_agent_id)
+        buffer = EventBuffer(emitting_agent=agent)
         self.for_session[session_id] = buffer
         return buffer
 
 
 @fixture
-def context() -> ToolContext:
-    return ToolContext(session_id=SessionId("test_session"))
+async def agent(container: Container) -> Agent:
+    return await container[AgentStore].create_agent(name="Test Agent")
+
+
+@fixture
+async def context(agent: Agent) -> ToolContext:
+    return ToolContext(
+        agent_id=agent.id,
+        session_id=SessionId("test_session"),
+    )
 
 
 @asynccontextmanager
@@ -44,7 +60,7 @@ async def run_service_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServ
 
 def create_client(
     server: PluginServer,
-    event_emitter_factory: EventEmitterFactory = EventBufferFactory(),
+    event_emitter_factory: EventEmitterFactory,
 ) -> PluginClient:
     return PluginClient(
         url=server.url,
@@ -53,9 +69,11 @@ def create_client(
     )
 
 
-async def test_that_a_plugin_with_no_configured_tools_returns_no_tools() -> None:
+async def test_that_a_plugin_with_no_configured_tools_returns_no_tools(
+    container: Container,
+) -> None:
     async with run_service_server([]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             tools = await client.list_tools()
             assert not tools
 
@@ -72,38 +90,40 @@ async def test_that_a_decorated_tool_can_be_called_directly(context: ToolContext
     assert my_tool(context, arg_1=2, arg_2=3).data == 6
 
 
-async def test_that_a_plugin_with_one_configured_tool_returns_that_tool() -> None:
+async def test_that_a_plugin_with_one_configured_tool_returns_that_tool(
+    container: Container,
+) -> None:
     @tool
     def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
         """My tool's description"""
         return ToolResult(arg_1 * (arg_2 or 0))
 
     async with run_service_server([my_tool]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             listed_tools = await client.list_tools()
             assert len(listed_tools) == 1
             assert my_tool.tool == listed_tools[0]
 
 
-async def test_that_a_plugin_reads_a_tool() -> None:
+async def test_that_a_plugin_reads_a_tool(container: Container) -> None:
     @tool
     def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
         """My tool's description"""
         return ToolResult(arg_1 * (arg_2 or 0))
 
     async with run_service_server([my_tool]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             returned_tool = await client.read_tool(my_tool.tool.name)
             assert my_tool.tool == returned_tool
 
 
-async def test_that_a_plugin_calls_a_tool(context: ToolContext) -> None:
+async def test_that_a_plugin_calls_a_tool(context: ToolContext, container: Container) -> None:
     @tool
     def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
         return ToolResult(arg_1 * arg_2)
 
     async with run_service_server([my_tool]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             result = await client.call_tool(
                 my_tool.tool.name,
                 context,
@@ -112,13 +132,16 @@ async def test_that_a_plugin_calls_a_tool(context: ToolContext) -> None:
             assert result.data == 8
 
 
-async def test_that_a_plugin_calls_an_async_tool(context: ToolContext) -> None:
+async def test_that_a_plugin_calls_an_async_tool(
+    context: ToolContext,
+    container: Container,
+) -> None:
     @tool
     async def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
         return ToolResult(arg_1 * arg_2)
 
     async with run_service_server([my_tool]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             result = await client.call_tool(
                 my_tool.tool.name,
                 context,
@@ -129,13 +152,14 @@ async def test_that_a_plugin_calls_an_async_tool(context: ToolContext) -> None:
 
 async def test_that_a_plugin_tool_has_access_to_the_current_session(
     context: ToolContext,
+    container: Container,
 ) -> None:
     @tool
     async def my_tool(context: ToolContext) -> ToolResult:
         return ToolResult(context.session_id)
 
     async with run_service_server([my_tool]) as server:
-        async with create_client(server) as client:
+        async with create_client(server, container[EventBufferFactory]) as client:
             result = await client.call_tool(
                 my_tool.tool.name,
                 context,
@@ -147,6 +171,8 @@ async def test_that_a_plugin_tool_has_access_to_the_current_session(
 
 async def test_that_a_plugin_tool_can_emit_events(
     context: ToolContext,
+    container: Container,
+    agent: Agent,
 ) -> None:
     @tool
     async def my_tool(context: ToolContext) -> ToolResult:
@@ -155,7 +181,7 @@ async def test_that_a_plugin_tool_can_emit_events(
         await context.emit_message("How are you?")
         return ToolResult({"number": 123})
 
-    buffers = SessionBuffers()
+    buffers = SessionBuffers(container[AgentStore])
 
     async with run_service_server([my_tool]) as server:
         async with create_client(
@@ -176,16 +202,24 @@ async def test_that_a_plugin_tool_can_emit_events(
             assert emitted_events[0].data == {"status": "typing", "data": {"tool": "my_tool"}}
 
             assert emitted_events[1].kind == "message"
-            assert emitted_events[1].data == {"message": "Hello, cherry-pie!"}
+            assert emitted_events[1].data == {
+                "message": "Hello, cherry-pie!",
+                "participant": {"id": agent.id, "display_name": agent.name},
+            }
 
             assert emitted_events[2].kind == "message"
-            assert emitted_events[2].data == {"message": "How are you?"}
+            assert emitted_events[2].data == {
+                "message": "How are you?",
+                "participant": {"id": agent.id, "display_name": agent.name},
+            }
 
             assert result.data == {"number": 123}
 
 
 async def test_that_a_plugin_tool_can_emit_events_and_ultimately_fail_with_an_error(
     context: ToolContext,
+    container: Container,
+    agent: Agent,
 ) -> None:
     @tool
     async def my_tool(context: ToolContext) -> ToolResult:
@@ -194,7 +228,7 @@ async def test_that_a_plugin_tool_can_emit_events_and_ultimately_fail_with_an_er
         await asyncio.sleep(1)
         raise Exception("Tool failed")
 
-    buffers = SessionBuffers()
+    buffers = SessionBuffers(container[AgentStore])
 
     async with run_service_server([my_tool]) as server:
         async with create_client(
@@ -213,7 +247,13 @@ async def test_that_a_plugin_tool_can_emit_events_and_ultimately_fail_with_an_er
             assert len(emitted_events) == 2
 
             assert emitted_events[0].kind == "message"
-            assert emitted_events[0].data == {"message": "Hello, cherry-pie!"}
+            assert emitted_events[0].data == {
+                "message": "Hello, cherry-pie!",
+                "participant": {"id": agent.id, "display_name": agent.name},
+            }
 
             assert emitted_events[1].kind == "message"
-            assert emitted_events[1].data == {"message": "How are you?"}
+            assert emitted_events[1].data == {
+                "message": "How are you?",
+                "participant": {"id": agent.id, "display_name": agent.name},
+            }

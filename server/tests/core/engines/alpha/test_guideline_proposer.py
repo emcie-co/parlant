@@ -6,7 +6,7 @@ from pytest import fixture, mark
 from datetime import datetime, timezone
 
 from emcie.server.core.agents import Agent, AgentId
-from emcie.server.core.common import generate_id
+from emcie.server.core.common import generate_id, JSONSerializable
 from emcie.server.core.nlp.generation import SchematicGenerator
 from emcie.server.core.engines.alpha.guideline_proposer import (
     GuidelineProposer,
@@ -17,7 +17,7 @@ from emcie.server.core.engines.alpha.guideline_proposition import (
 )
 from emcie.server.core.logging import Logger
 from emcie.server.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from emcie.server.core.sessions import Event, EventId, EventSource
+from emcie.server.core.sessions import Event, EventId, EventSource, MessageEventData
 
 from tests.test_utilities import SyncAwaiter
 
@@ -87,13 +87,20 @@ def create_event_message(
     source: EventSource,
     message: str,
 ) -> Event:
+    message_data: MessageEventData = {
+        "message": message,
+        "participant": {
+            "display_name": source,
+        },
+    }
+
     event = Event(
         id=EventId(generate_id()),
         source=source,
         kind="message",
         offset=offset,
         correlation_id="test_correlation_id",
-        data={"message": message},
+        data=cast(JSONSerializable, message_data),
         creation_utc=datetime.now(timezone.utc),
         deleted=False,
     )
@@ -166,25 +173,25 @@ def create_guideline_by_name(
     [
         (
             [
-                ("client", "I'd like to order a pizza, please."),
-                ("server", "No problem. What would you like to have?"),
-                ("client", "I'd like a large pizza. What toppings do you have?"),
-                ("server", "Today, we have pepperoni, tomatoes, and olives available."),
-                ("client", "I'll take pepperoni, thanks."),
+                ("end_user", "I'd like to order a pizza, please."),
+                ("ai_agent", "No problem. What would you like to have?"),
+                ("end_user", "I'd like a large pizza. What toppings do you have?"),
+                ("ai_agent", "Today, we have pepperoni, tomatoes, and olives available."),
+                ("end_user", "I'll take pepperoni, thanks."),
                 (
-                    "server",
+                    "ai_agent",
                     "Awesome. I've added a large pepperoni pizza. "
                     "Would you like a drink on the side?",
                 ),
-                ("client", "Sure. What types of drinks do you have?"),
-                ("server", "We have Sprite, Coke, and Fanta."),
-                ("client", "I'll take two Sprites, please."),
-                ("server", "Anything else?"),
-                ("client", "No, that's all. I want to pay."),
-                ("server", "No problem! We accept only cash."),
-                ("client", "Sure, I'll pay the delivery guy."),
-                ("server", "Unfortunately, we accept payments only at our location."),
-                ("client", "So what should I do now?"),
+                ("end_user", "Sure. What types of drinks do you have?"),
+                ("ai_agent", "We have Sprite, Coke, and Fanta."),
+                ("end_user", "I'll take two Sprites, please."),
+                ("ai_agent", "Anything else?"),
+                ("end_user", "No, that's all. I want to pay."),
+                ("ai_agent", "No problem! We accept only cash."),
+                ("end_user", "Sure, I'll pay the delivery guy."),
+                ("ai_agent", "Unfortunately, we accept payments only at our location."),
+                ("end_user", "So what should I do now?"),
             ],
             [
                 "check_toppings_in_stock",
@@ -199,35 +206,35 @@ def create_guideline_by_name(
         (
             [
                 (
-                    "client",
+                    "end_user",
                     "I'm feeling a bit stressed about coming in. Can I cancel my class for today?",
                 ),
                 (
-                    "server",
+                    "ai_agent",
                     "I'm sorry to hear that. While cancellation is not possible now, "
                     "how about a lighter session? Maybe it helps to relax.",
                 ),
-                ("client", "I suppose that could work. What do you suggest?"),
+                ("end_user", "I suppose that could work. What do you suggest?"),
                 (
-                    "server",
+                    "ai_agent",
                     "How about our guided meditation session? "
                     "It’s very calming and might be just what you need right now.",
                 ),
-                ("client", "Alright, please book me into that. Thank you for understanding."),
+                ("end_user", "Alright, please book me into that. Thank you for understanding."),
                 (
-                    "server",
+                    "ai_agent",
                     "You're welcome! I've switched your booking to the meditation session. "
                     "Remember, it's okay to feel stressed. We're here to support you.",
                 ),
-                ("client", "Thanks, I really appreciate it."),
-                ("server", "Anytime! Is there anything else I can assist you with today?"),
-                ("client", "No, that's all for now."),
+                ("end_user", "Thanks, I really appreciate it."),
+                ("ai_agent", "Anytime! Is there anything else I can assist you with today?"),
+                ("end_user", "No, that's all for now."),
                 (
-                    "server",
+                    "ai_agent",
                     "Take care and see you soon at the meditation class. "
                     "Our gym is at Sapir 2, Herzliya, in case you need directions.",
                 ),
-                ("client", "Thank you!"),
+                ("end_user", "Thank you!"),
             ],
             [
                 "class_booking",
@@ -267,34 +274,34 @@ def test_that_relevant_guidelines_are_proposed(
     [
         (
             [
-                ("client", "I'd like to order a pizza, please."),
-                ("server", "No problem. What would you like to have?"),
-                ("client", "I'd like a large pizza. What toppings do you have?"),
-                ("server", "Today we have pepperoni, tomatoes, and olives available."),
-                ("client", "I'll take pepperoni, thanks."),
+                ("end_user", "I'd like to order a pizza, please."),
+                ("ai_agent", "No problem. What would you like to have?"),
+                ("end_user", "I'd like a large pizza. What toppings do you have?"),
+                ("ai_agent", "Today we have pepperoni, tomatoes, and olives available."),
+                ("end_user", "I'll take pepperoni, thanks."),
                 (
-                    "server",
+                    "ai_agent",
                     "Awesome. I've added a large pepperoni pizza. "
                     "Would you like a drink on the side?",
                 ),
-                ("client", "Sure. What types of drinks do you have?"),
-                ("server", "We have Sprite, Coke, and Fanta."),
-                ("client", "I'll take two Sprites, please."),
-                ("server", "Anything else?"),
-                ("client", "No, that's all."),
-                ("server", "How would you like to pay?"),
-                ("client", "I'll pick it up and pay in cash, thanks."),
+                ("end_user", "Sure. What types of drinks do you have?"),
+                ("ai_agent", "We have Sprite, Coke, and Fanta."),
+                ("end_user", "I'll take two Sprites, please."),
+                ("ai_agent", "Anything else?"),
+                ("end_user", "No, that's all."),
+                ("ai_agent", "How would you like to pay?"),
+                ("end_user", "I'll pick it up and pay in cash, thanks."),
             ],
             ["check_toppings_in_stock", "check_drinks_in_stock"],
             ["check_toppings_in_stock", "check_drinks_in_stock"],
         ),
         (
             [
-                ("client", "Could you add some pretzels to my order?"),
-                ("server", "Pretzels have been added to your order. Anything else?"),
-                ("client", "Do you have Coke? I'd like one, please."),
-                ("server", "Coke has been added to your order."),
-                ("client", "Great, where are you located at?"),
+                ("end_user", "Could you add some pretzels to my order?"),
+                ("ai_agent", "Pretzels have been added to your order. Anything else?"),
+                ("end_user", "Do you have Coke? I'd like one, please."),
+                ("ai_agent", "Coke has been added to your order."),
+                ("end_user", "Great, where are you located at?"),
             ],
             ["check_drinks_in_stock"],
             ["check_drinks_in_stock"],
@@ -353,7 +360,7 @@ def test_that_guidelines_with_the_same_predicates_are_scored_identically(
         ),
     ]
 
-    guideline_propositions = propose_guidelines(context, [("client", "Hello there")])
+    guideline_propositions = propose_guidelines(context, [("end_user", "Hello there")])
 
     assert len(guideline_propositions) == len(relevant_guidelines)
     assert all(gp.guideline in relevant_guidelines for gp in guideline_propositions)

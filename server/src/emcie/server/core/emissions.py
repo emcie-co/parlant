@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from emcie.server.core.agents import AgentId
 from emcie.server.core.common import JSONSerializable
 from emcie.server.core.sessions import (
     EventKind,
@@ -32,7 +33,7 @@ class EventEmitter(ABC):
     async def emit_message_event(
         self,
         correlation_id: str,
-        data: MessageEventData,
+        data: str | MessageEventData,
     ) -> EmittedEvent: ...
 
     @abstractmethod
@@ -45,7 +46,8 @@ class EventEmitter(ABC):
 
 class EventEmitterFactory(ABC):
     @abstractmethod
-    def create_event_emitter(
+    async def create_event_emitter(
         self,
+        emitting_agent_id: AgentId,
         session_id: SessionId,
     ) -> EventEmitter: ...

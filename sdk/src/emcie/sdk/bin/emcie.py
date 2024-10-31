@@ -1066,7 +1066,7 @@ class Interface:
         session_id: str,
     ) -> None:
         def print_message(message_event: dict[str, Any]) -> None:
-            role = {"client": "User", "server": "Agent"}[message_event["source"]]
+            role = {"end_user": "User", "ai_agent": "Agent"}[message_event["source"]]
             prefix = Text(
                 f"{role}:".ljust(6),
                 style="bold " + {"User": "blue", "Agent": "green"}[role],

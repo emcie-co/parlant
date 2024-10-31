@@ -12,7 +12,7 @@ from emcie.server.core.context_variables import (
     ContextVariableStore,
     ContextVariableValue,
 )
-from emcie.server.core.end_users import EndUserId
+from emcie.server.core.end_users import EndUser, EndUserId, EndUserStore
 from emcie.server.core.glossary import GlossaryStore, Term
 from emcie.server.core.guideline_tool_associations import GuidelineToolAssociationStore
 from emcie.server.core.guidelines import Guideline, GuidelineStore
@@ -26,6 +26,13 @@ async def create_agent(container: Container, name: str) -> Agent:
     return await container[AgentStore].create_agent(name="test-agent")
 
 
+async def create_end_user(container: Container, name: str) -> EndUser:
+    return await container[EndUserStore].create_end_user(
+        name=name,
+        email="test@user.com",
+    )
+
+
 async def create_session(
     container: Container,
     agent_id: AgentId,
@@ -33,7 +40,7 @@ async def create_session(
     title: Optional[str] = None,
 ) -> Session:
     return await container[SessionStore].create_session(
-        end_user_id or EndUserId("test-user"),
+        end_user_id or (await create_end_user(container, "Auto-Created User")).id,
         agent_id=agent_id,
         title=title,
     )
@@ -133,7 +140,7 @@ async def read_reply(
         iter(
             await container[SessionStore].list_events(
                 session_id=session_id,
-                source="server",
+                source="ai_agent",
                 min_offset=user_event_offset,
                 kinds=["message"],
             )
@@ -147,7 +154,16 @@ async def post_message(
     message: str,
     response_timeout: Timeout = Timeout.none(),
 ) -> Event:
-    data: MessageEventData = {"message": message}
+    end_user_id = (await container[SessionStore].read_session(session_id)).end_user_id
+    end_user = await container[EndUserStore].read_end_user(end_user_id)
+
+    data: MessageEventData = {
+        "message": message,
+        "participant": {
+            "id": end_user_id,
+            "display_name": end_user.name,
+        },
+    }
 
     event = await container[MC].post_client_event(
         session_id=session_id,

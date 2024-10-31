@@ -6,6 +6,7 @@ from typing import Mapping, Optional, Sequence
 import httpx
 from urllib.parse import urljoin
 
+from emcie.server.core.agents import AgentId
 from emcie.common.tools import Tool, ToolResult, ToolContext
 from emcie.server.core.common import JSONSerializable
 from emcie.server.core.contextual_correlator import ContextualCorrelator
@@ -80,6 +81,7 @@ class PluginClient(ToolService):
                 method="post",
                 url=self._get_url(f"/tools/{name}/calls"),
                 json={
+                    "agent_id": context.agent_id,
                     "session_id": context.session_id,
                     "arguments": arguments,
                 },
@@ -89,7 +91,8 @@ class PluginClient(ToolService):
                         tool_name=name, message=f"url='{self.url}', arguments='{arguments}'"
                     )
 
-                event_emitter = self._event_emitter_factory.create_event_emitter(
+                event_emitter = await self._event_emitter_factory.create_event_emitter(
+                    emitting_agent_id=AgentId(context.agent_id),
                     session_id=SessionId(context.session_id),
                 )
 
@@ -112,7 +115,7 @@ class PluginClient(ToolService):
                     elif "message" in chunk_dict:
                         await event_emitter.emit_message_event(
                             correlation_id=self._correlator.correlation_id,
-                            data={"message": chunk_dict["message"]},
+                            data=str(chunk_dict["message"]),
                         )
                     elif "error" in chunk_dict:
                         raise ToolExecutionError(

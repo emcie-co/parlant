@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 import json
 from pytest_bdd import given, parsers
 
-from emcie.server.core.agents import AgentId
-from emcie.server.core.end_users import EndUserId
+from emcie.server.core.agents import Agent, AgentId
+from emcie.server.core.end_users import EndUser, EndUserId
 from emcie.server.core.sessions import Session, SessionId, SessionStore
 
 from tests.core.engines.alpha.utils import ContextOfTest, step
@@ -30,16 +30,23 @@ def given_an_empty_session(
 def given_a_session_with_a_single_user_message(
     context: ContextOfTest,
     new_session: Session,
+    end_user: EndUser,
 ) -> SessionId:
     store = context.container[SessionStore]
 
     context.sync_await(
         store.create_event(
             session_id=new_session.id,
-            source="client",
+            source="end_user",
             kind="message",
             correlation_id="test_correlation_id",
-            data={"message": "Hey there"},
+            data={
+                "message": "Hey there",
+                "participant": {
+                    "id": end_user.id,
+                    "display_name": end_user.name,
+                },
+            },
         )
     )
 
@@ -50,16 +57,23 @@ def given_a_session_with_a_single_user_message(
 def given_a_session_with_a_thirsty_user(
     context: ContextOfTest,
     new_session: Session,
+    end_user: EndUser,
 ) -> SessionId:
     store = context.container[SessionStore]
 
     context.sync_await(
         store.create_event(
             session_id=new_session.id,
-            source="client",
+            source="end_user",
             kind="message",
             correlation_id="test_correlation_id",
-            data={"message": "I'm thirsty"},
+            data={
+                "message": "I'm thirsty",
+                "participant": {
+                    "id": end_user.id,
+                    "display_name": end_user.name,
+                },
+            },
         )
     )
 
@@ -70,20 +84,22 @@ def given_a_session_with_a_thirsty_user(
 def given_a_session_with_a_few_messages(
     context: ContextOfTest,
     new_session: Session,
+    agent: Agent,
+    end_user: EndUser,
 ) -> SessionId:
     store = context.container[SessionStore]
 
     messages = [
         {
-            "source": "client",
+            "source": "end_user",
             "message": "hey there",
         },
         {
-            "source": "server",
+            "source": "ai_agent",
             "message": "Hi, how can I help you today?",
         },
         {
-            "source": "client",
+            "source": "end_user",
             "message": "What was the first name of the famous Einstein?",
         },
     ]
@@ -92,10 +108,22 @@ def given_a_session_with_a_few_messages(
         context.sync_await(
             store.create_event(
                 session_id=new_session.id,
-                source=m["source"] == "server" and "server" or "client",
+                source=m["source"] == "ai_agent" and "ai_agent" or "end_user",
                 kind="message",
                 correlation_id="test_correlation_id",
-                data={"message": m["message"]},
+                data={
+                    "message": m["message"],
+                    "participant": {
+                        "end_user": {
+                            "id": end_user.id,
+                            "display_name": end_user.name,
+                        },
+                        "ai_agent": {
+                            "id": agent.id,
+                            "display_name": agent.name,
+                        },
+                    }[m["source"]],
+                },
             )
         )
 
@@ -118,7 +146,7 @@ def given_a_session_with_tool_event(
     context.sync_await(
         store.create_event(
             session_id=session.id,
-            source="server",
+            source="ai_agent",
             kind="tool",
             correlation_id="test_correlation_id",
             data=json.loads(tool_event_data),

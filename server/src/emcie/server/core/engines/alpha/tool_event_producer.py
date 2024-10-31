@@ -62,7 +62,7 @@ class ToolEventProducer:
         if not tool_calls:
             return []
         tool_results = await self._tool_caller.execute_tool_calls(
-            ToolContext(session_id=session_id),
+            ToolContext(agent_id=agents[0].id, session_id=session_id),
             tool_calls,
         )
 

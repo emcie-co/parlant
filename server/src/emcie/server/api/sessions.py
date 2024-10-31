@@ -280,14 +280,22 @@ def create_router(
                 flagged |= check.flagged
                 tags.update(check.tags)
 
+        session = await session_store.read_session(session_id)
+
+        message_data: MessageEventData = {
+            "message": request.content,
+            "participant": {
+                "id": session.end_user_id,
+                "display_name": session.end_user_id,
+            },
+            "flagged": flagged,
+            "tags": list(tags),
+        }
+
         event = await mc.post_client_event(
             session_id=session_id,
             kind=request.kind,
-            data={
-                "message": request.content,
-                "flagged": flagged,
-                "tags": list(tags),
-            },
+            data=message_data,
         )
 
         return CreateEventResponse(

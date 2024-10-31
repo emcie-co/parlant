@@ -142,7 +142,7 @@ class MC:
 
         event = await self._session_store.create_event(
             session_id=session_id,
-            source="client",
+            source="end_user",
             kind=kind,
             correlation_id=self._correlator.correlation_id,
             data=data,
@@ -167,7 +167,10 @@ class MC:
             )
 
     async def _process_session(self, session: Session) -> None:
-        event_emitter = self._event_emitter_factory.create_event_emitter(session.id)
+        event_emitter = await self._event_emitter_factory.create_event_emitter(
+            emitting_agent_id=session.agent_id,
+            session_id=session.id,
+        )
 
         await self._engine.process(
             Context(

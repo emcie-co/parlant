@@ -38,7 +38,13 @@ from emcie.server.core.glossary import TermId
 SessionId = NewType("SessionId", str)
 
 EventId = NewType("EventId", str)
-EventSource: TypeAlias = Literal["client", "server"]
+EventSource: TypeAlias = Literal[
+    "end_user",
+    "end_user_ui",
+    "human_agent",
+    "human_agent_on_behalf_of_ai_agent",
+    "ai_agent",
+]
 EventKind: TypeAlias = Literal["message", "tool", "status", "custom"]
 
 
@@ -53,9 +59,32 @@ class Event:
     data: JSONSerializable
     deleted: bool
 
+    def is_from_client(self) -> bool:
+        return self.source in list[EventSource](
+            [
+                "end_user",
+                "end_user_ui",
+            ]
+        )
+
+    def is_from_server(self) -> bool:
+        return self.source in list[EventSource](
+            [
+                "human_agent",
+                "human_agent_on_behalf_of_ai_agent",
+                "ai_agent",
+            ]
+        )
+
+
+class Participant(TypedDict):
+    id: NotRequired[AgentId | EndUserId | None]
+    display_name: str
+
 
 class MessageEventData(TypedDict):
     message: str
+    participant: Participant
     flagged: NotRequired[bool]
     tags: NotRequired[list[str]]
 

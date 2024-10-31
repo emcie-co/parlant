@@ -1,6 +1,7 @@
 from typing import cast
 
 from emcie.common.types.common import JSONSerializable
+from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
 from emcie.server.core.sessions import (
     MessageEventData,
@@ -11,7 +12,8 @@ from emcie.server.core.sessions import (
 
 
 class EventBuffer(EventEmitter):
-    def __init__(self) -> None:
+    def __init__(self, emitting_agent: Agent) -> None:
+        self.agent = emitting_agent
         self.events: list[EmittedEvent] = []
 
     async def emit_status_event(
@@ -20,7 +22,7 @@ class EventBuffer(EventEmitter):
         data: StatusEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
-            source="server",
+            source="ai_agent",
             kind="status",
             correlation_id=correlation_id,
             data=cast(JSONSerializable, data),
@@ -33,13 +35,27 @@ class EventBuffer(EventEmitter):
     async def emit_message_event(
         self,
         correlation_id: str,
-        data: MessageEventData,
+        data: str | MessageEventData,
     ) -> EmittedEvent:
+        if isinstance(data, str):
+            message_data = cast(
+                JSONSerializable,
+                MessageEventData(
+                    message=data,
+                    participant={
+                        "id": self.agent.id,
+                        "display_name": self.agent.name,
+                    },
+                ),
+            )
+        else:
+            message_data = cast(JSONSerializable, data)
+
         event = EmittedEvent(
-            source="server",
+            source="ai_agent",
             kind="message",
             correlation_id=correlation_id,
-            data=cast(JSONSerializable, data),
+            data=message_data,
         )
 
         self.events.append(event)
@@ -52,7 +68,7 @@ class EventBuffer(EventEmitter):
         data: ToolEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
-            source="server",
+            source="ai_agent",
             kind="tool",
             correlation_id=correlation_id,
             data=cast(JSONSerializable, data),
@@ -64,6 +80,14 @@ class EventBuffer(EventEmitter):
 
 
 class EventBufferFactory(EventEmitterFactory):
-    def create_event_emitter(self, session_id: SessionId) -> EventEmitter:
+    def __init__(self, agent_store: AgentStore) -> None:
+        self._agent_store = agent_store
+
+    async def create_event_emitter(
+        self,
+        emitting_agent_id: AgentId,
+        session_id: SessionId,
+    ) -> EventEmitter:
         _ = session_id
-        return EventBuffer()
+        agent = await self._agent_store.read_agent(emitting_agent_id)
+        return EventBuffer(emitting_agent=agent)

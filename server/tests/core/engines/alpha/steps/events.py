@@ -1,6 +1,9 @@
 from typing import Optional, cast
 from pytest_bdd import given, then, parsers, when
 
+from emcie.server.core.agents import Agent
+from emcie.server.core.common import JSONSerializable
+from emcie.server.core.end_users import EndUser
 from emcie.server.core.engines.alpha.utils import emitted_tool_event_to_dict
 from emcie.server.core.emissions import EmittedEvent
 from emcie.server.core.nlp.moderation import ModerationTag
@@ -21,24 +24,33 @@ from tests.test_utilities import nlp_test
 
 @step(
     given,
-    parsers.parse('an agent message, "{server_message}"'),
+    parsers.parse('an agent message, "{agent_message}"'),
     target_fixture="session_id",
 )
-def given_a_server_message(
+def given_an_agent_message(
     context: ContextOfTest,
-    server_message: str,
+    agent_message: str,
     session_id: SessionId,
+    agent: Agent,
 ) -> SessionId:
     store = context.container[SessionStore]
     session = context.sync_await(store.read_session(session_id=session_id))
 
+    message_data: MessageEventData = {
+        "message": agent_message,
+        "participant": {
+            "id": agent.id,
+            "display_name": agent.name,
+        },
+    }
+
     event = context.sync_await(
         store.create_event(
             session_id=session.id,
-            source="server",
+            source="ai_agent",
             kind="message",
             correlation_id="test_correlation_id",
-            data={"message": server_message},
+            data=cast(JSONSerializable, message_data),
         )
     )
 
@@ -52,17 +64,26 @@ def given_a_user_message(
     context: ContextOfTest,
     session_id: SessionId,
     user_message: str,
+    end_user: EndUser,
 ) -> SessionId:
     store = context.container[SessionStore]
     session = context.sync_await(store.read_session(session_id=session_id))
 
+    message_data: MessageEventData = {
+        "message": user_message,
+        "participant": {
+            "id": end_user.id,
+            "display_name": end_user.name,
+        },
+    }
+
     event = context.sync_await(
         store.create_event(
             session_id=session.id,
-            source="client",
+            source="end_user",
             kind="message",
             correlation_id="test_correlation_id",
-            data={"message": user_message},
+            data=cast(JSONSerializable, message_data),
         )
     )
 
@@ -85,13 +106,20 @@ def given_a_flagged_user_message(
     store = context.container[SessionStore]
     session = context.sync_await(store.read_session(session_id=session_id))
 
+    message_data: MessageEventData = {
+        "message": user_message,
+        "participant": {"display_name": ""},
+        "flagged": True,
+        "tags": [moderation_tag],
+    }
+
     event = context.sync_await(
         store.create_event(
             session_id=session.id,
-            source="client",
+            source="end_user",
             kind="message",
             correlation_id="test_correlation_id",
-            data={"message": user_message, "flagged": True, "tags": [moderation_tag]},
+            data=cast(JSONSerializable, message_data),
         )
     )
 

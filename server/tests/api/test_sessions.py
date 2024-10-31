@@ -15,6 +15,7 @@ from emcie.server.core.sessions import EventSource, MessageEventData, SessionId,
 from tests.api.utils import (
     create_agent,
     create_context_variable,
+    create_end_user,
     create_guideline,
     create_session,
     create_term,
@@ -34,12 +35,12 @@ async def long_session_id(
         container,
         session_id,
         [
-            make_event_params("client"),
-            make_event_params("server"),
-            make_event_params("client"),
-            make_event_params("server"),
-            make_event_params("server"),
-            make_event_params("client"),
+            make_event_params("end_user"),
+            make_event_params("ai_agent"),
+            make_event_params("end_user"),
+            make_event_params("ai_agent"),
+            make_event_params("ai_agent"),
+            make_event_params("end_user"),
         ],
     )
 
@@ -354,8 +355,8 @@ async def test_that_deleting_a_session_also_deletes_its_events(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("client"),
-        make_event_params("server"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -380,11 +381,11 @@ async def test_that_events_can_be_listed(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("client"),
-        make_event_params("server"),
-        make_event_params("server"),
-        make_event_params("client"),
-        make_event_params("server"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
+        make_event_params("ai_agent"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -407,11 +408,11 @@ async def test_that_events_can_be_filtered_by_offset(
     offset: int,
 ) -> None:
     session_events = [
-        make_event_params("client"),
-        make_event_params("server"),
-        make_event_params("client"),
-        make_event_params("server"),
-        make_event_params("client"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
+        make_event_params("end_user"),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -576,11 +577,11 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("client"),
-        make_event_params("server"),
-        make_event_params("client"),
-        make_event_params("server"),
-        make_event_params("client"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
+        make_event_params("end_user"),
+        make_event_params("ai_agent"),
+        make_event_params("end_user"),
     ]
     await populate_session_id(container, session_id, session_events)
 
@@ -623,7 +624,7 @@ def test_that_no_interaction_is_found_for_an_empty_session(
             f"/sessions/{session_id}/interactions",
             params={
                 "min_event_offset": 0,
-                "source": "server",
+                "source": "ai_agent",
             },
         )
         .raise_for_status()
@@ -651,7 +652,7 @@ async def test_that_a_server_interaction_is_found_for_a_session_with_a_user_mess
             f"/sessions/{session_id}/interactions",
             params={
                 "min_event_offset": event.offset,
-                "source": "server",
+                "source": "ai_agent",
                 "wait": True,
             },
         )
@@ -660,7 +661,7 @@ async def test_that_a_server_interaction_is_found_for_a_session_with_a_user_mess
     )["interactions"]
 
     assert len(interactions) == 1
-    assert interactions[0]["source"] == "server"
+    assert interactions[0]["source"] == "ai_agent"
     assert interactions[0]["kind"] == "message"
     assert isinstance(interactions[0]["data"], str)
     assert len(interactions[0]["data"]) > 0
@@ -671,10 +672,15 @@ async def test_that_a_message_interaction_can_be_inspected_using_the_message_eve
     container: Container,
     agent_id: AgentId,
 ) -> None:
+    end_user = await create_end_user(
+        container=container,
+        name="John Smith",
+    )
+
     session = await create_session(
         container=container,
         agent_id=agent_id,
-        end_user_id=EndUserId("john.s@peppery.com"),
+        end_user_id=end_user.id,
     )
 
     guideline = await create_guideline(
@@ -704,7 +710,7 @@ async def test_that_a_message_interaction_can_be_inspected_using_the_message_eve
         agent_id=agent_id,
         variable_id=context_variable.id,
         key=session.end_user_id,
-        data="John Smith",
+        data=end_user.name,
     )
 
     user_event = await post_message(
@@ -726,7 +732,7 @@ async def test_that_a_message_interaction_can_be_inspected_using_the_message_eve
         .json()
     )
 
-    assert "John Smith" in cast(MessageEventData, reply_event.data)["message"]
+    assert end_user.name in cast(MessageEventData, reply_event.data)["message"]
 
     iterations = inspection_data["preparation_iterations"]
     assert len(iterations) >= 1
@@ -747,5 +753,5 @@ async def test_that_a_message_interaction_can_be_inspected_using_the_message_eve
 
     assert len(iterations[0]["context_variables"]) == 1
     assert iterations[0]["context_variables"][0]["name"] == context_variable.name
-    assert iterations[0]["context_variables"][0]["key"] == session.end_user_id
-    assert iterations[0]["context_variables"][0]["value"] == "John Smith"
+    assert iterations[0]["context_variables"][0]["key"] == end_user.id
+    assert iterations[0]["context_variables"][0]["value"] == end_user.name

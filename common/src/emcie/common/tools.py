@@ -34,6 +34,7 @@ _SessionStatus = Literal["typing", "processing", "ready"]
 class ToolContext:
     def __init__(
         self,
+        agent_id: str,
         session_id: str,
         emit_message: Optional[Callable[[str], Awaitable[None]]] = None,
         emit_status: Optional[
@@ -43,6 +44,7 @@ class ToolContext:
             ]
         ] = None,
     ) -> None:
+        self.agent_id = agent_id
         self.session_id = session_id
         self._emit_message = emit_message
         self._emit_status = emit_status

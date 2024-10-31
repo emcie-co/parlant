@@ -6,6 +6,7 @@ import traceback
 from typing import Mapping, Optional, Sequence, cast
 
 from emcie.server.core.agents import Agent, AgentId, AgentStore
+from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import (
     ContextVariable,
     ContextVariableStore,

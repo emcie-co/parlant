@@ -144,7 +144,7 @@ async def test_event_creation(
 
         event = await session_store.create_event(
             session_id=session.id,
-            source="client",
+            source="end_user",
             kind="message",
             correlation_id="test_correlation_id",
             data={"message": "Hello, world!"},

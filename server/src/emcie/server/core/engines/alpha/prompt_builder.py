@@ -116,13 +116,22 @@ The following is a description of your identity: ###
 
             return json.dumps(
                 {
-                    "id": e.id,
-                    "kind": e.kind,
-                    "source": {
-                        "client": "user",
-                        "server": "assistant",
-                    }.get(e.source),
-                    "data": data,
+                    "event_kind": e.kind,
+                    "source": e.source,
+                    **(
+                        {
+                            "participant_name": cast(MessageEventData, e.data)["participant"][
+                                "display_name"
+                            ]
+                        }
+                        if e.kind == "message"
+                        else {}
+                    ),
+                    **(
+                        {"message": cast(MessageEventData, data)["message"]}
+                        if e.kind == "message"
+                        else {"data": data}
+                    ),
                 }
             )
 

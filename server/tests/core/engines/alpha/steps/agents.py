@@ -12,11 +12,6 @@ def given_an_agent(
     return agent_id
 
 
-@step(given, "a nonexistent agent", target_fixture="agent_id")
-def given_a_nonexistent_agent() -> AgentId:
-    return AgentId("nonexistent-agent")
-
-
 @step(given, parsers.parse("an agent whose job is {description}"), target_fixture="agent_id")
 def given_an_agent_with_identity(
     context: ContextOfTest,

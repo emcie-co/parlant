@@ -207,6 +207,7 @@ class ReadToolResponse(BaseModel):
 
 
 class CallToolRequest(BaseModel):
+    agent_id: str
     session_id: str
     arguments: dict[str, _ToolParameterType]
 
@@ -357,6 +358,7 @@ class PluginServer:
                 chunks_received.release()
 
             context = ToolContext(
+                agent_id=request.agent_id,
                 session_id=request.session_id,
                 emit_message=emit_message,
                 emit_status=emit_status,

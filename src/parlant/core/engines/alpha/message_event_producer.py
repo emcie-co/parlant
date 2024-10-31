@@ -165,7 +165,6 @@ class MessageEventProducer:
         staged_events: Sequence[EmittedEvent],
     ) -> str:
         assert len(agents) == 1
-
         builder = PromptBuilder()
 
         builder.add_section(
@@ -181,16 +180,14 @@ You must generate your reply message to the current (latest) state of the intera
 Task Description:
 Continue the provided interaction in a natural and human-like manner. 
 Some further clarifications:
-1. Make your response as humanlike as possible. 
+1. Make your response as human-like as possible. 
 2. Be concise and avoid being overly polite when not necessary. 
 3. When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new way to approach the question altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
 4. Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
 5. If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it.
 """
         )
-        produced_reply_arg_text = ""
         if any([event.kind == "message" for event in staged_events]):
-            produced_reply_arg_text = "\"produced_reply\": <BOOL, return 'true' unless the user explicitly asked you to not respond>"
             builder.add_section(
                 """
 The interaction with the user has just began, and no messages were sent by either party.
@@ -205,6 +202,12 @@ If you decide not to emit a message, output the following:
 Otherwise, follow the rest of this prompt to choose the content of your response. 
         """
             )
+
+        else:
+            builder.add_section("""
+Since the interaction with the user is already ongoing, always produce a reply to the user's last message. The only exception where you may not produce a reply is if the user explicitly asked you not to respond to their message.
+In all other cases, even if the user is indicating that the conversation is over, you are expected to produce a reply.
+                """)
 
         if tool_enabled_guideline_propositions:
             builder.add_section(
@@ -376,13 +379,13 @@ Example 3: Non-Adherence Due to Missing Data: ###
 """  # noqa
             )
         else:
-            builder.add_section(
+            builder.add_section(  # TODO mention that they must produce a reply
                 f"""
 Produce a valid JSON object in the following format: ###
 {{
     “last_message_of_user”: “<the user’s last message in the interaction>”,
     "rationale": "<a few words to explain why you should or shouldn't produce a reply to the user in this case>",
-    {produced_reply_arg_text}
+    "produced_reply": <BOOL>,
     "evaluations_for_each_of_the_provided_guidelines": [
         {{
             "number": 1,

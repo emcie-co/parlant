@@ -153,14 +153,8 @@ interaction between you and a user: ###
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
                 content="""
-You, an AI assistant, are now present in an online session with a user.
-An interaction, addressing the user, may or may not be initiated by you now.
-
-Here's how to decide whether to initiate the interaction:
-A. If the guidelines below both apply to the context, as well as suggest that you should say something
-to the user, then you should indeed initiate the interaction now.
-B. Otherwise, if no reason is provided that suggests you should say something to the user,
-then you should not initiate the interaction. Produce no reply in this case.
+Your interaction with the user has just began, and no events have been recorded yet.
+Proceed with your task accordingly.
 """,
                 status=SectionStatus.PASSIVE,
             )

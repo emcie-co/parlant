@@ -99,7 +99,6 @@ Feature: Supervision
         Given the alpha engine
         And an agent
         And a guideline "initiate_conversation", to greet the user when the conversation begins
-        And that the "initiate_conversation" guideline is proposed with a priority of 10 because "The interaction has just began"
         When processing is triggered
         Then a single message event is emitted
         And the message contains a greeting to the user

@@ -41,25 +41,11 @@ def get_packages() -> list[Package]:
             publish=False,
         ),
         Package(
-            name="common",
-            path=root / "common",
-            cmd_prefix="poetry run",
-            uses_poetry=True,
-            publish=True,
-        ),
-        Package(
-            name="sdk",
-            path=root / "sdk",
-            cmd_prefix="poetry run",
-            uses_poetry=True,
-            publish=True,
-        ),
-        Package(
             name="server",
             path=root / "server",
             cmd_prefix="poetry run",
             uses_poetry=True,
-            publish=False,
+            publish=True,
         ),
     ]
 

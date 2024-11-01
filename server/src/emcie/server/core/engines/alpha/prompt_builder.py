@@ -109,37 +109,30 @@ The following is a description of your identity: ###
 
                 if message_data.get("flagged"):
                     data = {
+                        "participant": message_data["participant"]["display_name"],
                         "message": "<N/A>",
                         "censured": True,
                         "reasons": message_data["tags"],
                     }
+                else:
+                    data = {
+                        "participant": message_data["participant"]["display_name"],
+                        "message": message_data["message"],
+                    }
 
             source_map: dict[EventSource, str] = {
-                "end_user": "user",
+                "end_user": "human_user",
                 "end_user_ui": "frontend_application",
-                "human_agent": "human_operator",
-                "human_agent_on_behalf_of_ai_agent": "agent",
-                "ai_agent": "agent",
+                "human_agent": "human_agent",
+                "human_agent_on_behalf_of_ai_agent": "ai_agent",
+                "ai_agent": "ai_agent",
             }
 
             return json.dumps(
                 {
                     "event_kind": e.kind,
                     "source_kind": source_map[e.source],
-                    **(
-                        {
-                            "participant": cast(MessageEventData, e.data)["participant"][
-                                "display_name"
-                            ]
-                        }
-                        if e.kind == "message"
-                        else {}
-                    ),
-                    **(
-                        {"message": cast(MessageEventData, data)["message"]}
-                        if e.kind == "message"
-                        else {"data": data}
-                    ),
+                    "data": data,
                 }
             )
 

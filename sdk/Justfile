@@ -1,9 +1,0 @@
-set positional-arguments
-
-SERVER_ADDRESS := env("SERVER_ADDRESS", "http://localhost:8000")
-
-@client *args='':
-  poetry run emcie -s {{SERVER_ADDRESS}} "$@"
-
-@chat *args='':
-  poetry run emcie -s {{SERVER_ADDRESS}} agent chat "$@"

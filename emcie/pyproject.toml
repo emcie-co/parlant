@@ -8,6 +8,7 @@ packages = [{ include = "emcie", from = "src" }]
 
 [tool.poetry.scripts]
 emcie-server = "emcie.server.bin.server:main"
+emcie = "emcie.server.bin.client:main"
 
 [tool.poetry.dependencies]
 aiofiles = "^24.1.0"

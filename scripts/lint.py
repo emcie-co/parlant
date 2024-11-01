@@ -20,7 +20,7 @@ def run_cmd_or_die(
 
 def lint_package(mypy: bool, ruff: bool, package: Package) -> None:
     if mypy:
-        run_cmd_or_die("mypy", "Please fix MyPy lint errors", package)
+        run_cmd_or_die("mypy .", "Please fix MyPy lint errors", package)
     if ruff:
         run_cmd_or_die("ruff check", "Please fix Ruff lint errors", package)
         run_cmd_or_die("ruff format --check", "Please format files with Ruff", package)

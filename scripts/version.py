@@ -4,9 +4,10 @@ from pathlib import Path
 import semver  # type: ignore
 import subprocess
 import sys
-from utils import die, for_each_package, Package, get_packages
 import re
 import toml  # type: ignore
+
+from utils import die, for_each_package, Package, get_packages
 
 
 def get_project_file(package: Package) -> Path:

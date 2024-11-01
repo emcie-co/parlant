@@ -1,6 +1,7 @@
 import sys
-from utils import Package, die, for_each_package
 from functools import partial
+
+from utils import Package, die, for_each_package
 
 
 def run_cmd_or_die(

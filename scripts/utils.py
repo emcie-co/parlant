@@ -24,7 +24,7 @@ def get_repo_root() -> Path:
     if status != 0:
         print(output, file=sys.stderr)
         print("error: failed to get repo root", file=sys.stderr)
-        exit(1)
+        sys.exit(1)
 
     return Path(output.strip())
 
@@ -42,7 +42,7 @@ def get_packages() -> list[Package]:
         ),
         Package(
             name="emcie",
-            path=root / "emcie",
+            path=root / ".",
             cmd_prefix="poetry run",
             uses_poetry=True,
             publish=True,
@@ -69,4 +69,4 @@ def for_each_package(
 
 def die(message: str) -> NoReturn:
     print(message, file=sys.stderr)
-    exit(1)
+    sys.exit(1)

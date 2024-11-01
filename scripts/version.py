@@ -128,9 +128,7 @@ def commit_version(version: str) -> bool:
 
 if __name__ == "__main__":
     if there_are_pending_git_changes():
-        die(
-            "error: version bumps must take place on a clean tree with no pending changes"
-        )
+        die("error: version bumps must take place on a clean tree with no pending changes")
 
     current_version = get_current_server_version()
 

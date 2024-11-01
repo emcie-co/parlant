@@ -1,9 +1,0 @@
-.env
-.pytest_cache
-.mypy_cache
-__pycache__
-tests/core/persistence/test_cache/*.json
-data/*.json
-cache/
-.coverage
-log

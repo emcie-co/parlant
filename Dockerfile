@@ -4,20 +4,14 @@ ENV POETRY_VERSION=1.8.3
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV CXXFLAGS='-std=c++11'
-ENV PYTHONPATH=/app/server/src
+ENV PYTHONPATH=/app/src
 
 RUN apt-get update && apt-get install -y g++ && rm -rf /var/lib/apt/lists/*
 RUN pip install poetry==$POETRY_VERSION
 
-COPY common/pyproject.toml common/poetry.lock common/README.md /app/common/
-COPY common/src /app/common/src
-WORKDIR /app/common
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-root --only main
-
-COPY server/pyproject.toml server/poetry.lock /app/server/
-COPY server/src /app/server/src
-WORKDIR /app/server
+COPY pyproject.toml poetry.lock /app/
+COPY src /app/src
+WORKDIR /app
 RUN poetry config virtualenvs.create false \
     && poetry install --no-root --only main
 

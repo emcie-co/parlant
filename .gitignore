@@ -1,5 +1,13 @@
-.DS_Store
+.env
+.pytest_cache
+.mypy_cache
 __pycache__
 .justfile
 testresults**
 testresults**
+tests/core/persistence/test_cache/*.json
+data/*.json
+cache/
+.coverage
+.DS_STORE
+.vscode

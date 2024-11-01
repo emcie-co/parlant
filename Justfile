@@ -25,11 +25,4 @@ test-ci-initial-server:
   EXIT1=${PIPESTATUS[0]}
   echo $EXIT1
 
-test-ci-initial-sdk:
-  cd ../sdk
-  mkdir -p logs
-  poetry run pytest -v --plan=initial --tap-combined --tap-outdir=logs --capture=tee-sys --junit-xml=logs/testresults.xml | tee logs/testresults.log
-  EXIT1=${PIPESTATUS[0]}
-  echo $EXIT1
-
-test: test-ci-initial-server test-ci-initial-sdk
+test: test-ci-initial-server

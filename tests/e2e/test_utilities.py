@@ -80,7 +80,7 @@ def get_package_path() -> Path:
         p = p.parent
         assert p != Path("/"), "Failed to find repo path"
 
-    package_path = p / "emcie"
+    package_path = p / "."
 
     assert Path.cwd().is_relative_to(package_path), "Must run from within the package dir"
 

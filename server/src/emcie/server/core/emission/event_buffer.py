@@ -1,6 +1,6 @@
 from typing import cast
 
-from emcie.common.types.common import JSONSerializable
+from emcie.server.core.common import JSONSerializable
 from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
 from emcie.server.core.sessions import (

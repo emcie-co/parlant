@@ -4,7 +4,7 @@ from itertools import chain
 import json
 from typing import Any, Mapping, Optional, Sequence, cast
 
-from emcie.common.tools import Tool
+from emcie.server.core.tools import Tool
 from emcie.server.core.agents import Agent
 from emcie.server.core.common import generate_id
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue

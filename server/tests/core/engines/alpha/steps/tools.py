@@ -1,7 +1,7 @@
 from typing import Any, cast
 from pytest_bdd import given, parsers
 
-from emcie.common.tools import Tool
+from emcie.server.core.tools import Tool
 from emcie.server.core.agents import AgentId, AgentStore
 from emcie.server.core.guideline_tool_associations import (
     GuidelineToolAssociation,

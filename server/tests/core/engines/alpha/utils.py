@@ -6,7 +6,7 @@ from typing import Any, Callable
 from lagom import Container
 from pytest_bdd import parsers
 
-from emcie.common.tools import Tool
+from emcie.server.core.tools import Tool
 from emcie.server.core.engines.alpha.guideline_proposition import GuidelineProposition
 from emcie.server.core.guidelines import Guideline
 

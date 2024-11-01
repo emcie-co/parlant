@@ -1,15 +1,89 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib
 import inspect
-from typing import Mapping, NamedTuple, Optional, Sequence
-
-from emcie.common.tools import ToolResult, Tool, ToolContext, ToolParameter
-from emcie.server.core.common import (
-    JSONSerializable,
+from typing import (
+    Awaitable,
+    Callable,
+    Literal,
+    Mapping,
+    NamedTuple,
+    NotRequired,
+    Optional,
+    Sequence,
+    TypedDict,
+    Union,
 )
+
+from emcie.server.core.common import JSONSerializable
+
+ToolParameterType = Literal[
+    "string",
+    "number",
+    "integer",
+    "boolean",
+]
+
+
+class ToolParameter(TypedDict):
+    type: ToolParameterType
+    description: NotRequired[str]
+    enum: NotRequired[list[Union[str, int, float, bool]]]
+
+
+SessionStatus = Literal["typing", "processing", "ready"]
+
+
+class ToolContext:
+    def __init__(
+        self,
+        agent_id: str,
+        session_id: str,
+        emit_message: Optional[Callable[[str], Awaitable[None]]] = None,
+        emit_status: Optional[
+            Callable[
+                [SessionStatus, JSONSerializable],
+                Awaitable[None],
+            ]
+        ] = None,
+    ) -> None:
+        self.agent_id = agent_id
+        self.session_id = session_id
+        self._emit_message = emit_message
+        self._emit_status = emit_status
+
+    async def emit_message(self, message: str) -> None:
+        assert self._emit_message
+        await self._emit_message(message)
+
+    async def emit_status(
+        self,
+        status: SessionStatus,
+        data: JSONSerializable,
+    ) -> None:
+        assert self._emit_status
+        await self._emit_status(status, data)
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Tool:
+    name: str
+    creation_utc: datetime
+    description: str
+    parameters: dict[str, ToolParameter]
+    required: list[str]
+    consequential: bool
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 
 class ToolId(NamedTuple):

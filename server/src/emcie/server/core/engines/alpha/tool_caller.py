@@ -5,10 +5,9 @@ import json
 import traceback
 from typing import Any, Mapping, NewType, Optional, Sequence
 
-
-from emcie.common.tools import Tool, ToolContext
+from emcie.server.core.tools import Tool, ToolContext
 from emcie.server.core.agents import Agent
-from emcie.server.core.common import JSONSerializable, generate_id
+from emcie.server.core.common import JSONSerializable, generate_id, DefaultBaseModel
 from emcie.server.core.context_variables import ContextVariable, ContextVariableValue
 from emcie.server.core.nlp.generation import SchematicGenerator
 from emcie.server.core.services.tools.service_registry import ServiceRegistry
@@ -18,7 +17,6 @@ from emcie.server.core.engines.alpha.guideline_proposition import GuidelinePropo
 from emcie.server.core.engines.alpha.prompt_builder import PromptBuilder
 from emcie.server.core.engines.alpha.utils import emitted_tool_events_to_dicts
 from emcie.server.core.emissions import EmittedEvent
-from emcie.server.core.common import DefaultBaseModel
 from emcie.server.core.logging import Logger
 from emcie.server.core.tools import ToolId, ToolService
 

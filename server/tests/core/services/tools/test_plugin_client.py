@@ -2,8 +2,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
-from emcie.common.tools import ToolContext, ToolResult
-from emcie.common.plugin import PluginServer, ToolEntry, tool
+from emcie.server.core.tools import ToolContext, ToolResult
+from emcie.server.core.services.tools.plugins import PluginServer, ToolEntry, tool
 from lagom import Container
 from pytest import fixture
 import pytest

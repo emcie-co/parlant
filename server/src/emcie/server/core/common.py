@@ -1,17 +1,39 @@
 from __future__ import annotations
 import asyncio
-from typing import Awaitable, Callable, NewType, Optional, TypeAlias
+from typing import Awaitable, Callable, Mapping, NewType, Optional, Sequence, TypeAlias, Union
 import hashlib
 import nanoid  # type: ignore
+from pydantic import BaseModel, ConfigDict
 import semver  # type: ignore
 
 
-from emcie.common.base_models import DefaultBaseModel as _DefaultBaseModel
-from emcie.common.types.common import JSONSerializable as _JSONSerializable
+class DefaultBaseModel(BaseModel):
+    """
+    Base class for all Emcie Pydantic models.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        validate_default=True,
+    )
 
 
-DefaultBaseModel: TypeAlias = _DefaultBaseModel
-JSONSerializable: TypeAlias = _JSONSerializable
+JSONSerializable: TypeAlias = Union[
+    str,
+    int,
+    float,
+    bool,
+    None,
+    Mapping[str, "JSONSerializable"],
+    Sequence["JSONSerializable"],
+    Optional[str],
+    Optional[int],
+    Optional[float],
+    Optional[bool],
+    Optional[None],
+    Optional[Mapping[str, "JSONSerializable"]],
+    Optional[Sequence["JSONSerializable"]],
+]
 
 UniqueId = NewType("UniqueId", str)
 

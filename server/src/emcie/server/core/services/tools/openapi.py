@@ -13,7 +13,7 @@ from openapi_parser.parser import (
 from types import TracebackType
 from typing import Any, Awaitable, Callable, Mapping, NamedTuple, Optional, Sequence, cast
 
-from emcie.common.tools import (
+from emcie.server.core.tools import (
     Tool,
     ToolResult,
     ToolParameter,

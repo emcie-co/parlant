@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from typing_extensions import Literal
 
 from emcie.server.core.common import DefaultBaseModel
-from emcie.common.tools import Tool, ToolParameter, ToolParameterType
+from emcie.server.core.tools import Tool, ToolParameter, ToolParameterType
 from emcie.server.core.services.tools.openapi import OpenAPIClient
 from emcie.server.core.services.tools.plugins import PluginClient
 from emcie.server.core.services.tools.service_registry import ServiceRegistry

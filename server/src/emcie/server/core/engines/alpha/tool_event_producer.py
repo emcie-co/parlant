@@ -1,6 +1,6 @@
 from typing import Mapping, Sequence
 
-from emcie.common.tools import ToolContext
+from emcie.server.core.tools import ToolContext
 from emcie.server.core.contextual_correlator import ContextualCorrelator
 from emcie.server.core.nlp.generation import SchematicGenerator
 from emcie.server.core.logging import Logger

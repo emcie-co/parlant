@@ -2,7 +2,7 @@ from typing import Callable, Optional, cast
 
 from lagom import Container
 
-from emcie.common.tools import ToolResult
+from emcie.server.core.tools import ToolResult
 from emcie.server.core.common import JSONSerializable
 from emcie.server.core.agents import Agent, AgentId, AgentStore
 from emcie.server.core.async_utils import Timeout

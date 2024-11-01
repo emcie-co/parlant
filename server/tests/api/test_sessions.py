@@ -8,7 +8,7 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from emcie.common.tools import ToolResult
+from emcie.server.core.tools import ToolResult
 from emcie.server.core.agents import AgentId
 from emcie.server.core.async_utils import Timeout
 from emcie.server.core.end_users import EndUserId

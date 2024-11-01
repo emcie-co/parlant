@@ -4,8 +4,8 @@ import signal
 import traceback
 import httpx
 
-from emcie.common.tools import ToolContext, ToolResult
-from emcie.common.plugin import tool
+from emcie.server.core.tools import ToolContext, ToolResult
+from emcie.server.core.services.tools.plugins import tool
 from emcie.server.core.async_utils import Timeout
 from emcie.server.core.agents import Agent
 

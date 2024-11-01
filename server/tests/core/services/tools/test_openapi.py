@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse
 from pytest import mark
 import uvicorn
 
-from emcie.common.tools import ToolContext
+from emcie.server.core.tools import ToolContext
 from emcie.server.core.services.tools.openapi import OpenAPIClient
-from emcie.common.base_models import DefaultBaseModel
+from emcie.server.core.common import DefaultBaseModel
 
 OPENAPI_SERVER_PORT = 8089
 OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"

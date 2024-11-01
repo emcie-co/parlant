@@ -55,7 +55,7 @@ def set_package_version(version: str, package: Package) -> None:
 
 
 def update_version_variable_in_code(version: str) -> None:
-    server_package = next(p for p in get_packages() if p.name == "server")
+    server_package = next(p for p in get_packages() if p.name == "emcie")
     init_file: Path = server_package.path / "src/emcie/server/__init__.py"
 
     init_file_content = init_file.read_text()
@@ -79,7 +79,7 @@ def tag_repo(version: str) -> None:
 
 
 def get_current_server_version() -> str:
-    server_package = next(p for p in get_packages() if p.name == "server")
+    server_package = next(p for p in get_packages() if p.name == "emcie")
     return get_current_version(server_package)
 
 

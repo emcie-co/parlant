@@ -41,8 +41,8 @@ def get_packages() -> list[Package]:
             publish=False,
         ),
         Package(
-            name="server",
-            path=root / "server",
+            name="emcie",
+            path=root / "emcie",
             cmd_prefix="poetry run",
             uses_poetry=True,
             publish=True,

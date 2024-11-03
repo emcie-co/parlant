@@ -376,44 +376,6 @@ Example 3: Non-Adherence Due to Missing Data: ###
 ###
 """  # noqa
             )
-
-        # output_guideline_format = "\n".join("")  # TODO rewrite here
-
-        builder.add_section(
-            """
-Produce a valid JSON object in the following format: ###
-{{
-    “last_message_of_user”: “<the user’s last message in the interaction>”,
-    "rationale": "<a few words to explain why you should or shouldn't produce a reply to the user in this case>",
-    "produced_reply": <BOOL>,
-    "evaluations_for_each_of_the_provided_guidelines": [
-        {{
-            "number": 1,
-            "instruction": "<the instruction as given by guideline #1>"
-            "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
-            "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
-            "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
-        }},
-        {{
-            "number": 2,
-            "instruction": "<the instruction as given by guideline #1>"
-            "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
-            "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
-            "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
-        }},
-        ...
-    ],
-    "revisions": [
-        {{
-            "revision_number": 1,
-            "content": "<your message here>",
-            "followed_all_guidelines": true
-        }}
-    ]
-}}
-###"""
-        )
-
         builder.add_interaction_history(interaction_history)
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
@@ -427,12 +389,54 @@ If a given guideline contradicts a previous request made by the user, or if it's
         """
         )
         builder.add_staged_events(staged_events)
+        builder.add_section(
+            f"""
+Produce a valid JSON object in the following format: ###
+
+{self._get_output_format(interaction_history, list(chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)))}"""
+        )
 
         prompt = builder.build()
         with open("message event prompt.txt", "w") as f:  # TODO delete
             f.write(prompt)
 
         return prompt
+
+    def _get_output_format(
+        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
+    ) -> str:  # TODO I was here
+        return """
+        Produce a valid JSON object in the following format: ###
+        {{
+            “last_message_of_user”: “<the user’s last message in the interaction>”,
+            "rationale": "<a few words to explain why you should or shouldn't produce a reply to the user in this case>",
+            "produced_reply": <BOOL>,
+            "evaluations_for_each_of_the_provided_guidelines": [
+                {{
+                    "number": 1,
+                    "instruction": "<the instruction as given by guideline #1>"
+                    "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
+                    "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
+                    "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
+                }},
+                {{
+                    "number": 2,
+                    "instruction": "<the instruction as given by guideline #1>"
+                    "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
+                    "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
+                    "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
+                }},
+                ...
+            ],
+            "revisions": [
+                {{
+                    "revision_number": 1,
+                    "content": "<your message here>",
+                    "followed_all_guidelines": true
+                }}
+            ]
+        }}
+        ###"""
 
     async def _generate_response_message(
         self,

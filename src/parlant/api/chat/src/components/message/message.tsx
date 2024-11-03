@@ -11,14 +11,14 @@ interface Props {
 }
 
 const statusIcon = {
-    pending: <video src='/mp4/loading.mp4' autoPlay loop data-testid="pending" height={12.2} width={12.2} className={'clip- ms-[4px] rounded-full ' + styles.pendingVideo}/>,
-    accepted: <img src='/icons/v.svg' data-testid="accepted" height={11} width={11} className='ms-[4px]' alt='accepted'/>,
-    acknowledged: <img src='/icons/v.svg' data-testid="acknowledged" height={11} width={11} className='ms-[4px]' alt='accepted'/>,
-    processing: <img src='/icons/green-v.svg' data-testid="processing" height={11} width={11} className='ms-[4px]' alt='read'/>,
-    typing: <img src='/icons/green-v.svg' data-testid="typing" height={11} width={11} className='ms-[4px]' alt='read'/>,
-    ready: <img src='/icons/green-v.svg' data-testid="ready" height={11} width={11} className='ms-[4px]' alt='read'/>,
-    error: <img src='/icons/error.svg' data-testid="error" height={11} width={11} className='ms-[4px]' alt='error'/>,
-    cancelled: <img src='/icons/green-v.svg' title='canceled' data-testid="cancelled" height={11} width={11} className='ms-[4px]' alt='read'/>,
+    pending: <video src='mp4/loading.mp4' autoPlay loop data-testid="pending" height={12.2} width={12.2} className={'clip- ms-[4px] rounded-full ' + styles.pendingVideo}/>,
+    accepted: <img src='icons/v.svg' data-testid="accepted" height={11} width={11} className='ms-[4px]' alt='accepted'/>,
+    acknowledged: <img src='icons/v.svg' data-testid="acknowledged" height={11} width={11} className='ms-[4px]' alt='accepted'/>,
+    processing: <img src='icons/green-v.svg' data-testid="processing" height={11} width={11} className='ms-[4px]' alt='read'/>,
+    typing: <img src='icons/green-v.svg' data-testid="typing" height={11} width={11} className='ms-[4px]' alt='read'/>,
+    ready: <img src='icons/green-v.svg' data-testid="ready" height={11} width={11} className='ms-[4px]' alt='read'/>,
+    error: <img src='icons/error.svg' data-testid="error" height={11} width={11} className='ms-[4px]' alt='error'/>,
+    cancelled: <img src='icons/green-v.svg' title='canceled' data-testid="cancelled" height={11} width={11} className='ms-[4px]' alt='read'/>,
 };
 
 export default function Message({event, isContinual}: Props): ReactElement {

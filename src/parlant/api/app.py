@@ -1,6 +1,7 @@
 from typing import Awaitable, Callable
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from lagom import Container
 
 from parlant.api import agents, index
@@ -25,6 +26,8 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
 )
 from parlant.core.logging import Logger
 from parlant.core.application import Application
+from fastapi.staticfiles import StaticFiles
+import os
 
 
 async def create_api_app(container: Container) -> FastAPI:
@@ -68,6 +71,13 @@ async def create_api_app(container: Container) -> FastAPI:
         )
 
     agent_router = APIRouter()
+
+    static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
+    api_app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
+
+    @api_app.get("/")
+    async def root() -> Response:
+        return RedirectResponse("/chat")
 
     agent_router.include_router(
         agents.create_router(

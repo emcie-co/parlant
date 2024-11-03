@@ -137,7 +137,7 @@ export default function Session({session, isSelected, refetch, editingTitle, set
                             {session.title}
                             <small className='text-[12px] text-[#A9A9A9] font-light flex gap-[6px]'>
                                 {getDateStr(session.creation_utc)}
-                                <img src="/icons/dot-saparetor.svg" alt="" height={18} width={3}/>
+                                <img src="icons/dot-saparetor.svg" alt="" height={18} width={3}/>
                                 {getTimeStr(session.creation_utc)}
                             </small>
                         </div>
@@ -161,7 +161,7 @@ export default function Session({session, isSelected, refetch, editingTitle, set
                 <DropdownMenu>
                     <DropdownMenuTrigger  disabled={!!editingTitle} data-testid="menu-button" tabIndex={-1} onClick={e => e.stopPropagation()}>
                         <div tabIndex={tabIndex} role='button' className='rounded-full me-[24px]' onClick={e => e.stopPropagation()}>
-                            <img src='/icons/more.svg' alt='more' height={14} width={14}/>
+                            <img src='icons/more.svg' alt='more' height={14} width={14}/>
                         </div>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='start'>
@@ -176,8 +176,8 @@ export default function Session({session, isSelected, refetch, editingTitle, set
                 
                 {editingTitle == session.id &&
                 <div className='me-[18px]'>
-                    <Tooltip value='Cancel'><Button data-testid="cancel" variant='ghost' className="w-[28px] h-[28px] p-[8px] rounded-full" onClick={cancel}><img src="/icons/cancel.svg" alt="cancel" /></Button></Tooltip>
-                    <Tooltip value='Save'><Button variant='ghost' className="w-[28px] h-[28px] p-[8px] rounded-full" onClick={saveTitleChange}><img src="/icons/save.svg" alt="cancel" /></Button></Tooltip>
+                    <Tooltip value='Cancel'><Button data-testid="cancel" variant='ghost' className="w-[28px] h-[28px] p-[8px] rounded-full" onClick={cancel}><img src="icons/cancel.svg" alt="cancel" /></Button></Tooltip>
+                    <Tooltip value='Save'><Button variant='ghost' className="w-[28px] h-[28px] p-[8px] rounded-full" onClick={saveTitleChange}><img src="icons/save.svg" alt="cancel" /></Button></Tooltip>
                 </div>}
             </div>
         </div>

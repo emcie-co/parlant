@@ -165,7 +165,7 @@ export default function Chat(): ReactElement {
                 <div className='w-full flex justify-between'>
                     <Spacer/>
                     <div className="group border flex-1 border-muted border-solid rounded-full flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main">
-                        <img src="/icons/edit.svg" alt="" className="me-[8px] h-[14px] w-[14px]"/>
+                        <img src="icons/edit.svg" alt="" className="me-[8px] h-[14px] w-[14px]"/>
                         <Textarea role="textbox"
                             ref={textareaRef}
                             placeholder="Message..."
@@ -180,7 +180,7 @@ export default function Chat(): ReactElement {
                             ref={submitButtonRef}
                             disabled={!message?.trim() || !agentId}
                             onClick={() => postMessage(message)}>
-                            <img src="/icons/send.svg" alt="Send" height={19.64} width={21.52} className='h-10'/>
+                            <img src="icons/send.svg" alt="Send" height={19.64} width={21.52} className='h-10'/>
                         </Button>
                     </div>
                     <Spacer/>

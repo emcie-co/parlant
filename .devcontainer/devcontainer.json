@@ -40,6 +40,10 @@
     },
     "ghcr.io/devcontainers-contrib/features/poetry:2": {
       "version": "latest"
+    },
+    "node": {
+        "version": "lts",
+        "nodeGypDependencies": true
     }
   },
 

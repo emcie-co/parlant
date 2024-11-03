@@ -7,6 +7,9 @@ module.exports = {
   ],
   theme: {
   	extend: {
+		screens: {
+			mobile: '751px'
+		},
 		keyframes: {
 			'fade-in': {
 				'0%': {opacity: 0},

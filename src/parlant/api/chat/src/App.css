@@ -1,6 +1,24 @@
 #root {
-  /* max-width: 1280px; */
   height: 100vh;
   margin: auto;
   font-family: Ubuntu Sans;
+}
+
+.fixed-scroll {
+  overflow: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.5) transparent;
+}
+
+.fixed-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.fixed-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+}
+
+.fixed-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }

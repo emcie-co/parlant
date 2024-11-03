@@ -68,7 +68,7 @@ export default function Chatbot(): ReactElement {
                 <div data-testid="chatbot" className="main bg-main h-screen flex flex-col">
                     <ChatHeader/>
                     <div className="flex justify-between flex-1 w-full overflow-auto flex-row">
-                        <div className="bg-white h-full pb-4 border-solid w-[332px] max-[750px]:hidden">
+                        <div className="bg-white h-full pb-4 border-solid w-[332px] max-mobile:hidden">
                             <Sessions />
                         </div>
                         <div className='h-full w-full'>

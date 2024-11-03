@@ -141,7 +141,7 @@ export default function Chat(): ReactElement {
         <>
         <div className='h-full w-full flex flex-col'>
             <div className="flex flex-col items-center h-full mx-auto w-full flex-1 overflow-auto">
-                <div className="messages overflow-auto flex-1 flex flex-col w-full mb-4" aria-live="polite" role="log" aria-label="Chat messages">
+                <div className="messages fixed-scroll flex-1 flex flex-col w-full mb-4" aria-live="polite" role="log" aria-label="Chat messages">
                     {ErrorTemplate && <ErrorTemplate />}
                     {visibleMessages.map((event, i) => (
                         <React.Fragment key={i}>

@@ -214,7 +214,6 @@ to each and every one of the provided guidelines based on the most recent state 
 
 Mind the priority scores assigned to each guideline, acknowledging that in some cases,
 adherence to a higher-priority guideline may necessitate deviation from another.
-If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it. 
 Use your best judgement in applying prioritization.
 Note too that it is permissible for the final revision to break rules IF AND ONLY IF
 all of the broken rules were broken due to conscious prioritization of guidelines,
@@ -384,11 +383,11 @@ Example 3: Non-Adherence Due to Missing Data: ###
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,
         )
-        #        builder.add_section(
-        #            """
-        # If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
-        #        """
-        #        )  TODO delete if not needed
+        builder.add_section(
+            """
+If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
+        """
+        )
         builder.add_staged_events(staged_events)
         builder.add_section(
             f"""

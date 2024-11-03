@@ -24,6 +24,7 @@ class Revision(DefaultBaseModel):
     content: str
     guidelines_followed: Optional[list[str]] = []
     guidelines_broken: Optional[list[str]] = []
+    is_repeat_message: Optional[bool] = False
     followed_all_guidelines: Optional[bool] = False
     guidelines_broken_due_to_missing_data: Optional[bool] = False
     missing_data_rationale: Optional[str] = None
@@ -181,7 +182,7 @@ Task Description:
 Continue the provided interaction in a natural and human-like manner. Your task is to produce a response to the latest state of the interaction.
 Always do the following:
 1. GENERAL BEHAVIOR: Make your response as human-like as possible. Be concise and avoid being overly polite when not necessary. 
-2. AVOID REPEATING YOURSELF: When replying— try to avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new approach altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
+2. AVOID REPEATING YOURSELF: When replying— avoid repeating yourself. Instead, refer the user to your previous answer, or choose a new approach altogether. If a conversation is looping, point that out to the user instead of maintaining the loop.
 3. DO NOT HALLUCINATE: Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
 """
         )
@@ -227,7 +228,10 @@ Your final output should be a JSON object documenting the entire message develop
 This document should detail how each guideline was adhered to,
 instances where one guideline was prioritized over another,
 situations where guidelines could not be followed due to lack of context or data,
-and the rationale for each decision made during the revision process. The exact format of this output will be provided to you at the end of this prompt.
+and the rationale for each decision made during the revision process. 
+Additionally, mark whether your suggested response is repeating your previous message.
+Generally, this would mean that further revisions are needed, until the suggested response is sufficiently unique.
+The exact format of this output will be provided to you at the end of this prompt.
 IMPORTANT: Unless there is some conflict between the guidelines provided,
 prefer to adhere to the provided guidelines over your own judgement.
 
@@ -283,6 +287,7 @@ Example 1: A reply that took critique in a few revisions to get right: ###
                 "#2; didn't say...",
                 "#4; didn't do..."
             ],
+            "is_repeat_message": false,
             "followed_all_guidelines": false,
             "guidelines_broken_due_to_missing_data": false,
             "guidelines_broken_only_due_to_prioritization": false
@@ -298,6 +303,7 @@ Example 1: A reply that took critique in a few revisions to get right: ###
                 "#5; correctly did..."
             ],
             "guidelines_broken": [],
+            "is_repeat_message": false,
             "followed_all_guidelines": true
         }},
     ]
@@ -334,6 +340,7 @@ Example 2: A reply where one guideline was prioritized over another: ###
             "guidelines_broken": [
                 "#1; did not provide the burger with requested toppings immediately due to the unavailability of fresh ingredients."
             ],
+            "is_repeat_message": false,
             "followed_all_guidelines": false,
             "guidelines_broken_only_due_to_prioritization": true,
             "prioritization_rationale": "Given the higher priority score of guideline 2, maintaining food quality standards before serving the burger is prioritized over immediate service.",
@@ -366,10 +373,52 @@ Example 3: Non-Adherence Due to Missing Data: ###
             "guidelines_broken": [
                 "#1; Lacking menu data in the context prevented me from providing the client with drink information."
             ],
+            "is_repeat_message": false,
             "followed_all_guidelines": false,
             "missing_data_rationale": "Menu data was missing",
             "guidelines_broken_due_to_missing_data": true,
             "guidelines_broken_only_due_to_prioritization": false
+        }}
+    ]
+}}
+###
+
+
+Example 4: Avoiding repititive reponses. Given that the previous response by the agent was "I'm sorry, could you please clarify your request?": ###
+{{
+    “last_message_of_user”: “This is not what I was asking for”,
+    "rationale": "<a few words to justify why you decided to respond to the user at all>",
+    "evaluations_for_each_of_the_provided_guidelines": [],
+    "revisions": [
+        {{
+            "revision_number": 1,
+            "content": "I apologize for the confusion. Could you please explain what I'm missing?",
+            "guidelines_followed": [
+            ],
+            "guidelines_broken": [
+            ],
+            "is_repeat_message": true,
+            "followed_all_guidelines": true,
+        }},
+        {{
+            "revision_number": 2,
+            "content": "I see. What am I missing?",
+            "guidelines_followed": [
+            ],
+            "guidelines_broken": [
+            ],
+            "is_repeat_message": true,
+            "followed_all_guidelines": true,
+        }},
+        {{
+            "revision_number": 3,
+            "content": "It seems like I'm failing to assist you with your issue. I suggest emailing our support team for further assistance.",
+            "guidelines_followed": [
+            ],
+            "guidelines_broken": [
+            ],
+            "is_repeat_message": false,
+            "followed_all_guidelines": true,
         }}
     ]
 }}
@@ -383,11 +432,12 @@ Example 3: Non-Adherence Due to Missing Data: ###
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,
         )
-        builder.add_section(
-            """
+        if ordinary_guideline_propositions or tool_enabled_guideline_propositions:
+            builder.add_section(
+                """
 If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
         """
-        )
+            )
         builder.add_staged_events(staged_events)
         builder.add_section(
             f"""
@@ -445,6 +495,7 @@ Produce a valid JSON object in the following format: ###
                 "content": <response chosen after revision 1>,
                 "guidelines_followed": <list of guidelines that were followed>,
                 "guidelines_broken": <list of guidelines that were broken>,
+                "is_repeat_message": <BOOL, indicating whether "content" is a repeat of a previous message by the agent>
                 "followed_all_guidelines": <BOOL>
             }},
             ...
@@ -484,7 +535,7 @@ Produce a valid JSON object in the following format: ###
                 if r.guidelines_broken_only_due_to_prioritization
                 or r.guidelines_broken_due_to_missing_data
             ),
-            "",
+            Revision(revision_number=1, content=""),
         ):
             # Sometimes the LLM continues generating revisions even after
             # it generated a correct one. Those next revisions tend to be
@@ -497,6 +548,7 @@ Produce a valid JSON object in the following format: ###
         if (
             not final_revision.followed_all_guidelines
             and not final_revision.guidelines_broken_only_due_to_prioritization
+            and not final_revision.is_repeat_message
         ):
             self._logger.warning(f"PROBLEMATIC RESPONSE: {final_revision.content}")
 

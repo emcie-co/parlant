@@ -13,7 +13,7 @@ const newSessionObj: SessionInterface = {
     id: NEW_SESSION_ID
 };
 
-const AgentsList = (): ReactNode => {
+const AgentList = (): ReactNode => {
     const {setAgentId, closeDialog, agents, setSessionId, setNewSession} = useSession();
 
     const selectAgent = (agentId: string): void => {
@@ -38,4 +38,4 @@ const AgentsList = (): ReactNode => {
     );
 };
 
-export default AgentsList;
+export default AgentList;

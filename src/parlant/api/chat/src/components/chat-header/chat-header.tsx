@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Tooltip from '../ui/custom/tooltip';
 import { useSession } from '../chatbot/chatbot';
 import { spaceClick } from '@/utils/methods';
-import AgentsList from '../agents-list/agents-list';
+import AgentList from '../agents-list/agent-list';
 import { Menu } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
 import Sessions from '../sessions/sessions';
@@ -22,7 +22,7 @@ const ChatHeader = (): ReactNode => {
 
     const createNewSession = () => {
         setAgentId(null);
-        openDialog('Select an Agent', <AgentsList/>, {height: '536px', width: '604px'});
+        openDialog('Select an Agent', <AgentList/>, {height: '536px', width: '604px'});
      };
 
     return (

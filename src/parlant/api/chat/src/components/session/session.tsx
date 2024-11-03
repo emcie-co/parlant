@@ -137,7 +137,7 @@ export default function Session({session, isSelected, refetch, editingTitle, set
                             {session.title}
                             <small className='text-[12px] text-[#A9A9A9] font-light flex gap-[6px]'>
                                 {getDateStr(session.creation_utc)}
-                                <img src="icons/dot-saparetor.svg" alt="" height={18} width={3}/>
+                                <img src="icons/dot-separator.svg" alt="" height={18} width={3}/>
                                 {getTimeStr(session.creation_utc)}
                             </small>
                         </div>

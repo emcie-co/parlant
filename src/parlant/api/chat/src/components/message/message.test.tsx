@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { MatcherOptions, render } from '@testing-library/react';
 import { Matcher } from 'vite';
-import Message from './message';
+
 import { EventInterface, ServerStatus } from '@/utils/interfaces';
+import Message from './message';
 
 const serverStatuses: ServerStatus[] = ['pending', 'error', 'accepted', 'acknowledged', 'processing', 'typing', 'ready'];
 

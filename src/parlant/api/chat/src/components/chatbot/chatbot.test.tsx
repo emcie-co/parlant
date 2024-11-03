@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MatcherOptions, render } from '@testing-library/react';
 import { Matcher } from 'vite';
+
 import Chatbot from './chatbot';
 
 vi.mock('../virtual-scroll/virtual-scroll', () => ({

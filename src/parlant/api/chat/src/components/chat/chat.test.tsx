@@ -1,10 +1,10 @@
 import { describe, expect, it, Mock, vi } from 'vitest';
 import { act, fireEvent, MatcherOptions, render } from '@testing-library/react';
 import { Matcher } from 'vite';
-import Chat from './chat';
-import { postData } from '@/utils/api';
 import { useContext } from 'react';
 
+import { postData } from '@/utils/api';
+import Chat from './chat';
 
 vi.mock('@/utils/api', () => ({
     postData: vi.fn(() => Promise.resolve())

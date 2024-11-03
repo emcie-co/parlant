@@ -1,7 +1,8 @@
 import { describe, it, vi } from 'vitest';
-import ChatHeader from './chat-header';
 import { fireEvent, MatcherOptions, render } from '@testing-library/react';
 import { Matcher } from 'vite';
+
+import ChatHeader from './chat-header';
 
 const setSessionFn = vi.fn();
 const openDialogFn = vi.fn();

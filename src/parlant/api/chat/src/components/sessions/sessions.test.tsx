@@ -1,10 +1,11 @@
 import { cleanup, MatcherOptions, render, SelectorMatcherOptions } from '@testing-library/react';
 import { describe, expect, it, Mock, vi } from 'vitest';
-import Sessions from './sessions.tsx';
-import '@testing-library/jest-dom/vitest';
 import { Matcher } from 'vite';
-import useFetch from '@/hooks/useFetch.tsx';
 import { useContext } from 'react';
+import '@testing-library/jest-dom/vitest';
+
+import useFetch from '@/hooks/useFetch.tsx';
+import Sessions from './sessions.tsx';
 
 const sessionsArr = [
     { id: 'session1', title: 'Session One' },

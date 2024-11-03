@@ -1,7 +1,8 @@
 import { fireEvent, render, RenderResult } from '@testing-library/react';
-import { useDialog } from './useDialog';
-import '@testing-library/jest-dom/vitest';
 import { expect, it } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+
+import { useDialog } from './useDialog';
 
 const TestComponent = () => {
     const { DialogComponent, openDialog, closeDialog } = useDialog();

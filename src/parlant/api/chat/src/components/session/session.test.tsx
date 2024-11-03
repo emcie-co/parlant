@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, MatcherOptions, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import '@testing-library/jest-dom/vitest';
 import { Matcher } from 'vite';
-import Session, { DeleteDialog } from './session';
-import { SessionInterface } from '@/utils/interfaces';
 import userEvent from '@testing-library/user-event';
+import '@testing-library/jest-dom/vitest';
+
+import { SessionInterface } from '@/utils/interfaces';
+import Session, { DeleteDialog } from './session';
 
 const session: SessionInterface | null = { id: 'session1', title: 'Session One', end_user_id: '', agent_id: '', creation_utc: new Date().toLocaleString()};
 

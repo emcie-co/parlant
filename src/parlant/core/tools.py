@@ -13,6 +13,7 @@ from typing import (
     NotRequired,
     Optional,
     Sequence,
+    TypeAlias,
     TypedDict,
     Union,
 )
@@ -33,7 +34,9 @@ class ToolParameter(TypedDict):
     enum: NotRequired[list[Union[str, int, float, bool]]]
 
 
-SessionStatus = Literal["typing", "processing", "ready"]
+# These two aliases are redefined here to avoid a circular reference.
+SessionStatus: TypeAlias = Literal["ready", "processing", "typing"]
+SessionMode: TypeAlias = Literal["auto", "manual"]
 
 
 class ToolContext:
@@ -67,10 +70,15 @@ class ToolContext:
         await self._emit_status(status, data)
 
 
+class ControlOptions(TypedDict, total=False):
+    mode: SessionMode
+
+
 @dataclass(frozen=True)
 class ToolResult:
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+    control: ControlOptions = field(default_factory=lambda: ControlOptions())
 
 
 @dataclass(frozen=True)

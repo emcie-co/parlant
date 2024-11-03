@@ -14,7 +14,7 @@ from parlant.core.async_utils import Timeout
 from parlant.core.end_users import EndUserId
 from parlant.core.sessions import EventSource, MessageEventData, SessionId, SessionStore
 
-from tests.api.utils import (
+from tests.test_utilities import (
     create_agent,
     create_context_variable,
     create_end_user,

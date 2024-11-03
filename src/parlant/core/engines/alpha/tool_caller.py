@@ -352,7 +352,11 @@ There are no staged tool calls at this moment.
             return ToolCallResult(
                 id=ToolResultId(generate_id()),
                 tool_call=tool_call,
-                result={"data": result.data, "metadata": result.metadata},
+                result={
+                    "data": result.data,
+                    "metadata": result.metadata,
+                    "control": result.control,
+                },
             )
         except Exception as e:
             self._logger.error(
@@ -363,5 +367,9 @@ There are no staged tool calls at this moment.
             return ToolCallResult(
                 id=ToolResultId(generate_id()),
                 tool_call=tool_call,
-                result={"data": "Tool call error", "metadata": {"error_details": str(e)}},
+                result={
+                    "data": "Tool call error",
+                    "metadata": {"error_details": str(e)},
+                    "control": {},
+                },
             )

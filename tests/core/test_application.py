@@ -9,7 +9,8 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.end_users import EndUserId, EndUserStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.sessions import Session, SessionStore
-from tests.test_utilities import nlp_test
+from parlant.core.tools import ToolResult
+from tests.test_utilities import create_guideline, nlp_test
 
 REASONABLE_AMOUNT_OF_TIME = 10
 
@@ -120,7 +121,12 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     event = await context.app.post_event(
         session_id=session.id,
         kind="message",
-        data={"message": "Hey there"},
+        data={
+            "message": "Hey there",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
     )
 
     await context.app.wait_for_update(
@@ -142,7 +148,12 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
     event = await context.app.post_event(
         session_id=session.id,
         kind="message",
-        data={"message": "Hey there"},
+        data={
+            "message": "Hey there",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
     )
 
     assert await context.app.wait_for_update(
@@ -184,3 +195,44 @@ async def test_that_when_a_user_quickly_posts_more_than_one_message_then_only_on
 
     assert len(message_events) == 4
     assert await nlp_test(str(message_events[-1].data), "It talks about pineapples")
+
+
+def hand_off_to_human_operator() -> ToolResult:
+    return ToolResult(data=None, control={"mode": "manual"})
+
+
+async def test_that_a_response_is_not_generated_automatically_after_a_tool_switches_the_session_to_manual_mode(
+    context: ContextOfTest,
+    session: Session,
+) -> None:
+    await create_guideline(
+        container=context.container,
+        agent_id=session.agent_id,
+        predicate="the user expresses dissatisfaction",
+        action="immediately hand off to a human operator, explaining this just before you sign off",
+        tool_function=hand_off_to_human_operator,
+    )
+
+    event = await context.app.post_event(
+        session_id=session.id,
+        kind="message",
+        data={
+            "message": "I'm extremely dissatisfied with your service!",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
+    )
+
+    await context.app.wait_for_update(
+        session_id=session.id,
+        min_offset=event.offset,
+        kinds=["message"],
+        source="ai_agent",
+        timeout=Timeout(30),
+    )
+
+    updated_session = await context.container[SessionStore].read_session(session.id)
+
+    assert session.mode == "auto"
+    assert updated_session.mode == "manual"

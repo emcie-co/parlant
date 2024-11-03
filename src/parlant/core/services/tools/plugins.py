@@ -30,7 +30,6 @@ import uvicorn
 
 from parlant.core.agents import AgentId
 from parlant.core.tools import (
-    SessionStatus,
     Tool,
     ToolParameter,
     ToolParameterType,
@@ -40,7 +39,7 @@ from parlant.core.tools import (
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.sessions import SessionId
+from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
 ToolFunction = Union[
@@ -284,8 +283,6 @@ class PluginServer:
         return False
 
     def _create_app(self) -> FastAPI:
-        # TODO: Change uses of BaseModel to DefaultBaseModel
-
         app = FastAPI()
 
         @app.get("/tools")
@@ -339,6 +336,7 @@ class PluginServer:
                                 {
                                     "data": result.data,
                                     "metadata": result.metadata,
+                                    "control": result.control,
                                 }
                             )
 
@@ -479,6 +477,7 @@ class PluginClient(ToolService):
                         return ToolResult(
                             data=chunk_dict["data"],
                             metadata=chunk_dict["metadata"],
+                            control=chunk_dict["control"],
                         )
                     elif "status" in chunk_dict:
                         await event_emitter.emit_status_event(

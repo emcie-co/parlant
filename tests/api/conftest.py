@@ -5,7 +5,7 @@ from parlant.core.agents import AgentId
 from parlant.core.end_users import EndUserId
 from parlant.core.sessions import SessionId
 
-from tests.api.utils import create_agent, create_end_user, create_session
+from tests.test_utilities import create_agent, create_end_user, create_session
 
 
 @fixture

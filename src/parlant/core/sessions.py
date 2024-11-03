@@ -89,9 +89,14 @@ class MessageEventData(TypedDict):
     tags: NotRequired[list[str]]
 
 
+class ControlOptions(TypedDict, total=False):
+    mode: SessionMode
+
+
 class ToolResult(TypedDict):
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable]
+    control: ControlOptions
 
 
 class ToolCall(TypedDict):
@@ -159,6 +164,8 @@ class Inspection:
 ConsumerId: TypeAlias = Literal["client"]
 """In the future we may support multiple consumer IDs"""
 
+SessionMode: TypeAlias = Literal["auto", "manual"]
+
 
 @dataclass(frozen=True)
 class Session:
@@ -166,6 +173,7 @@ class Session:
     creation_utc: datetime
     end_user_id: EndUserId
     agent_id: AgentId
+    mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
 
@@ -173,6 +181,7 @@ class Session:
 class SessionUpdateParams(TypedDict, total=False):
     end_user_id: EndUserId
     agent_id: AgentId
+    mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
 
@@ -270,6 +279,7 @@ class _SessionDocument(TypedDict, total=False):
     creation_utc: str
     end_user_id: EndUserId
     agent_id: AgentId
+    mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
 
@@ -329,6 +339,7 @@ class SessionDocumentStore(SessionStore):
             creation_utc=session.creation_utc.isoformat(),
             end_user_id=session.end_user_id,
             agent_id=session.agent_id,
+            mode=session.mode,
             title=session.title if session.title else None,
             consumption_offsets=session.consumption_offsets,
         )
@@ -342,6 +353,7 @@ class SessionDocumentStore(SessionStore):
             creation_utc=datetime.fromisoformat(session_document["creation_utc"]),
             end_user_id=session_document["end_user_id"],
             agent_id=session_document["agent_id"],
+            mode=session_document["mode"],
             title=session_document["title"],
             consumption_offsets=session_document["consumption_offsets"],
         )
@@ -423,6 +435,7 @@ class SessionDocumentStore(SessionStore):
         agent_id: AgentId,
         creation_utc: Optional[datetime] = None,
         title: Optional[str] = None,
+        mode: Optional[SessionMode] = None,
     ) -> Session:
         creation_utc = creation_utc or datetime.now(timezone.utc)
 
@@ -433,6 +446,7 @@ class SessionDocumentStore(SessionStore):
             creation_utc=creation_utc,
             end_user_id=end_user_id,
             agent_id=agent_id,
+            mode=mode or "auto",
             consumption_offsets=consumption_offsets,
             title=title,
         )

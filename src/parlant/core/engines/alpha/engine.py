@@ -128,7 +128,7 @@ class AlphaEngine(Engine):
         event_emitter: EventEmitter,
     ) -> None:
         agent = await self._agent_store.read_agent(context.agent_id)
-        end_user_id = (await self._session_store.read_session(context.session_id)).end_user_id
+        session = await self._session_store.read_session(context.session_id)
 
         await event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
@@ -247,7 +247,7 @@ class AlphaEngine(Engine):
                                 id=variable.id,
                                 name=variable.name,
                                 description=variable.description,
-                                key=end_user_id,
+                                key=session.end_user_id,
                                 value=value.data,
                             )
                             for variable, value in context_variables
@@ -263,6 +263,27 @@ class AlphaEngine(Engine):
                         f"Reached max tool call iterations ({agent.max_engine_iterations})"
                     )
                     prepared_to_respond = True
+
+            if tool_call_control_outputs := [
+                tool_call["result"]["control"]
+                for tool_event in all_tool_events
+                for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
+            ]:
+                current_session_mode = session.mode
+                new_session_mode = current_session_mode
+
+                for control_output in tool_call_control_outputs:
+                    new_session_mode = control_output.get("mode") or current_session_mode
+
+                if new_session_mode != current_session_mode:
+                    self._logger.info(f"Changing session {session.id} mode to '{new_session_mode}'")
+
+                    await self._session_store.update_session(
+                        session_id=session.id,
+                        params={
+                            "mode": new_session_mode,
+                        },
+                    )
 
             await self._session_store.create_inspection(
                 session_id=context.session_id,

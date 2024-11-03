@@ -207,9 +207,8 @@ Since the interaction with the user is already ongoing, always produce a reply t
 In all other cases, even if the user is indicating that the conversation is over, you are expected to produce a reply.
                 """)
 
-        if tool_enabled_guideline_propositions:
-            builder.add_section(
-                f"""
+        builder.add_section(
+            f"""
 Propose incremental revisions to your reply, ensuring that your proposals adhere
 to each and every one of the provided guidelines based on the most recent state of interaction.
 
@@ -229,13 +228,15 @@ Your final output should be a JSON object documenting the entire message develop
 This document should detail how each guideline was adhered to,
 instances where one guideline was prioritized over another,
 situations where guidelines could not be followed due to lack of context or data,
-and the rationale for each decision made during the revision process.
+and the rationale for each decision made during the revision process. The exact format of this output will be provided to you at the end of this prompt.
 IMPORTANT: Unless there is some conflict between the guidelines provided,
 prefer to adhere to the provided guidelines over your own judgement.
 
 DO NOT PRODUCE MORE THAN 5 REVISIONS. IF YOU REACH the 5th REVISION, STOP THERE.
 
-Produce a valid JSON object in the format according to the following examples.
+Examine the following examples to understand your expected behavior:
+
+###
 
 Example 1: A reply that took critique in a few revisions to get right: ###
 {{
@@ -375,7 +376,7 @@ Example 3: Non-Adherence Due to Missing Data: ###
 }}
 ###
 """  # noqa
-            )
+        )
         builder.add_interaction_history(interaction_history)
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
@@ -383,11 +384,11 @@ Example 3: Non-Adherence Due to Missing Data: ###
             ordinary_guideline_propositions,
             tool_enabled_guideline_propositions,
         )
-        builder.add_section(
-            """
-If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
-        """
-        )
+        #        builder.add_section(
+        #            """
+        # If a given guideline contradicts a previous request made by the user, or if it's absolutely inappropriate given the state of the conversation, ignore the guideline while specifying why you broke it in your response.
+        #        """
+        #        )  TODO delete if not needed
         builder.add_staged_events(staged_events)
         builder.add_section(
             f"""
@@ -404,36 +405,50 @@ Produce a valid JSON object in the following format: ###
 
     def _get_output_format(
         self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
-    ) -> str:  # TODO I was here
-        return """
-        Produce a valid JSON object in the following format: ###
+    ) -> str:
+        last_user_message = next(
+            (
+                event.data["message"]
+                for event in reversed(interaction_history)
+                if (
+                    event.kind == "message"
+                    and event.source == "end_user"
+                    and isinstance(event.data, dict)
+                )
+            ),
+            "",
+        )
+        guidelines_output_format = "\n".join(
+            [
+                f"""
+                {{
+                    "number": {i},
+                    "instruction": "{g.guideline.content.action}"
+                    "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
+                    "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
+                    "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
+                }},"""
+                for i, g in enumerate(guidelines, start=1)
+            ]
+        )
+
+        return f"""
         {{
-            “last_message_of_user”: “<the user’s last message in the interaction>”,
+            “last_message_of_user”: “{last_user_message}”,
             "rationale": "<a few words to explain why you should or shouldn't produce a reply to the user in this case>",
             "produced_reply": <BOOL>,
             "evaluations_for_each_of_the_provided_guidelines": [
-                {{
-                    "number": 1,
-                    "instruction": "<the instruction as given by guideline #1>"
-                    "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
-                    "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
-                    "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
-                }},
-                {{
-                    "number": 2,
-                    "instruction": "<the instruction as given by guideline #1>"
-                    "evaluation": "<your evaluation of the guideline to the present state of the interaction>",
-                    "adds_value": "<your assessment if and to what extent following this guideline now would add value>",
-                    "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
-                }},
-                ...
+{guidelines_output_format}
             ],
             "revisions": [
-                {{
-                    "revision_number": 1,
-                    "content": "<your message here>",
-                    "followed_all_guidelines": true
-                }}
+            {{
+                "revision_number": 1,
+                "content": <response chosen after revision 1>,
+                "guidelines_followed": <list of guidelines that were followed>,
+                "guidelines_broken": <list of guidelines that were broken>,
+                "followed_all_guidelines": <BOOL>
+            }},
+            ...
             ]
         }}
         ###"""
@@ -470,7 +485,7 @@ Produce a valid JSON object in the following format: ###
                 if r.guidelines_broken_only_due_to_prioritization
                 or r.guidelines_broken_due_to_missing_data
             ),
-            None,
+            "",
         ):
             # Sometimes the LLM continues generating revisions even after
             # it generated a correct one. Those next revisions tend to be

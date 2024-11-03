@@ -42,7 +42,7 @@ describe(Session, () => {
 
     const deleteSession = async (): Promise<{dialog: HTMLElement}> => {
         const dialog = getByTestId('deleteDialogContent');
-        const dialogDeleteButton = getByTestId('gradiant-button');
+        const dialogDeleteButton = getByTestId('gradient-button');
         fireEvent.click(dialogDeleteButton);
         return {dialog};
     };

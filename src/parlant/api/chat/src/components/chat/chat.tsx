@@ -49,7 +49,13 @@ export default function Chat(): ReactElement {
     const [isFirstScroll, setIsFirstScroll] = useState(true);
     
     const {sessionId, setSessionId, agentId, newSession, setNewSession, setSessions} = useSession();
-    const {data: lastMessages, refetch, ErrorTemplate} = useFetch<{events: EventInterface[]}>(`sessions/${sessionId}/events`, {min_offset: lastOffset, wait: true}, [], sessionId !== NEW_SESSION_ID, !!(sessionId && sessionId !== NEW_SESSION_ID));
+    const {data: lastMessages, refetch, ErrorTemplate} = useFetch<{events: EventInterface[]}>(
+        `sessions/${sessionId}/events`,
+        {min_offset: lastOffset, wait: true},
+        [],
+        sessionId !== NEW_SESSION_ID,
+        !!(sessionId && sessionId !== NEW_SESSION_ID)
+    );
 
     const resetChat = () => {
         setMessage('');

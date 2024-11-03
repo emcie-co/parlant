@@ -1,10 +1,12 @@
 import { SessionInterface } from '@/utils/interfaces';
 import { ReactNode } from 'react';
 import { useSession } from '../chatbot/chatbot';
+
 import AgentAvatar from '../agent-avatar/agent-avatar';
 import { spaceClick } from '@/utils/methods';
 
 export const NEW_SESSION_ID = 'NEW_SESSION';
+
 const newSessionObj: SessionInterface = {
     end_user_id: '',
     title: 'New Conversation',

@@ -12,7 +12,7 @@ import styles from './session.module.scss';
 import AgentAvatar from '../agent-avatar/agent-avatar';
 import { NEW_SESSION_ID } from '../chat-header/chat-header';
 import { spaceClick } from '@/utils/methods';
-import GradiantButton from '../gradiant-button/gradiant-button';
+import GradientButton from '../gradient-button/gradient-button';
 
 interface Props {
     session: SessionInterface;
@@ -29,7 +29,7 @@ export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: Se
         <Session session={session} disabled/>
         <div className='h-[80px] flex items-center justify-end pe-[18px]'>
             <Button data-testid="cancel-delete" onClick={closeDialog} className='hover:bg-[#EBE9F5] h-[46px] w-[96px] text-black bg-[#EBE9F5] rounded-[6px] py-[12px] px-[24px] me-[10px] text-[16px] font-normal'>Cancel</Button>
-            <GradiantButton onClick={deleteClicked} buttonClassName='h-[46px] w-[161px] bg-[#213547] rounded-[6px] py-[10px] px-[29.5px] text-[15px] font-medium'>Delete Session</GradiantButton>
+            <GradientButton onClick={deleteClicked} buttonClassName='h-[46px] w-[161px] bg-[#213547] rounded-[6px] py-[10px] px-[29.5px] text-[15px] font-medium'>Delete Session</GradientButton>
         </div>
     </div>
 );
@@ -41,8 +41,6 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 
     useEffect(() => {
         if (!isSelected) return;
-        document.title = `Parlant | ${session.title}`;
-
         if (session.id === NEW_SESSION_ID && !session.agent_id) setAgentId(null);
         else setAgentId(session.agent_id);
     }, [isSelected, setAgentId, session.id, session.agent_id, session.title]);

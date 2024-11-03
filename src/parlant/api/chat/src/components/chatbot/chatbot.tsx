@@ -1,9 +1,11 @@
-import { createContext, Dispatch, lazy, ReactElement, ReactNode, SetStateAction, Suspense, useContext, useState } from 'react';
+import { createContext, Dispatch, lazy, ReactElement, ReactNode, SetStateAction, Suspense, useContext, useEffect, useState } from 'react';
 import { AgentInterface, SessionInterface } from '@/utils/interfaces';
 import Sessions from '../sessions/sessions';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
 import { Dimensions, useDialog } from '@/hooks/useDialog';
+import { Helmet } from 'react-helmet';
+import { NEW_SESSION_ID } from '../agents-list/agent-list';
 
 interface SessionContext {
     setSessionId: Dispatch<SetStateAction<string | null | undefined>>;
@@ -44,8 +46,19 @@ export default function Chatbot(): ReactElement {
     const [sessions, setSessions] = useState<SessionInterface[]>([]);
     const [agentId, setAgentId] = useState<string | null>(null);
     const [newSession, setNewSession] = useState<SessionInterface | null>(null);
+    const [sessionName, setSessionName] = useState<string |null>('');
     const [agents, setAgents] = useState<AgentInterface[]>([]);
     const {openDialog, DialogComponent, closeDialog} = useDialog();
+
+    useEffect(() => {
+        if (sessionId) {
+            if (sessionId === NEW_SESSION_ID) setSessionName('Parlant | New Session');
+            else {
+                const sessionTitle = sessions?.find(session => session.id === sessionId)?.title;
+                if (sessionTitle) setSessionName(`Parlant | ${sessionTitle}`);
+            }
+        } else setSessionName('Parlant');
+    }, [sessionId, sessions]);
 
     const provideObj = {
         sessionId,
@@ -65,6 +78,7 @@ export default function Chatbot(): ReactElement {
     return (
         <ErrorBoundary>
             <SessionProvider.Provider value={provideObj}>
+                <Helmet defaultTitle={`${sessionName}`}/>
                 <div data-testid="chatbot" className="main bg-main h-screen flex flex-col">
                     <ChatHeader/>
                     <div className="flex justify-between flex-1 w-full overflow-auto flex-row">

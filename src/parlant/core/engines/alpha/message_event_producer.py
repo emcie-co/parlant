@@ -532,10 +532,14 @@ Produce a valid JSON object in the following format: ###
             (
                 r
                 for r in message_event_response.content.revisions
-                if r.guidelines_broken_only_due_to_prioritization
-                or r.guidelines_broken_due_to_missing_data
+                if not r.is_repeat_message
+                and (
+                    r.followed_all_guidelines
+                    or r.guidelines_broken_only_due_to_prioritization
+                    or r.guidelines_broken_due_to_missing_data
+                )
             ),
-            Revision(revision_number=1, content=""),
+            None,
         ):
             # Sometimes the LLM continues generating revisions even after
             # it generated a correct one. Those next revisions tend to be

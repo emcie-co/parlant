@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from itertools import chain, groupby
 from typing import Any, Literal, Mapping, Optional, cast
 
@@ -16,7 +17,6 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import (
     EventId,
     EventKind,
-    EventSource,
     MessageEventData,
     SessionId,
     SessionListener,
@@ -26,6 +26,21 @@ from parlant.core.sessions import (
 )
 
 from parlant.core.application import Application
+
+
+class EventKindDTO(Enum):
+    MESSAGE = "message"
+    TOOL = "tool"
+    STATUS = "status"
+    CUSTOM = "custom"
+
+
+class EventSourceDTO(Enum):
+    END_USER = "end_user"
+    END_USER_UI = "end_user_ui"
+    HUMAN_AGENT = "human_agent"
+    HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT = "human_agent_on_behalf_of_ai_agent"
+    AI_AGENT = "ai_agent"
 
 
 class ConsumptionOffsetsDTO(DefaultBaseModel):
@@ -52,14 +67,14 @@ class CreateSessionResponse(DefaultBaseModel):
 
 
 class CreateEventRequest(DefaultBaseModel):
-    kind: EventKind
-    source: EventSource
+    kind: EventKindDTO
+    source: EventSourceDTO
     content: str
 
 
 class EventDTO(DefaultBaseModel):
     id: EventId
-    source: EventSource
+    source: EventSourceDTO
     kind: str
     offset: int
     creation_utc: datetime
@@ -106,7 +121,7 @@ class ToolCallDTO(DefaultBaseModel):
 
 class InteractionDTO(DefaultBaseModel):
     kind: Literal["message"]
-    source: EventSource
+    source: EventSourceDTO
     correlation_id: str
     data: Any = Field(
         description="The data associated with this interaction's kind. "
@@ -132,7 +147,7 @@ class GuidelinePropositionDTO(DefaultBaseModel):
     rationale: str
 
 
-class ContextVariableDTO(DefaultBaseModel):
+class ContextVariableAndValueDTO(DefaultBaseModel):
     id: ContextVariableId
     name: str
     description: str
@@ -144,7 +159,7 @@ class PreparationIterationDTO(DefaultBaseModel):
     guideline_propositions: list[GuidelinePropositionDTO]
     tool_calls: list[ToolCallDTO]
     terms: list[TermDTO]
-    context_variables: list[ContextVariableDTO]
+    context_variables: list[ContextVariableAndValueDTO]
 
 
 class ReadInteractionResponse(DefaultBaseModel):
@@ -299,9 +314,9 @@ def create_router(
         request: CreateEventRequest,
         moderation: Literal["none", "auto"] = "none",
     ) -> CreateEventResponse:
-        if request.source == "end_user":
+        if request.source == EventSourceDTO.END_USER:
             return await _add_end_user_message(session_id, request, moderation)
-        elif request.source == "human_agent_on_behalf_of_ai_agent":
+        elif request.source == EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT:
             return await _add_agent_message(session_id, request)
         else:
             raise HTTPException(
@@ -337,7 +352,7 @@ def create_router(
 
         event = await application.post_event(
             session_id=session_id,
-            kind=request.kind,
+            kind=request.kind.value,
             data=message_data,
             source="end_user",
             trigger_processing=True,
@@ -346,7 +361,7 @@ def create_router(
         return CreateEventResponse(
             event=EventDTO(
                 id=event.id,
-                source=event.source,
+                source=EventSourceDTO(event.source),
                 kind=event.kind,
                 offset=event.offset,
                 creation_utc=event.creation_utc,
@@ -372,7 +387,7 @@ def create_router(
 
         event = await application.post_event(
             session_id=session_id,
-            kind=request.kind,
+            kind=request.kind.value,
             data=message_data,
             source="human_agent_on_behalf_of_ai_agent",
             trigger_processing=False,
@@ -381,7 +396,7 @@ def create_router(
         return CreateEventResponse(
             event=EventDTO(
                 id=event.id,
-                source=event.source,
+                source=EventSourceDTO(event.source),
                 kind=event.kind,
                 offset=event.offset,
                 creation_utc=event.creation_utc,
@@ -430,7 +445,7 @@ def create_router(
             events=[
                 EventDTO(
                     id=e.id,
-                    source=e.source,
+                    source=EventSourceDTO(e.source),
                     kind=e.kind,
                     offset=e.offset,
                     creation_utc=e.creation_utc,
@@ -448,7 +463,7 @@ def create_router(
     async def list_interactions(
         session_id: SessionId,
         min_event_offset: int,
-        source: EventSource,
+        source: EventSourceDTO,
         wait: bool = False,
     ) -> ListInteractionsResponse:
         if wait:
@@ -456,14 +471,14 @@ def create_router(
                 session_id=session_id,
                 min_offset=min_event_offset,
                 kinds=["message"],
-                source=source,
+                source=source.value,
                 timeout=Timeout(300),
             )
 
         events = await session_store.list_events(
             session_id=session_id,
             kinds=["message", "tool"],
-            source=source,
+            source=source.value,
             min_offset=min_event_offset,
         )
 
@@ -481,7 +496,7 @@ def create_router(
                 interactions.append(
                     InteractionDTO(
                         kind="message",
-                        source=e.source,
+                        source=EventSourceDTO(e.source),
                         correlation_id=correlation_id,
                         data=cast(MessageEventData, e.data)["message"],
                         tool_calls=[
@@ -570,7 +585,7 @@ def create_router(
                         for term in iteration.terms
                     ],
                     context_variables=[
-                        ContextVariableDTO(
+                        ContextVariableAndValueDTO(
                             id=cv["id"],
                             name=cv["name"],
                             description=cv["description"] or "",

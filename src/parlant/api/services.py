@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Optional, Union, cast
 from fastapi import APIRouter
 from typing_extensions import Literal
@@ -24,7 +25,10 @@ class CreateOpenAPIServiceRequest(DefaultBaseModel):
 
 CreateServiceRequest = Union[CreateSDKServiceRequest, CreateOpenAPIServiceRequest]
 
-ToolServiceKind = Literal["openapi", "sdk"]
+
+class ToolServiceKind(Enum):
+    OPENAPI = "openapi"
+    SDK = "sdk"
 
 
 class CreateServiceResponse(DefaultBaseModel):
@@ -81,7 +85,7 @@ def _tool_to_dto(tool: Tool) -> ToolDTO:
 
 
 def _get_service_kind(service: ToolService) -> ToolServiceKind:
-    return "openapi" if isinstance(service, OpenAPIClient) else "sdk"
+    return ToolServiceKind.OPENAPI if isinstance(service, OpenAPIClient) else ToolServiceKind.SDK
 
 
 def _get_service_url(service: ToolService) -> str:

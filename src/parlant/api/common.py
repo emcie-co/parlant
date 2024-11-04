@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Literal, Optional, TypeAlias, TypedDict, Union, cast
 
 from parlant.core.common import DefaultBaseModel
@@ -8,11 +9,21 @@ from parlant.core.evaluations import (
 from parlant.core.guideline_connections import ConnectionKind
 from parlant.core.guidelines import GuidelineContent, GuidelineId
 
-EvaluationStatusDTO = Literal["pending", "running", "completed", "failed"]
 
-ConnectionKindDTO = Literal["entails", "suggests"]
+class EvaluationStatusDTO(Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
-PayloadKindDTO = Literal["guideline"]
+
+class ConnectionKindDTO(Enum):
+    ENTAILS = "entails"
+    SUGGESTS = "suggests"
+
+
+class PayloadKindDTO(Enum):
+    GUIDELINE = "guideline"
 
 
 class GuidelineContentDTO(TypedDict):
@@ -67,11 +78,21 @@ def connection_kind_to_dto(kind: ConnectionKind) -> ConnectionKindDTO:
 
 def connection_kind_dto_to_connection_kind(dto: ConnectionKindDTO) -> ConnectionKind:
     return {
-        "entails": ConnectionKind.ENTAILS,
-        "suggests": ConnectionKind.SUGGESTS,
+        ConnectionKindDTO.ENTAILS: ConnectionKind.ENTAILS,
+        ConnectionKindDTO.SUGGESTS: ConnectionKind.SUGGESTS,
     }[dto]
 
 
 class ToolIdDTO(DefaultBaseModel):
     service_name: str
     tool_name: str
+
+
+JSONSerializableDTO: TypeAlias = Union[
+    str,
+    int,
+    float,
+    bool,
+    list[Union[str, int, float, bool]],
+    dict[str, Union[str, int, float, bool]],
+]

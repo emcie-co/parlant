@@ -10,6 +10,7 @@ from parlant.api.common import (
     InvoiceDataDTO,
     GuidelineInvoiceDataDTO,
     PayloadDTO,
+    PayloadKindDTO,
     connection_kind_to_dto,
 )
 from parlant.core.common import DefaultBaseModel
@@ -47,7 +48,7 @@ def _evaluation_status_to_dto(
 
 def _payload_from_dto(dto: PayloadDTO) -> Payload:
     return {
-        "guideline": GuidelinePayload(
+        PayloadKindDTO.GUIDELINE: GuidelinePayload(
             content=GuidelineContent(
                 predicate=dto.content["predicate"],
                 action=dto.content["action"],
@@ -63,7 +64,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
 def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
     return {
         PayloadKind.GUIDELINE: PayloadDTO(
-            kind="guideline",
+            kind=PayloadKindDTO.GUIDELINE,
             content=GuidelineContentDTO(
                 predicate=descriptor.payload.content.predicate,
                 action=descriptor.payload.content.action,

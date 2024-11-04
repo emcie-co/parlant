@@ -1,9 +1,10 @@
 from datetime import datetime
+from enum import Enum
 from fastapi import HTTPException, status
-from typing import Any, Literal, Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter
-from parlant.api.common import ToolIdDTO
+from parlant.api.common import ToolIdDTO, JSONSerializableDTO
 from parlant.core.agents import AgentId
 from parlant.core.common import DefaultBaseModel
 from parlant.core.context_variables import (
@@ -16,22 +17,20 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolId
 
 
+class DayOfWeekDTO(Enum):
+    SUNDAY = "Sunday"
+    MONDAY = "Monday"
+    TUESDAY = "Tuesday"
+    WEDNESDAY = "Wednesday"
+    THURSDAY = "Thursday"
+    FRIDAY = "Friday"
+    SATURDAY = "Saturday"
+
+
 class FreshnessRulesDTO(DefaultBaseModel):
     months: Optional[list[int]] = None
     days_of_month: Optional[list[int]] = None
-    days_of_week: Optional[
-        list[
-            Literal[
-                "Sunday",
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-            ]
-        ]
-    ] = None
+    days_of_week: Optional[list[DayOfWeekDTO]] = None
     hours: Optional[list[int]] = None
     minutes: Optional[list[int]] = None
     seconds: Optional[list[int]] = None
@@ -67,14 +66,14 @@ class ListContextVariablesResponse(DefaultBaseModel):
 class ContextVariableValueDTO(DefaultBaseModel):
     id: ContextVariableValueId
     last_modified: datetime
-    data: Any
+    data: JSONSerializableDTO
 
 
-class PutContextVariableValueRequest(DefaultBaseModel):
-    data: Any
+class UpdateContextVariableValueRequest(DefaultBaseModel):
+    data: JSONSerializableDTO
 
 
-class PutContextVariableValueResponse(DefaultBaseModel):
+class UpdateContextVariableValueResponse(DefaultBaseModel):
     context_variable_value: ContextVariableValueDTO
 
 
@@ -91,7 +90,7 @@ def _freshness_ruless_dto_to_freshness_rules(dto: FreshnessRulesDTO) -> Freshnes
     return FreshnessRules(
         months=dto.months,
         days_of_month=dto.days_of_month,
-        days_of_week=dto.days_of_week,
+        days_of_week=[dow.value for dow in dto.days_of_week] if dto.days_of_week else [],
         hours=dto.hours,
         minutes=dto.minutes,
         seconds=dto.seconds,
@@ -102,7 +101,9 @@ def _freshness_ruless_to_dto(freshness_rules: FreshnessRules) -> FreshnessRulesD
     return FreshnessRulesDTO(
         months=freshness_rules.months,
         days_of_month=freshness_rules.days_of_month,
-        days_of_week=freshness_rules.days_of_week,
+        days_of_week=[DayOfWeekDTO(dow) for dow in freshness_rules.days_of_week]
+        if freshness_rules.days_of_week
+        else [],
         hours=freshness_rules.hours,
         minutes=freshness_rules.minutes,
         seconds=freshness_rules.seconds,
@@ -214,14 +215,14 @@ def create_router(
 
     @router.put(
         "/{agent_id}/context-variables/{variable_id}/{key}",
-        operation_id="update_value",
+        operation_id="update_variable_value",
     )
-    async def update_value(
+    async def update_variable_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
         key: str,
-        request: PutContextVariableValueRequest,
-    ) -> PutContextVariableValueResponse:
+        request: UpdateContextVariableValueRequest,
+    ) -> UpdateContextVariableValueResponse:
         _ = await context_variable_store.read_variable(
             variable_set=agent_id,
             id=variable_id,
@@ -234,19 +235,19 @@ def create_router(
             data=request.data,
         )
 
-        return PutContextVariableValueResponse(
+        return UpdateContextVariableValueResponse(
             context_variable_value=ContextVariableValueDTO(
                 id=variable_value.id,
                 last_modified=variable_value.last_modified,
-                data=variable_value.data,
+                data=cast(JSONSerializableDTO, variable_value.data),
             )
         )
 
     @router.get(
         "/{agent_id}/context-variables/{variable_id}/{key}",
-        operation_id="read_value",
+        operation_id="read_variable_value",
     )
-    async def read_value(
+    async def read_variable_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
         key: str,
@@ -265,7 +266,7 @@ def create_router(
         return ContextVariableValueDTO(
             id=variable_value.id,
             last_modified=variable_value.last_modified,
-            data=variable_value.data,
+            data=cast(JSONSerializableDTO, variable_value.data),
         )
 
     @router.get(
@@ -314,7 +315,7 @@ def create_router(
                 key: ContextVariableValueDTO(
                     id=value.id,
                     last_modified=value.last_modified,
-                    data=value.data,
+                    data=cast(JSONSerializableDTO, value.data),
                 )
                 for key, value in key_value_pairs
             },

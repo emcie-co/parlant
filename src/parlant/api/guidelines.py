@@ -313,7 +313,8 @@ def create_router(
         operation_id="read_guideline",
     )
     async def read_guideline(
-        agent_id: AgentId, guideline_id: GuidelineId
+        agent_id: AgentId,
+        guideline_id: GuidelineId,
     ) -> GuidelineWithConnectionsAndToolAssociationsDTO:
         guideline = await guideline_store.read_guideline(
             guideline_set=agent_id, guideline_id=guideline_id

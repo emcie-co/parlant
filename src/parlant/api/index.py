@@ -148,7 +148,7 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/{agent_id}/index/evaluations/", status_code=status.HTTP_201_CREATED)
+    @router.post("/{agent_id}/index/evaluations", status_code=status.HTTP_201_CREATED)
     async def create_evaluation(
         agent_id: AgentId, request: CreateEvaluationRequest
     ) -> CreateEvaluationResponse:

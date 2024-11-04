@@ -175,7 +175,7 @@ def create_router(
 
         return DeleteContextVariableReponse(context_variable_id=variable_id)
 
-    @router.get("/{agent_id}/context-variables/")
+    @router.get("/{agent_id}/context-variables")
     async def list_variables(
         agent_id: AgentId,
     ) -> ListContextVariablesResponse:

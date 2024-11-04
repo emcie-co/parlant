@@ -229,7 +229,7 @@ def create_router(
 
         return [(c, guideline_id not in [c.source.id, c.target.id]) for c in connections]
 
-    @router.post("/{agent_id}/guidelines/", status_code=status.HTTP_201_CREATED)
+    @router.post("/{agent_id}/guidelines", status_code=status.HTTP_201_CREATED)
     async def create_guidelines(
         agent_id: AgentId,
         request: CreateGuidelineRequest,
@@ -356,7 +356,7 @@ def create_router(
             ],
         )
 
-    @router.get("/{agent_id}/guidelines/")
+    @router.get("/{agent_id}/guidelines")
     async def list_guidelines(agent_id: AgentId) -> ListGuidelinesResponse:
         guidelines = await guideline_store.list_guidelines(guideline_set=agent_id)
 

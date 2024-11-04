@@ -95,7 +95,10 @@ def _get_service_url(service: ToolService) -> str:
 def create_router(service_registry: ServiceRegistry) -> APIRouter:
     router = APIRouter()
 
-    @router.put("/{name}")
+    @router.put(
+        "/{name}",
+        operation_id="upsert_service",
+    )
     async def create_service(name: str, request: CreateServiceRequest) -> CreateServiceResponse:
         service = await service_registry.update_tool_service(
             name=name,
@@ -110,13 +113,19 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
             url=_get_service_url(service),
         )
 
-    @router.delete("/{name}")
+    @router.delete(
+        "/{name}",
+        operation_id="delete_service",
+    )
     async def delete_service(name: str) -> DeleteServiceResponse:
         await service_registry.delete_service(name)
 
         return DeleteServiceResponse(name=name)
 
-    @router.get("/")
+    @router.get(
+        "/",
+        operation_id="list_services",
+    )
     async def list_services() -> ListServicesResponse:
         return ListServicesResponse(
             services=[
@@ -130,7 +139,10 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
             ]
         )
 
-    @router.get("/{name}")
+    @router.get(
+        "/{name}",
+        operation_id="read_service",
+    )
     async def read_service(name: str) -> ServiceDTO:
         service = await service_registry.read_tool_service(name)
 

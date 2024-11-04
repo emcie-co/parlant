@@ -162,7 +162,11 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/", status_code=status.HTTP_201_CREATED)
+    @router.post(
+        "/",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_session",
+    )
     async def create_session(
         request: CreateSessionRequest,
         allow_greeting: bool = Query(default=True),
@@ -189,7 +193,10 @@ def create_router(
             )
         )
 
-    @router.get("/{session_id}")
+    @router.get(
+        "/{session_id}",
+        operation_id="read_session",
+    )
     async def read_session(session_id: SessionId) -> SessionDTO:
         session = await session_store.read_session(session_id=session_id)
 
@@ -204,7 +211,10 @@ def create_router(
             ),
         )
 
-    @router.get("/")
+    @router.get(
+        "/",
+        operation_id="list_sessions",
+    )
     async def list_sessions(
         agent_id: Optional[AgentId] = None,
         end_user_id: Optional[EndUserId] = None,
@@ -230,14 +240,21 @@ def create_router(
             ]
         )
 
-    @router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+    @router.delete(
+        "/",
+        status_code=status.HTTP_204_NO_CONTENT,
+        operation_id="delete_sessions",
+    )
     async def delete_sessions(agent_id: AgentId) -> None:
         sessions = await session_store.list_sessions(agent_id)
 
         for s in sessions:
             await session_store.delete_session(s.id)
 
-    @router.patch("/{session_id}")
+    @router.patch(
+        "/{session_id}",
+        operation_id="patch_session",
+    )
     async def patch_session(
         session_id: SessionId,
         request: PatchSessionRequest,
@@ -260,7 +277,10 @@ def create_router(
 
         return Response(content=None, status_code=status.HTTP_204_NO_CONTENT)
 
-    @router.delete("/{session_id}")
+    @router.delete(
+        "/{session_id}",
+        operation_id="delete_session",
+    )
     async def delete_session(
         session_id: SessionId,
     ) -> DeleteSessionResponse:
@@ -269,7 +289,11 @@ def create_router(
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    @router.post("/{session_id}/events", status_code=status.HTTP_201_CREATED)
+    @router.post(
+        "/{session_id}/events",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_event",
+    )
     async def create_event(
         session_id: SessionId,
         request: CreateEventRequest,
@@ -366,7 +390,10 @@ def create_router(
             )
         )
 
-    @router.get("/{session_id}/events")
+    @router.get(
+        "/{session_id}/events",
+        operation_id="list_events",
+    )
     async def list_events(
         session_id: SessionId,
         min_offset: Optional[int] = None,
@@ -414,7 +441,10 @@ def create_router(
             ],
         )
 
-    @router.get("/{session_id}/interactions")
+    @router.get(
+        "/{session_id}/interactions",
+        operation_id="list_interactions",
+    )
     async def list_interactions(
         session_id: SessionId,
         min_event_offset: int,
@@ -473,7 +503,10 @@ def create_router(
             interactions=interactions,
         )
 
-    @router.delete("/{session_id}/events")
+    @router.delete(
+        "/{session_id}/events",
+        operation_id="delete_events",
+    )
     async def delete_events(
         session_id: SessionId,
         min_offset: int,
@@ -488,7 +521,10 @@ def create_router(
 
         return DeleteEventsResponse(event_ids=[id for id in deleted_event_ids if id is not None])
 
-    @router.get("/{session_id}/interactions/{correlation_id}")
+    @router.get(
+        "/{session_id}/interactions/{correlation_id}",
+        operation_id="read_interaction",
+    )
     async def read_interaction(
         session_id: SessionId,
         correlation_id: str,

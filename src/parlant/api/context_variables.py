@@ -115,7 +115,11 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/{agent_id}/context-variables", status_code=status.HTTP_201_CREATED)
+    @router.post(
+        "/{agent_id}/context-variables",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_variable",
+    )
     async def create_variable(
         agent_id: AgentId,
         request: CreateContextVariableRequest,
@@ -155,6 +159,7 @@ def create_router(
     @router.delete(
         "/{agent_id}/context-variables",
         status_code=status.HTTP_204_NO_CONTENT,
+        operation_id="delete_variables",
     )
     async def delete_all_variables(
         agent_id: AgentId,
@@ -164,7 +169,10 @@ def create_router(
 
         return
 
-    @router.delete("/{agent_id}/context-variables/{variable_id}")
+    @router.delete(
+        "/{agent_id}/context-variables/{variable_id}",
+        operation_id="delete_variable",
+    )
     async def delete_variable(
         agent_id: AgentId, variable_id: ContextVariableId
     ) -> DeleteContextVariableReponse:
@@ -175,7 +183,10 @@ def create_router(
 
         return DeleteContextVariableReponse(context_variable_id=variable_id)
 
-    @router.get("/{agent_id}/context-variables")
+    @router.get(
+        "/{agent_id}/context-variables",
+        operation_id="list_variables",
+    )
     async def list_variables(
         agent_id: AgentId,
     ) -> ListContextVariablesResponse:
@@ -201,7 +212,10 @@ def create_router(
             ]
         )
 
-    @router.put("/{agent_id}/context-variables/{variable_id}/{key}")
+    @router.put(
+        "/{agent_id}/context-variables/{variable_id}/{key}",
+        operation_id="update_value",
+    )
     async def update_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
@@ -228,7 +242,10 @@ def create_router(
             )
         )
 
-    @router.get("/{agent_id}/context-variables/{variable_id}/{key}")
+    @router.get(
+        "/{agent_id}/context-variables/{variable_id}/{key}",
+        operation_id="read_value",
+    )
     async def read_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,
@@ -251,7 +268,10 @@ def create_router(
             data=variable_value.data,
         )
 
-    @router.get("/{agent_id}/context-variables/{variable_id}")
+    @router.get(
+        "/{agent_id}/context-variables/{variable_id}",
+        operation_id="read_variable",
+    )
     async def read_variable(
         agent_id: AgentId,
         variable_id: ContextVariableId,
@@ -300,7 +320,10 @@ def create_router(
             },
         )
 
-    @router.delete("/{agent_id}/context-variables/{variable_id}/{key}")
+    @router.delete(
+        "/{agent_id}/context-variables/{variable_id}/{key}",
+        operation_id="delete_value",
+    )
     async def delete_value(
         agent_id: AgentId,
         variable_id: ContextVariableId,

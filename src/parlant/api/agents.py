@@ -38,7 +38,11 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/", status_code=status.HTTP_201_CREATED)
+    @router.post(
+        "/",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_agent",
+    )
     async def create_agent(
         request: Optional[CreateAgentRequest] = None,
     ) -> CreateAgentResponse:
@@ -58,7 +62,7 @@ def create_router(
             )
         )
 
-    @router.get("/")
+    @router.get("/", operation_id="list_agents")
     async def list_agents() -> ListAgentsResponse:
         agents = await agent_store.list_agents()
 
@@ -75,7 +79,7 @@ def create_router(
             ]
         )
 
-    @router.get("/{agent_id}")
+    @router.get("/{agent_id}", operation_id="read_agent")
     async def read_agent(agent_id: AgentId) -> AgentDTO:
         agent = await agent_store.read_agent(agent_id=agent_id)
 
@@ -87,7 +91,7 @@ def create_router(
             max_engine_iterations=agent.max_engine_iterations,
         )
 
-    @router.patch("/{agent_id}")
+    @router.patch("/{agent_id}", operation_id="patch_agent")
     async def patch_agent(
         agent_id: AgentId,
         request: PatchAgentRequest,

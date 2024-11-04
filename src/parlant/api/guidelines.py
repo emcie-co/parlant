@@ -229,7 +229,11 @@ def create_router(
 
         return [(c, guideline_id not in [c.source.id, c.target.id]) for c in connections]
 
-    @router.post("/{agent_id}/guidelines", status_code=status.HTTP_201_CREATED)
+    @router.post(
+        "/{agent_id}/guidelines",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_guidelines",
+    )
     async def create_guidelines(
         agent_id: AgentId,
         request: CreateGuidelineRequest,
@@ -304,7 +308,10 @@ def create_router(
             ]
         )
 
-    @router.get("/{agent_id}/guidelines/{guideline_id}")
+    @router.get(
+        "/{agent_id}/guidelines/{guideline_id}",
+        operation_id="read_guideline",
+    )
     async def read_guideline(
         agent_id: AgentId, guideline_id: GuidelineId
     ) -> GuidelineWithConnectionsAndToolAssociationsDTO:
@@ -356,7 +363,10 @@ def create_router(
             ],
         )
 
-    @router.get("/{agent_id}/guidelines")
+    @router.get(
+        "/{agent_id}/guidelines",
+        operation_id="list_guidelines",
+    )
     async def list_guidelines(agent_id: AgentId) -> ListGuidelinesResponse:
         guidelines = await guideline_store.list_guidelines(guideline_set=agent_id)
 
@@ -371,7 +381,10 @@ def create_router(
             ]
         )
 
-    @router.patch("/{agent_id}/guidelines/{guideline_id}")
+    @router.patch(
+        "/{agent_id}/guidelines/{guideline_id}",
+        operation_id="patch_guideline",
+    )
     async def patch_guideline(
         agent_id: AgentId, guideline_id: GuidelineId, request: PatchGuidelineRequest
     ) -> GuidelineWithConnectionsAndToolAssociationsDTO:
@@ -500,7 +513,10 @@ def create_router(
             ],
         )
 
-    @router.delete("/{agent_id}/guidelines/{guideline_id}")
+    @router.delete(
+        "/{agent_id}/guidelines/{guideline_id}",
+        operation_id="delete_guideline",
+    )
     async def delete_guideline(
         agent_id: AgentId,
         guideline_id: GuidelineId,

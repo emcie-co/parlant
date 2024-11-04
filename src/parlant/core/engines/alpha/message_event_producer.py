@@ -186,7 +186,7 @@ Always do the following:
 3. DO NOT HALLUCINATE: Do not state factual information that you do not know or are not sure about. If the user requests information you're unsure about, state that this information is not available to you. 
 """
         )
-        if any([event.kind == "message" for event in staged_events]):
+        if not staged_events or any([event.kind == "message" for event in staged_events]):
             builder.add_section(
                 """
 The interaction with the user has just began, and no messages were sent by either party.
@@ -205,7 +205,7 @@ Otherwise, follow the rest of this prompt to choose the content of your response
         else:
             builder.add_section("""
 Since the interaction with the user is already ongoing, always produce a reply to the user's last message. The only exception where you may not produce a reply is if the user explicitly asked you not to respond to their message.
-In all other cases, even if the user is indicating that the conversation is over, you are expected to produce a reply.
+In all other cases, even if the user is indicating that the conversation is over, produce a reply.
                 """)
 
         builder.add_section(
@@ -215,10 +215,10 @@ to each and every one of the provided guidelines based on the most recent state 
 
 Mind the priority scores assigned to each guideline, acknowledging that in some cases,
 adherence to a higher-priority guideline may necessitate deviation from another.
-Use your best judgement in applying prioritization.
+Use your best judgment in applying prioritization.
 Note too that it is permissible for the final revision to break rules IF AND ONLY IF
 all of the broken rules were broken due to conscious prioritization of guidelines,
-due to either (1) conflicting with another guideline, (2) contradicting a user's request or (3) lack of necessary context / data.
+due to either (1) conflicting with another guideline, (2) contradicting a user's request or (3) lack of necessary context or data.
 If you do not fulfill a guideline, you must clearly justify your reasoning for doing so in your reply.
 
 Continuously critique each revision to refine the reply.
@@ -230,10 +230,8 @@ instances where one guideline was prioritized over another,
 situations where guidelines could not be followed due to lack of context or data,
 and the rationale for each decision made during the revision process. 
 Additionally, mark whether your suggested response is repeating your previous message.
-Generally, this would mean that further revisions are needed, until the suggested response is sufficiently unique.
+if your suggested response is repetitive, further revisions are needed, until the suggested response is sufficiently unique.
 The exact format of this output will be provided to you at the end of this prompt.
-IMPORTANT: Unless there is some conflict between the guidelines provided,
-prefer to adhere to the provided guidelines over your own judgement.
 
 DO NOT PRODUCE MORE THAN 5 REVISIONS. IF YOU REACH the 5th REVISION, STOP THERE.
 
@@ -384,7 +382,7 @@ Example 3: Non-Adherence Due to Missing Data: ###
 ###
 
 
-Example 4: Avoiding repititive reponses. Given that the previous response by the agent was "I'm sorry, could you please clarify your request?": ###
+Example 4: Avoiding repetitive responses. Given that the previous response by the agent was "I'm sorry, could you please clarify your request?": ###
 {{
     “last_message_of_user”: “This is not what I was asking for”,
     "rationale": "<a few words to justify why you decided to respond to the user at all>",
@@ -447,9 +445,6 @@ Produce a valid JSON object in the following format: ###
         )
 
         prompt = builder.build()
-        with open("message event prompt.txt", "w") as f:  # TODO delete
-            f.write(prompt)
-
         return prompt
 
     def _get_output_format(
@@ -556,6 +551,4 @@ Produce a valid JSON object in the following format: ###
         ):
             self._logger.warning(f"PROBLEMATIC RESPONSE: {final_revision.content}")
 
-        with open("message event response.txt", "w") as f:  # TODO delete
-            f.write(str(final_revision.content))
         return str(final_revision.content)

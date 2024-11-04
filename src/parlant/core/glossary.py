@@ -46,7 +46,7 @@ class GlossaryStore:
     async def update_term(
         self,
         term_set: str,
-        term_id: str,
+        term_id: TermId,
         params: TermUpdateParams,
     ) -> Term: ...
 
@@ -54,7 +54,7 @@ class GlossaryStore:
     async def read_term(
         self,
         term_set: str,
-        name: str,
+        term_id: TermId,
     ) -> Term: ...
 
     @abstractmethod
@@ -67,7 +67,7 @@ class GlossaryStore:
     async def delete_term(
         self,
         term_set: str,
-        name: str,
+        term_id: TermId,
     ) -> TermId: ...
 
     @abstractmethod

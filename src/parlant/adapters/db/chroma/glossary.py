@@ -87,7 +87,7 @@ class GlossaryChromaStore(GlossaryStore):
     async def update_term(
         self,
         term_set: str,
-        term_id: str,
+        term_id: TermId,
         params: TermUpdateParams,
     ) -> Term:
         document_to_update = await self._collection.find_one(
@@ -128,13 +128,13 @@ class GlossaryChromaStore(GlossaryStore):
     async def read_term(
         self,
         term_set: str,
-        name: str,
+        term_id: TermId,
     ) -> Term:
         term_document = await self._collection.find_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"name": {"$eq": name}}]}
+            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
         )
         if not term_document:
-            raise ItemNotFoundError(item_id=UniqueId(name), message=f"term_set={term_set}")
+            raise ItemNotFoundError(item_id=UniqueId(term_id), message=f"term_set={term_set}")
 
         return self._deserialize(term_document=term_document)
 
@@ -150,17 +150,17 @@ class GlossaryChromaStore(GlossaryStore):
     async def delete_term(
         self,
         term_set: str,
-        name: str,
+        term_id: TermId,
     ) -> TermId:
         term_document = await self._collection.find_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"name": {"$eq": name}}]}
+            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
         )
 
         if not term_document:
-            raise ItemNotFoundError(item_id=UniqueId(name))
+            raise ItemNotFoundError(item_id=UniqueId(term_id))
 
         await self._collection.delete_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"name": {"$eq": name}}]}
+            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
         )
 
         return TermId(term_document["id"])

@@ -42,7 +42,7 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/{agent_id}/terms/", status_code=status.HTTP_201_CREATED)
+    @router.post("/{agent_id}/terms", status_code=status.HTTP_201_CREATED)
     async def create_term(agent_id: AgentId, request: CreateTermRequest) -> CreateTermResponse:
         term = await glossary_store.create_term(
             term_set=agent_id,
@@ -60,9 +60,9 @@ def create_router(
             )
         )
 
-    @router.get("/{agent_id}/terms/{name}")
-    async def read_term(agent_id: AgentId, name: str) -> TermDTO:
-        term = await glossary_store.read_term(term_set=agent_id, name=name)
+    @router.get("/{agent_id}/terms/{term_id}")
+    async def read_term(agent_id: AgentId, term_id: TermId) -> TermDTO:
+        term = await glossary_store.read_term(term_set=agent_id, term_id=term_id)
 
         return TermDTO(
             id=term.id,
@@ -71,7 +71,7 @@ def create_router(
             synonyms=term.synonyms,
         )
 
-    @router.get("/{agent_id}/terms/")
+    @router.get("/{agent_id}/terms")
     async def list_terms(agent_id: str) -> ListTermsResponse:
         terms = await glossary_store.list_terms(term_set=agent_id)
 
@@ -110,9 +110,9 @@ def create_router(
             synonyms=term.synonyms,
         )
 
-    @router.delete("/{agent_id}/terms/{name}")
-    async def delete_term(agent_id: str, name: str) -> DeleteTermResponse:
-        deleted_term_id = await glossary_store.delete_term(term_set=agent_id, name=name)
+    @router.delete("/{agent_id}/terms/{term_id}")
+    async def delete_term(agent_id: str, term_id: TermId) -> DeleteTermResponse:
+        deleted_term_id = await glossary_store.delete_term(term_set=agent_id, term_id=term_id)
         return DeleteTermResponse(term_id=deleted_term_id)
 
     return router

@@ -378,10 +378,10 @@ class Actions:
     def remove_term(
         ctx: click.Context,
         agent_id: str,
-        name: str,
+        term_id: str,
     ) -> None:
         response = requests.delete(
-            urljoin(ctx.obj.server_address, f"/agents/{agent_id}/terms/{name}")
+            urljoin(ctx.obj.server_address, f"/agents/{agent_id}/terms/{term_id}")
         )
 
         response.raise_for_status()
@@ -1275,10 +1275,10 @@ class Interface:
     def remove_term(
         ctx: click.Context,
         agent_id: str,
-        name: str,
+        term_id: str,
     ) -> None:
-        Actions.remove_term(ctx, agent_id, name)
-        Interface._write_success(f"Removed term '{name}'")
+        Actions.remove_term(ctx, agent_id, term_id)
+        Interface._write_success(f"Removed term '{term_id}'")
 
     @staticmethod
     def list_terms(
@@ -2084,16 +2084,16 @@ async def async_main() -> None:
         metavar="ID",
         required=False,
     )
-    @click.argument("name", type=str)
+    @click.argument("term_id", type=str)
     @click.pass_context
     def glossary_remove(
         ctx: click.Context,
         agent_id: str,
-        name: str,
+        term_id: str,
     ) -> None:
         agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
         assert agent_id
-        Interface.remove_term(ctx, agent_id, name)
+        Interface.remove_term(ctx, agent_id, term_id)
 
     @glossary.command("list", help="List all terms in the glossary")
     @click.option(

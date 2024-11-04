@@ -73,8 +73,9 @@ def test_read_term(
         },
     )
     assert create_response.status_code == status.HTTP_201_CREATED
+    term = create_response.json()["term"]
 
-    read_response = client.get(f"agents/{agent_id}/terms/{name}")
+    read_response = client.get(f"agents/{agent_id}/terms/{term['id']}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -98,8 +99,9 @@ def test_read_term_without_synonyms(
         },
     )
     assert create_response.status_code == status.HTTP_201_CREATED
+    term = create_response.json()["term"]
 
-    read_response = client.get(f"/agents/{agent_id}/terms/{name}")
+    read_response = client.get(f"/agents/{agent_id}/terms/{term['id']}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -196,7 +198,7 @@ def test_delete_term(
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
-    create_response = (
+    term = (
         client.post(
             f"/agents/{agent_id}/terms",
             json={
@@ -209,8 +211,10 @@ def test_delete_term(
         .json()["term"]
     )
 
-    delete_response = client.delete(f"/agents/{agent_id}/terms/{name}").raise_for_status().json()
-    assert delete_response["term_id"] == create_response["id"]
+    delete_response = (
+        client.delete(f"/agents/{agent_id}/terms/{term['id']}").raise_for_status().json()
+    )
+    assert delete_response["term_id"] == term["id"]
 
     read_response = client.get(f"/agents/{agent_id}/terms/{name}")
     assert read_response.status_code == status.HTTP_404_NOT_FOUND

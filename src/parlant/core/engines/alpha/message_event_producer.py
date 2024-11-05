@@ -538,8 +538,7 @@ Produce a valid JSON object in the following format: ###
         ):
             # Sometimes the LLM continues generating revisions even after
             # it generated a correct one. Those next revisions tend to be
-            # faulty, as they do not handle prioritization well.
-            # This is a workaround.
+            # faulty, as they do not handle prioritization well. This is a workaround.
             final_revision = first_correct_revision
         else:
             final_revision = message_event_response.content.revisions[-1]

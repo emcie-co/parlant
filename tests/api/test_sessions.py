@@ -330,6 +330,27 @@ async def test_that_a_deleted_session_is_removed_from_the_session_list(
     assert not any(session["session_id"] == str(session_id) for session in sessions_after_deletion)
 
 
+async def test_that_all_sessions_related_to_end_user_can_be_deleted_in_one_request(
+    client: TestClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    for _ in range(5):
+        await create_session(
+            container=container,
+            agent_id=agent_id,
+            end_user_id=EndUserId("test-user"),
+        )
+
+    response = client.delete("/sessions", params={"end_user_id": "test-user"})
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    stored_sessions = await container[SessionStore].list_sessions(agent_id)
+
+    assert len(stored_sessions) == 0
+
+
 async def test_that_all_sessions_can_be_deleted_with_one_request(
     client: TestClient,
     agent_id: AgentId,

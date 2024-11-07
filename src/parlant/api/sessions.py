@@ -261,8 +261,14 @@ def create_router(
         status_code=status.HTTP_204_NO_CONTENT,
         operation_id="delete_sessions",
     )
-    async def delete_sessions(agent_id: AgentId) -> None:
-        sessions = await session_store.list_sessions(agent_id)
+    async def delete_sessions(
+        agent_id: Optional[AgentId] = None,
+        end_user_id: Optional[EndUserId] = None,
+    ) -> None:
+        sessions = await session_store.list_sessions(
+            agent_id=agent_id,
+            end_user_id=end_user_id,
+        )
 
         for s in sessions:
             await session_store.delete_session(s.id)

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 
+from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentStore
 from parlant.core.evaluations import (
     CoherenceCheck,
@@ -95,7 +96,7 @@ class GuidelineEvaluator:
         tasks.append(connection_propositions_task)
 
         if tasks:
-            await asyncio.gather(*tasks)
+            await async_utils.safe_gather(*tasks)
 
         coherence_checks: Optional[Iterable[Sequence[CoherenceCheck]]] = []
         if coherence_checks_task:

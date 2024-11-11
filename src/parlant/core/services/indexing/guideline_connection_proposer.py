@@ -1,10 +1,10 @@
-import asyncio
 from dataclasses import dataclass
 from itertools import chain
 import json
 from typing import Optional, Sequence
 from more_itertools import chunked
 
+from parlant.core import async_utils
 from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel
 from parlant.core.guideline_connections import ConnectionKind
@@ -82,11 +82,7 @@ class GuidelineConnectionProposer:
 
             connection_proposition_tasks.extend(
                 [
-                    asyncio.create_task(
-                        self._generate_propositions(
-                            agent, introduced_guideline, batch, progress_report
-                        )
-                    )
+                    self._generate_propositions(agent, introduced_guideline, batch, progress_report)
                     for batch in guideline_batches
                 ]
             )
@@ -95,7 +91,9 @@ class GuidelineConnectionProposer:
             f"Propose guideline connections for {len(connection_proposition_tasks)} "  # noqa
             f"batches (batch size={self._batch_size})",
         ):
-            propositions = chain.from_iterable(await asyncio.gather(*connection_proposition_tasks))
+            propositions = chain.from_iterable(
+                await async_utils.safe_gather(*connection_proposition_tasks)
+            )
             return list(propositions)
 
     async def _format_connection_propositions(

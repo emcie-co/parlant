@@ -8,6 +8,7 @@ from more_itertools import chunked
 from tenacity import retry, stop_after_attempt, wait_fixed
 from dataclasses import dataclass
 
+from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import SchematicGenerator
@@ -119,7 +120,7 @@ class CoherenceChecker:
             f"Evaluating incoherencies for {len(tasks)} "
             f"batches (batch size={EVALUATION_BATCH_SIZE})",
         ):
-            incoherencies = list(chain.from_iterable(await asyncio.gather(*tasks)))
+            incoherencies = list(chain.from_iterable(await async_utils.safe_gather(*tasks)))
 
         return incoherencies
 
@@ -131,7 +132,10 @@ class CoherenceChecker:
         progress_report: Optional[ProgressReport],
     ) -> Sequence[IncoherenceTest]:
         indexed_comparison_guidelines = {i: c for i, c in enumerate(comparison_guidelines, start=1)}
-        predicates_entailment_responses, actions_contradiction_responses = await asyncio.gather(
+        (
+            predicates_entailment_responses,
+            actions_contradiction_responses,
+        ) = await async_utils.safe_gather(
             self._predicates_entailment_checker.evaluate(
                 agent, guideline_to_evaluate, indexed_comparison_guidelines
             ),

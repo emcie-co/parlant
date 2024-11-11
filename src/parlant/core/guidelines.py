@@ -72,7 +72,7 @@ class GuidelineStore(ABC):
     ) -> Guideline: ...
 
     @abstractmethod
-    async def search_guideline(
+    async def find_guideline(
         self,
         guideline_set: str,
         guideline_content: GuidelineContent,
@@ -219,7 +219,7 @@ class GuidelineDocumentStore(GuidelineStore):
 
         return self._deserialize(result.updated_document)
 
-    async def search_guideline(
+    async def find_guideline(
         self,
         guideline_set: str,
         guideline_content: GuidelineContent,

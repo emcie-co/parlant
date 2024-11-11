@@ -200,14 +200,14 @@ class Application:
             if source_key in content_guidelines:
                 source_guideline_id = content_guidelines[source_key]
                 target_guideline_id = (
-                    await self._guideline_store.search_guideline(
+                    await self._guideline_store.find_guideline(
                         guideline_set=guideline_set,
                         guideline_content=proposition.target,
                     )
                 ).id
             else:
                 source_guideline_id = (
-                    await self._guideline_store.search_guideline(
+                    await self._guideline_store.find_guideline(
                         guideline_set=guideline_set,
                         guideline_content=proposition.source,
                     )

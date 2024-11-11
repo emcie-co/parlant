@@ -132,7 +132,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     await context.app.wait_for_update(
         session_id=session.id,
         min_offset=1 + event.offset,
-        kinds=[],
+        kinds=["message"],
         timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
     )
 

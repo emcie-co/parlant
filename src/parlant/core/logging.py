@@ -85,8 +85,8 @@ class CorrelationalLogger(Logger):
 
     @contextmanager
     def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+        t_start = time.time()
         try:
-            t_start = time.time()
             if props:
                 self.info(f"{name} [{props}] started")
             else:
@@ -101,7 +101,7 @@ class CorrelationalLogger(Logger):
             else:
                 self.info(f"{name} finished in {round(t_end - t_start, 3)} seconds")
         except asyncio.CancelledError:
-            self.error(f"{name} cancelled")
+            self.error(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
             raise
         except Exception as exc:
             self.error(f"{name} failed")

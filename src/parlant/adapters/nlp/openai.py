@@ -65,7 +65,7 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation("OpenAI LLM Request"):
+        with self._logger.operation(f"OpenAI LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(

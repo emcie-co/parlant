@@ -126,7 +126,7 @@ async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(
     context: ContextOfTest,
 ) -> None:
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
         server_process.send_signal(signal.SIGINT)
         server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
         assert server_process.returncode == os.EX_OK
@@ -136,7 +136,7 @@ async def test_that_the_server_starts_when_there_are_no_state_changes_and_told_n
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -157,7 +157,7 @@ async def test_that_the_server_starts_and_gernerate_a_message(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -178,7 +178,7 @@ async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(
     context: ContextOfTest,
 ) -> None:
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -226,8 +226,8 @@ async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(
                 raise
 
     with run_server(context) as server_process:
-        EXTRA_TIME_TO_LET_THE_TASK_COMPLETE = 5
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME + EXTRA_TIME_TO_LET_THE_TASK_COMPLETE)
+        EXTRA_TIME_TO_LET_THE_TASK_COMPLETE = 10
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME + EXTRA_TIME_TO_LET_THE_TASK_COMPLETE)
 
         async with httpx.AsyncClient(
             follow_redirects=True,
@@ -237,7 +237,7 @@ async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(
                 evaluation_response = await client.get(
                     f"{SERVER_ADDRESS}/agents/index/evaluations/{evaluation_id}",
                 )
-                evaluation_creation_response.raise_for_status()
+                evaluation_response.raise_for_status()
                 assert evaluation_response.json()["status"] == "completed"
             except:
                 traceback.print_exc()
@@ -248,7 +248,7 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
     context: ContextOfTest,
 ) -> None:
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -291,7 +291,7 @@ async def test_that_context_variable_values_load_after_server_restart(
     data = "test_value"
 
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -303,7 +303,7 @@ async def test_that_context_variable_values_load_after_server_restart(
         assert server_process.returncode == os.EX_OK
 
     with run_server(context):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
         variable_value = await read_context_variable_value(agent.id, variable["id"], key)
@@ -320,7 +320,7 @@ async def test_that_services_load_after_server_restart(context: ContextOfTest) -
         return ToolResult(param * 2)
 
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         async with run_service_server([sample_tool]) as server:
             await create_sdk_service(service_name, server.url)
@@ -330,7 +330,7 @@ async def test_that_services_load_after_server_restart(context: ContextOfTest) -
         assert server_process.returncode == os.EX_OK
 
     with run_server(context):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         services = await list_services()
         assert any(s["name"] == service_name for s in services)
@@ -342,7 +342,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
     description = "Term added before server restart"
 
     with run_server(context) as server_process:
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
 
@@ -353,7 +353,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
         assert server_process.returncode == os.EX_OK
 
     with run_server(context):
-        await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await get_first_agent()
         terms = await get_term_list(agent.id)

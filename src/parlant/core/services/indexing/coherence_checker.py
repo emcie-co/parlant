@@ -241,10 +241,10 @@ Each guideline is composed of two parts:
           Any instruction described here applies only to the agent, and not to the user.
 
 
-Your task is to evaluate whether pairs of guidelines have entailing 'when' statements. 
+Your task is to evaluate whether pairs of guidelines have entailing 'when' statements.
 {self.get_task_description()}
 
-To find whether two guidelines have entailing 'when's, independently determine whether the first 'when' entails the second, and vice-versa.  
+To find whether two guidelines have entailing 'when's, independently determine whether the first 'when' entails the second, and vice-versa.
 Be forgiving regarding misspellings and grammatical errors.
 
 Please output JSON structured in the following format:
@@ -390,7 +390,7 @@ Expected Output:
             "origin_entails_compared_rationale": "offering products to the user does not entail them asking for recommendations, since the agent might be offering items for a different reason",
             "origin_when_entails_compared_when": 4,
             "origin_entails_compared_severity": false,
-            "compared_entails_origin_rationale": "the user asking for recommendations does not entail that a product is offered to them. They could be asking out of their own accord", 
+            "compared_entails_origin_rationale": "the user asking for recommendations does not entail that a product is offered to them. They could be asking out of their own accord",
             "compared_when_entails_origin_when": false,
             "compared_entails_origin_severity": 3,
         }},
@@ -512,12 +512,12 @@ Each guideline is composed of two parts:
           whenever the "when" part of the guideline applies to the conversation in its particular state.
           Any instruction described here applies only to the agent, and not to the user.
 
-To ensure consistency, it is crucial to avoid scenarios where multiple guidelines with conflicting 'then' statements are applied. 
+To ensure consistency, it is crucial to avoid scenarios where multiple guidelines with conflicting 'then' statements are applied.
 {self.get_task_description()}
 
-          
+
 Be forgiving regarding misspellings and grammatical errors.
- 
+
 
 
 Please output JSON structured in the following format:
@@ -658,7 +658,7 @@ Expected Output:
             "thens_contradiction": true,
             "severity": 8
         }},
-        
+
     ]
 }}
 ```

@@ -16,6 +16,7 @@ from parlant.adapters.nlp.openai import OpenAIService
 from parlant.adapters.nlp.anthropic import AnthropicService
 from parlant.adapters.nlp.together import TogetherService
 from parlant.api.app import create_api_app
+from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -117,6 +118,10 @@ async def container() -> AsyncIterator[Container]:
         temp_dir = stack.enter_context(tempfile.TemporaryDirectory())
         os.environ["PARLANT_HOME"] = temp_dir
 
+        container[BackgroundTaskService] = await stack.enter_async_context(
+            BackgroundTaskService(container[Logger])
+        )
+
         container[ServiceRegistry] = await stack.enter_async_context(
             ServiceDocumentRegistry(
                 database=container[DocumentDatabase],
@@ -173,7 +178,7 @@ async def container() -> AsyncIterator[Container]:
 
         container[Engine] = AlphaEngine
 
-        container[Application] = await stack.enter_async_context(Application(container))
+        container[Application] = Application(container)
 
         yield container
 

@@ -166,7 +166,6 @@ def create_router(
                     for p in [_payload_from_dto(p) for p in request.payloads]
                 ],
             )
-
         except EvaluationValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

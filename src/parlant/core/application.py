@@ -2,12 +2,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from datetime import datetime, timezone
-import time
-import traceback
 from typing import Any, Iterable, Mapping, Optional, TypeAlias, cast
 from lagom import Container
 
 from parlant.core.async_utils import Timeout
+from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import generate_id
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
@@ -44,55 +43,9 @@ class Application:
         self._guideline_connection_store = container[GuidelineConnectionStore]
         self._engine = container[Engine]
         self._event_emitter_factory = container[EventEmitterFactory]
+        self._background_task_service = container[BackgroundTaskService]
 
-        self._tasks_by_session = dict[SessionId, TaskQueue]()
         self._lock = asyncio.Lock()
-        self._last_garbage_collection = 0.0
-        self._garbage_collection_interval = 5.0
-
-    async def __aenter__(self) -> Application:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> bool:
-        await self._collect_garbage(force=True)
-        return False
-
-    async def _collect_garbage(self, force: bool = False) -> None:
-        now = time.time()
-
-        if not force:
-            if (now - self._last_garbage_collection) < self._garbage_collection_interval:
-                return
-
-        async with self._lock:
-            session_ids = list(self._tasks_by_session.keys())
-
-            for session_id in session_ids:
-                task_queue = self._tasks_by_session[session_id]
-                re_enqueued_tasks = []
-
-                for task in task_queue:
-                    if task.done() or force:
-                        try:
-                            await task
-                        except Exception as exc:
-                            self._logger.warning(
-                                f"Awaited session task raised an exception: {traceback.format_exception(exc)}"
-                            )
-                    else:
-                        re_enqueued_tasks.append(task)
-
-                if re_enqueued_tasks:
-                    self._tasks_by_session[session_id] = re_enqueued_tasks
-                else:
-                    del self._tasks_by_session[session_id]
-
-            self._last_garbage_collection = now
 
     async def wait_for_update(
         self,
@@ -102,8 +55,6 @@ class Application:
         source: Optional[EventSource] = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool:
-        await self._collect_garbage()
-
         return await self._session_listener.wait_for_events(
             session_id=session_id,
             min_offset=min_offset,
@@ -119,8 +70,6 @@ class Application:
         title: Optional[str] = None,
         allow_greeting: bool = False,
     ) -> Session:
-        await self._collect_garbage()
-
         session = await self._session_store.create_session(
             creation_utc=datetime.now(timezone.utc),
             end_user_id=end_user_id,
@@ -141,8 +90,6 @@ class Application:
         source: EventSource = "end_user",
         trigger_processing: bool = True,
     ) -> Event:
-        await self._collect_garbage()
-
         event = await self._session_store.create_event(
             session_id=session_id,
             source=source,
@@ -158,18 +105,13 @@ class Application:
         return event
 
     async def dispatch_processing_task(self, session: Session) -> str:
-        async with self._lock:
-            if session.id not in self._tasks_by_session:
-                self._tasks_by_session[session.id] = TaskQueue()
+        with self._correlator.correlation_scope(generate_id()):
+            await self._background_task_service.restart(
+                self._process_session(session),
+                tag=f"process-session({session.id})",
+            )
 
-            for task in self._tasks_by_session[session.id]:
-                task.cancel()
-            with self._correlator.correlation_scope(generate_id()):
-                self._tasks_by_session[session.id].append(
-                    asyncio.create_task(self._process_session(session))
-                )
-
-                return self._correlator.correlation_id
+            return self._correlator.correlation_id
 
     async def _process_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(
@@ -221,27 +163,27 @@ class Application:
             )
 
         content_guidelines: dict[str, GuidelineId] = {
-            f"{i.payload.content.predicate}_{i.payload.content.action}": (
+            f"{invoice.payload.content.predicate}_{invoice.payload.content.action}": (
                 await self._guideline_store.create_guideline(
                     guideline_set=guideline_set,
-                    predicate=i.payload.content.predicate,
-                    action=i.payload.content.action,
+                    predicate=invoice.payload.content.predicate,
+                    action=invoice.payload.content.action,
                 )
-                if i.payload.operation == "add"
+                if invoice.payload.operation == "add"
                 else await self._guideline_store.update_guideline(
-                    guideline_id=cast(GuidelineId, i.payload.updated_id),
+                    guideline_id=cast(GuidelineId, invoice.payload.updated_id),
                     params={
-                        "predicate": i.payload.content.predicate,
-                        "action": i.payload.content.action,
+                        "predicate": invoice.payload.content.predicate,
+                        "action": invoice.payload.content.action,
                     },
                 )
             ).id
-            for i in invoices
+            for invoice in invoices
         }
 
-        for i in invoices:
-            if i.payload.operation == "update" and i.payload.connection_proposition:
-                guideline_id = cast(GuidelineId, i.payload.updated_id)
+        for invoice in invoices:
+            if invoice.payload.operation == "update" and invoice.payload.connection_proposition:
+                guideline_id = cast(GuidelineId, invoice.payload.updated_id)
 
                 connections_to_delete = list(
                     await self._guideline_connection_store.list_connections(
@@ -255,31 +197,28 @@ class Application:
                         target=guideline_id,
                     )
                 )
-                await asyncio.gather(
-                    *(
-                        self._guideline_connection_store.delete_connection(c.id)
-                        for c in connections_to_delete
-                    )
-                )
+
+                for conn in connections_to_delete:
+                    await self._guideline_connection_store.delete_connection(conn.id)
 
         connections: set[ConnectionProposition] = set([])
 
-        for i in invoices:
-            assert i.data
+        for invoice in invoices:
+            assert invoice.data
 
-            if not i.data.connection_propositions:
+            if not invoice.data.connection_propositions:
                 continue
 
-            for c in i.data.connection_propositions:
-                source_key = f"{c.source.predicate}_{c.source.action}"
-                target_key = f"{c.target.predicate}_{c.target.action}"
+            for proposition in invoice.data.connection_propositions:
+                source_key = f"{proposition.source.predicate}_{proposition.source.action}"
+                target_key = f"{proposition.target.predicate}_{proposition.target.action}"
 
-                if c not in connections:
-                    if c.check_kind == "connection_with_another_evaluated_guideline":
+                if proposition not in connections:
+                    if proposition.check_kind == "connection_with_another_evaluated_guideline":
                         await self._guideline_connection_store.create_connection(
                             source=content_guidelines[source_key],
                             target=content_guidelines[target_key],
-                            kind=c.connection_kind,
+                            kind=proposition.connection_kind,
                         )
                     else:
                         await _create_connection_with_existing_guideline(
@@ -287,8 +226,8 @@ class Application:
                             target_key,
                             content_guidelines,
                             guideline_set,
-                            c,
+                            proposition,
                         )
-                    connections.add(c)
+                    connections.add(proposition)
 
         return content_guidelines.values()

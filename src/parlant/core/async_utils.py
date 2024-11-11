@@ -14,7 +14,9 @@ class Timeout:
         return Timeout(math.inf)
 
     def __init__(self, seconds: float) -> None:
-        self._creation = self._now()
+        # We want to avoid calling _now() on a static level, because
+        # it requires running within an event loop.
+        self._creation = self._now() if seconds not in [0, math.inf] else 0
         self._expiration = self._creation + seconds
 
     def expired(self) -> bool:

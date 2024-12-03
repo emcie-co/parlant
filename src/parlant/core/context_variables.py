@@ -140,8 +140,8 @@ class ContextVariableStore(ABC):
     async def read_value(
         self,
         variable_set: str,
-        key: str,
         variable_id: ContextVariableId,
+        key: str,
     ) -> Optional[ContextVariableValue]: ...
 
     @abstractmethod
@@ -456,8 +456,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def read_value(
         self,
         variable_set: str,
-        key: str,
         variable_id: ContextVariableId,
+        key: str,
     ) -> Optional[ContextVariableValue]:
         value_document = await self._value_collection.find_one(
             {

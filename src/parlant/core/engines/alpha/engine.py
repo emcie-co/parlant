@@ -15,10 +15,11 @@
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from itertools import chain
 import traceback
 from typing import Mapping, Optional, Sequence, cast
+from croniter import croniter
 from typing_extensions import override
 
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -27,7 +28,6 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
     ContextVariableValue,
-    FreshnessRules,
 )
 from parlant.core.customers import Customer, CustomerStore
 from parlant.core.guidelines import Guideline, GuidelineStore
@@ -45,7 +45,6 @@ from parlant.core.sessions import (
     MessageGenerationInspection,
     PreparationIteration,
     PreparationIterationGenerations,
-    SessionId,
     Session,
     SessionStore,
     Term as StoredTerm,
@@ -613,43 +612,15 @@ class AlphaEngine(Engine):
         return []
 
 
-def _is_fresh(
-    freshness_rules: FreshnessRules,
-) -> bool:
-    current_time = datetime.now(timezone.utc)
-
-    matches = []
-
-    if freshness_rules.months:
-        matches.append(current_time.month in freshness_rules.months)
-
-    if freshness_rules.days_of_month:
-        matches.append(current_time.day in freshness_rules.days_of_month)
-
-    if freshness_rules.days_of_week:
-        current_day = current_time.strftime("%A")
-        matches.append(current_day in freshness_rules.days_of_week)
-
-    if freshness_rules.hours:
-        matches.append(current_time.hour in freshness_rules.hours)
-
-    if freshness_rules.minutes:
-        matches.append(current_time.minute in freshness_rules.minutes)
-
-    if freshness_rules.seconds:
-        matches.append(current_time.second in freshness_rules.seconds)
-
-    return bool(matches) and all(matches)
-
-
 async def fresh_value(
     context_variable_store: ContextVariableStore,
     service_registery: ServiceRegistry,
     agent_id: AgentId,
-    session_id: SessionId,
+    session: Session,
     variable_set: str,
     variable_id: ContextVariableId,
     key: str,
+    current_time: datetime,
 ) -> None:
     variable = await context_variable_store.read_variable(
         variable_set=variable_set,
@@ -659,18 +630,22 @@ async def fresh_value(
     if variable.tool_id is None or variable.freshness_rules is None:
         return
 
-    if not _is_fresh(variable.freshness_rules):
-        return
-
     value = await context_variable_store.read_value(
         variable_set=variable_set,
         variable_id=variable_id,
         key=key,
     )
 
-    assert value
+    if value is not None and value.last_modified is not None:
+        last_modified = value.last_modified
 
-    tool_context = ToolContext(agent_id=agent_id, session_id=session_id)
+        cron = croniter(variable.freshness_rules, current_time)
+        prev_scheduled_time = cron.get_prev(datetime)
+
+        if last_modified >= prev_scheduled_time:
+            return
+
+    tool_context = ToolContext(agent_id=agent_id, session_id=session.id, customer_id=session.customer_id)
     tool_service = await service_registery.read_tool_service(variable.tool_id.service_name)
     tool_result = await tool_service.call_tool(
         variable.tool_id.tool_name, context=tool_context, arguments={}

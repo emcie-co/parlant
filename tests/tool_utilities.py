@@ -137,3 +137,7 @@ def check_username_validity(name: str) -> ToolResult:
 
 def get_available_soups() -> ToolResult:
     return ToolResult("['Tomato', 'Turpolance', 'Pumpkin', 'Turkey Soup', 'Tom Yum', 'Onion']")
+
+
+def fetch_account_balance() -> ToolResult:
+    return ToolResult(data={"balance": 1000.0})

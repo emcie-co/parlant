@@ -21,11 +21,10 @@ env:
   # github.repository as <account>/<repo>
   IMAGE_NAME: emcie-co/parlant
 
-
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -70,6 +69,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=edge
+
+      # Remove unused packages and directories to free up space for a (possibly large) Docker build
+      - name: Cleanup disk space
+        run: |
+          chmod +x ./scripts/ci/github_action_ubuntu_2404_free_space.sh
+          ./scripts/ci/github_action_ubuntu_2404_free_space.sh
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action

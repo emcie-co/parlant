@@ -118,7 +118,7 @@ $ # For TypeScript clients:
 $ npm install parlant-client
 ```
 
-To start building with Parlant, visit our [documentation portal](https://parlant.io/quickstart/installation).
+To start building with Parlant, visit our [documentation portal](https://parlant.io/docs/quickstart/installation).
 
 Need help? Send us a message on [Discord](https://discord.gg/QXKvkqph). We're happy to answer questions and help you get up and running!
 

@@ -1,4 +1,4 @@
-name: Test Docker Publish v2
+name: Test Docker Publish v0  
 
 on:
   pull_request:
@@ -59,32 +59,50 @@ jobs:
 
       - name: Free disk space
         run: |
+          # 1. Remove docker images first (largest impact)
           sudo docker rmi $(docker image ls -aq) >/dev/null 2>&1 || true
+          
+          # 2. Remove large development toolchains and SDK directories
           sudo rm -rf \
-            /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup \
-            /usr/lib/jvm || true
-          echo "some directories deleted"
-          sudo apt install aptitude -y >/dev/null 2>&1
-          sudo aptitude purge aria2 ansible azure-cli shellcheck rpm xorriso zsync \
-            esl-erlang firefox gfortran-8 gfortran-9 google-chrome-stable \
-            google-cloud-sdk imagemagick \
-            libmagickcore-dev libmagickwand-dev libmagic-dev ant ant-optional kubectl \
-            mercurial apt-transport-https mono-complete libmysqlclient \
-            unixodbc-dev yarn chrpath libssl-dev libxft-dev \
-            libfreetype6 libfreetype6-dev libfontconfig1 libfontconfig1-dev \
-            snmp pollinate libpq-dev postgresql-client powershell ruby-full \
-            sphinxsearch subversion mongodb-org azure-cli microsoft-edge-stable \
-            -y -f >/dev/null 2>&1
-          sudo aptitude purge google-cloud-sdk -f -y >/dev/null 2>&1
-          sudo aptitude purge microsoft-edge-stable -f -y >/dev/null 2>&1 || true
-          sudo apt purge microsoft-edge-stable -f -y >/dev/null 2>&1 || true
-          sudo aptitude purge '~n ^mysql' -f -y >/dev/null 2>&1
-          sudo aptitude purge '~n ^php' -f -y >/dev/null 2>&1
-          sudo aptitude purge '~n ^dotnet' -f -y >/dev/null 2>&1
+            /opt/hostedtoolcache/* \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/local/share/powershell \
+            /usr/share/swift \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/lib/jvm \
+            /usr/local/julia* \
+            /usr/local/n \
+            /usr/local/share/chromium \
+            /usr/local/share/vcpkg \
+            >/dev/null 2>&1 || true
+            
+          # 3. Clean up large package caches and data
+          sudo rm -rf \
+            /var/lib/docker/* \
+            /var/lib/gems/* \
+            /var/lib/apt/lists/* \
+            /var/cache/* \
+            /var/lib/snapd \
+            >/dev/null 2>&1 || true
+
+          # 4. Remove unnecessary large packages
+          sudo apt-get remove -y \
+            azure-cli \
+            google-cloud-sdk \
+            firefox \
+            google-chrome-stable \
+            microsoft-edge-stable \
+            mysql* \
+            mongodb-org* \
+            dotnet* \
+            php* \
+            >/dev/null 2>&1 || true
+
+          # 5. Clean up package system
           sudo apt-get autoremove -y >/dev/null 2>&1
-          sudo apt-get autoclean -y >/dev/null 2>&1
-          echo "some packages purged"
+          sudo apt-get clean -y >/dev/null 2>&1
 
       - name: Generate disk report 1
         run: /tmp/generate_disk_report.sh 1

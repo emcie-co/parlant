@@ -17,30 +17,45 @@ jobs:
       id-token: write
 
     steps:
-      - name: Generate disk report 0
+
+      - name: Prepare disk report script
         run: |
-          cat > ./generate_disk_report.sh << 'EOL'
+
+          REPORTS_DIR="/tmp/disk_reports"
+
+          cat > /tmp/generate_disk_report.sh << 'EOL'
           #!/bin/bash
+          set -e 
           report_num=$1
-          mkdir -p disk_reports
+          REPORTS_DIR="/tmp/disk_reports"
           
-          echo "=== Directory Sizes (1M+) ===" > "disk_reports/report_${report_num}.txt"
-          sudo du -hx --threshold=1M --exclude=/proc --exclude=/sys / 2>/dev/null | sort -hr >> "disk_reports/report_${report_num}.txt"
-          
-          echo -e "\n=== Filesystem Information ===" >> "disk_reports/report_${report_num}.txt"
-          df -h >> "disk_reports/report_${report_num}.txt"
-          
-          echo -e "\n=== Large Files (1M+) ===" >> "disk_reports/report_${report_num}.txt"
-          sudo find / -type f -size +1M -exec ls -lh {} \; 2>/dev/null | sort -k5 -hr >> "disk_reports/report_${report_num}.txt"
-          
-          echo -e "\n=== Top Space Usage Directories ===" >> "disk_reports/report_${report_num}.txt"
-          sudo du /usr/ -hx -d 4 --threshold=1G 2>/dev/null | sort -hr | head -20 >> "disk_reports/report_${report_num}.txt"
-          
-          echo -e "\n=== Top Packages by Size ===" >> "disk_reports/report_${report_num}.txt"
-          dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -nr | head -20 >> "disk_reports/report_${report_num}.txt"
+          sudo mkdir -p "$REPORTS_DIR"
+          sudo chown -R $USER:$USER "$REPORTS_DIR"
+
+          {
+            echo "=== Directory Sizes (100M+) ==="
+            sudo du -hx --threshold=100M --exclude=/proc --exclude=/sys / 2>/dev/null | sort -hr || echo "Error in du command"
+
+            echo -e "\n=== Filesystem Information ==="
+            df -h || echo "Error in df command"
+            
+            echo -e "\n=== Large Files (10M+) ==="
+            sudo find / -type f -size +10M -exec ls -lh {} \; 2>/dev/null | sort -k5 -hr || echo "Error in find command"
+
+            echo -e "\n=== Top Space Usage Directories ==="
+            head -n 20 < <(sudo du /usr/ -hx -d 4 --threshold=1G 2>/dev/null | sort -hr) || echo "Error in du /usr command"
+            
+            echo -e "\n=== Top Packages by Size ==="
+            head -n 20 < <(dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -nr) || echo "Error in dpkg-query command"
+          } > "$REPORTS_DIR/report_${report_num}.txt"
+
+          sudo chown $USER:$USER "$REPORTS_DIR/report_${report_num}.txt"
           EOL
-          chmod +x ./generate_disk_report.sh
-          ./generate_disk_report.sh 0
+          chmod +x /tmp/generate_disk_report.sh
+
+
+      - name: Generate disk report 0
+        run: /tmp/generate_disk_report.sh 0
 
       - name: Free disk space
         run: |
@@ -72,13 +87,10 @@ jobs:
           echo "some packages purged"
 
       - name: Generate disk report 1
-        run: ./generate_disk_report.sh 1
+        run: /tmp/generate_disk_report.sh 1
 
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Generate disk report 2
-        run: ./generate_disk_report.sh 2
 
       - name: Install cosign
         if: github.event_name != 'pull_request'
@@ -87,13 +99,10 @@ jobs:
           cosign-release: 'v2.2.4'
 
       - name: Generate disk report 3
-        run: ./generate_disk_report.sh 3
+        run: /tmp/generate_disk_report.sh 3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226
-
-      - name: Generate disk report 4
-        run: ./generate_disk_report.sh 4
 
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
@@ -102,9 +111,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate disk report 5
-        run: ./generate_disk_report.sh 5
 
       - name: Extract Docker metadata
         id: meta
@@ -115,7 +121,7 @@ jobs:
             type=raw,value=edge
 
       - name: Generate disk report 6
-        run: ./generate_disk_report.sh 6
+        run: /tmp/generate_disk_report.sh 6
 
       - name: Build and push Docker image
         id: build-and-push
@@ -129,9 +135,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Generate disk report 7
-        run: ./generate_disk_report.sh 7
-
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -140,10 +143,10 @@ jobs:
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
 
       - name: Generate disk report 8
-        run: ./generate_disk_report.sh 8
+        run: /tmp/generate_disk_report.sh 8
 
       - name: Upload all disk reports
         uses: actions/upload-artifact@v4
         with:
           name: disk-usage-reports
-          path: disk_reports/
+          path: /tmp/disk_reports/

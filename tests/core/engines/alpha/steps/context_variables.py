@@ -24,6 +24,7 @@ from parlant.core.customers import CustomerStore
 from parlant.core.sessions import SessionId, SessionStore
 
 from parlant.core.tags import TagStore
+from parlant.core.tools import ToolId
 from tests.core.engines.alpha.utils import ContextOfTest, step
 
 
@@ -87,7 +88,7 @@ def given_a_context_variable(
 @step(
     given,
     parsers.parse(
-        'a context variable "{variable_name}" set to "{variable_value}" to "{customer_name}"'
+        'a context variable "{variable_name}" set to "{variable_value}" for "{customer_name}"'
     ),
 )
 def given_a_context_variable_to_specific_customer(
@@ -150,5 +151,53 @@ def given_a_context_variable_for_a_tag(
             key=f"tag:{tag.id}",
             variable_id=variable.id,
             data=variable_value,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'the context variable "{variable_name}" has freshness rules of "{freshness_rules}"'
+    ),
+)
+def given_a_context_variable_with_freshness_rules(
+    context: ContextOfTest,
+    variable_name: str,
+    freshness_rules: str,
+    agent_id: AgentId,
+) -> ContextVariable:
+    context_variable_store = context.container[ContextVariableStore]
+
+    variable = get_or_create_variable(context, agent_id, context_variable_store, variable_name)
+
+    return context.sync_await(
+        context_variable_store.update_variable(
+            variable_set=agent_id,
+            id=variable.id,
+            params={"freshness_rules": freshness_rules},
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('the context variable "{variable_name}" is connected to the tool "{tool_name}"'),
+)
+def given_a_context_variable_with_tool(
+    context: ContextOfTest,
+    variable_name: str,
+    tool_name: str,
+    agent_id: AgentId,
+) -> ContextVariable:
+    context_variable_store = context.container[ContextVariableStore]
+
+    variable = get_or_create_variable(context, agent_id, context_variable_store, variable_name)
+
+    return context.sync_await(
+        context_variable_store.update_variable(
+            variable_set=agent_id,
+            id=variable.id,
+            params={"tool_id": ToolId(service_name="local", tool_name=tool_name)},
         )
     )

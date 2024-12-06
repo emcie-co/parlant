@@ -272,7 +272,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 if "tool_id" in params and params["tool_id"]
                 else {}
             ),
-            **({"freshness_rules": params["freshness_rules"]}),
+            **(
+                {
+                    "freshness_rules": params["freshness_rules"]
+                    if "freshness_rules" in params and params["freshness_rules"]
+                    else {}
+                }
+            ),
         }
 
         result = await self._variable_collection.update_one(

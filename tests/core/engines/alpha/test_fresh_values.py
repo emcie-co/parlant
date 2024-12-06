@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from datetime import datetime, timezone
+from croniter import croniter
 from lagom import Container
 from pytest import mark
 
@@ -23,9 +24,6 @@ from parlant.core.context_variables import ContextVariableStore
 from parlant.core.engines.alpha.engine import fresh_value
 from parlant.core.tools import LocalToolService, ToolId
 from tests.core.engines.alpha.utils import ContextOfTest
-
-now = datetime.now(timezone.utc)
-base_time = datetime(now.year, now.month, now.day, 10, 0, 0, tzinfo=timezone.utc)
 
 
 async def create_fetch_account_balance_tool(container: Container) -> None:
@@ -44,19 +42,19 @@ async def create_fetch_account_balance_tool(container: Container) -> None:
     [
         (
             "0,15,30,45 * * * *",
-            base_time.replace(minute=14),
+            datetime.now(timezone.utc).replace(minute=14),
         ),
         (
             "0 6,12,18 * * *",
-            base_time.replace(hour=11, minute=30),
+            datetime.now(timezone.utc).replace(hour=11, minute=30),
         ),
         (
-            f"0 9 * * {now.strftime('%a')}",
-            base_time.replace(hour=8),
+            f"0 9 * * {datetime.now(timezone.utc).strftime('%a')}",
+            datetime.now(timezone.utc).replace(hour=8),
         ),
         (
-            f"0 0 {base_time.day},{base_time.day + 1} * *",
-            base_time.replace(day=base_time.day, hour=23),
+            f"0 0 {datetime.now(timezone.utc).day},{datetime.now(timezone.utc).day + 1} * *",
+            datetime.now(timezone.utc).replace(day=datetime.now(timezone.utc).day, hour=23),
         ),
     ],
 )
@@ -68,11 +66,8 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
     new_session: Session,
 ) -> None:
     variable_name = "AccountBalance"
-    variable_set = "test_variable_set"
-
     test_key = "test-key"
     current_data = {"balance": 500.00}
-
     tool_id = ToolId(service_name="local", tool_name="fetch_account_balance")
 
     await create_fetch_account_balance_tool(context.container)
@@ -81,7 +76,7 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
     service_registry = context.container[ServiceRegistry]
 
     context_variable = await context_variable_store.create_variable(
-        variable_set=variable_set,
+        variable_set=agent_id,
         name=variable_name,
         description="Customer's account balance",
         tool_id=tool_id,
@@ -89,7 +84,7 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
     )
 
     await context_variable_store.update_value(
-        variable_set=variable_set,
+        variable_set=agent_id,
         variable_id=context_variable.id,
         key=test_key,
         data=current_data,
@@ -100,14 +95,13 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_set=variable_set,
         variable_id=context_variable.id,
         key=test_key,
         current_time=current_time,
     )
 
     value = await context_variable_store.read_value(
-        variable_set=variable_set,
+        variable_set=agent_id,
         variable_id=context_variable.id,
         key=test_key,
     )
@@ -120,19 +114,11 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
     [
         (
             "0,15,30,45 * * * *",
-            base_time.replace(minute=15),
+            croniter("0,15,30,45 * * * *", datetime.now(timezone.utc)).get_next(datetime),
         ),
         (
-            "0 6,12,18 * * *",
-            base_time.replace(hour=12, minute=0),
-        ),
-        (
-            f"0 9 * * {now.strftime('%a')}",
-            base_time.replace(hour=9, minute=0),
-        ),
-        (
-            f"0 0 {base_time.day} * *",
-            base_time.replace(day=base_time.day, hour=0, minute=0),
+            "0 0,6,12,18 * * *",
+            croniter("0 0,6,12,18 * * *", datetime.now(timezone.utc)).get_next(datetime),
         ),
     ],
 )
@@ -144,8 +130,8 @@ async def test_that_value_refreshes_when_freshness_rules_are_met(
     context: ContextOfTest,
 ) -> None:
     variable_name = "AccountBalance"
-    variable_set = "test_variable_set"
     test_key = "test-key"
+    current_data = {"balance": 500.00}
     tool_id = ToolId(service_name="local", tool_name="fetch_account_balance")
 
     await create_fetch_account_balance_tool(context.container)
@@ -154,40 +140,40 @@ async def test_that_value_refreshes_when_freshness_rules_are_met(
     service_registry = context.container[ServiceRegistry]
 
     context_variable = await context_variable_store.create_variable(
-        variable_set=variable_set,
+        variable_set=agent_id,
         name=variable_name,
         description="Customer's account balance",
         tool_id=tool_id,
         freshness_rules=freshness_rules,
     )
 
-    await fresh_value(
+    await context_variable_store.update_value(
+        variable_set=agent_id,
+        variable_id=context_variable.id,
+        key=test_key,
+        data=current_data,
+    )
+
+    value = await fresh_value(
         context_variable_store=context_variable_store,
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_set=variable_set,
         variable_id=context_variable.id,
         key=test_key,
         current_time=current_time,
     )
 
-    value = await context_variable_store.read_value(
-        variable_set=variable_set,
-        variable_id=context_variable.id,
-        key=test_key,
-    )
     assert value
     assert value.data == {"balance": 1000.00}
 
 
-async def test_that_value_is_created_when_refresh_is_required(
+async def test_that_value_is_created_when_need_to_be_freshed(
     context: ContextOfTest,
     agent_id: AgentId,
     new_session: Session,
 ) -> None:
     variable_name = "AccountBalance"
-    variable_set = "test_variable_set"
     test_key = "test-key"
     tool_id = ToolId(service_name="local", tool_name="fetch_account_balance")
     current_time = datetime.now(timezone.utc)
@@ -198,28 +184,25 @@ async def test_that_value_is_created_when_refresh_is_required(
     service_registry = context.container[ServiceRegistry]
 
     context_variable = await context_variable_store.create_variable(
-        variable_set=variable_set,
+        variable_set=agent_id,
         name=variable_name,
         description="Customer's account balance",
         tool_id=tool_id,
-        freshness_rules=f"* * * {current_time.month} *",
     )
 
-    await fresh_value(
+    created_value = await fresh_value(
         context_variable_store=context_variable_store,
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_set=variable_set,
         variable_id=context_variable.id,
         key=test_key,
         current_time=current_time,
     )
 
-    value = await context_variable_store.read_value(
-        variable_set=variable_set,
+    stored_value = await context_variable_store.read_value(
+        variable_set=agent_id,
         variable_id=context_variable.id,
         key=test_key,
     )
-    assert value
-    assert value.data == {"balance": 1000.00}
+    assert stored_value == created_value

@@ -331,6 +331,13 @@ def given_a_tool(
             "parameters": {},
             "required": [],
         },
+        "get_keyleth_stamina": {
+            "name": "get_keyleth_stamina",
+            "description": "",
+            "module_path": "tests.tool_utilities",
+            "parameters": {},
+            "required": [],
+        },
     }
 
     tool = context.sync_await(create_tool(**tools[tool_name]))

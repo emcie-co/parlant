@@ -141,3 +141,7 @@ def get_available_soups() -> ToolResult:
 
 def fetch_account_balance() -> ToolResult:
     return ToolResult(data={"balance": 1000.0})
+
+
+def get_keyleth_stamina() -> ToolResult:
+    return ToolResult(data=100.0)

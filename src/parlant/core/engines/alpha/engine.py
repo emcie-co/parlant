@@ -407,35 +407,47 @@ class AlphaEngine(Engine):
         )
 
         context_variables = []
+        keys = (
+            [session.customer_id]
+            + [f"tag:{tag_id}" for tag_id in customer.tags]
+            + [ContextVariableStore.GLOBAL_KEY]
+        )
 
         for variable in agent_variables:
-            value = await self._context_variable_store.read_value(
-                variable_set=agent_id,
-                key=ContextVariableStore.GLOBAL_KEY,
-                variable_id=variable.id,
-            )
-
-            for tag_id in customer.tags:
-                value = (
-                    await self._context_variable_store.read_value(
-                        variable_set=agent_id,
-                        key=f"tag:{tag_id}",
-                        variable_id=variable.id,
-                    )
-                    or value
-                )
-
-            value = (
-                await self._context_variable_store.read_value(
+            value = None
+            for key in keys:
+                existing_value = await self._context_variable_store.read_value(
                     variable_set=agent_id,
-                    key=session.customer_id,
+                    key=key,
                     variable_id=variable.id,
                 )
-                or value
-            )
+                if existing_value:
+                    value = await fresh_value(
+                        context_variable_store=self._context_variable_store,
+                        service_registery=self._service_registry,
+                        agent_id=agent_id,
+                        session=session,
+                        variable_id=variable.id,
+                        key=key,
+                        current_time=datetime.now(),
+                    )
+                    break
 
-            if value is not None:
-                context_variables.append((variable, value))
+            generated_value = await fresh_value(
+                context_variable_store=self._context_variable_store,
+                service_registery=self._service_registry,
+                agent_id=agent_id,
+                session=session,
+                variable_id=variable.id,
+                key=key,
+                current_time=datetime.now(),
+            )
+            if generated_value:
+                value = generated_value
+                break
+
+        if value is not None:
+            context_variables.append((variable, value))
 
         return context_variables
 
@@ -617,33 +629,28 @@ async def fresh_value(
     service_registery: ServiceRegistry,
     agent_id: AgentId,
     session: Session,
-    variable_set: str,
     variable_id: ContextVariableId,
     key: str,
     current_time: datetime,
-) -> None:
+) -> Optional[ContextVariableValue]:
     variable = await context_variable_store.read_variable(
-        variable_set=variable_set,
+        variable_set=agent_id,
         id=variable_id,
     )
 
-    if variable.tool_id is None or variable.freshness_rules is None:
-        return
-
     value = await context_variable_store.read_value(
-        variable_set=variable_set,
+        variable_set=agent_id,
         variable_id=variable_id,
         key=key,
     )
 
-    if value is not None and value.last_modified is not None:
-        last_modified = value.last_modified
+    if not variable.tool_id:
+        return value
 
-        cron = croniter(variable.freshness_rules, current_time)
-        prev_scheduled_time = cron.get_prev(datetime)
-
-        if last_modified >= prev_scheduled_time:
-            return
+    if value and variable.freshness_rules:
+        cron = croniter(variable.freshness_rules, value.last_modified)
+        if cron.get_next(datetime) > current_time:
+            return value
 
     tool_context = ToolContext(agent_id=agent_id, session_id=session.id, customer_id=session.customer_id)
     tool_service = await service_registery.read_tool_service(variable.tool_id.service_name)
@@ -651,8 +658,8 @@ async def fresh_value(
         variable.tool_id.tool_name, context=tool_context, arguments={}
     )
 
-    await context_variable_store.update_value(
-        variable_set=variable_set,
+    return await context_variable_store.update_value(
+        variable_set=agent_id,
         variable_id=variable_id,
         key=key,
         data=tool_result.data,

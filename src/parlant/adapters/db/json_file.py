@@ -53,11 +53,9 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             self.file_path.write_text(json.dumps({}))
         self._collections: dict[str, JSONFileDocumentCollection[BaseDocument]]
 
-    async def _sync_if_needed(self) -> None:
+    async def flush(self) -> None:
         async with self._lock:
-            self._op_counter += 1
-            if self._op_counter % 5 == 0:
-                await self.flush()
+            await self._flush_unlocked()
 
     async def __aenter__(self) -> JSONFileDocumentDatabase:
         async with self._lock:
@@ -88,7 +86,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         traceback: Optional[object],
     ) -> bool:
         async with self._lock:
-            await self.flush()
+            await self._flush_unlocked()
         return False
 
     async def _load_data(
@@ -174,7 +172,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             del self._collections[name]
         raise ValueError(f'Collection "{name}" does not exists')
 
-    async def flush(self) -> None:
+    async def _flush_unlocked(self) -> None:
         data = {}
         for collection_name in self._collections:
             data[collection_name] = self._collections[collection_name].documents
@@ -232,7 +230,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         async with self._lock:
             self.documents.append(document)
 
-        await self._database._sync_if_needed()
+        await self._database.flush()
 
         return InsertResult(acknowledged=True)
 
@@ -248,7 +246,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 async with self._lock:
                     self.documents[i] = cast(TDocument, {**self.documents[i], **params})
 
-                await self._database._sync_if_needed()
+                await self._database.flush()
 
                 return UpdateResult(
                     acknowledged=True,
@@ -259,8 +257,6 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
 
         if upsert:
             await self.insert_one(params)
-
-            await self._database._sync_if_needed()
 
             return UpdateResult(
                 acknowledged=True,
@@ -286,7 +282,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 async with self._lock:
                     document = self.documents.pop(i)
 
-                await self._database._sync_if_needed()
+                await self._database.flush()
                 return DeleteResult(deleted_count=1, acknowledged=True, deleted_document=document)
 
         return DeleteResult(

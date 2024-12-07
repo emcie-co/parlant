@@ -35,6 +35,7 @@ from parlant.core.tools import ToolId
 
 API_GROUP = "context-variables"
 
+
 class DayOfWeekDTO(Enum):
     """Days of the week for freshness rules."""
 
@@ -344,6 +345,7 @@ IncludeValuesQuery: TypeAlias = Annotated[
         examples=[True, False],
     ),
 ]
+
 
 def create_router(
     context_variable_store: ContextVariableStore,

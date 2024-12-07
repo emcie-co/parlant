@@ -433,21 +433,21 @@ class AlphaEngine(Engine):
                     )
                     break
 
-            generated_value = await fresh_value(
-                context_variable_store=self._context_variable_store,
-                service_registery=self._service_registry,
-                agent_id=agent_id,
-                session=session,
-                variable_id=variable.id,
-                key=key,
-                current_time=datetime.now(),
-            )
-            if generated_value:
-                value = generated_value
-                break
+            if not value:
+                generated_value = await fresh_value(
+                    context_variable_store=self._context_variable_store,
+                    service_registery=self._service_registry,
+                    agent_id=agent_id,
+                    session=session,
+                    variable_id=variable.id,
+                    key=key,
+                    current_time=datetime.now(),
+                )
+                if generated_value:
+                    value = generated_value
 
-        if value is not None:
-            context_variables.append((variable, value))
+            if value is not None:
+                context_variables.append((variable, value))
 
         return context_variables
 
@@ -652,7 +652,9 @@ async def fresh_value(
         if cron.get_next(datetime) > current_time:
             return value
 
-    tool_context = ToolContext(agent_id=agent_id, session_id=session.id, customer_id=session.customer_id)
+    tool_context = ToolContext(
+        agent_id=agent_id, session_id=session.id, customer_id=session.customer_id
+    )
     tool_service = await service_registery.read_tool_service(variable.tool_id.service_name)
     tool_result = await tool_service.call_tool(
         variable.tool_id.tool_name, context=tool_context, arguments={}

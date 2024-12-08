@@ -100,7 +100,9 @@ class PromptBuilder:
             self.add_section(
                 name=BuiltInSection.AGENT_IDENTITY,
                 content=f"""
-The following is a description of your identity: ###
+You are {agent.name}, an AI agent.
+
+The following is a description of your background and personality: ###
 {agent.description}
 ###
 """,
@@ -254,8 +256,8 @@ IMPORTANT: You must not return results for any tool that do not appear in the fo
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,
                 content=f"""
-Here are some recently emitted events for your consideration. 
-These events represent calls to external tools that perform real-world actions or provide useful information. 
+Here are some recently emitted events for your consideration.
+These events represent calls to external tools that perform real-world actions or provide useful information.
 Use the details they offer to assist in your task: ###
 {staged_events_as_dict}
 ###

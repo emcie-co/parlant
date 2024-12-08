@@ -592,6 +592,7 @@ def test_that_guidelines_are_proposed_based_on_agent_description(
         "Your role is only to consult customers, and not to actually sell anything, as we sell our products in-store.",
         max_engine_iterations=3,
     )
+
     conversation_context: list[tuple[str, str]] = [
         ("customer", "Hey, do you sell skateboards?"),
         (

@@ -89,13 +89,13 @@ def create_database(context: _TestContext) -> ChromaDatabase:
 async def chroma_collection(
     chroma_database: ChromaDatabase,
 ) -> AsyncIterator[ChromaCollection[_TestDocument]]:
-    collection = chroma_database.get_or_create_collection(
+    collection = await chroma_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
         embedder_type=OpenAITextEmbedding3Large,
     )
     yield collection
-    chroma_database.delete_collection("test_collection")
+    await chroma_database.delete_collection("test_collection")
 
 
 async def test_that_a_document_can_be_found_based_on_a_metadata_field(
@@ -298,7 +298,7 @@ async def test_loading_collections(
     doc_version: Version.String,
 ) -> None:
     chroma_database_1 = create_database(context)
-    chroma_collection_1 = chroma_database_1.get_or_create_collection(
+    chroma_collection_1 = await chroma_database_1.get_or_create_collection(
         "test_collection",
         _TestDocument,
         embedder_type=OpenAITextEmbedding3Large,
@@ -314,7 +314,7 @@ async def test_loading_collections(
     await chroma_collection_1.insert_one(document)
 
     chroma_database_2 = create_database(context)
-    chroma_collection_2: ChromaCollection[_TestDocument] = chroma_database_2.get_collection(
+    chroma_collection_2: ChromaCollection[_TestDocument] = await chroma_database_2.get_collection(
         "test_collection"
     )
 

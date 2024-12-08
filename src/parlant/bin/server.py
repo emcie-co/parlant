@@ -224,19 +224,25 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "services.json")
     )
 
-    c[AgentStore] = AgentDocumentStore(agents_db)
-    c[ContextVariableStore] = ContextVariableDocumentStore(context_variables_db)
-    c[TagStore] = TagDocumentStore(tags_db)
-    c[CustomerStore] = CustomerDocumentStore(customers_db)
-    c[GuidelineStore] = GuidelineDocumentStore(guidelines_db)
-    c[GuidelineToolAssociationStore] = GuidelineToolAssociationDocumentStore(
-        guideline_tool_associations_db
+    c[AgentStore] = await EXIT_STACK.enter_async_context(AgentDocumentStore(agents_db))
+    c[ContextVariableStore] = await EXIT_STACK.enter_async_context(
+        ContextVariableDocumentStore(context_variables_db)
     )
-    c[GuidelineConnectionStore] = GuidelineConnectionDocumentStore(guideline_connections_db)
-    c[SessionStore] = SessionDocumentStore(sessions_db)
+    c[TagStore] = await EXIT_STACK.enter_async_context(TagDocumentStore(tags_db))
+    c[CustomerStore] = await EXIT_STACK.enter_async_context(CustomerDocumentStore(customers_db))
+    c[GuidelineStore] = await EXIT_STACK.enter_async_context(GuidelineDocumentStore(guidelines_db))
+    c[GuidelineToolAssociationStore] = await EXIT_STACK.enter_async_context(
+        GuidelineToolAssociationDocumentStore(guideline_tool_associations_db)
+    )
+    c[GuidelineConnectionStore] = await EXIT_STACK.enter_async_context(
+        GuidelineConnectionDocumentStore(guideline_connections_db)
+    )
+    c[SessionStore] = await EXIT_STACK.enter_async_context(SessionDocumentStore(sessions_db))
     c[SessionListener] = PollingSessionListener
 
-    c[EvaluationStore] = EvaluationDocumentStore(evaluations_db)
+    c[EvaluationStore] = await EXIT_STACK.enter_async_context(
+        EvaluationDocumentStore(evaluations_db)
+    )
     c[EvaluationListener] = PollingEvaluationListener
 
     c[EventEmitterFactory] = Singleton(EventPublisherFactory)
@@ -266,9 +272,13 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
 
     c[NLPService] = nlp_service
 
-    c[GlossaryStore] = GlossaryChromaStore(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, EmbedderFactory(c)),
-        embedder_type=type(await nlp_service.get_embedder()),
+    c[GlossaryStore] = await EXIT_STACK.enter_async_context(
+        GlossaryChromaStore(
+            await EXIT_STACK.enter_async_context(
+                ChromaDatabase(LOGGER, PARLANT_HOME_DIR, EmbedderFactory(c)),
+            ),
+            embedder_type=type(await nlp_service.get_embedder()),
+        )
     )
 
     c[SchematicGenerator[GuidelinePropositionsSchema]] = await nlp_service.get_schematic_generator(

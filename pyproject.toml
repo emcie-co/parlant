@@ -34,7 +34,6 @@ networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "^1.1.17"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = "^0.7.0"
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -51,6 +50,7 @@ transformers = "^4.46.2"
 types-aiofiles = "^24.1.0.20240626"
 types-jsonschema = "^4.22.0.20240610"
 uvicorn = "^0.32.1"
+parlant-client = {git = "https://github.com/emcie-co/parlant-client-python.git", tag="v0.7.2.dev1"}
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"

@@ -27,7 +27,7 @@ API_GROUP = "tags"
 TagIdField: TypeAlias = Annotated[
     TagId,
     Field(
-        description="Unique identifier for the tag in format 'tag_[alphanumeric]'",
+        description="Unique identifier for the tag",
         examples=["tag_123xyz", "tag_premium42"],
     ),
 ]

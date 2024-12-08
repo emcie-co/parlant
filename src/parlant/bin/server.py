@@ -272,9 +272,13 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
 
     c[NLPService] = nlp_service
 
-    c[GlossaryStore] = GlossaryChromaStore(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, EmbedderFactory(c)),
-        embedder_type=type(await nlp_service.get_embedder()),
+    c[GlossaryStore] = await EXIT_STACK.enter_async_context(
+        GlossaryChromaStore(
+            await EXIT_STACK.enter_async_context(
+                ChromaDatabase(LOGGER, PARLANT_HOME_DIR, EmbedderFactory(c)),
+            ),
+            embedder_type=type(await nlp_service.get_embedder()),
+        )
     )
 
     c[SchematicGenerator[GuidelinePropositionsSchema]] = await nlp_service.get_schematic_generator(

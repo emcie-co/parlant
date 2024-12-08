@@ -16,10 +16,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
-from typing_extensions import override, TypedDict
+from typing_extensions import override, TypedDict, Self
 
 from parlant.core.common import ItemNotFoundError, generate_id, UniqueId
-from parlant.core.persistence.document_database import DocumentDatabase, ObjectId
+from parlant.core.persistence.document_database import (
+    DocumentCollection,
+    DocumentDatabase,
+    ObjectId,
+)
 from parlant.core.common import Version
 
 TagId = NewType("TagId", str)
@@ -80,10 +84,23 @@ class TagDocumentStore(TagStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase) -> None:
-        self._collection = database.get_or_create_collection(
+        self._database = database
+        self._collection: DocumentCollection[_TagDocument]
+
+    async def __aenter__(self) -> Self:
+        self._collection = await self._database.get_or_create_collection(
             name="tags",
             schema=_TagDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize(
         self,

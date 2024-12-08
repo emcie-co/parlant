@@ -19,7 +19,7 @@ import json
 import operator
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, cast
-from typing_extensions import override
+from typing_extensions import override, Self
 import aiofiles
 
 from parlant.core.persistence.document_database import (
@@ -57,7 +57,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         async with self._lock:
             await self._flush_unlocked()
 
-    async def __aenter__(self) -> JSONFileDocumentDatabase:
+    async def __aenter__(self) -> Self:
         async with self._lock:
             raw_data = await self._load_data()
 
@@ -122,7 +122,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
             await file.write(json_string)
 
     @override
-    def create_collection(
+    async def create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -138,7 +138,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         return cast(JSONFileDocumentCollection[TDocument], self._collections[name])
 
     @override
-    def get_collection(
+    async def get_collection(
         self,
         name: str,
     ) -> JSONFileDocumentCollection[TDocument]:
@@ -147,7 +147,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         raise ValueError(f'Collection "{name}" does not exists')
 
     @override
-    def get_or_create_collection(
+    async def get_or_create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -164,7 +164,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         return cast(JSONFileDocumentCollection[TDocument], self._collections[name])
 
     @override
-    def delete_collection(
+    async def delete_collection(
         self,
         name: str,
     ) -> None:

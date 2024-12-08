@@ -20,7 +20,8 @@ import json
 import operator
 from pathlib import Path
 from typing import Generic, Optional, Sequence, TypeVar, TypedDict, cast
-from typing_extensions import override
+import chromadb.api
+from typing_extensions import override, Self
 import chromadb
 
 from parlant.core.common import Version
@@ -67,18 +68,15 @@ class ChromaDatabase:
         dir_path: Path,
         embedder_factory: EmbedderFactory,
     ) -> None:
+        self._dir_path = dir_path
         self._logger = logger
         self._embedder_factory = embedder_factory
 
-        self._chroma_client = chromadb.PersistentClient(str(dir_path))
-        self._collections: dict[str, ChromaCollection[BaseDocument]] = (
-            self._load_chromadb_collections()
-        )
+        self._chroma_client: chromadb.api.ClientAPI
+        self._collections: dict[str, ChromaCollection[BaseDocument]] = {}
 
-    def _load_chromadb_collections(
-        self,
-    ) -> dict[str, ChromaCollection[BaseDocument]]:
-        collections: dict[str, ChromaCollection[BaseDocument]] = {}
+    async def __aenter__(self) -> Self:
+        self._chroma_client = chromadb.PersistentClient(str(self._dir_path))
         for chromadb_collection in self._chroma_client.list_collections():
             embedder_module = importlib.import_module(
                 chromadb_collection.metadata["embedder_module_path"]
@@ -94,7 +92,7 @@ class ChromaDatabase:
                 embedding_function=None,
             )
 
-            collections[chromadb_collection.name] = ChromaCollection(
+            self._collections[chromadb_collection.name] = ChromaCollection(
                 logger=self._logger,
                 chromadb_collection=chroma_collection,
                 name=chromadb_collection.name,
@@ -103,9 +101,17 @@ class ChromaDatabase:
                 ),
                 embedder=embedder,
             )
-        return collections
+        return self
 
-    def create_collection(
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
+
+    async def create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -133,7 +139,7 @@ class ChromaDatabase:
 
         return cast(ChromaCollection[TDocument], self._collections[name])
 
-    def get_collection(
+    async def get_collection(
         self,
         name: str,
     ) -> ChromaCollection[TDocument]:
@@ -142,7 +148,7 @@ class ChromaDatabase:
 
         raise ValueError(f'ChromaDB collection "{name}" not found.')
 
-    def get_or_create_collection(
+    async def get_or_create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -171,7 +177,7 @@ class ChromaDatabase:
 
         return cast(ChromaCollection[TDocument], self._collections[name])
 
-    def delete_collection(
+    async def delete_collection(
         self,
         name: str,
     ) -> None:

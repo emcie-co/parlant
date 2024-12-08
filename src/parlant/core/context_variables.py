@@ -15,7 +15,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import NewType, Optional, Sequence, cast
-from typing_extensions import TypedDict, override
+from typing_extensions import TypedDict, override, Self
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
@@ -27,6 +27,7 @@ from parlant.core.common import (
     generate_id,
 )
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -158,15 +159,29 @@ class ContextVariableDocumentStore(ContextVariableStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase):
-        self._variable_collection = database.get_or_create_collection(
+        self._database = database
+        self._variable_collection: DocumentCollection[_ContextVariableDocument]
+        self._value_collection: DocumentCollection[_ContextVariableValueDocument]
+
+    async def __aenter__(self) -> Self:
+        self._variable_collection = await self._database.get_or_create_collection(
             name="variables",
             schema=_ContextVariableDocument,
         )
 
-        self._value_collection = database.get_or_create_collection(
+        self._value_collection = await self._database.get_or_create_collection(
             name="values",
             schema=_ContextVariableValueDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize_context_variable(
         self,

@@ -13,13 +13,14 @@
 # limitations under the License.
 
 from typing import NewType, Optional, Sequence
-from typing_extensions import override, TypedDict
+from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -107,10 +108,23 @@ class GuidelineDocumentStore(GuidelineStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase):
-        self._collection = database.get_or_create_collection(
+        self._database = database
+        self._collection: DocumentCollection[_GuidelineDocument]
+
+    async def __aenter__(self) -> Self:
+        self._collection = await self._database.get_or_create_collection(
             name="guidelines",
             schema=_GuidelineDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize(
         self,

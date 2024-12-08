@@ -16,11 +16,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Mapping, NewType, Optional, Sequence
-from typing_extensions import override, TypedDict
+from typing_extensions import override, TypedDict, Self
 
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -129,14 +130,30 @@ class CustomerDocumentStore(CustomerStore):
         self,
         database: DocumentDatabase,
     ) -> None:
-        self._customers_collection = database.get_or_create_collection(
+        self._database = database
+        self._customers_collection: DocumentCollection[_CustomerDocument]
+        self._customer_tag_association_collection: DocumentCollection[
+            _CustomerTagAssociationDocument
+        ]
+
+    async def __aenter__(self) -> Self:
+        self._customers_collection = await self._database.get_or_create_collection(
             name="customers",
             schema=_CustomerDocument,
         )
-        self._customer_tag_association_collection = database.get_or_create_collection(
+        self._customer_tag_association_collection = await self._database.get_or_create_collection(
             name="customer_tag_associations",
             schema=_CustomerTagAssociationDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize_customer(self, customer: Customer) -> _CustomerDocument:
         return _CustomerDocument(

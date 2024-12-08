@@ -26,7 +26,7 @@ from typing import (
     TypeAlias,
     Union,
 )
-from typing_extensions import Literal, override, TypedDict
+from typing_extensions import Literal, override, TypedDict, Self
 
 from parlant.core.agents import AgentId
 from parlant.core.async_utils import Timeout
@@ -40,6 +40,7 @@ from parlant.core.common import (
 from parlant.core.guideline_connections import ConnectionKind
 from parlant.core.guidelines import GuidelineContent, GuidelineId
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -235,10 +236,23 @@ class EvaluationDocumentStore(EvaluationStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase):
-        self._evaluation_collection = database.get_or_create_collection(
+        self._database = database
+        self._collection: DocumentCollection[_EvaluationDocument]
+
+    async def __aenter__(self) -> Self:
+        self._collection = await self._database.get_or_create_collection(
             name="evaluations",
             schema=_EvaluationDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize_invoice(self, invoice: Invoice) -> _InvoiceDocument:
         def serialize_coherence_check(check: CoherenceCheck) -> _CoherenceCheckDocument:
@@ -465,9 +479,7 @@ class EvaluationDocumentStore(EvaluationStore):
             progress=0.0,
         )
 
-        await self._evaluation_collection.insert_one(
-            self._serialize_evaluation(evaluation=evaluation)
-        )
+        await self._collection.insert_one(self._serialize_evaluation(evaluation=evaluation))
 
         return evaluation
 
@@ -490,7 +502,7 @@ class EvaluationDocumentStore(EvaluationStore):
         if "progress" in params:
             update_params["progress"] = params["progress"]
 
-        result = await self._evaluation_collection.update_one(
+        result = await self._collection.update_one(
             filters={"id": {"$eq": evaluation.id}},
             params=update_params,
         )
@@ -504,7 +516,7 @@ class EvaluationDocumentStore(EvaluationStore):
         self,
         evaluation_id: EvaluationId,
     ) -> Evaluation:
-        evaluation_document = await self._evaluation_collection.find_one(
+        evaluation_document = await self._collection.find_one(
             filters={"id": {"$eq": evaluation_id}},
         )
 
@@ -519,7 +531,7 @@ class EvaluationDocumentStore(EvaluationStore):
     ) -> Sequence[Evaluation]:
         return [
             self._deserialize_evaluation(evaluation_document=e)
-            for e in await self._evaluation_collection.find(filters={})
+            for e in await self._collection.find(filters={})
         ]
 
 

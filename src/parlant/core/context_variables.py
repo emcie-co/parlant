@@ -62,7 +62,7 @@ class ContextVariableUpdateParams(TypedDict, total=False):
 
 
 class ContextVariableStore(ABC):
-    GLOBAL_KEY = "__default"
+    GLOBAL_KEY = "DEFAULT"
 
     @abstractmethod
     async def create_variable(

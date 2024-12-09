@@ -573,8 +573,9 @@ def create_router(
         """
         Updates the value of a context variable.
 
-        The key represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
-        The data contains the actual context information being stored.
+        The `key` represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
+        If `key="DEFAULT"`, the update applies to all customers.
+        The `params` parameter contains the actual context information being stored.
         """
         _ = await context_variable_store.read_variable(
             variable_set=agent_id,

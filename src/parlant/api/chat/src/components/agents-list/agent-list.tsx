@@ -5,6 +5,7 @@ import { useSession } from '../chatbot/chatbot';
 import AgentAvatar from '../agent-avatar/agent-avatar';
 import { spaceClick } from '@/utils/methods';
 import { DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Button } from '../ui/button';
 
 export const NEW_SESSION_ID = 'NEW_SESSION';
 
@@ -33,7 +34,7 @@ const AgentList = (): ReactNode => {
     };
 
     return (
-        <div>
+        <div className='h-full flex flex-col'>
             <DialogHeader>
                 <DialogTitle>
                     <div className='h-[68px] w-full flex justify-between items-center ps-[30px] pe-[20px] border-b-[#EBECF0] border-b-[0.6px]'>
@@ -42,7 +43,7 @@ const AgentList = (): ReactNode => {
                     </div>
                 </DialogTitle>
             </DialogHeader>
-            <div className='flex flex-col overflow-auto'>
+            <div className='flex flex-col overflow-auto relative flex-1'>
                 {(agent ? customers : agents)?.map(entity => (
                     <div data-testid="agent" tabIndex={0} onKeyDown={spaceClick} role='button' onClick={() => agent ? selectCustomer(entity.id) : selectAgent(entity.id)} key={entity.id} className='cursor-pointer hover:bg-[#FBFBFB] min-h-[78px] h-[78px] w-full border-b-[0.6px] border-b-solid border-b-[#EBECF0] flex items-center ps-[30px] pe-[20px]'>
                         <AgentAvatar agent={entity} tooltip={false}/>
@@ -53,6 +54,12 @@ const AgentList = (): ReactNode => {
                     </div>
                 ))}
             </div>
+            {agent && 
+            <div className='flex justify-end'>
+                <Button variant='ghost' onClick={() => selectCustomer('')}>
+                    Continue with a guest Customer
+                </Button>
+            </div>}
         </div>
     );
 };

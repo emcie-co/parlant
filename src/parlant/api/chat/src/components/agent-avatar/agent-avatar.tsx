@@ -24,7 +24,7 @@ const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
     if (!tooltip) style.display = 'none';
 
     return (
-        <Tooltip value={agent.name} side='right' style={style}>
+        <Tooltip value={`${agent.name}${customer?.name ? (' & ' + customer.name) : ''}`} side='right' style={style}>
             <div className='relative'>
                 <div style={{background: agentBackground}} aria-label={'agent ' + agent.name} className={' me-[10px] size-[38px] rounded-full flex items-center justify-center text-white text-[20px] font-semibold'}>
                     {agentFirstLetter}

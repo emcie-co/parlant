@@ -733,11 +733,15 @@ def create_router(
             id=variable_id,
         )
 
-        await context_variable_store.read_value(
+        if not await context_variable_store.read_value(
             variable_set=agent_id,
             variable_id=variable_id,
             key=key,
-        )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Value not found for variable '{variable_id}' and key '{key}'",
+            )
 
         await context_variable_store.delete_value(
             variable_set=agent_id,

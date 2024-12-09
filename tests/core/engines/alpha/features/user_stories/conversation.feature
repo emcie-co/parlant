@@ -90,7 +90,7 @@ Feature: Conversation
     Scenario: The agent correctly applies greeting guidelines based on auxillary data
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
         And a customer with the name "Beef Wellington"
-        And an empty session
+        And an empty session with "Beef Wellingotn"
         And the term "Bug" defined as The name of our tech retail store, specializing in gadgets, computers, and tech services.
         And the term "Bug-Free" defined as Our free warranty and service package that comes with every purchase and covers repairs, replacements, and tech support beyond the standard manufacturer warranty.
         And a customer tagged as "tag::business"
@@ -107,7 +107,7 @@ Feature: Conversation
     Scenario: The agent doesnt wrongly reapply partially fulfilled guideline
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
         And a customer with the name "Beef Wellington"
-        And an empty session
+        And an empty session with "Beef Wellingotn"
         And the term "Bug" defined as The name of our tech retail store, specializing in gadgets, computers, and tech services.
         And the term "Bug-Free" defined as Our free warranty and service package that comes with every purchase and covers repairs, replacements, and tech support beyond the standard manufacturer warranty.
         And a customer tagged as "tag::business"

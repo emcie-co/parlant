@@ -39,7 +39,12 @@ def given_an_agent_with_identity(
     )
     return agent.id
 
-@step(given, parsers.parse('an agent named "{name}" whose job is {description}'), target_fixture="agent_id")
+
+@step(
+    given,
+    parsers.parse('an agent named "{name}" whose job is {description}'),
+    target_fixture="agent_id",
+)
 def given_an_agent_with_identity_and_name(
     context: ContextOfTest,
     description: str,

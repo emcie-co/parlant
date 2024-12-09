@@ -20,7 +20,7 @@ from parlant.core.tags import TagStore
 from tests.core.engines.alpha.utils import ContextOfTest, step
 
 
-@step(given, parsers.parse('a customer with the name "{name}"'), target_fixture='customer_id')
+@step(given, parsers.parse('a customer with the name "{name}"'), target_fixture="customer_id")
 def given_a_customer(
     context: ContextOfTest,
     name: str,

@@ -650,7 +650,7 @@ Produce a valid JSON object in the following format: ###
         )
 
         prompt = builder.build()
-        with open("message event generator prompt.txt", 'w') as f:
+        with open("message event generator prompt.txt", "w") as f:
             f.write(prompt)
         return prompt
 
@@ -695,7 +695,7 @@ Produce a valid JSON object in the following format: ###
         """
         else:
             insights_output_format = """
-            <Additional entires for all insights>
+            <Additional entries for all insights>
 """
 
         return f"""
@@ -752,11 +752,15 @@ Produce a valid JSON object in the following format: ###
             f"{json.dumps([r.model_dump(mode='json') for r in message_event_response.content.revisions], indent=2)}"
         )
 
-        with open("message generation result.txt", 'w') as f:
-            f.write("MessageEventGenerator guideline evaluations: "
-                f"{json.dumps([e.model_dump(mode='json') for e in message_event_response.content.evaluation_for_each_instruction], indent=2)}")
-            f.write("MessageEventGenerator revisions: "
-            f"{json.dumps([r.model_dump(mode='json') for r in message_event_response.content.revisions], indent=2)}")
+        with open("message generation result.txt", "w") as f:
+            f.write(
+                "MessageEventGenerator guideline evaluations: "
+                f"{json.dumps([e.model_dump(mode='json') for e in message_event_response.content.evaluation_for_each_instruction], indent=2)}"
+            )
+            f.write(
+                "MessageEventGenerator revisions: "
+                f"{json.dumps([r.model_dump(mode='json') for r in message_event_response.content.revisions], indent=2)}"
+            )
 
         if first_correct_revision := next(
             (

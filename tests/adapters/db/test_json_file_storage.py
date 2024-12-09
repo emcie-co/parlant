@@ -95,13 +95,13 @@ async def test_agent_creation(
     agent_configuration: dict[str, Any],
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as agent_db:
-        agent_store = AgentDocumentStore(agent_db)
-        agent = await agent_store.create_agent(**agent_configuration)
+        async with AgentDocumentStore(agent_db) as agent_store:
+            agent = await agent_store.create_agent(**agent_configuration)
 
-        agents = list(await agent_store.list_agents())
+            agents = list(await agent_store.list_agents())
 
-        assert len(agents) == 1
-        assert agents[0] == agent
+            assert len(agents) == 1
+            assert agents[0] == agent
 
     with open(new_file) as f:
         agents_from_json = json.load(f)
@@ -120,14 +120,14 @@ async def test_session_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as session_db:
-        session_store = SessionDocumentStore(session_db)
-        customer_id = CustomerId("test_customer")
-        utc_now = datetime.now(timezone.utc)
-        session = await session_store.create_session(
-            creation_utc=utc_now,
-            customer_id=customer_id,
-            agent_id=context.agent_id,
-        )
+        async with SessionDocumentStore(session_db) as session_store:
+            customer_id = CustomerId("test_customer")
+            utc_now = datetime.now(timezone.utc)
+            session = await session_store.create_session(
+                creation_utc=utc_now,
+                customer_id=customer_id,
+                agent_id=context.agent_id,
+            )
 
     with open(new_file) as f:
         sessions_from_json = json.load(f)
@@ -147,23 +147,23 @@ async def test_event_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as session_db:
-        session_store = SessionDocumentStore(session_db)
-        customer_id = CustomerId("test_customer")
-        utc_now = datetime.now(timezone.utc)
-        session = await session_store.create_session(
-            creation_utc=utc_now,
-            customer_id=customer_id,
-            agent_id=context.agent_id,
-        )
+        async with SessionDocumentStore(session_db) as session_store:
+            customer_id = CustomerId("test_customer")
+            utc_now = datetime.now(timezone.utc)
+            session = await session_store.create_session(
+                creation_utc=utc_now,
+                customer_id=customer_id,
+                agent_id=context.agent_id,
+            )
 
-        event = await session_store.create_event(
-            session_id=session.id,
-            source="customer",
-            kind="message",
-            correlation_id="test_correlation_id",
-            data={"message": "Hello, world!"},
-            creation_utc=datetime.now(timezone.utc),
-        )
+            event = await session_store.create_event(
+                session_id=session.id,
+                source="customer",
+                kind="message",
+                correlation_id="test_correlation_id",
+                data={"message": "Hello, world!"},
+                creation_utc=datetime.now(timezone.utc),
+            )
 
     with open(new_file) as f:
         events_from_json = json.load(f)
@@ -181,12 +181,12 @@ async def test_guideline_creation_and_loading_data_from_file(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        guideline_store = GuidelineDocumentStore(guideline_db)
-        guideline = await guideline_store.create_guideline(
-            guideline_set=context.agent_id,
-            condition="Creating a guideline with JSONFileDatabase implementation",
-            action="Expecting it to show in the guidelines json file",
-        )
+        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+            guideline = await guideline_store.create_guideline(
+                guideline_set=context.agent_id,
+                condition="Creating a guideline with JSONFileDatabase implementation",
+                action="Expecting it to show in the guidelines json file",
+            )
 
     with open(new_file) as f:
         guidelines_from_json = json.load(f)
@@ -201,13 +201,12 @@ async def test_guideline_creation_and_loading_data_from_file(
     assert datetime.fromisoformat(json_guideline["creation_utc"]) == guideline.creation_utc
 
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        guideline_store = GuidelineDocumentStore(guideline_db)
-
-        second_guideline = await guideline_store.create_guideline(
-            guideline_set=context.agent_id,
-            condition="Second guideline creation",
-            action="Additional test entry in the JSON file",
-        )
+        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+            second_guideline = await guideline_store.create_guideline(
+                guideline_set=context.agent_id,
+                condition="Second guideline creation",
+                action="Additional test entry in the JSON file",
+            )
 
     with open(new_file) as f:
         guidelines_from_json = json.load(f)
@@ -230,14 +229,15 @@ async def test_guideline_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        guideline_store = GuidelineDocumentStore(guideline_db)
-        await guideline_store.create_guideline(
-            guideline_set=context.agent_id,
-            condition="Test condition for loading",
-            action="Test content for loading guideline",
-        )
+        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+            await guideline_store.create_guideline(
+                guideline_set=context.agent_id,
+                condition="Test condition for loading",
+                action="Test content for loading guideline",
+            )
 
-        loaded_guidelines = await guideline_store.list_guidelines(context.agent_id)
+            loaded_guidelines = await guideline_store.list_guidelines(context.agent_id)
+
         loaded_guideline_list = list(loaded_guidelines)
 
         assert len(loaded_guideline_list) == 1
@@ -251,13 +251,13 @@ async def test_customer_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        customer_store = CustomerDocumentStore(customer_db)
-        name = "Jane Doe"
-        extra = {"email": "jane.doe@example.com"}
-        created_customer = await customer_store.create_customer(
-            name=name,
-            extra=extra,
-        )
+        async with CustomerDocumentStore(customer_db) as customer_store:
+            name = "Jane Doe"
+            extra = {"email": "jane.doe@example.com"}
+            created_customer = await customer_store.create_customer(
+                name=name,
+                extra=extra,
+            )
 
     with open(new_file, "r") as file:
         data = json.load(file)
@@ -274,15 +274,15 @@ async def test_customer_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        customer_store = CustomerDocumentStore(customer_db)
-        name = "John Doe"
-        extra = {"email": "john.doe@example.com"}
+        async with CustomerDocumentStore(customer_db) as customer_store:
+            name = "John Doe"
+            extra = {"email": "john.doe@example.com"}
 
-        created_customer = await customer_store.create_customer(name=name, extra=extra)
+            created_customer = await customer_store.create_customer(name=name, extra=extra)
 
-        retrieved_customer = await customer_store.read_customer(created_customer.id)
+            retrieved_customer = await customer_store.read_customer(created_customer.id)
 
-        assert created_customer == retrieved_customer
+            assert created_customer == retrieved_customer
 
 
 async def test_context_variable_creation(
@@ -290,15 +290,15 @@ async def test_context_variable_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        context_variable_store = ContextVariableDocumentStore(context_variable_db)
-        tool_id = ToolId("local", "test_tool")
-        variable = await context_variable_store.create_variable(
-            variable_set=context.agent_id,
-            name="Sample Variable",
-            description="A test variable for persistence.",
-            tool_id=tool_id,
-            freshness_rules=None,
-        )
+        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+            tool_id = ToolId("local", "test_tool")
+            variable = await context_variable_store.create_variable(
+                variable_set=context.agent_id,
+                name="Sample Variable",
+                description="A test variable for persistence.",
+                tool_id=tool_id,
+                freshness_rules=None,
+            )
 
     with open(new_file) as f:
         variables_from_json = json.load(f)
@@ -319,28 +319,28 @@ async def test_context_variable_value_update_and_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        context_variable_store = ContextVariableDocumentStore(context_variable_db)
-        tool_id = ToolId("local", "test_tool")
-        customer_id = CustomerId("test_customer")
-        variable = await context_variable_store.create_variable(
-            variable_set=context.agent_id,
-            name="Sample Variable",
-            description="A test variable for persistence.",
-            tool_id=tool_id,
-            freshness_rules=None,
-        )
+        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+            tool_id = ToolId("local", "test_tool")
+            customer_id = CustomerId("test_customer")
+            variable = await context_variable_store.create_variable(
+                variable_set=context.agent_id,
+                name="Sample Variable",
+                description="A test variable for persistence.",
+                tool_id=tool_id,
+                freshness_rules=None,
+            )
 
-        await context_variable_store.update_value(
-            variable_set=context.agent_id,
-            key=customer_id,
-            variable_id=variable.id,
-            data={"key": "value"},
-        )
-        value = await context_variable_store.read_value(
-            variable_set=context.agent_id,
-            key=customer_id,
-            variable_id=variable.id,
-        )
+            await context_variable_store.update_value(
+                variable_set=context.agent_id,
+                key=customer_id,
+                variable_id=variable.id,
+                data={"key": "value"},
+            )
+            value = await context_variable_store.read_value(
+                variable_set=context.agent_id,
+                key=customer_id,
+                variable_id=variable.id,
+            )
 
     assert value
 
@@ -358,28 +358,28 @@ async def test_context_variable_listing(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        context_variable_store = ContextVariableDocumentStore(context_variable_db)
-        tool_id = ToolId("local", "test_tool")
-        var1 = await context_variable_store.create_variable(
-            variable_set=context.agent_id,
-            name="Variable One",
-            description="First test variable",
-            tool_id=tool_id,
-            freshness_rules=None,
-        )
+        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+            tool_id = ToolId("local", "test_tool")
+            var1 = await context_variable_store.create_variable(
+                variable_set=context.agent_id,
+                name="Variable One",
+                description="First test variable",
+                tool_id=tool_id,
+                freshness_rules=None,
+            )
 
-        var2 = await context_variable_store.create_variable(
-            variable_set=context.agent_id,
-            name="Variable Two",
-            description="Second test variable",
-            tool_id=tool_id,
-            freshness_rules=None,
-        )
+            var2 = await context_variable_store.create_variable(
+                variable_set=context.agent_id,
+                name="Variable Two",
+                description="Second test variable",
+                tool_id=tool_id,
+                freshness_rules=None,
+            )
 
-        variables = list(await context_variable_store.list_variables(context.agent_id))
-        assert var1 in variables
-        assert var2 in variables
-        assert len(variables) == 2
+            variables = list(await context_variable_store.list_variables(context.agent_id))
+            assert var1 in variables
+            assert var2 in variables
+            assert len(variables) == 2
 
 
 async def test_context_variable_deletion(
@@ -387,47 +387,47 @@ async def test_context_variable_deletion(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        context_variable_store = ContextVariableDocumentStore(context_variable_db)
-        tool_id = ToolId("local", "test_tool")
-        variable = await context_variable_store.create_variable(
-            variable_set=context.agent_id,
-            name="Deletable Variable",
-            description="A variable to be deleted.",
-            tool_id=tool_id,
-            freshness_rules=None,
-        )
-
-        for k, d in [("k1", "d1"), ("k2", "d2"), ("k3", "d3")]:
-            await context_variable_store.update_value(
+        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+            tool_id = ToolId("local", "test_tool")
+            variable = await context_variable_store.create_variable(
                 variable_set=context.agent_id,
-                key=k,
-                variable_id=variable.id,
-                data=d,
+                name="Deletable Variable",
+                description="A variable to be deleted.",
+                tool_id=tool_id,
+                freshness_rules=None,
             )
 
-        values = await context_variable_store.list_values(
-            variable_set=context.agent_id,
-            variable_id=variable.id,
-        )
+            for k, d in [("k1", "d1"), ("k2", "d2"), ("k3", "d3")]:
+                await context_variable_store.update_value(
+                    variable_set=context.agent_id,
+                    key=k,
+                    variable_id=variable.id,
+                    data=d,
+                )
 
-        assert len(values) == 3
+            values = await context_variable_store.list_values(
+                variable_set=context.agent_id,
+                variable_id=variable.id,
+            )
 
-        await context_variable_store.delete_variable(
-            variable_set=context.agent_id,
-            id=variable.id,
-        )
+            assert len(values) == 3
 
-        assert not any(
-            variable.id == v.id
-            for v in await context_variable_store.list_variables(context.agent_id)
-        )
+            await context_variable_store.delete_variable(
+                variable_set=context.agent_id,
+                id=variable.id,
+            )
 
-        values = await context_variable_store.list_values(
-            variable_set=context.agent_id,
-            variable_id=variable.id,
-        )
+            assert not any(
+                variable.id == v.id
+                for v in await context_variable_store.list_variables(context.agent_id)
+            )
 
-        assert len(values) == 0
+            values = await context_variable_store.list_values(
+                variable_set=context.agent_id,
+                variable_id=variable.id,
+            )
+
+            assert len(values) == 0
 
 
 async def test_guideline_tool_association_creation(
@@ -437,15 +437,15 @@ async def test_guideline_tool_association_creation(
     async with JSONFileDocumentDatabase(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
-        guideline_tool_association_store = GuidelineToolAssociationDocumentStore(
+        async with GuidelineToolAssociationDocumentStore(
             guideline_tool_association_db
-        )
-        guideline_id = GuidelineId("guideline-789")
-        tool_id = ToolId("local", "test_tool")
+        ) as guideline_tool_association_store:
+            guideline_id = GuidelineId("guideline-789")
+            tool_id = ToolId("local", "test_tool")
 
-        await guideline_tool_association_store.create_association(
-            guideline_id=guideline_id, tool_id=tool_id
-        )
+            await guideline_tool_association_store.create_association(
+                guideline_id=guideline_id, tool_id=tool_id
+            )
 
     with open(new_file, "r") as f:
         guideline_tool_associations_from_json = json.load(f)
@@ -464,27 +464,27 @@ async def test_guideline_tool_association_retrieval(
     async with JSONFileDocumentDatabase(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
-        guideline_tool_association_store = GuidelineToolAssociationDocumentStore(
+        async with GuidelineToolAssociationDocumentStore(
             guideline_tool_association_db
-        )
-        guideline_id = GuidelineId("test_guideline")
-        tool_id = ToolId("local", "test_tool")
-        creation_utc = datetime.now(timezone.utc)
+        ) as guideline_tool_association_store:
+            guideline_id = GuidelineId("test_guideline")
+            tool_id = ToolId("local", "test_tool")
+            creation_utc = datetime.now(timezone.utc)
 
-        created_association = await guideline_tool_association_store.create_association(
-            guideline_id=guideline_id,
-            tool_id=tool_id,
-            creation_utc=creation_utc,
-        )
+            created_association = await guideline_tool_association_store.create_association(
+                guideline_id=guideline_id,
+                tool_id=tool_id,
+                creation_utc=creation_utc,
+            )
 
-        associations = list(await guideline_tool_association_store.list_associations())
-        assert len(associations) == 1
-        retrieved_association = list(associations)[0]
+            associations = list(await guideline_tool_association_store.list_associations())
+            assert len(associations) == 1
+            retrieved_association = list(associations)[0]
 
-        assert retrieved_association.id == created_association.id
-        assert retrieved_association.guideline_id == guideline_id
-        assert retrieved_association.tool_id == tool_id
-        assert retrieved_association.creation_utc == creation_utc
+            assert retrieved_association.id == created_association.id
+            assert retrieved_association.guideline_id == guideline_id
+            assert retrieved_association.tool_id == tool_id
+            assert retrieved_association.creation_utc == creation_utc
 
 
 async def test_successful_loading_of_an_empty_json_file(
@@ -494,12 +494,12 @@ async def test_successful_loading_of_an_empty_json_file(
     # Create an empty file
     new_file.touch()
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        guideline_store = GuidelineDocumentStore(guideline_db)
-        await guideline_store.create_guideline(
-            guideline_set=context.agent_id,
-            condition="Create a guideline just for testing",
-            action="Expect it to appear in the guidelines JSON file eventually",
-        )
+        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+            await guideline_store.create_guideline(
+                guideline_set=context.agent_id,
+                condition="Create a guideline just for testing",
+                action="Expect it to appear in the guidelines JSON file eventually",
+            )
 
     with open(new_file) as f:
         guidelines_from_json = json.load(f)
@@ -515,24 +515,23 @@ async def test_evaluation_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as evaluation_db:
-        evaluation_store = EvaluationDocumentStore(evaluation_db)
+        async with EvaluationDocumentStore(evaluation_db) as evaluation_store:
+            payloads = [
+                GuidelinePayload(
+                    content=GuidelineContent(
+                        condition="Test evaluation creation with invoice",
+                        action="Ensure the evaluation with invoice is persisted in the JSON file",
+                    ),
+                    operation="add",
+                    coherence_check=True,
+                    connection_proposition=True,
+                )
+            ]
 
-        payloads = [
-            GuidelinePayload(
-                content=GuidelineContent(
-                    condition="Test evaluation creation with invoice",
-                    action="Ensure the evaluation with invoice is persisted in the JSON file",
-                ),
-                operation="add",
-                coherence_check=True,
-                connection_proposition=True,
+            evaluation = await evaluation_store.create_evaluation(
+                agent_id=context.agent_id,
+                payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
-        ]
-
-        evaluation = await evaluation_store.create_evaluation(
-            agent_id=context.agent_id,
-            payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
-        )
 
     with open(new_file) as f:
         evaluations_from_json = json.load(f)
@@ -550,52 +549,51 @@ async def test_evaluation_update(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as evaluation_db:
-        evaluation_store = EvaluationDocumentStore(evaluation_db)
+        async with EvaluationDocumentStore(evaluation_db) as evaluation_store:
+            payloads = [
+                GuidelinePayload(
+                    content=GuidelineContent(
+                        condition="Initial evaluation payload with invoice",
+                        action="This content will be updated",
+                    ),
+                    operation="add",
+                    coherence_check=True,
+                    connection_proposition=True,
+                )
+            ]
 
-        payloads = [
-            GuidelinePayload(
-                content=GuidelineContent(
-                    condition="Initial evaluation payload with invoice",
-                    action="This content will be updated",
-                ),
-                operation="add",
-                coherence_check=True,
-                connection_proposition=True,
+            evaluation = await evaluation_store.create_evaluation(
+                agent_id=context.agent_id,
+                payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
-        ]
 
-        evaluation = await evaluation_store.create_evaluation(
-            agent_id=context.agent_id,
-            payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
-        )
+            invoice_data: InvoiceData = InvoiceGuidelineData(
+                coherence_checks=[],
+                connection_propositions=None,
+            )
 
-        invoice_data: InvoiceData = InvoiceGuidelineData(
-            coherence_checks=[],
-            connection_propositions=None,
-        )
+            invoice = Invoice(
+                kind=PayloadKind.GUIDELINE,
+                payload=payloads[0],
+                state_version="123",
+                checksum="initial_checksum",
+                approved=True,
+                data=invoice_data,
+                error=None,
+            )
 
-        invoice = Invoice(
-            kind=PayloadKind.GUIDELINE,
-            payload=payloads[0],
-            state_version="123",
-            checksum="initial_checksum",
-            approved=True,
-            data=invoice_data,
-            error=None,
-        )
+            await evaluation_store.update_evaluation(
+                evaluation_id=evaluation.id, params={"invoices": [invoice]}
+            )
 
-        await evaluation_store.update_evaluation(
-            evaluation_id=evaluation.id, params={"invoices": [invoice]}
-        )
+        with open(new_file) as f:
+            evaluations_from_json = json.load(f)
 
-    with open(new_file) as f:
-        evaluations_from_json = json.load(f)
+        assert len(evaluations_from_json["evaluations"]) == 1
+        json_evaluation = evaluations_from_json["evaluations"][0]
 
-    assert len(evaluations_from_json["evaluations"]) == 1
-    json_evaluation = evaluations_from_json["evaluations"][0]
+        assert json_evaluation["id"] == evaluation.id
 
-    assert json_evaluation["id"] == evaluation.id
-
-    assert json_evaluation["invoices"][0]["data"] is not None
-    assert json_evaluation["invoices"][0]["checksum"] == "initial_checksum"
-    assert json_evaluation["invoices"][0]["approved"] is True
+        assert json_evaluation["invoices"][0]["data"] is not None
+        assert json_evaluation["invoices"][0]["checksum"] == "initial_checksum"
+        assert json_evaluation["invoices"][0]["approved"] is True

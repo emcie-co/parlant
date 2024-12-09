@@ -2731,7 +2731,12 @@ async def async_main() -> None:
         required=False,
     )
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
-    @click.option("--key", type=str, metavar="NAME", help="The key (e.g. customer ID or tag)")
+    @click.option(
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+    )
     @click.option("--value", type=str, metavar="TEXT", help="The key's value")
     @click.pass_context
     def variable_set(

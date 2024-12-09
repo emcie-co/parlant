@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pydantic import Field, field_validator
 from datetime import datetime
+from croniter import croniter
 from enum import Enum
 from fastapi import HTTPException, Path, Query, status
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
 
 from fastapi import APIRouter
-from pydantic import Field
 from parlant.api import common
 from parlant.api.common import ToolIdDTO, JSONSerializableDTO, apigen_config, ExampleJson
 from parlant.core.agents import AgentId
@@ -28,7 +29,6 @@ from parlant.core.context_variables import (
     ContextVariableStore,
     ContextVariableUpdateParams,
     ContextVariableValueId,
-    FreshnessRules,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolId
@@ -48,40 +48,10 @@ class DayOfWeekDTO(Enum):
     SATURDAY = "Saturday"
 
 
-class FreshnessRulesDTO(DefaultBaseModel):
-    """Rules for validating data freshness."""
-
-    months: Optional[Sequence[int]] = Field(
-        default=None,
-        description="List of valid months (1-12)",
-        examples=[[1, 6, 12]],
-    )
-    days_of_month: Optional[Sequence[int]] = Field(
-        default=None,
-        description="List of valid days of month (1-31)",
-        examples=[[1, 15, 30]],
-    )
-    days_of_week: Optional[Sequence[DayOfWeekDTO]] = Field(
-        default=None,
-        description="List of valid days of week",
-        examples=[["Monday", "Wednesday", "Friday"]],
-    )
-    hours: Optional[Sequence[int]] = Field(
-        default=None,
-        description="List of valid hours (0-23)",
-        examples=[[9, 13, 17]],
-    )
-    minutes: Optional[Sequence[int]] = Field(
-        default=None,
-        description="List of valid minutes (0-59)",
-        examples=[[0, 30]],
-    )
-    seconds: Optional[Sequence[int]] = Field(
-        default=None,
-        description="List of valid seconds (0-59)",
-        examples=[[0, 30]],
-    )
-
+FreshnessRulesField: TypeAlias = Annotated[
+    str,
+    Field(default=None, description="Cron expression defining the freshness rules"),
+]
 
 ContextVariableIdPath: TypeAlias = Annotated[
     ContextVariableId,
@@ -106,14 +76,6 @@ ContextVariableDescriptionField: TypeAlias = Annotated[
     Field(
         description="Description of the context variable's purpose",
         examples=["Stores user preferences for customized interactions"],
-    ),
-]
-
-
-FreshnessRulesField: TypeAlias = Annotated[
-    FreshnessRulesDTO,
-    Field(
-        description="Rules for data freshness validation",
     ),
 ]
 
@@ -184,6 +146,18 @@ class ContextVariableCreationParamsDTO(
     tool_id: Optional[ToolIdDTO] = None
     freshness_rules: Optional[FreshnessRulesField] = None
 
+    @field_validator("freshness_rules")
+    @classmethod
+    def validate_freshness_rules(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            try:
+                croniter(value)
+            except Exception:
+                raise ValueError(
+                    "the provided freshness_rules. contain an invalid cron expression."
+                )
+        return value
+
 
 context_variable_update_params_example = {
     "name": "CustomerBalance",
@@ -204,6 +178,18 @@ class ContextVariableUpdateParamsDTO(
     description: Optional[ContextVariableDescriptionField] = None
     tool_id: Optional[ToolIdDTO] = None
     freshness_rules: Optional[FreshnessRulesField] = None
+
+    @field_validator("freshness_rules")
+    @classmethod
+    def validate_freshness_rules(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            try:
+                croniter(value)
+            except Exception:
+                raise ValueError(
+                    "the provided freshness_rules. contain an invalid cron expression."
+                )
+        return value
 
 
 ValueIdField: TypeAlias = Annotated[
@@ -334,30 +320,6 @@ class ContextVariableReadResult(
     key_value_pairs: Optional[KeyValuePairsField] = None
 
 
-def _freshness_ruless_dto_to_freshness_rules(dto: FreshnessRulesDTO) -> FreshnessRules:
-    return FreshnessRules(
-        months=list(dto.months) if dto.months else None,
-        days_of_month=list(dto.days_of_month) if dto.days_of_month else None,
-        days_of_week=[dow.value for dow in dto.days_of_week] if dto.days_of_week else [],
-        hours=list(dto.hours) if dto.hours else None,
-        minutes=list(dto.minutes) if dto.minutes else None,
-        seconds=list(dto.seconds) if dto.seconds else None,
-    )
-
-
-def _freshness_ruless_to_dto(freshness_rules: FreshnessRules) -> FreshnessRulesDTO:
-    return FreshnessRulesDTO(
-        months=freshness_rules.months,
-        days_of_month=freshness_rules.days_of_month,
-        days_of_week=[DayOfWeekDTO(dow) for dow in freshness_rules.days_of_week]
-        if freshness_rules.days_of_week
-        else [],
-        hours=freshness_rules.hours,
-        minutes=freshness_rules.minutes,
-        seconds=freshness_rules.seconds,
-    )
-
-
 AgentIdPath: TypeAlias = Annotated[
     AgentId,
     Path(
@@ -431,9 +393,7 @@ def create_router(
             tool_id=ToolId(params.tool_id.service_name, params.tool_id.tool_name)
             if params.tool_id
             else None,
-            freshness_rules=_freshness_ruless_dto_to_freshness_rules(params.freshness_rules)
-            if params.freshness_rules
-            else None,
+            freshness_rules=params.freshness_rules,
         )
 
         return ContextVariableDTO(
@@ -445,9 +405,7 @@ def create_router(
             )
             if variable.tool_id
             else None,
-            freshness_rules=_freshness_ruless_to_dto(variable.freshness_rules)
-            if variable.freshness_rules
-            else None,
+            freshness_rules=variable.freshness_rules,
         )
 
     @router.patch(
@@ -492,9 +450,7 @@ def create_router(
                 )
 
             if dto.freshness_rules:
-                params["freshness_rules"] = _freshness_ruless_dto_to_freshness_rules(
-                    dto.freshness_rules
-                )
+                params["freshness_rules"] = dto.freshness_rules
 
             return params
 
@@ -514,9 +470,7 @@ def create_router(
             )
             if variable.tool_id
             else None,
-            freshness_rules=_freshness_ruless_to_dto(variable.freshness_rules)
-            if variable.freshness_rules
-            else None,
+            freshness_rules=variable.freshness_rules,
         )
 
     @router.delete(
@@ -589,9 +543,7 @@ def create_router(
                 )
                 if variable.tool_id
                 else None,
-                freshness_rules=_freshness_ruless_to_dto(variable.freshness_rules)
-                if variable.freshness_rules
-                else None,
+                freshness_rules=variable.freshness_rules,
             )
             for variable in variables
         ]
@@ -621,8 +573,9 @@ def create_router(
         """
         Updates the value of a context variable.
 
-        The key represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
-        The data contains the actual context information being stored.
+        The `key` represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
+        If `key="DEFAULT"`, the update applies to all customers.
+        The `params` parameter contains the actual context information being stored.
         """
         _ = await context_variable_store.read_variable(
             variable_set=agent_id,
@@ -726,9 +679,7 @@ def create_router(
             )
             if variable.tool_id
             else None,
-            freshness_rules=_freshness_ruless_to_dto(variable.freshness_rules)
-            if variable.freshness_rules
-            else None,
+            freshness_rules=variable.freshness_rules,
         )
 
         if not include_values:
@@ -782,11 +733,15 @@ def create_router(
             id=variable_id,
         )
 
-        await context_variable_store.read_value(
+        if not await context_variable_store.read_value(
             variable_set=agent_id,
             variable_id=variable_id,
             key=key,
-        )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Value not found for variable '{variable_id}' and key '{key}'",
+            )
 
         await context_variable_store.delete_value(
             variable_set=agent_id,

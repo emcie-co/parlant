@@ -27,7 +27,7 @@ from typing import (
     TypeAlias,
     cast,
 )
-from typing_extensions import override, TypedDict, NotRequired
+from typing_extensions import override, TypedDict, NotRequired, Self
 
 from parlant.core.async_utils import Timeout
 from parlant.core.common import (
@@ -43,6 +43,7 @@ from parlant.core.customers import CustomerId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.nlp.generation import GenerationInfo, UsageInfo
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
     Where,
@@ -382,18 +383,33 @@ class SessionDocumentStore(SessionStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase):
-        self._session_collection = database.get_or_create_collection(
+        self._database = database
+        self._session_collection: DocumentCollection[_SessionDocument]
+        self._event_collection: DocumentCollection[_EventDocument]
+        self._inspection_collection: DocumentCollection[_InspectionDocument]
+
+    async def __aenter__(self) -> Self:
+        self._session_collection = await self._database.get_or_create_collection(
             name="sessions",
             schema=_SessionDocument,
         )
-        self._event_collection = database.get_or_create_collection(
+        self._event_collection = await self._database.get_or_create_collection(
             name="events",
             schema=_EventDocument,
         )
-        self._inspection_collection = database.get_or_create_collection(
+        self._inspection_collection = await self._database.get_or_create_collection(
             name="inspections",
             schema=_InspectionDocument,
         )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize_session(
         self,

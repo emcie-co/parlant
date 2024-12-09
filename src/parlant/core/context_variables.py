@@ -14,8 +14,8 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Literal, NewType, Optional, Sequence, cast
-from typing_extensions import TypedDict, override
+from typing import NewType, Optional, Sequence, cast
+from typing_extensions import TypedDict, override, Self
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
@@ -27,6 +27,7 @@ from parlant.core.common import (
     generate_id,
 )
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -37,38 +38,12 @@ ContextVariableValueId = NewType("ContextVariableValueId", str)
 
 
 @dataclass(frozen=True)
-class FreshnessRules:
-    """
-    A data class representing the times at which the context variable should be considered fresh.
-    """
-
-    months: Optional[list[int]]
-    days_of_month: Optional[list[int]]
-    days_of_week: Optional[
-        list[
-            Literal[
-                "Sunday",
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-            ]
-        ]
-    ]
-    hours: Optional[list[int]]
-    minutes: Optional[list[int]]
-    seconds: Optional[list[int]]
-
-
-@dataclass(frozen=True)
 class ContextVariable:
     id: ContextVariableId
     name: str
     description: Optional[str]
     tool_id: Optional[ToolId]
-    freshness_rules: Optional[FreshnessRules]
+    freshness_rules: Optional[str]
     """If None, the variable will only be updated on session creation"""
 
 
@@ -83,11 +58,11 @@ class ContextVariableUpdateParams(TypedDict, total=False):
     name: str
     description: Optional[str]
     tool_id: Optional[ToolId]
-    freshness_rules: Optional[FreshnessRules]
+    freshness_rules: Optional[str]
 
 
 class ContextVariableStore(ABC):
-    GLOBAL_KEY = "__default"
+    GLOBAL_KEY = "DEFAULT"
 
     @abstractmethod
     async def create_variable(
@@ -96,7 +71,7 @@ class ContextVariableStore(ABC):
         name: str,
         description: Optional[str] = None,
         tool_id: Optional[ToolId] = None,
-        freshness_rules: Optional[FreshnessRules] = None,
+        freshness_rules: Optional[str] = None,
     ) -> ContextVariable: ...
 
     @abstractmethod
@@ -140,8 +115,8 @@ class ContextVariableStore(ABC):
     async def read_value(
         self,
         variable_set: str,
-        key: str,
         variable_id: ContextVariableId,
+        key: str,
     ) -> Optional[ContextVariableValue]: ...
 
     @abstractmethod
@@ -160,27 +135,6 @@ class ContextVariableStore(ABC):
     ) -> Sequence[tuple[str, ContextVariableValue]]: ...
 
 
-class _FreshnessRulesDocument(TypedDict, total=False):
-    months: Optional[list[int]]
-    days_of_month: Optional[list[int]]
-    days_of_week: Optional[
-        list[
-            Literal[
-                "Sunday",
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-            ]
-        ]
-    ]
-    hours: Optional[list[int]]
-    minutes: Optional[list[int]]
-    seconds: Optional[list[int]]
-
-
 class _ContextVariableDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -188,7 +142,7 @@ class _ContextVariableDocument(TypedDict, total=False):
     name: str
     description: Optional[str]
     tool_id: Optional[str]
-    freshness_rules: Optional[_FreshnessRulesDocument]
+    freshness_rules: Optional[str]
 
 
 class _ContextVariableValueDocument(TypedDict, total=False):
@@ -205,27 +159,29 @@ class ContextVariableDocumentStore(ContextVariableStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(self, database: DocumentDatabase):
-        self._variable_collection = database.get_or_create_collection(
+        self._database = database
+        self._variable_collection: DocumentCollection[_ContextVariableDocument]
+        self._value_collection: DocumentCollection[_ContextVariableValueDocument]
+
+    async def __aenter__(self) -> Self:
+        self._variable_collection = await self._database.get_or_create_collection(
             name="variables",
             schema=_ContextVariableDocument,
         )
 
-        self._value_collection = database.get_or_create_collection(
+        self._value_collection = await self._database.get_or_create_collection(
             name="values",
             schema=_ContextVariableValueDocument,
         )
+        return self
 
-    def _serialize_freshness_rules(
-        self, freshness_rules: FreshnessRules
-    ) -> _FreshnessRulesDocument:
-        return _FreshnessRulesDocument(
-            months=freshness_rules.months,
-            days_of_month=freshness_rules.days_of_month,
-            days_of_week=freshness_rules.days_of_week,
-            hours=freshness_rules.hours,
-            minutes=freshness_rules.minutes,
-            seconds=freshness_rules.seconds,
-        )
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize_context_variable(
         self,
@@ -239,9 +195,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable.name,
             description=context_variable.description,
             tool_id=context_variable.tool_id.to_string() if context_variable.tool_id else None,
-            freshness_rules=self._serialize_freshness_rules(context_variable.freshness_rules)
-            if context_variable.freshness_rules
-            else None,
+            freshness_rules=context_variable.freshness_rules,
         )
 
     def _serialize_context_variable_value(
@@ -261,19 +215,6 @@ class ContextVariableDocumentStore(ContextVariableStore):
             data=context_variable_value.data,
         )
 
-    def _deserialize_freshness_rules(
-        self,
-        freshness_rules_document: _FreshnessRulesDocument,
-    ) -> FreshnessRules:
-        return FreshnessRules(
-            months=freshness_rules_document["months"],
-            days_of_month=freshness_rules_document["days_of_month"],
-            days_of_week=freshness_rules_document["days_of_week"],
-            hours=freshness_rules_document["hours"],
-            minutes=freshness_rules_document["minutes"],
-            seconds=freshness_rules_document["seconds"],
-        )
-
     def _deserialize_context_variable(
         self,
         context_variable_document: _ContextVariableDocument,
@@ -285,11 +226,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             tool_id=ToolId.from_string(context_variable_document["tool_id"])
             if context_variable_document["tool_id"]
             else None,
-            freshness_rules=self._deserialize_freshness_rules(
-                context_variable_document["freshness_rules"]
-            )
-            if context_variable_document["freshness_rules"]
-            else None,
+            freshness_rules=context_variable_document["freshness_rules"],
         )
 
     def _deserialize_context_variable_value(
@@ -309,7 +246,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         name: str,
         description: Optional[str] = None,
         tool_id: Optional[ToolId] = None,
-        freshness_rules: Optional[FreshnessRules] = None,
+        freshness_rules: Optional[str] = None,
     ) -> ContextVariable:
         context_variable = ContextVariable(
             id=ContextVariableId(generate_id()),
@@ -351,9 +288,11 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 else {}
             ),
             **(
-                {"freshness_rules": self._serialize_freshness_rules(params["freshness_rules"])}
-                if "freshness_rules" in params and params["freshness_rules"]
-                else {}
+                {
+                    "freshness_rules": params["freshness_rules"]
+                    if "freshness_rules" in params and params["freshness_rules"]
+                    else {}
+                }
             ),
         }
 
@@ -456,8 +395,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def read_value(
         self,
         variable_set: str,
-        key: str,
         variable_id: ContextVariableId,
+        key: str,
     ) -> Optional[ContextVariableValue]:
         value_document = await self._value_collection.find_one(
             {

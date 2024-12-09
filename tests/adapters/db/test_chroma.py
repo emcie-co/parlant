@@ -73,8 +73,9 @@ def doc_version() -> Version.String:
 
 
 @fixture
-def chroma_database(context: _TestContext) -> ChromaDatabase:
-    return create_database(context)
+async def chroma_database(context: _TestContext) -> AsyncIterator[ChromaDatabase]:
+    async with create_database(context) as chroma_database:
+        yield chroma_database
 
 
 def create_database(context: _TestContext) -> ChromaDatabase:
@@ -89,13 +90,13 @@ def create_database(context: _TestContext) -> ChromaDatabase:
 async def chroma_collection(
     chroma_database: ChromaDatabase,
 ) -> AsyncIterator[ChromaCollection[_TestDocument]]:
-    collection = chroma_database.get_or_create_collection(
+    collection = await chroma_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
         embedder_type=OpenAITextEmbedding3Large,
     )
     yield collection
-    chroma_database.delete_collection("test_collection")
+    await chroma_database.delete_collection("test_collection")
 
 
 async def test_that_a_document_can_be_found_based_on_a_metadata_field(
@@ -294,75 +295,76 @@ async def test_find_similar_documents(
 
 async def test_loading_collections(
     context: _TestContext,
-    container: Container,
     doc_version: Version.String,
 ) -> None:
-    chroma_database_1 = create_database(context)
-    chroma_collection_1 = chroma_database_1.get_or_create_collection(
-        "test_collection",
-        _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
-    )
+    async with create_database(context) as first_db:
+        created_collection = await first_db.get_or_create_collection(
+            "test_collection",
+            _TestDocument,
+            embedder_type=OpenAITextEmbedding3Large,
+        )
 
-    document = _TestDocument(
-        id=ObjectId("1"),
-        version=doc_version,
-        content="test content",
-        name="test name",
-    )
+        document = _TestDocument(
+            id=ObjectId("1"),
+            version=doc_version,
+            content="test content",
+            name="test name",
+        )
 
-    await chroma_collection_1.insert_one(document)
+        await created_collection.insert_one(document)
 
-    chroma_database_2 = create_database(context)
-    chroma_collection_2: ChromaCollection[_TestDocument] = chroma_database_2.get_collection(
-        "test_collection"
-    )
+    async with create_database(context) as second_db:
+        fetched_collection: ChromaCollection[_TestDocument] = await second_db.get_collection(
+            "test_collection"
+        )
 
-    result = await chroma_collection_2.find({"id": {"$eq": "1"}})
+        result = await fetched_collection.find({"id": {"$eq": "1"}})
 
-    assert len(result) == 1
-    assert result[0] == document
+        assert len(result) == 1
+        assert result[0] == document
 
 
 async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_large_query_input(
     container: Container, agent_id: AgentId
 ) -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
-        glossary_chroma_store = GlossaryChromaStore(
-            ChromaDatabase(container[Logger], Path(temp_dir), EmbedderFactory(container)),
-            embedder_type=type(await container[NLPService].get_embedder()),
-        )
+        async with ChromaDatabase(
+            container[Logger], Path(temp_dir), EmbedderFactory(container)
+        ) as chroma_db:
+            async with GlossaryChromaStore(
+                chroma_db,
+                embedder_type=type(await container[NLPService].get_embedder()),
+            ) as glossary_chroma_store:
+                bazoo = await glossary_chroma_store.create_term(
+                    term_set=agent_id,
+                    name="Bazoo",
+                    description="a type of cow",
+                )
 
-        bazoo = await glossary_chroma_store.create_term(
-            term_set=agent_id,
-            name="Bazoo",
-            description="a type of cow",
-        )
+                shazoo = await glossary_chroma_store.create_term(
+                    term_set=agent_id,
+                    name="Shazoo",
+                    description="a type of zebra",
+                )
 
-        shazoo = await glossary_chroma_store.create_term(
-            term_set=agent_id,
-            name="Shazoo",
-            description="a type of zebra",
-        )
+                kazoo = await glossary_chroma_store.create_term(
+                    term_set=agent_id,
+                    name="Kazoo",
+                    description="a type of horse",
+                )
 
-        kazoo = await glossary_chroma_store.create_term(
-            term_set=agent_id,
-            name="Kazoo",
-            description="a type of horse",
-        )
+                terms = await glossary_chroma_store.find_relevant_terms(
+                    agent_id,
+                    ("walla " * 5000)
+                    + "Kazoo"
+                    + ("balla " * 5000)
+                    + "Shazoo"
+                    + ("kalla " * 5000)
+                    + "Bazoo",
+                    max_terms=3,
+                )
 
-        terms = await glossary_chroma_store.find_relevant_terms(
-            agent_id,
-            ("walla " * 5000)
-            + "Kazoo"
-            + ("balla " * 5000)
-            + "Shazoo"
-            + ("kalla " * 5000)
-            + "Bazoo",
-            max_terms=3,
-        )
-
-        assert len(terms) == 3
-        assert any(t == kazoo for t in terms)
-        assert any(t == shazoo for t in terms)
-        assert any(t == bazoo for t in terms)
+                assert len(terms) == 3
+                assert any(t == kazoo for t in terms)
+                assert any(t == shazoo for t in terms)
+                assert any(t == bazoo for t in terms)

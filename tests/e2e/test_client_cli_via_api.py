@@ -962,7 +962,7 @@ async def test_that_guidelines_can_be_suggestively_entailed(
         )
 
 
-async def test_that_a_guideline_can_be_removed(
+async def test_that_a_guideline_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
@@ -994,7 +994,7 @@ async def test_that_a_guideline_can_be_removed(
         assert len(guidelines) == 0
 
 
-async def test_that_a_connection_can_be_removed(
+async def test_that_a_connection_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
@@ -1292,27 +1292,66 @@ async def test_that_a_variable_can_be_added(
 
         agent_id = (await context.api.get_first_agent())["id"]
 
-        process = await run_cli(
-            "variable",
-            "create",
-            "--agent-id",
-            agent_id,
-            "--description",
-            description,
-            "--name",
-            name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
+        service_name = "local_service"
+        tool_name = "fetch_event_data"
+        service_kind = "sdk"
+        freshness_rules = "0 0,6,12,18 * * *"
+
+        @tool
+        def fetch_event_data(context: ToolContext, event_id: str) -> ToolResult:
+            """Fetch event data based on event ID."""
+            return ToolResult({"event_id": event_id})
+
+        async with run_service_server([fetch_event_data]) as server:
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "create",
+                    "--name",
+                    service_name,
+                    "--kind",
+                    service_kind,
+                    "--url",
+                    server.url,
+                )
+                == os.EX_OK
+            )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "variable",
+                    "create",
+                    "--agent-id",
+                    agent_id,
+                    "--description",
+                    description,
+                    "--name",
+                    name,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    "--freshness-rules",
+                    freshness_rules,
+                )
+                == os.EX_OK
+            )
 
         variables = await context.api.list_context_variables(agent_id)
 
         variable = next(
-            (v for v in variables if v["name"] == name and v["description"] == description),
+            (
+                v
+                for v in variables
+                if v["name"] == name
+                and v["description"] == description
+                and v["tool_id"]
+                == {
+                    "service_name": "local_service",
+                    "tool_name": "fetch_event_data",
+                }
+                and v["freshness_rules"] == freshness_rules
+            ),
             None,
         )
         assert variable is not None, "Variable was not added"
@@ -1324,6 +1363,9 @@ async def test_that_a_variable_can_be_updated(
     name = "test_variable_cli"
     description = "Variable added via CLI"
     new_description = "Variable updated via CLI"
+    service_name = "local"
+    tool_name = "fetch_account_balance"
+    freshness_rules = "0 0,6,12,18 * * *"
 
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
@@ -1332,30 +1374,66 @@ async def test_that_a_variable_can_be_updated(
         agent_id = (await context.api.get_first_agent())["id"]
         variable = await context.api.create_context_variable(agent_id, name, description)
 
-        assert (
-            await run_cli_and_get_exit_status(
-                "variable",
-                "update",
-                "--agent-id",
-                agent_id,
-                "--id",
-                variable["id"],
-                "--description",
-                new_description,
+        service_name = "local_service"
+        tool_name = "fetch_event_data"
+        service_kind = "sdk"
+        freshness_rules = "0 0,6,12,18 * * *"
+
+        @tool
+        def fetch_event_data(context: ToolContext, event_id: str) -> ToolResult:
+            """Fetch event data based on event ID."""
+            return ToolResult({"event_id": event_id})
+
+        async with run_service_server([fetch_event_data]) as server:
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "create",
+                    "--name",
+                    service_name,
+                    "--kind",
+                    service_kind,
+                    "--url",
+                    server.url,
+                )
+                == os.EX_OK
             )
-            == os.EX_OK
-        )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "variable",
+                    "update",
+                    "--agent-id",
+                    agent_id,
+                    "--id",
+                    variable["id"],
+                    "--description",
+                    new_description,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    "--freshness-rules",
+                    freshness_rules,
+                )
+                == os.EX_OK
+            )
 
         updated_variable = await context.api.read_context_variable(agent_id, variable["id"])
         assert updated_variable["context_variable"]["name"] == name
         assert updated_variable["context_variable"]["description"] == new_description
+        assert updated_variable["context_variable"]["tool_id"] == {
+            "service_name": "local_service",
+            "tool_name": "fetch_event_data",
+        }
+        assert updated_variable["context_variable"]["freshness_rules"] == freshness_rules
 
 
-async def test_that_a_variable_can_be_removed(
+async def test_that_a_variable_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
-    name = "test_variable_to_remove"
-    description = "Variable to be removed via CLI"
+    name = "test_variable_to_delete"
+    description = "Variable to be deleted via CLI"
 
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
@@ -1527,6 +1605,45 @@ async def test_that_a_variables_values_can_be_retrieved(
 
         assert specific_key in output
         assert expected_value in output
+
+
+async def test_that_a_variable_value_can_be_deleted(
+    context: ContextOfTest,
+) -> None:
+    name = "test_variable"
+    key = "DEFAULT"
+    value = "test-value"
+
+    with run_server(context):
+        while not is_server_responsive(SERVER_PORT):
+            pass
+
+        agent_id = (await context.api.get_first_agent())["id"]
+
+        variable = await context.api.create_context_variable(agent_id, name, description="")
+        _ = await context.api.update_context_variable_value(
+            agent_id=agent_id,
+            variable_id=variable["id"],
+            key=key,
+            value=value,
+        )
+
+        assert (
+            await run_cli_and_get_exit_status(
+                "variable",
+                "delete-value",
+                "--agent-id",
+                agent_id,
+                "--id",
+                variable["id"],
+                "--key",
+                key,
+            )
+            == os.EX_OK
+        )
+
+        variable = await context.api.read_context_variable(agent_id, variable["id"])
+        assert len(variable["key_value_pairs"]) == 0
 
 
 async def test_that_a_message_can_be_inspected(
@@ -1721,10 +1838,10 @@ async def test_that_a_sdk_service_can_be_added(
                 )
 
 
-async def test_that_a_service_can_be_removed(
+async def test_that_a_service_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
-    service_name = "test_service_to_remove"
+    service_name = "test_service_to_delete"
 
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
@@ -1954,7 +2071,7 @@ async def test_that_a_customer_extra_can_be_added(context: ContextOfTest) -> Non
         assert customer["extra"].get("key1") == "value1"
 
 
-async def test_that_a_customer_extra_can_be_removed(context: ContextOfTest) -> None:
+async def test_that_a_customer_extra_can_be_deleted(context: ContextOfTest) -> None:
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
             pass
@@ -2003,7 +2120,7 @@ async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
         assert tag_id in tags
 
 
-async def test_that_a_customer_tag_can_be_removed(context: ContextOfTest) -> None:
+async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> None:
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
             pass

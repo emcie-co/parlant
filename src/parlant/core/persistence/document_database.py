@@ -135,7 +135,7 @@ def ensure_is_total(document: Mapping[str, Any], schema: type[Mapping[str, Any]]
 
 class DocumentDatabase(ABC):
     @abstractmethod
-    def create_collection(
+    async def create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -146,7 +146,7 @@ class DocumentDatabase(ABC):
         ...
 
     @abstractmethod
-    def get_collection(
+    async def get_collection(
         self,
         name: str,
     ) -> DocumentCollection[TDocument]:
@@ -156,7 +156,7 @@ class DocumentDatabase(ABC):
         ...
 
     @abstractmethod
-    def get_or_create_collection(
+    async def get_or_create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -167,7 +167,7 @@ class DocumentDatabase(ABC):
         ...
 
     @abstractmethod
-    def delete_collection(
+    async def delete_collection(
         self,
         name: str,
     ) -> None:

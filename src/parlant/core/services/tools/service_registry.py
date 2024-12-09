@@ -31,6 +31,7 @@ from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.tools import LocalToolService, ToolService
 from parlant.core.common import ItemNotFoundError, Version, UniqueId
 from parlant.core.persistence.document_database import (
+    DocumentCollection,
     DocumentDatabase,
     ObjectId,
 )
@@ -108,6 +109,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
         correlator: ContextualCorrelator,
         nlp_services: Mapping[str, NLPService],
     ):
+        self._database = database
+        self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
+
         self._event_emitter_factory = event_emitter_factory
         self._correlator = correlator
         self._nlp_services = nlp_services
@@ -116,11 +120,6 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._exit_stack: AsyncExitStack
         self._running_services: dict[str, ToolService] = {}
         self._service_sources: dict[str, str] = {}
-
-        self._tool_services_collection = database.get_or_create_collection(
-            name="tool_services",
-            schema=_ToolServiceDocument,
-        )
 
     def _cast_to_specific_tool_service_class(
         self,
@@ -132,6 +131,11 @@ class ServiceDocumentRegistry(ServiceRegistry):
             return cast(PluginClient, service)
 
     async def __aenter__(self) -> Self:
+        self._tool_services_collection = await self._database.get_or_create_collection(
+            name="tool_services",
+            schema=_ToolServiceDocument,
+        )
+
         self._moderation_services = {
             name: await nlp_service.get_moderation_service()
             for name, nlp_service in self._nlp_services.items()

@@ -683,6 +683,16 @@ class Actions:
         )
 
     @staticmethod
+    def delete_variable_value(
+        ctx: click.Context,
+        agent_id: str,
+        variable_id: str,
+        key: str,
+    ) -> None:
+        client = cast(ParlantClient, ctx.obj.client)
+        client.context_variables.delete_value(agent_id, variable_id, key)
+
+    @staticmethod
     def create_or_update_service(
         ctx: click.Context,
         name: str,
@@ -1677,6 +1687,20 @@ class Interface:
             value = Actions.view_variable_value(ctx, agent_id, variable_id, key)
 
             Interface._render_variable_key_value_pairs({key: value})
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def delete_variable_value(
+        ctx: click.Context,
+        agent_id: str,
+        variable_id: str,
+        key: str,
+    ) -> None:
+        try:
+            Actions.delete_variable_value(ctx, agent_id, variable_id, key)
+            Interface._write_success(f"Removed variable value with the key '{key}'")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -2767,7 +2791,10 @@ async def async_main() -> None:
     )
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
     @click.option(
-        "--key", type=str, metavar="NAME", help="A specific key (e.g. customer ID or tag)"
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
     )
     @click.pass_context
     def variable_get(
@@ -2792,6 +2819,38 @@ async def async_main() -> None:
                 agent_id=agent_id,
                 variable_id=id,
             )
+
+    @variable.command("delete-value", help="Delete a context variable value")
+    @click.option(
+        "--agent-id",
+        type=str,
+        help="Agent ID",
+        metavar="ID",
+        required=False,
+    )
+    @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
+    @click.option(
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+    )
+    @click.pass_context
+    def variable_value_delete(
+        ctx: click.Context,
+        agent_id: Optional[str],
+        id: str,
+        key: str,
+    ) -> None:
+        agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
+        assert agent_id
+
+        Interface.delete_variable_value(
+            ctx=ctx,
+            agent_id=agent_id,
+            variable_id=id,
+            key=key,
+        )
 
     @cli.group(help="Manage services")
     def service() -> None:

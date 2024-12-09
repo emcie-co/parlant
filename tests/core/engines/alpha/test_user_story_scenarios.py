@@ -25,6 +25,7 @@ load_steps(
     "sessions",
     "terms",
     "tools",
+    "customers"
 )
 
 scenarios(

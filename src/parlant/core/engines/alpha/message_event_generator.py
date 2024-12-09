@@ -753,10 +753,11 @@ Produce a valid JSON object in the following format: ###
         )
 
         with open("message generation result.txt", "w") as f:
-            f.write(
-                "MessageEventGenerator guideline evaluations: "
-                f"{json.dumps([e.model_dump(mode='json') for e in message_event_response.content.evaluation_for_each_instruction], indent=2)}"
-            )
+            if message_event_response.content.evaluation_for_each_instruction:
+                f.write(
+                    "MessageEventGenerator guideline evaluations: "
+                    f"{json.dumps([e.model_dump(mode='json') for e in message_event_response.content.evaluation_for_each_instruction], indent=2)}"
+                )
             f.write(
                 "MessageEventGenerator revisions: "
                 f"{json.dumps([r.model_dump(mode='json') for r in message_event_response.content.revisions], indent=2)}"

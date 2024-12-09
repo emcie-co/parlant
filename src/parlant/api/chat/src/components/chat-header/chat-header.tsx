@@ -22,7 +22,7 @@ const ChatHeader = (): ReactNode => {
 
     const createNewSession = () => {
         setAgentId(null);
-        openDialog('Select an Agent', <AgentList/>, {height: '536px', width: '604px'});
+        openDialog('', <AgentList/>, {height: '536px', width: '604px'});
      };
 
     return (

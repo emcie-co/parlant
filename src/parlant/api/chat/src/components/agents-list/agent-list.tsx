@@ -1,5 +1,5 @@
 import { SessionInterface } from '@/utils/interfaces';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { useSession } from '../chatbot/chatbot';
 
 import AgentAvatar from '../agent-avatar/agent-avatar';
@@ -23,12 +23,19 @@ const AgentList = (): ReactNode => {
     const {setAgentId, closeDialog, agents, setSessionId, setNewSession, customers} = useSession();
     const [agent, setAgent] = useState('');
 
+    useEffect(() => {
+        if (agents?.length && agents.length === 1) selectAgent(agents[0].id);
+    }, []);
+
     const selectAgent = (agentId: string): void => {
         setAgent(agentId);
+        if (customers.length < 2) {
+            selectCustomer(customers?.[0]?.id, agentId);
+        }
     };
 
-    const selectCustomer = (customerId: string) => {
-        setAgentId(agent);
+    const selectCustomer = (customerId: string, agentId?: string) => {
+        setAgentId(agent || agentId || '');
         setNewSession({...newSessionObj, agent_id: agent, customer_id: customerId});
         setSessionId(newSessionObj.id);
         closeDialog();

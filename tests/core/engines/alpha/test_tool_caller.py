@@ -128,7 +128,7 @@ async def test_that_a_tool_from_local_service_is_getting_called_with_an_enum_par
     ordinary_guideline_propositions = [
         create_guideline_proposition(
             condition="customer asking a question",
-            action="response in concise and breif answer",
+            action="response in concise and brief answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
         )
@@ -195,7 +195,7 @@ async def test_that_a_tool_from_plugin_is_getting_called_with_an_enum_parameter(
     ordinary_guideline_propositions = [
         create_guideline_proposition(
             condition="customer asking a question",
-            action="response in concise and breif answer",
+            action="response in concise and brief answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
         )

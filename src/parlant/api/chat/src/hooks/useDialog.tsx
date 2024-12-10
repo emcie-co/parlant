@@ -2,6 +2,7 @@ import { useState, ReactNode } from 'react';
 import { Dialog, DialogContent, DialogHeader } from '@/components/ui/dialog';
 import { DialogDescription, DialogTitle } from '@radix-ui/react-dialog';
 import { spaceClick } from '@/utils/methods';
+import clsx from 'clsx';
 
 interface UseDialogReturn {
   openDialog: (title: string, content: ReactNode, dimensions: Dimensions) => void;
@@ -39,7 +40,7 @@ export const useDialog = (): UseDialogReturn => {
     <Dialog open={!!dialogContent}>
         <DialogContent data-testid="dialog" style={{maxHeight: dialogSize.height, width: dialogSize.width}} className={'[&>button]:hidden p-0 h-[80%] font-ubuntu-sans bg-white block max-w-[95%]'}>
                 <div className='bg-white h-full rounded-[12px] flex flex-col'>
-                    <DialogHeader>
+                    <DialogHeader className={clsx(!dialogTitle && 'hidden')}>
                         <DialogTitle>
                             <div className='h-[68px] w-full flex justify-between items-center ps-[30px] pe-[20px] border-b-[#EBECF0] border-b-[0.6px]'>
                                 <DialogDescription className='text-[16px] font-bold'>{dialogTitle}</DialogDescription>

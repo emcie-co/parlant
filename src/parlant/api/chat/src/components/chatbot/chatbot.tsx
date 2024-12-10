@@ -1,5 +1,5 @@
 import { createContext, Dispatch, lazy, ReactElement, ReactNode, SetStateAction, Suspense, useContext, useEffect, useState } from 'react';
-import { AgentInterface, SessionInterface } from '@/utils/interfaces';
+import { AgentInterface, CustomerInterface, SessionInterface } from '@/utils/interfaces';
 import Sessions from '../sessions/sessions';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
@@ -18,6 +18,8 @@ interface SessionContext {
     setSessions: Dispatch<SetStateAction<SessionInterface[]>>;
     agents: AgentInterface[],
     setAgents: Dispatch<SetStateAction<AgentInterface[]>>;
+    customers: CustomerInterface[],
+    setCustomers: Dispatch<SetStateAction<CustomerInterface[]>>;
     openDialog: (title: string, content: ReactNode, dimensions: Dimensions, dialogClosed?: (() =>void) | null) => void;
     closeDialog: () => void;
 };
@@ -33,6 +35,8 @@ export const SessionProvider = createContext<SessionContext>({
     setSessions: () => null,
     agents: [],
     setAgents: () => null,
+    customers: [],
+    setCustomers: () => null,
     openDialog: () => null,
     closeDialog: () =>null
 });
@@ -48,6 +52,7 @@ export default function Chatbot(): ReactElement {
     const [newSession, setNewSession] = useState<SessionInterface | null>(null);
     const [sessionName, setSessionName] = useState<string |null>('');
     const [agents, setAgents] = useState<AgentInterface[]>([]);
+    const [customers, setCustomers] = useState<CustomerInterface[]>([]);
     const {openDialog, DialogComponent, closeDialog} = useDialog();
 
     useEffect(() => {
@@ -71,6 +76,8 @@ export default function Chatbot(): ReactElement {
         setSessions,
         agents,
         setAgents,
+        customers,
+        setCustomers,
         openDialog,
         closeDialog
     };

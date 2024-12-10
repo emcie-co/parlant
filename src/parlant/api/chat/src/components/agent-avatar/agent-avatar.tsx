@@ -18,19 +18,20 @@ const getAvatarColor = (agentId: string) => {
 const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
     const agentBackground = getAvatarColor(agent.id);
     const customerBackground = customer && getAvatarColor(customer.id);
-    const agentFirstLetter = agent.name[0].toUpperCase();
-    const customerFirstLetter = customer?.name?.[0]?.toUpperCase();
+    const agentFirstLetter = agent.name === '<guest>' ? 'G' : agent.name[0].toUpperCase();
+    const isGuest = customer?.name === '<guest>';
+    const customerFirstLetter = isGuest ? 'G' : customer?.name?.[0]?.toUpperCase();
     const style: React.CSSProperties = {transform: 'translateY(17px)', fontSize: '13px !important', fontWeight: 400, fontFamily: 'inter'};
     if (!tooltip) style.display = 'none';
 
     return (
-        <Tooltip value={`${agent.name}${customer?.name ? (' & ' + customer.name) : ''}`} side='right' style={style}>
+        <Tooltip value={`${agent.name} / ${(!customer?.name || isGuest) ? 'Guest' : customer.name}`} side='right' style={style}>
             <div className='relative'>
                 <div style={{background: agentBackground}} aria-label={'agent ' + agent.name} className={' me-[10px] size-[38px] rounded-full flex items-center justify-center text-white text-[20px] font-semibold'}>
                     {agentFirstLetter}
                 </div>
                 {customer &&
-                <div style={{background: customerBackground}} aria-label={'customer ' + customer.name} className={'absolute me-[8px] size-[15px] rounded-full flex items-center justify-center text-white text-[12px] font-semibold border bottom-0 right-0 z-10'}>
+                <div style={{background: customerBackground}} aria-label={'customer ' + customer.name} className={'absolute me-[3px] size-[20px] rounded-full flex items-center justify-center text-white text-[12px] font-semibold border bottom-0 right-0 z-10'}>
                     {customerFirstLetter}
                 </div>}
             </div>

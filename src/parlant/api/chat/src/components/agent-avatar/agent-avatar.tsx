@@ -31,7 +31,7 @@ const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
                     {agentFirstLetter}
                 </div>
                 {customer &&
-                <div style={{background: customerBackground}} aria-label={'customer ' + customer.name} className={'absolute me-[3px] size-[20px] rounded-full flex items-center justify-center text-white text-[12px] font-semibold border bottom-0 right-0 z-10'}>
+                <div style={{background: customerBackground}} aria-label={'customer ' + customer.name} className={'absolute me-[3px] size-[20px] rounded-full flex items-center justify-center text-white text-[12px] font-semibold border-[2px] border-white bottom-0 right-0 z-10'}>
                     {customerFirstLetter}
                 </div>}
             </div>

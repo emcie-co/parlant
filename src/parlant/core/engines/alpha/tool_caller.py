@@ -41,7 +41,6 @@ ToolResultId = NewType("ToolResultId", str)
 
 
 class ToolCallEvaluation(DefaultBaseModel):
-    name: str
     rationale: str
     applicability_score: int
     arguments: Optional[Mapping[str, Any]] = dict()
@@ -53,6 +52,7 @@ class ToolCallInferenceSchema(DefaultBaseModel):
     last_customer_message: Optional[str] = None
     most_recent_customer_inquiry_or_need: Optional[str] = None
     most_recent_customer_inquiry_or_need_was_already_resolved: Optional[bool] = False
+    name: str
     tool_call_evaluations: list[ToolCallEvaluation]
 
 
@@ -178,7 +178,7 @@ class ToolCaller:
         return generation_info, [
             ToolCall(
                 id=ToolCallId(generate_id()),
-                tool_id=ToolId.from_string(tc.name),
+                tool_id=batch[0],
                 arguments=tc.arguments or {},
             )
             for tc in inference_output
@@ -263,9 +263,9 @@ Produce a valid JSON object according to the following format:
     "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
     "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
+    "name": "<TOOL NAME>",
     "tool_call_evaluations": [
         {{
-            "name": "<TOOL NAME>",
             "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "arguments": <ARGUMENTS FOR THE TOOL. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
@@ -277,7 +277,7 @@ Produce a valid JSON object according to the following format:
 }}
 ```
 
-where each tool provided to you under appears at least once in "tool_call_evaluations", whether you decide to use it or not.
+where the tool provided to you under appears at least once in "tool_call_evaluations", whether you decide to use it or not.
 The exact format of your output will be provided to you at the end of this prompt.
 
 The following examples show correct outputs for various hypothetical situations. 
@@ -295,9 +295,9 @@ Context - the id of the customer is 12345, and check_balance(12345) is the only 
     "last_customer_message": "Do I have enough money in my account to get a taxi from New York to Newark?",
     "most_recent_customer_inquiry_or_need": "Checking customer's balance, comparing it to the price of a taxi from New York to Newark, and report the result to the customer",
     "most_recent_customer_inquiry_or_need_was_already_resolved": false,
+    "name": "check_balance",
     "tool_call_evaluations": [
         {{
-            "name": "check_balance",
             "rationale": "We need the client's current balance to respond to their question",
             "applicability_score": 9,
             "arguments": {{
@@ -306,6 +306,7 @@ Context - the id of the customer is 12345, and check_balance(12345) is the only 
             "same_call_is_already_staged": true,
             "should_run": false,
         }}
+    ]
 }}
 ```
 
@@ -319,14 +320,16 @@ Context - the id of the customer is 12345, and check_balance(12345) is the only 
     "last_customer_message": "Do I have enough money in my account to get a taxi from New York to Newark?",
     "most_recent_customer_inquiry_or_need": "Checking customer's balance, comparing it to the price of a taxi from New York to Newark, and report the result to the customer",
     "most_recent_customer_inquiry_or_need_was_already_resolved": false,
+    "name": "ping_supervisor",
     "tool_call_evaluations": [
         {{
-            "name": "ping_supervisor",
+            
             "rationale": "There is no reason to notify the supervisor of anything",
             "applicability_score": 1,
             "same_call_is_already_staged": false,
             "should_run": false,
         }}
+    ]
 }}
 ```
 
@@ -340,9 +343,9 @@ Context - the id of the customer is 12345, and check_balance(12345) is the only 
     "last_customer_message": "Do I have enough money in my account to get a taxi from New York to Newark?",
     "most_recent_customer_inquiry_or_need": "Checking customer's balance, comparing it to the price of a taxi from New York to Newark, and report the result to the customer",
     "most_recent_customer_inquiry_or_need_was_already_resolved": false,
+    "name": "check_ride_price",
     "tool_call_evaluations": [
         {{
-            "name": "check_ride_price",
             "rationale": "We need to know the price of a ride from New York to Newark to respond to the customer",
             "applicability_score": 9,
             "arguments": {{
@@ -352,36 +355,12 @@ Context - the id of the customer is 12345, and check_balance(12345) is the only 
             "same_call_is_already_staged": false,
             "should_run": true,
         }}
+    ]
 }}
 ```
 
 ###
 Example 4:
-
-Context - the id of the customer is 12345, and check_balance(12345) is the only staged tool call
-###
-```json
-{{
-    "last_customer_message": "Do I have enough money in my account to get a taxi from New York to Newark?",
-    "most_recent_customer_inquiry_or_need": "Checking customer's balance, comparing it to the price of a taxi from New York to Newark, and report the result to the customer",
-    "most_recent_customer_inquiry_or_need_was_already_resolved": false,
-    "tool_call_evaluations": [
-        {{
-            "name": "check_ride_price",
-            "rationale": "We need to know the price of a ride from New York to Newark to respond to the customer",
-            "applicability_score": 9,
-            "arguments": {{
-                "origin": "New York",
-                "Destination": "Newark",
-            }},
-            "same_call_is_already_staged": false,
-            "should_run": true,
-        }}
-}}
-```
-
-###
-Example 5:
 Context - there are two available tools, and no calls have been staged yet:
 check_calories(<product_name>): returns the number of calories in a the product
 check_stock(): returns all menu items that are currently in stock
@@ -391,9 +370,9 @@ check_stock(): returns all menu items that are currently in stock
     "last_customer_message": "Which pizza has more calories, the classic margherita or the deep dish?",
     "most_recent_customer_inquiry_or_need": "Checking the number of calories in two types of pizza and replying with which one has more",
     "most_recent_customer_inquiry_or_need_was_already_resolved": false,
+    "name": "check_calories",
     "tool_call_evaluations": [
         {{
-            "name": "check_calories",
             "rationale": "We need to check how many calories are in the margherita pizza",
             "applicability_score": 9,
             "arguments": {{
@@ -403,7 +382,6 @@ check_stock(): returns all menu items that are currently in stock
             "should_run": true,
         }},
         {{
-            "name": "check_calories",
             "rationale": "We need to check how many calories are in the deep dish pizza",
             "applicability_score": 9,
             "arguments": {{
@@ -464,15 +442,15 @@ Given the tool, your output should adhere to the following format:
     "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
     "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
+    "name": "{batch[0].service_name}:{batch[0].tool_name}",
     "tool_call_evaluations": [
         {{
-            "name": "{batch[0].service_name}:{batch[0].tool_name}",
             "rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
             "arguments": <ARGUMENTS FOR THE TOOL. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
             "same_call_is_already_staged": <BOOLEAN>,
             "should_run": <BOOL>,
-        }},                                                
+        }}                                               
     ]
 }}
 ```

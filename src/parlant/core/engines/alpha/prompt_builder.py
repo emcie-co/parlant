@@ -216,26 +216,21 @@ and let the user know if/when you assume they meant a term by their typo: ###
 
         return self
 
-    def add_tool_definitions(self, tools: Sequence[tuple[ToolId, Tool]]) -> PromptBuilder:
-        assert tools
-
-        tool_specs = [
-            {
-                "name": tool_id.to_string(),
-                "description": tool.description,
-                "parameters": tool.parameters,
-                "required_parameters": tool.required,
-            }
-            for tool_id, tool in tools
-        ]
+    def add_tool_definitions(self, tool_id: ToolId, tool: Tool) -> PromptBuilder:
+        tool_spec = {
+            "name": tool_id.to_string(),
+            "description": tool.description,
+            "parameters": tool.parameters,
+            "required_parameters": tool.required,
+        }
 
         self.add_section(
             name=BuiltInSection.TOOLS,
             content=f"""
-The following are the tool function definitions. Generate one reply for each tool.
-IMPORTANT: You must not return results for any tool that do not appear in the following list, even if you believe they might be relevant.
+The following is a tool function definition.
+IMPORTANT: You must not return results for any tool is not the following tool, even if you believe they might be relevant.
 : ###
-{tool_specs}
+{tool_spec}
 ###
 """,
             status=SectionStatus.ACTIVE,

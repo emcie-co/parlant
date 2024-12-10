@@ -126,29 +126,29 @@ class GuidelineProposer:
                 *(await asyncio.gather(*batch_tasks))
             )
 
-            propositions_batches: list[list[GuidelineProposition]] = []
+        propositions_batches: list[list[GuidelineProposition]] = []
 
-            for batch in condition_evaluations_batches:
-                guideline_propositions = []
-                for evaluation in batch:
-                    guideline_propositions.append(
-                        GuidelineProposition(
-                            guideline=guidelines_dict[evaluation.guideline_number],
-                            score=evaluation.score,
-                            rationale=f'''Condition Application: "{evaluation.condition_application_rationale}"; Guideline Previously Applied: "{evaluation.guideline_previously_applied_rationale}"''',
-                            should_reapply=evaluation.guideline_should_reapply,
-                        )
+        for batch in condition_evaluations_batches:
+            guideline_propositions = []
+            for evaluation in batch:
+                guideline_propositions.append(
+                    GuidelineProposition(
+                        guideline=guidelines_dict[evaluation.guideline_number],
+                        score=evaluation.score,
+                        rationale=f'''Condition Application: "{evaluation.condition_application_rationale}"; Guideline Previously Applied: "{evaluation.guideline_previously_applied_rationale}"''',
+                        should_reapply=evaluation.guideline_should_reapply,
                     )
-                propositions_batches.append(guideline_propositions)
+                )
+            propositions_batches.append(guideline_propositions)
 
-            t_end = time.time()
+        t_end = time.time()
 
-            return GuidelinePropositionResult(
-                total_duration=t_end - t_start,
-                batch_count=len(batches),
-                batch_generations=batch_generations,
-                batches=propositions_batches,
-            )
+        return GuidelinePropositionResult(
+            total_duration=t_end - t_start,
+            batch_count=len(batches),
+            batch_generations=batch_generations,
+            batches=propositions_batches,
+        )
 
     def _get_optimal_batch_size(self, guidelines: dict[int, Guideline]) -> int:
         guideline_n = len(guidelines)

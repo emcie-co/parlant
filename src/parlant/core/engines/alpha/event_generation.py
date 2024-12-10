@@ -20,6 +20,6 @@ from parlant.core.nlp.generation import GenerationInfo
 
 
 @dataclass(frozen=True)
-class EventGenerationResult:
-    generation_info: GenerationInfo
+class EventGenerationsResult:
+    generations: Sequence[GenerationInfo]
     events: Sequence[Optional[EmittedEvent]]

@@ -17,15 +17,15 @@ from datetime import datetime, timezone
 import importlib
 import inspect
 from sys import _getframe
-from typing import Any, Callable, cast
+from typing import Any, Callable, Optional, cast
 from lagom import Container
 from pytest_bdd import parsers
 
 from parlant.core.common import generate_id, JSONSerializable
+from parlant.core.customers import Customer
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.guidelines import Guideline
-
 from parlant.core.sessions import Event, MessageEventData, EventSource, EventId
 from tests.test_utilities import SyncAwaiter
 
@@ -84,11 +84,12 @@ def create_event_message(
     offset: int,
     source: EventSource,
     message: str,
+    customer: Optional[Customer] = None,
 ) -> Event:
     message_data: MessageEventData = {
         "message": message,
         "participant": {
-            "display_name": source,
+            "display_name": customer.name if customer else source,
         },
     }
 

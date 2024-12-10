@@ -16,7 +16,7 @@ from pytest_bdd import given, parsers
 
 from parlant.core.customers import CustomerStore, CustomerId
 from parlant.core.sessions import SessionStore, SessionId
-from parlant.core.tags import TagStore
+from parlant.core.tags import TagStore, TagId
 from tests.core.engines.alpha.utils import ContextOfTest, step
 
 
@@ -30,6 +30,18 @@ def given_a_customer(
     customer = context.sync_await(customer_store.create_customer(name))
 
     return customer.id
+
+
+@step(given, parsers.parse('a tag "{tag_name}"'))
+def given_a_tag(
+    context: ContextOfTest,
+    tag_name: str,
+) -> TagId:
+    tag_store = context.container[TagStore]
+
+    tag = context.sync_await(tag_store.create_tag(tag_name))
+
+    return tag.id
 
 
 @step(given, parsers.parse('a customer tagged as "{tag_name}"'))

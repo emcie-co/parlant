@@ -16,9 +16,9 @@ import asyncio
 from datetime import datetime, timezone
 from itertools import chain
 from typing import Optional, Sequence
-from typing_extensions import override, TypedDict
+from typing_extensions import override, TypedDict, Self
 
-from parlant.adapters.db.chroma.database import ChromaDatabase
+from parlant.adapters.db.chroma.database import ChromaCollection, ChromaDatabase
 from parlant.core.common import (
     ItemNotFoundError,
     UniqueId,
@@ -49,12 +49,28 @@ class GlossaryChromaStore(GlossaryStore):
         chroma_db: ChromaDatabase,
         embedder_type: type[Embedder],
     ):
-        self._collection = chroma_db.get_or_create_collection(
+        self._embedder_type = embedder_type
+        self._embedder = embedder_type()
+
+        self._chroma_db = chroma_db
+        self._collection: ChromaCollection[_TermDocument]
+
+    async def __aenter__(self) -> Self:
+        self._collection = await self._chroma_db.get_or_create_collection(
             name="glossary",
             schema=_TermDocument,
-            embedder_type=embedder_type,
+            embedder_type=self._embedder_type,
         )
-        self._embedder = embedder_type()
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
 
     def _serialize(self, term: Term, term_set: str, content: str) -> _TermDocument:
         return _TermDocument(

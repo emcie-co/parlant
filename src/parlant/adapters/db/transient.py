@@ -36,7 +36,7 @@ class TransientDocumentDatabase(DocumentDatabase):
         self._collections: dict[str, _TransientDocumentCollection[BaseDocument]] = {}
 
     @override
-    def create_collection(
+    async def create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -52,7 +52,7 @@ class TransientDocumentDatabase(DocumentDatabase):
         return cast(_TransientDocumentCollection[TDocument], self._collections[name])
 
     @override
-    def get_collection(
+    async def get_collection(
         self,
         name: str,
     ) -> _TransientDocumentCollection[TDocument]:
@@ -61,7 +61,7 @@ class TransientDocumentDatabase(DocumentDatabase):
         raise ValueError(f'Collection "{name}" does not exist')
 
     @override
-    def get_or_create_collection(
+    async def get_or_create_collection(
         self,
         name: str,
         schema: type[TDocument],
@@ -72,13 +72,13 @@ class TransientDocumentDatabase(DocumentDatabase):
         annotations = get_type_hints(schema)
         assert "id" in annotations and annotations["id"] == ObjectId
 
-        return self.create_collection(
+        return await self.create_collection(
             name=name,
             schema=schema,
         )
 
     @override
-    def delete_collection(
+    async def delete_collection(
         self,
         name: str,
     ) -> None:

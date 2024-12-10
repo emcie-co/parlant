@@ -21,6 +21,7 @@ click = "^8.1.7"
 click-completion = "^0.5.2"
 coloredlogs = "^15.0.1"
 contextvars = "^2.4"
+croniter = "^5.0.1"
 fastapi = "^0.115.5"
 google-cloud-aiplatform = { extras = ["tokenization"], version = "^1.71.1" }
 google-generativeai = "^0.8.3"
@@ -34,7 +35,7 @@ networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "^1.1.17"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = "^0.7.0"
+parlant-client = { git = "http://github.com/emcie-co/parlant-client-python", rev = "v0.7.2" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -49,8 +50,10 @@ tokenizers = "^0.20"
 torch = "^2.5.1"
 transformers = "^4.46.2"
 types-aiofiles = "^24.1.0.20240626"
+types-croniter = "^4.0.0.20241030"
 types-jsonschema = "^4.22.0.20240610"
 uvicorn = "^0.32.1"
+
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"

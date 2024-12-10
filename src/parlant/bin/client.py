@@ -39,7 +39,6 @@ from parlant.client.types import (
     ContextVariableValue,
     Event,
     EventInspectionResult,
-    FreshnessRules,
     Guideline,
     GuidelineConnection,
     GuidelineConnectionAddition,
@@ -587,6 +586,9 @@ class Actions:
         agent_id: str,
         name: str,
         description: str,
+        service_name: Optional[str],
+        tool_name: Optional[str],
+        freshness_rules: Optional[str],
     ) -> ContextVariable:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -594,6 +596,10 @@ class Actions:
             agent_id,
             name=name,
             description=description,
+            tool_id=ToolId(service_name=service_name, tool_name=tool_name)
+            if service_name and tool_name
+            else None,
+            freshness_rules=freshness_rules,
         )
 
     @staticmethod
@@ -601,8 +607,11 @@ class Actions:
         ctx: click.Context,
         agent_id: str,
         variable_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
+        name: Optional[str],
+        description: Optional[str],
+        service_name: Optional[str],
+        tool_name: Optional[str],
+        freshness_rules: Optional[str],
     ) -> ContextVariable:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -611,6 +620,10 @@ class Actions:
             variable_id,
             name=name,
             description=description,
+            tool_id=ToolId(service_name=service_name, tool_name=tool_name)
+            if service_name and tool_name
+            else None,
+            freshness_rules=freshness_rules,
         )
 
     @staticmethod
@@ -668,6 +681,16 @@ class Actions:
             variable_id,
             key,
         )
+
+    @staticmethod
+    def delete_variable_value(
+        ctx: click.Context,
+        agent_id: str,
+        variable_id: str,
+        key: str,
+    ) -> None:
+        client = cast(ParlantClient, ctx.obj.client)
+        client.context_variables.delete_value(agent_id, variable_id, key)
 
     @staticmethod
     def create_or_update_service(
@@ -1493,43 +1516,20 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def _render_freshness_rules(freshness_rules: FreshnessRules | None) -> str:
-        if freshness_rules is None:
-            return ""
-        parts: list[str] = []
-        if freshness_rules.months:
-            months = ", ".join(str(m) for m in freshness_rules.months)
-            parts.append(f"Months: {months}")
-        if freshness_rules.days_of_month:
-            days_of_month = ", ".join(str(d) for d in freshness_rules.days_of_month)
-            parts.append(f"Days of Month: {days_of_month}")
-        if freshness_rules.days_of_week:
-            days_of_week = ", ".join(freshness_rules.days_of_week)
-            parts.append(f"Days of Week: {days_of_week}")
-        if freshness_rules.hours:
-            hours = ", ".join(str(h) for h in freshness_rules.hours)
-            parts.append(f"Hours: {hours}")
-        if freshness_rules.minutes:
-            minutes = ", ".join(str(m) for m in freshness_rules.minutes)
-            parts.append(f"Minutes: {minutes}")
-        if freshness_rules.seconds:
-            seconds = ", ".join(str(s) for s in freshness_rules.seconds)
-            parts.append(f"Seconds: {seconds}")
-        if not parts:
-            return "None"
-        return "; ".join(parts)
+    def _render_variables(variables: list[ContextVariable]) -> None:
+        variable_items = [
+            {
+                "ID": variable.id,
+                "Name": variable.name,
+                "Description": variable.description or "",
+                "Service Name": variable.tool_id.service_name if variable.tool_id else "",
+                "Tool Name": variable.tool_id.tool_name if variable.tool_id else "",
+                "Freshness Rules": variable.freshness_rules,
+            }
+            for variable in variables
+        ]
 
-    @staticmethod
-    def _render_variable(variable: ContextVariable) -> None:
-        Interface._print_table(
-            [
-                {
-                    "ID": variable.id,
-                    "Name": variable.name,
-                    "Description": variable.description or "",
-                }
-            ],
-        )
+        Interface._print_table(variable_items)
 
     @staticmethod
     def list_variables(
@@ -1549,7 +1549,7 @@ class Interface:
                 "Description": variable.description or "",
                 "Service Name": variable.tool_id.service_name if variable.tool_id else "",
                 "Tool Name": variable.tool_id.tool_name if variable.tool_id else "",
-                "Freshness Rules": Interface._render_freshness_rules(variable.freshness_rules),
+                "Freshness Rules": variable.freshness_rules,
             }
             for variable in variables
         ]
@@ -1562,24 +1562,40 @@ class Interface:
         agent_id: str,
         name: str,
         description: str,
+        service_name: Optional[str],
+        tool_name: Optional[str],
+        freshness_rules: Optional[str],
     ) -> None:
-        variable = Actions.create_variable(ctx, agent_id, name, description)
+        variable = Actions.create_variable(
+            ctx,
+            agent_id,
+            name,
+            description,
+            service_name,
+            tool_name,
+            freshness_rules,
+        )
 
         Interface._write_success(f"Added variable (id={variable.id})")
-        Interface._render_variable(variable)
+        Interface._render_variables([variable])
 
     @staticmethod
     def update_variable(
         ctx: click.Context,
         agent_id: str,
         variable_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
+        name: Optional[str],
+        description: Optional[str],
+        service_name: Optional[str],
+        tool_name: Optional[str],
+        freshness_rules: Optional[str],
     ) -> None:
-        variable = Actions.update_variable(ctx, agent_id, variable_id, name, description)
+        variable = Actions.update_variable(
+            ctx, agent_id, variable_id, name, description, service_name, tool_name, freshness_rules
+        )
 
         Interface._write_success(f"Updated variable (id={variable.id})")
-        Interface._render_variable(variable)
+        Interface._render_variables([variable])
 
     @staticmethod
     def delete_variable(ctx: click.Context, agent_id: str, variable_id: str) -> None:
@@ -1643,7 +1659,7 @@ class Interface:
                 include_values=True,
             )
 
-            Interface._render_variable(read_variable_result.context_variable)
+            Interface._render_variables([read_variable_result.context_variable])
 
             if not read_variable_result.key_value_pairs:
                 rich.print("No values are available")
@@ -1671,6 +1687,20 @@ class Interface:
             value = Actions.view_variable_value(ctx, agent_id, variable_id, key)
 
             Interface._render_variable_key_value_pairs({key: value})
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def delete_variable_value(
+        ctx: click.Context,
+        agent_id: str,
+        variable_id: str,
+        key: str,
+    ) -> None:
+        try:
+            Actions.delete_variable_value(ctx, agent_id, variable_id, key)
+            Interface._write_success(f"Removed variable value with the key '{key}'")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -2607,21 +2637,40 @@ async def async_main() -> None:
     )
     @click.option("--description", type=str, help="Variable description", required=False)
     @click.option("--name", type=str, metavar="NAME", help="Variable name", required=True)
+    @click.option(
+        "--service",
+        type=str,
+        metavar="NAME",
+        help="The name of the tool service containing the tool",
+        required=False,
+    )
+    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=False)
+    @click.option("--freshness-rules", type=str, help="Variable freshness rules", required=False)
     @click.pass_context
     def variable_create(
         ctx: click.Context,
         agent_id: Optional[str],
         name: str,
         description: Optional[str],
+        service: Optional[str],
+        tool: Optional[str],
+        freshness_rules: Optional[str],
     ) -> None:
         agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
         assert agent_id
+
+        if service or tool:
+            assert service
+            assert tool
 
         Interface.create_variable(
             ctx=ctx,
             agent_id=agent_id,
             name=name,
             description=description or "",
+            service_name=service,
+            tool_name=tool,
+            freshness_rules=freshness_rules,
         )
 
     @variable.command("update", help="Update a context variable")
@@ -2635,6 +2684,15 @@ async def async_main() -> None:
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
     @click.option("--description", type=str, help="Variable description", required=False)
     @click.option("--name", type=str, metavar="NAME", help="Variable name", required=False)
+    @click.option(
+        "--service",
+        type=str,
+        metavar="NAME",
+        help="The name of the tool service containing the tool",
+        required=False,
+    )
+    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=False)
+    @click.option("--freshness-rules", type=str, help="Variable freshness rules", required=False)
     @click.pass_context
     def variable_update(
         ctx: click.Context,
@@ -2642,9 +2700,16 @@ async def async_main() -> None:
         id: str,
         name: Optional[str],
         description: Optional[str],
+        service: Optional[str],
+        tool: Optional[str],
+        freshness_rules: Optional[str],
     ) -> None:
         agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
         assert agent_id
+
+        if service or tool:
+            assert service
+            assert tool
 
         Interface.update_variable(
             ctx=ctx,
@@ -2652,6 +2717,9 @@ async def async_main() -> None:
             variable_id=id,
             name=name,
             description=description or "",
+            service_name=service,
+            tool_name=tool,
+            freshness_rules=freshness_rules,
         )
 
     @variable.command("delete", help="Delete a context variable")
@@ -2687,7 +2755,12 @@ async def async_main() -> None:
         required=False,
     )
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
-    @click.option("--key", type=str, metavar="NAME", help="The key (e.g. customer ID or tag)")
+    @click.option(
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+    )
     @click.option("--value", type=str, metavar="TEXT", help="The key's value")
     @click.pass_context
     def variable_set(
@@ -2718,7 +2791,10 @@ async def async_main() -> None:
     )
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
     @click.option(
-        "--key", type=str, metavar="NAME", help="A specific key (e.g. customer ID or tag)"
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
     )
     @click.pass_context
     def variable_get(
@@ -2743,6 +2819,38 @@ async def async_main() -> None:
                 agent_id=agent_id,
                 variable_id=id,
             )
+
+    @variable.command("delete-value", help="Delete a context variable value")
+    @click.option(
+        "--agent-id",
+        type=str,
+        help="Agent ID",
+        metavar="ID",
+        required=False,
+    )
+    @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
+    @click.option(
+        "--key",
+        type=str,
+        metavar="NAME",
+        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+    )
+    @click.pass_context
+    def variable_value_delete(
+        ctx: click.Context,
+        agent_id: Optional[str],
+        id: str,
+        key: str,
+    ) -> None:
+        agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
+        assert agent_id
+
+        Interface.delete_variable_value(
+            ctx=ctx,
+            agent_id=agent_id,
+            variable_id=id,
+            key=key,
+        )
 
     @cli.group(help="Manage services")
     def service() -> None:

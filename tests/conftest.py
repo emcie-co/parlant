@@ -87,9 +87,6 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
 from parlant.core.logging import Logger, StdoutLogger
 from parlant.core.application import Application
 from parlant.core.agents import AgentDocumentStore, AgentStore
-from parlant.core.persistence.document_database import (
-    DocumentDatabase,
-)
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -117,21 +114,6 @@ async def container() -> AsyncIterator[Container]:
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])
 
-    container[DocumentDatabase] = TransientDocumentDatabase
-    container[AgentStore] = Singleton(AgentDocumentStore)
-    container[GuidelineStore] = Singleton(GuidelineDocumentStore)
-    container[GuidelineConnectionStore] = Singleton(GuidelineConnectionDocumentStore)
-    container[SessionStore] = Singleton(SessionDocumentStore)
-    container[ContextVariableStore] = Singleton(ContextVariableDocumentStore)
-    container[TagStore] = Singleton(TagDocumentStore)
-    container[CustomerStore] = Singleton(CustomerDocumentStore)
-    container[GuidelineToolAssociationStore] = Singleton(GuidelineToolAssociationDocumentStore)
-    container[SessionListener] = PollingSessionListener
-    container[EvaluationStore] = Singleton(EvaluationDocumentStore)
-    container[EvaluationListener] = PollingEvaluationListener
-    container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
-    container[EventEmitterFactory] = Singleton(EventPublisherFactory)
-
     async with AsyncExitStack() as stack:
         temp_dir = stack.enter_context(tempfile.TemporaryDirectory())
         os.environ["PARLANT_HOME"] = temp_dir
@@ -140,9 +122,41 @@ async def container() -> AsyncIterator[Container]:
             BackgroundTaskService(container[Logger])
         )
 
+        container[AgentStore] = await stack.enter_async_context(
+            AgentDocumentStore(TransientDocumentDatabase())
+        )
+        container[GuidelineStore] = await stack.enter_async_context(
+            GuidelineDocumentStore(TransientDocumentDatabase())
+        )
+        container[GuidelineConnectionStore] = await stack.enter_async_context(
+            GuidelineConnectionDocumentStore(TransientDocumentDatabase())
+        )
+        container[SessionStore] = await stack.enter_async_context(
+            SessionDocumentStore(TransientDocumentDatabase())
+        )
+        container[ContextVariableStore] = await stack.enter_async_context(
+            ContextVariableDocumentStore(TransientDocumentDatabase())
+        )
+        container[TagStore] = await stack.enter_async_context(
+            TagDocumentStore(TransientDocumentDatabase())
+        )
+        container[CustomerStore] = await stack.enter_async_context(
+            CustomerDocumentStore(TransientDocumentDatabase())
+        )
+        container[GuidelineToolAssociationStore] = await stack.enter_async_context(
+            GuidelineToolAssociationDocumentStore(TransientDocumentDatabase())
+        )
+        container[SessionListener] = PollingSessionListener
+        container[EvaluationStore] = await stack.enter_async_context(
+            EvaluationDocumentStore(TransientDocumentDatabase())
+        )
+        container[EvaluationListener] = PollingEvaluationListener
+        container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
+        container[EventEmitterFactory] = Singleton(EventPublisherFactory)
+
         container[ServiceRegistry] = await stack.enter_async_context(
             ServiceDocumentRegistry(
-                database=container[DocumentDatabase],
+                database=TransientDocumentDatabase(),
                 event_emitter_factory=container[EventEmitterFactory],
                 correlator=container[ContextualCorrelator],
                 nlp_services={"default": OpenAIService(container[Logger])},
@@ -151,9 +165,13 @@ async def container() -> AsyncIterator[Container]:
 
         container[NLPService] = await container[ServiceRegistry].read_nlp_service("default")
 
-        container[GlossaryStore] = GlossaryChromaStore(
-            ChromaDatabase(container[Logger], Path(temp_dir), EmbedderFactory(container)),
-            embedder_type=type(await container[NLPService].get_embedder()),
+        container[GlossaryStore] = await stack.enter_async_context(
+            GlossaryChromaStore(
+                await stack.enter_async_context(
+                    ChromaDatabase(container[Logger], Path(temp_dir), EmbedderFactory(container))
+                ),
+                embedder_type=type(await container[NLPService].get_embedder()),
+            )
         )
 
         container[SchematicGenerator[GuidelinePropositionsSchema]] = await container[

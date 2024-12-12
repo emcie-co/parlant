@@ -6,10 +6,12 @@ import styles from './message.module.scss';
 import { Spacer } from '../ui/custom/spacer';
 import { useSession } from '../chatbot/chatbot';
 import Tooltip from '../ui/custom/tooltip';
+import { twMerge } from 'tailwind-merge';
 
 interface Props {
     event: EventInterface;
     isContinual: boolean;
+    isRegenerateHidden?: boolean;
     regenerateMessageFn?: (sessionId: string, offset: number) => void;
 }
 
@@ -24,7 +26,7 @@ const statusIcon = {
     cancelled: <img src='icons/green-v.svg' title='canceled' data-testid="cancelled" height={11} width={11} className='ms-[4px]' alt='read'/>,
 };
 
-export default function Message({event, isContinual, regenerateMessageFn}: Props): ReactElement {
+export default function Message({event, isContinual, isRegenerateHidden, regenerateMessageFn}: Props): ReactElement {
     const {sessionId} = useSession();
     const isClient = event.source === 'customer' || event.source === 'customer_ui';
     const serverStatus = event.serverStatus;
@@ -50,7 +52,7 @@ export default function Message({event, isContinual, regenerateMessageFn}: Props
                     </div>
                 </div>
                 {!isClient &&
-                <div className='self-stretch items-center px-[16px] flex invisible peer-hover:visible hover:visible'>
+                <div className={twMerge('self-stretch items-center px-[16px] flex invisible peer-hover:visible hover:visible', isRegenerateHidden && 'hidden')}>
                     <Tooltip value='Regenerate' side='right'>
                         <div data-testid='regenerate-button'role='button' onClick={() => regenerateMessageFn?.(sessionId as string, event.offset)} className='group cursor-pointer'>
                             <img src="icons/regenerate.svg" alt="regenerate" className='block group-hover:hidden'/>

@@ -12,6 +12,7 @@ import styles from './session.module.scss';
 import AgentAvatar from '../agent-avatar/agent-avatar';
 import { NEW_SESSION_ID } from '../chat-header/chat-header';
 import { spaceClick } from '@/utils/methods';
+import { twJoin } from 'tailwind-merge';
 
 interface Props {
     session: SessionInterface;
@@ -135,9 +136,9 @@ export default function Session({session, isSelected, refetch, editingTitle, set
                 {editingTitle !== session.id &&
                     <div className="overflow-hidden overflow-ellipsis flex items-center">
                         <div>
-                            {agent && <AgentAvatar agent={agent} customer={customer}/>}
+                            <AgentAvatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}}/>
                         </div>
-                        <div>
+                        <div className={twJoin(!agent && 'opacity-50')}>
                             {session.title}
                             <small className='text-[12px] text-[#A9A9A9] font-light flex gap-[6px]'>
                                 {getDateStr(session.creation_utc)}

@@ -12,6 +12,7 @@ import { Spacer } from '../ui/custom/spacer';
 import { toast } from 'sonner';
 import { NEW_SESSION_ID } from '../chat-header/chat-header';
 import { useQuestionDialog } from '@/hooks/useQuestionDialog';
+import { twMerge } from 'tailwind-merge';
 
 const emptyPendingMessage: EventInterface = {
     kind: 'message',
@@ -51,8 +52,9 @@ export default function Chat(): ReactElement {
     const [isFirstScroll, setIsFirstScroll] = useState(true);
     const {openQuestionDialog, closeQuestionDialog} = useQuestionDialog();
     const [useContentFiltering] = useState(true);
+    const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 
-    const {sessionId, setSessionId, agentId, newSession, setNewSession, setSessions} = useSession();
+    const {sessionId, setSessionId, agentId, newSession, setNewSession, setSessions, agents} = useSession();
     const {data: lastMessages, refetch, ErrorTemplate} = useFetch<EventInterface[]>(
         `sessions/${sessionId}/events`,
         {min_offset: lastOffset},
@@ -60,6 +62,13 @@ export default function Chat(): ReactElement {
         sessionId !== NEW_SESSION_ID,
         !!(sessionId && sessionId !== NEW_SESSION_ID)
     );
+
+    useEffect(() => {
+        if (agents && agentId) {
+            setIsMissingAgent(!agents?.find(agent => agent.id === agentId));
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agents, agentId]);
 
     const resetChat = () => {
         setMessage('');
@@ -198,7 +207,7 @@ export default function Chat(): ReactElement {
                             {!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) &&
                             <DateHeader date={event.creation_utc} isFirst={!i}/>}
                             <div ref={lastMessageRef} className="flex flex-col">
-                                <Message event={event} isContinual={event.source === visibleMessages[i + 1]?.source} regenerateMessageFn={regenerateMessageDialog(i)}/>
+                                <Message isRegenerateHidden={!!isMissingAgent} event={event} isContinual={event.source === visibleMessages[i + 1]?.source} regenerateMessageFn={regenerateMessageDialog(i)}/>
                             </div>
                         </React.Fragment>
                     ))}
@@ -213,7 +222,7 @@ export default function Chat(): ReactElement {
                     </div>
                     )}
                 </div>
-                <div className='w-full flex justify-between'>
+                <div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
                     <Spacer/>
                     <div className="group border flex-1 border-muted border-solid rounded-full flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main">
                         <img src="icons/edit.svg" alt="" className="me-[8px] h-[14px] w-[14px]"/>

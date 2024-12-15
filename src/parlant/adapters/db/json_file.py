@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override, Self
 import aiofiles
-import aiorwlock
 
 from parlant.core.persistence.common import Where, matches_filters, ensure_is_total
+from parlant.core.async_utils import RWLock
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
@@ -46,20 +46,18 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         self._logger = logger
         self._op_counter = 0
 
-        _lock = aiorwlock.RWLock()
-        self._reader_lock = _lock.reader
-        self._writer_lock = _lock.writer
+        self._lock = RWLock()
 
         if not self.file_path.exists():
             self.file_path.write_text(json.dumps({}))
         self._collections: dict[str, JSONFileDocumentCollection[BaseDocument]]
 
     async def flush(self) -> None:
-        async with self._writer_lock:
+        async with self._lock.writer_lock:
             await self._flush_unlocked()
 
     async def __aenter__(self) -> Self:
-        async with self._reader_lock:
+        async with self._lock.reader_lock:
             raw_data = await self._load_data()
 
         schemas: dict[str, Any] = raw_data.get("__schemas__", {})
@@ -86,7 +84,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         exc_value: Optional[BaseException],
         traceback: Optional[object],
     ) -> bool:
-        async with self._writer_lock:
+        async with self._lock.writer_lock:
             await self._flush_unlocked()
         return False
 
@@ -193,9 +191,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self._schema = schema
         self._op_counter = 0
 
-        _lock = aiorwlock.RWLock()
-        self._reader_lock = _lock.reader
-        self._writer_lock = _lock.writer
+        self._lock = RWLock()
 
         self.documents = [cast(TDocument, doc) for doc in data] if data else []
 
@@ -205,7 +201,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
     ) -> Sequence[TDocument]:
         result = []
-        async with self._reader_lock:
+        async with self._lock.reader_lock:
             for doc in filter(
                 lambda d: matches_filters(filters, d),
                 self.documents,
@@ -219,7 +215,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self,
         filters: Where,
     ) -> Optional[TDocument]:
-        async with self._reader_lock:
+        async with self._lock.reader_lock:
             for doc in self.documents:
                 if matches_filters(filters, doc):
                     return doc
@@ -233,7 +229,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> InsertResult:
         ensure_is_total(document, self._schema)
 
-        async with self._writer_lock:
+        async with self._lock.writer_lock:
             self.documents.append(document)
 
         await self._database.flush()
@@ -249,7 +245,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> UpdateResult[TDocument]:
         for i, d in enumerate(self.documents):
             if matches_filters(filters, d):
-                async with self._writer_lock:
+                async with self._lock.writer_lock:
                     self.documents[i] = cast(TDocument, {**self.documents[i], **params})
 
                 await self._database.flush()
@@ -285,7 +281,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> DeleteResult[TDocument]:
         for i, d in enumerate(self.documents):
             if matches_filters(filters, d):
-                async with self._writer_lock:
+                async with self._lock.writer_lock:
                     document = self.documents.pop(i)
 
                 await self._database.flush()

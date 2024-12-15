@@ -1,14 +1,14 @@
 name: Verify and Test
 
 on:
-  push:
-    branches: [ "main", "develop" ]
   pull_request:
     branches: [ "main", "develop" ]
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+
+    if: ${{ !contains(format('{0} {1}', github.event.pull_request.title, github.event.pull_request.head.ref), 'wip') && !contains(format('{0} {1}', github.event.pull_request.title, github.event.pull_request.head.ref), 'WIP') }}
 
     strategy:
       matrix:

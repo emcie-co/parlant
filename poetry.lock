@@ -4626,20 +4626,24 @@ testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 
 [[package]]
 name = "pytest-stochastics"
-version = "0.4.4"
+version = "0.5.1"
 description = "pytest plugin that allows selectively running tests several times and accepting *some* failures."
 optional = false
-python-versions = "<4.0,>=3.10"
-files = [
-    {file = "pytest_stochastics-0.4.4-py3-none-any.whl", hash = "sha256:d48f31d6d98e6fb5c693391291a5485ee843d9ef4a49a0b4c4fe29edc78e8760"},
-    {file = "pytest_stochastics-0.4.4.tar.gz", hash = "sha256:751d7b55c9149fc5eccfdd8167db8ebff113e9f063276c560448944b2c987bb0"},
-]
+python-versions = "^3.10"
+files = []
+develop = false
 
 [package.dependencies]
-dataclasses-json = ">=0.6.7,<0.7.0"
-mypy = ">=1.11.1,<2.0.0"
-pytest = ">=8.0.0,<9.0.0"
-rich = ">=13.9.3,<14.0.0"
+dataclasses-json = "^0.6.7"
+mypy = "^1.11.1"
+pytest = "^8.0.0"
+rich = "^13.9.3"
+
+[package.source]
+type = "git"
+url = "https://github.com/emcie-co/pytest-stochastics.git"
+reference = "v0.5.1"
+resolved_reference = "51b6daee2b3db9abc3abb65945753acb7c65a97c"
 
 [[package]]
 name = "pytest-tap"
@@ -6693,4 +6697,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "baa7a0db5d81e869ebbc7e8bd208350745081b1e66abc2d6c288231ff9113976"
+content-hash = "349c2503225d7a7b1db72ae66f6290d3a5803b30ce293eeec75947f54a26d634"

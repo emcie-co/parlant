@@ -119,6 +119,8 @@ class GuidelineConnectionProposer:
         builder = PromptBuilder()
         builder.add_section(
             f"""
+GENERAL INSTRUCTIONS
+-----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a customer.
 
 Each guideline is composed of two parts:
@@ -129,12 +131,16 @@ Each guideline is composed of two parts:
 - "then": This is a natural-language instruction that should be followed by the agent
           whenever the "when" part of the guideline applies to the conversation in its particular state.
           Any instruction described here applies only to the agent, and not to the customer.
+Your task is to identify cases where the activation of one guideline causes another guideline's 'when' condition to apply.
 
-
-Sometimes, when multiple guidelines are in use, we encounter the following situation:
+When multiple guidelines are in use, we may encounter the following situation:
 Guideline 1: When <X>, then <Y>.
 Guideline 2: When <W>, then <Z>.
-Sometimes, applying the "then" of Guideline 1 (<Y>) may directly cause the "when" of Guideline 2 (<W>) to hold true, forming what we call a "causal connection" or simply "causation" from Guideline 1 to Guideline 2. This causation can only happen if the agent's action in <Y> directly causes the "when" in Guideline 2 (<W>) to become true.
+Situations where applying the "then" of Guideline 1 (<Y>) directly causes the "when" of Guideline 2 (<W>) to hold true, form what we call a "causal connection" or simply "causation" from Guideline 1 to Guideline 2. 
+
+
+Rephrasing - cau 
+This causation can only happen if the agent's action in <Y> directly causes the "when" in Guideline 2 (<W>) to become true.
 
 Important clarification: An action taken by the agent can never cause the customer to do anything. Causation only occurs if applying the source's "then" action directly and immediately causes the "when" of the target guideline to apply. Cases where the source's "then" implies that the target's "when" happened in the past, or will happen in the future, are not considered causation.
 As a result of this, if there's any scenario where the source's "then" can be applied while the target's "when" is false - then causation necessarily isn't fulfilled.

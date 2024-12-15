@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from __future__ import annotations
-import asyncio
 import importlib
 import json
 import operator
@@ -22,6 +21,7 @@ from typing import Generic, Optional, Sequence, cast
 from typing_extensions import override, Self
 import chromadb
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.logging import Logger
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import Where, ensure_is_total
@@ -181,7 +181,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         self._schema = schema
         self._embedder = embedder
 
-        self._lock = asyncio.Lock()
+        self._lock = ReaderWriterLock()
         self._chroma_collection = chromadb_collection
 
     @override
@@ -189,10 +189,11 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         self,
         filters: Where,
     ) -> Sequence[TDocument]:
-        if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters) or None)[
-            "metadatas"
-        ]:
-            return [cast(TDocument, m) for m in metadatas]
+        async with self._lock.reader_lock:
+            if metadatas := self._chroma_collection.get(
+                where=cast(chromadb.Where, filters) or None
+            )["metadatas"]:
+                return [cast(TDocument, m) for m in metadatas]
 
         return []
 
@@ -201,10 +202,11 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         self,
         filters: Where,
     ) -> Optional[TDocument]:
-        if metadatas := self._chroma_collection.get(where=cast(chromadb.Where, filters) or None)[
-            "metadatas"
-        ]:
-            return cast(TDocument, {k: v for k, v in metadatas[0].items()})
+        async with self._lock.reader_lock:
+            if metadatas := self._chroma_collection.get(
+                where=cast(chromadb.Where, filters) or None
+            )["metadatas"]:
+                return cast(TDocument, {k: v for k, v in metadatas[0].items()})
 
         return None
 
@@ -217,7 +219,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
 
         embeddings = list((await self._embedder.embed([document["content"]])).vectors)
 
-        async with self._lock:
+        async with self._lock.writer_lock:
             self._chroma_collection.add(
                 ids=[document["id"]],
                 documents=[document["content"]],
@@ -234,7 +236,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         params: TDocument,
         upsert: bool = False,
     ) -> UpdateResult[TDocument]:
-        async with self._lock:
+        async with self._lock.writer_lock:
             if docs := self._chroma_collection.get(where=cast(chromadb.Where, filters) or None)[
                 "metadatas"
             ]:
@@ -294,7 +296,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         self,
         filters: Where,
     ) -> DeleteResult[TDocument]:
-        async with self._lock:
+        async with self._lock.writer_lock:
             if docs := self._chroma_collection.get(where=cast(chromadb.Where, filters) or None)[
                 "metadatas"
             ]:
@@ -325,21 +327,24 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         query: str,
         k: int,
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
-        query_embeddings = list((await self._embedder.embed([query])).vectors)
+        async with self._lock.reader_lock:
+            query_embeddings = list((await self._embedder.embed([query])).vectors)
 
-        docs = self._chroma_collection.query(
-            where=cast(chromadb.Where, filters) or None,
-            query_embeddings=query_embeddings,
-            n_results=k,
-        )
+            docs = self._chroma_collection.query(
+                where=cast(chromadb.Where, filters) or None,
+                query_embeddings=query_embeddings,
+                n_results=k,
+            )
 
-        if not docs["metadatas"]:
-            return []
+            if not docs["metadatas"]:
+                return []
 
-        self._logger.debug(f"Similar documents found: {json.dumps(docs['metadatas'][0], indent=2)}")
+            self._logger.debug(
+                f"Similar documents found: {json.dumps(docs['metadatas'][0], indent=2)}"
+            )
 
-        assert docs["distances"]
-        return [
-            SimilarDocumentResult(document=cast(TDocument, m), distance=d)
-            for m, d in zip(docs["metadatas"][0], docs["distances"][0])
-        ]
+            assert docs["distances"]
+            return [
+                SimilarDocumentResult(document=cast(TDocument, m), distance=d)
+                for m, d in zip(docs["metadatas"][0], docs["distances"][0])
+            ]

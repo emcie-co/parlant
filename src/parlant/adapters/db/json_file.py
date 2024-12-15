@@ -22,7 +22,7 @@ from typing_extensions import override, Self
 import aiofiles
 
 from parlant.core.persistence.common import Where, matches_filters, ensure_is_total
-from parlant.core.async_utils import RWLock
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
@@ -46,7 +46,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         self._logger = logger
         self._op_counter = 0
 
-        self._lock = RWLock()
+        self._lock = ReaderWriterLock()
 
         if not self.file_path.exists():
             self.file_path.write_text(json.dumps({}))
@@ -191,7 +191,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self._schema = schema
         self._op_counter = 0
 
-        self._lock = RWLock()
+        self._lock = ReaderWriterLock()
 
         self.documents = [cast(TDocument, doc) for doc in data] if data else []
 

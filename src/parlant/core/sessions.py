@@ -29,7 +29,7 @@ from typing import (
 )
 from typing_extensions import override, TypedDict, NotRequired, Self
 
-from parlant.core.async_utils import Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout
 from parlant.core.common import (
     ItemNotFoundError,
     JSONSerializable,
@@ -384,7 +384,7 @@ class SessionDocumentStore(SessionStore):
         self._event_collection: DocumentCollection[_EventDocument]
         self._inspection_collection: DocumentCollection[_InspectionDocument]
 
-        self._lock = asyncio.Lock()
+        self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._session_collection = await self._database.get_or_create_collection(
@@ -603,7 +603,7 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
     ) -> None:
-        async with self._lock:
+        async with self._lock.writer_lock:
             events = await self._event_collection.find(filters={"session_id": {"$eq": session_id}})
             asyncio.gather(
                 *(
@@ -679,7 +679,7 @@ class SessionDocumentStore(SessionStore):
         if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
             raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        async with self._lock:
+        async with self._lock.writer_lock:
             session_events = await self.list_events(
                 session_id
             )  # FIXME: we need a more efficient way to do this

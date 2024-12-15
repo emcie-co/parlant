@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Coroutine, Iterable, TypeVar, overload, AsyncContextManager
 import asyncio
 import math
-
 import aiorwlock
 
 
@@ -132,7 +131,7 @@ async def safe_gather(  # type: ignore[misc]
         raise
 
 
-class RWLock:
+class ReaderWriterLock:
     def __init__(self) -> None:
         _lock = aiorwlock.RWLock()
         self._reader_lock = _lock.reader

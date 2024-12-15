@@ -384,6 +384,8 @@ class SessionDocumentStore(SessionStore):
         self._event_collection: DocumentCollection[_EventDocument]
         self._inspection_collection: DocumentCollection[_InspectionDocument]
 
+        self._lock = asyncio.Lock()
+
     async def __aenter__(self) -> Self:
         self._session_collection = await self._database.get_or_create_collection(
             name="sessions",
@@ -601,12 +603,16 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
     ) -> None:
-        events = await self._event_collection.find(filters={"session_id": {"$eq": session_id}})
-        asyncio.gather(
-            *(self._event_collection.delete_one(filters={"id": {"$eq": e["id"]}}) for e in events)
-        )
+        async with self._lock:
+            events = await self._event_collection.find(filters={"session_id": {"$eq": session_id}})
+            asyncio.gather(
+                *(
+                    self._event_collection.delete_one(filters={"id": {"$eq": e["id"]}})
+                    for e in events
+                )
+            )
 
-        await self._session_collection.delete_one({"id": {"$eq": session_id}})
+            await self._session_collection.delete_one({"id": {"$eq": session_id}})
 
     @override
     async def read_session(
@@ -673,24 +679,27 @@ class SessionDocumentStore(SessionStore):
         if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
             raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        session_events = await self.list_events(
-            session_id
-        )  # FIXME: we need a more efficient way to do this
-        creation_utc = creation_utc or datetime.now(timezone.utc)
-        offset = len(list(session_events))
+        async with self._lock:
+            session_events = await self.list_events(
+                session_id
+            )  # FIXME: we need a more efficient way to do this
+            creation_utc = creation_utc or datetime.now(timezone.utc)
+            offset = len(list(session_events))
 
-        event = Event(
-            id=EventId(generate_id()),
-            source=source,
-            kind=kind,
-            offset=offset,
-            creation_utc=creation_utc,
-            correlation_id=correlation_id,
-            data=data,
-            deleted=False,
-        )
+            event = Event(
+                id=EventId(generate_id()),
+                source=source,
+                kind=kind,
+                offset=offset,
+                creation_utc=creation_utc,
+                correlation_id=correlation_id,
+                data=data,
+                deleted=False,
+            )
 
-        await self._event_collection.insert_one(document=self._serialize_event(event, session_id))
+            await self._event_collection.insert_one(
+                document=self._serialize_event(event, session_id)
+            )
 
         return event
 

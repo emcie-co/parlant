@@ -580,21 +580,22 @@ class SessionDocumentStore(SessionStore):
         title: Optional[str] = None,
         mode: Optional[SessionMode] = None,
     ) -> Session:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        consumption_offsets: dict[ConsumerId, int] = {"client": 0}
+            consumption_offsets: dict[ConsumerId, int] = {"client": 0}
 
-        session = Session(
-            id=SessionId(generate_id()),
-            creation_utc=creation_utc,
-            customer_id=customer_id,
-            agent_id=agent_id,
-            mode=mode or "auto",
-            consumption_offsets=consumption_offsets,
-            title=title,
-        )
+            session = Session(
+                id=SessionId(generate_id()),
+                creation_utc=creation_utc,
+                customer_id=customer_id,
+                agent_id=agent_id,
+                mode=mode or "auto",
+                consumption_offsets=consumption_offsets,
+                title=title,
+            )
 
-        await self._session_collection.insert_one(document=self._serialize_session(session))
+            await self._session_collection.insert_one(document=self._serialize_session(session))
 
         return session
 
@@ -619,9 +620,10 @@ class SessionDocumentStore(SessionStore):
         self,
         session_id: SessionId,
     ) -> Session:
-        session_document = await self._session_collection.find_one(
-            filters={"id": {"$eq": session_id}}
-        )
+        async with self._lock.reader_lock:
+            session_document = await self._session_collection.find_one(
+                filters={"id": {"$eq": session_id}}
+            )
 
         if not session_document:
             raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
@@ -634,17 +636,18 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         params: SessionUpdateParams,
     ) -> Session:
-        session_document = await self._session_collection.find_one(
-            filters={"id": {"$eq": session_id}}
-        )
+        async with self._lock.writer_lock:
+            session_document = await self._session_collection.find_one(
+                filters={"id": {"$eq": session_id}}
+            )
 
-        if not session_document:
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+            if not session_document:
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        result = await self._session_collection.update_one(
-            filters={"id": {"$eq": session_id}},
-            params=cast(_SessionDocument, params),
-        )
+            result = await self._session_collection.update_one(
+                filters={"id": {"$eq": session_id}},
+                params=cast(_SessionDocument, params),
+            )
 
         assert result.updated_document
 
@@ -676,10 +679,10 @@ class SessionDocumentStore(SessionStore):
         data: JSONSerializable,
         creation_utc: Optional[datetime] = None,
     ) -> Event:
-        if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
-
         async with self._lock.writer_lock:
+            if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+
             session_events = await self.list_events(
                 session_id
             )  # FIXME: we need a more efficient way to do this
@@ -709,13 +712,14 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         event_id: EventId,
     ) -> Event:
-        if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+        async with self._lock.reader_lock:
+            if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        if event_document := await self._event_collection.find_one(
-            filters={"id": {"$eq": event_id}}
-        ):
-            return self._deserialize_event(event_document)
+            if event_document := await self._event_collection.find_one(
+                filters={"id": {"$eq": event_id}}
+            ):
+                return self._deserialize_event(event_document)
 
         raise ItemNotFoundError(item_id=UniqueId(event_id), message="Event not found")
 
@@ -724,10 +728,11 @@ class SessionDocumentStore(SessionStore):
         self,
         event_id: EventId,
     ) -> None:
-        result = await self._event_collection.update_one(
-            filters={"id": {"$eq": event_id}},
-            params=cast(_EventDocument, {"deleted": True}),
-        )
+        async with self._lock.writer_lock:
+            result = await self._event_collection.update_one(
+                filters={"id": {"$eq": event_id}},
+                params=cast(_EventDocument, {"deleted": True}),
+            )
 
         if result.matched_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(event_id), message="Event not found")
@@ -742,28 +747,29 @@ class SessionDocumentStore(SessionStore):
         min_offset: Optional[int] = None,
         exclude_deleted: bool = True,
     ) -> Sequence[Event]:
-        if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+        async with self._lock.reader_lock:
+            if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        base_filters = {
-            "session_id": {"$eq": session_id},
-            **({"source": {"$eq": source}} if source else {}),
-            **({"offset": {"$gte": min_offset}} if min_offset else {}),
-            **({"correlation_id": {"$eq": correlation_id}} if correlation_id else {}),
-            **({"deleted": {"$eq": False}} if exclude_deleted else {}),
-        }
+            base_filters = {
+                "session_id": {"$eq": session_id},
+                **({"source": {"$eq": source}} if source else {}),
+                **({"offset": {"$gte": min_offset}} if min_offset else {}),
+                **({"correlation_id": {"$eq": correlation_id}} if correlation_id else {}),
+                **({"deleted": {"$eq": False}} if exclude_deleted else {}),
+            }
 
-        if kinds:
-            event_documents = await self._event_collection.find(
-                cast(Where, {"$or": [{**base_filters, "kind": {"$eq": k}} for k in kinds]})
-            )
-        else:
-            event_documents = await self._event_collection.find(
-                cast(
-                    Where,
-                    base_filters,
+            if kinds:
+                event_documents = await self._event_collection.find(
+                    cast(Where, {"$or": [{**base_filters, "kind": {"$eq": k}} for k in kinds]})
                 )
-            )
+            else:
+                event_documents = await self._event_collection.find(
+                    cast(
+                        Where,
+                        base_filters,
+                    )
+                )
 
         return [self._deserialize_event(d) for d in event_documents]
 
@@ -775,21 +781,22 @@ class SessionDocumentStore(SessionStore):
         message_generations: Sequence[MessageGenerationInspection],
         preparation_iterations: Sequence[PreparationIteration],
     ) -> Inspection:
-        if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+        async with self._lock.writer_lock:
+            if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        inspection = Inspection(
-            message_generations=message_generations,
-            preparation_iterations=preparation_iterations,
-        )
-
-        await self._inspection_collection.insert_one(
-            document=self._serialize_inspection(
-                inspection,
-                session_id,
-                correlation_id,
+            inspection = Inspection(
+                message_generations=message_generations,
+                preparation_iterations=preparation_iterations,
             )
-        )
+
+            await self._inspection_collection.insert_one(
+                document=self._serialize_inspection(
+                    inspection,
+                    session_id,
+                    correlation_id,
+                )
+            )
 
         return inspection
 
@@ -799,23 +806,24 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         correlation_id: str,
     ) -> Inspection:
-        if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
-            raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+        async with self._lock.reader_lock:
+            if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-        if not await self._event_collection.find_one(
-            filters={
-                "correlation_id": {"$eq": correlation_id},
-                "kind": {"$eq": "message"},
-            }
-        ):
-            raise ItemNotFoundError(
-                item_id=UniqueId(correlation_id), message="Message event not found"
-            )
+            if not await self._event_collection.find_one(
+                filters={
+                    "correlation_id": {"$eq": correlation_id},
+                    "kind": {"$eq": "message"},
+                }
+            ):
+                raise ItemNotFoundError(
+                    item_id=UniqueId(correlation_id), message="Message event not found"
+                )
 
-        if inspection_document := await self._inspection_collection.find_one(
-            filters={"correlation_id": {"$eq": correlation_id}}
-        ):
-            return self._deserialize_message_inspection(inspection_document)
+            if inspection_document := await self._inspection_collection.find_one(
+                filters={"correlation_id": {"$eq": correlation_id}}
+            ):
+                return self._deserialize_message_inspection(inspection_document)
 
         raise ItemNotFoundError(
             item_id=UniqueId(correlation_id), message="Message inspection not found"

@@ -138,14 +138,14 @@ async def create_api_app(container: Container) -> ASGIApplication:
             detail=str(exc),
         )
 
-    agent_router = APIRouter()
-
     static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
     api_app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
 
     @api_app.get("/", include_in_schema=False)
     async def root() -> Response:
         return RedirectResponse("/chat")
+
+    agent_router = APIRouter()
 
     agent_router.include_router(
         agents.create_router(

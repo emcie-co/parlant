@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from typing import Any
-from fastapi.testclient import TestClient
 from fastapi import status
+import httpx
 from lagom import Container
 from pytest import mark, raises
 
@@ -22,11 +22,11 @@ from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError
 
 
-def test_that_an_agent_can_be_created_without_description(
-    client: TestClient,
+async def test_that_an_agent_can_be_created_without_description(
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.post(
-        "/agents",
+    response = await async_client.post(
+        "/agents/",
         json={"name": "test-agent"},
     )
 
@@ -38,11 +38,11 @@ def test_that_an_agent_can_be_created_without_description(
     assert agent["description"] is None
 
 
-def test_that_an_agent_can_be_created_with_description(
-    client: TestClient,
+async def test_that_an_agent_can_be_created_with_description(
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.post(
-        "/agents",
+    response = await async_client.post(
+        "/agents/",
         json={"name": "test-agent", "description": "You are a test agent"},
     )
 
@@ -54,11 +54,11 @@ def test_that_an_agent_can_be_created_with_description(
     assert agent["description"] == "You are a test agent"
 
 
-def test_that_an_agent_can_be_created_without_max_engine_iterations(
-    client: TestClient,
+async def test_that_an_agent_can_be_created_without_max_engine_iterations(
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.post(
-        "/agents",
+    response = await async_client.post(
+        "/agents/",
         json={"name": "test-agent"},
     )
 
@@ -70,11 +70,11 @@ def test_that_an_agent_can_be_created_without_max_engine_iterations(
     assert agent["max_engine_iterations"] == 3
 
 
-def test_that_an_agent_can_be_created_with_max_engine_iterations(
-    client: TestClient,
+async def test_that_an_agent_can_be_created_with_max_engine_iterations(
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.post(
-        "/agents",
+    response = await async_client.post(
+        "/agents/",
         json={"name": "test-agent", "max_engine_iterations": 1},
     )
 
@@ -97,7 +97,7 @@ def test_that_an_agent_can_be_created_with_max_engine_iterations(
     ),
 )
 async def test_that_agent_can_be_updated(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     patch_request: dict[str, Any],
 ) -> None:
@@ -105,9 +105,11 @@ async def test_that_agent_can_be_updated(
     agent = await agent_store.create_agent("test-agent")
 
     agent_dto = (
-        client.patch(
-            f"/agents/{agent.id}",
-            json=patch_request,
+        (
+            await async_client.patch(
+                f"/agents/{agent.id}",
+                json=patch_request,
+            )
         )
         .raise_for_status()
         .json()
@@ -119,13 +121,13 @@ async def test_that_agent_can_be_updated(
 
 
 async def test_that_an_agent_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     agent_store = container[AgentStore]
     agent = await agent_store.create_agent("test-agent")
 
-    delete_response = client.delete(
+    delete_response = await async_client.delete(
         f"/agents/{agent.id}",
     )
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT

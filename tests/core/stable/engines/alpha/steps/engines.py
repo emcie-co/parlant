@@ -26,7 +26,7 @@ from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.types import Context
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.sessions import SessionId, SessionStore
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from tests.core.stable.engines.alpha.utils import ContextOfTest, step
 
 
 @step(given, "the alpha engine", target_fixture="engine")

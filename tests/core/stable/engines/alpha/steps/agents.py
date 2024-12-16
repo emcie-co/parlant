@@ -16,7 +16,7 @@ from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId, AgentStore
 
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from tests.core.stable.engines.alpha.utils import ContextOfTest, step
 
 
 @step(given, "an agent", target_fixture="agent_id")

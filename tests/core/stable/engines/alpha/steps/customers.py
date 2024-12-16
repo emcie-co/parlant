@@ -17,7 +17,7 @@ from pytest_bdd import given, parsers
 from parlant.core.customers import CustomerStore, CustomerId
 from parlant.core.sessions import SessionStore, SessionId
 from parlant.core.tags import TagStore
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from tests.core.stable.engines.alpha.utils import ContextOfTest, step
 
 
 @step(given, parsers.parse('a customer with the name "{name}"'))

@@ -23,7 +23,7 @@ from parlant.core.sessions import Session
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.engines.alpha.engine import fresh_value
 from parlant.core.tools import LocalToolService, ToolId
-from tests.core.engines.alpha.utils import ContextOfTest
+from tests.core.stable.engines.alpha.utils import ContextOfTest
 
 
 async def create_fetch_account_balance_tool(container: Container) -> None:

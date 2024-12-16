@@ -30,8 +30,8 @@ from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventSource
 from parlant.core.tools import LocalToolService, Tool, ToolContext, ToolId, ToolResult
-from tests.core.engines.alpha.utils import create_event_message
-from tests.core.services.tools.test_plugin_client import run_service_server
+from tests.core.stable.engines.alpha.utils import create_event_message
+from tests.core.stable.services.tools.test_plugin_client import run_service_server
 
 
 @fixture

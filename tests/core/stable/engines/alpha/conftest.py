@@ -20,7 +20,7 @@ from parlant.core.agents import Agent, AgentId, AgentStore
 
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.sessions import Session, SessionStore
-from tests.core.engines.alpha.utils import ContextOfTest
+from tests.core.stable.engines.alpha.utils import ContextOfTest
 from tests.test_utilities import SyncAwaiter
 
 

@@ -5,6 +5,9 @@ PARLANT_HOME := "./cache"
 LOGS_DIR := "./logs"
 SERVER_ADDRESS := env("SERVER_ADDRESS", "http://localhost:8800")
 
+what:
+  echo "just... what?"
+
 setup-cache:
   mkdir -p {{PARLANT_HOME}}
 
@@ -34,43 +37,67 @@ setup-cache:
 
 @test *tests='': mklogdir
   poetry run pytest \
-    -v {{tests}} \
-    --plan=initial \
+    -vv {{tests}} --plan=complete \
     --tap-combined --tap-outdir=logs \
+    --timing-file=logs/test_timings.csv \
     --junit-xml=logs/testresults.xml \
-    | tee logs/testresults.log
+    --color=auto
 
 @test-ns *tests='': mklogdir
   poetry run pytest \
-    -v {{tests}} \
+    -vv {{tests}} \
     --tap-combined --tap-outdir=logs \
+    --timing-file=logs/test_timings.csv \
     --junit-xml=logs/testresults.xml \
-    | tee logs/testresults.log
+    --color=auto
 
-@test-co *tests='': mklogdir
-  poetry run pytest \
-    -v {{tests}} \
-    --plan=initial --co \
-    --tap-combined --tap-outdir=logs \
-    --junit-xml=logs/testresults.xml \
-    | tee logs/testresults.log
+@test-deterministic *specs='':
+    poetry run pytest \
+      -vv {{specs}} --plan=deterministic --use-cache \
+      --tap-combined --tap-outdir=logs/deterministic \
+      --timing-file=logs/deterministic/test_timings.csv \
+      --junit-xml=logs/deterministic/testresults.xml \
+      --color=auto
 
-@test-ns-co *tests='': mklogdir
-  poetry run pytest \
-    -v {{tests}} \
-    --co \
-    --tap-combined --tap-outdir=logs \
-    --junit-xml=logs/testresults.xml \
-    | tee logs/testresults.log
+@test-stochastic *specs='':
+    poetry run pytest \
+      -vv {{specs}} --plan=stochastic \
+      --tap-combined --tap-outdir=logs/stochastic \
+      --timing-file=logs/stochastic/test_timings.csv \
+      --junit-xml=logs/stochastic/testresults.xml \
+      --color=auto
 
-@test-client:
-  poetry run pytest \
-    -v tests/api tests/e2e/test_client_cli_via_api.py --plan=initial
+@test-core-stable *specs='':
+    poetry run pytest \
+      -vv {{specs}} --plan=core_stable \
+      --tap-combined --tap-outdir=logs/core_stable \
+      --timing-file=logs/core_stable/test_timings.csv \
+      --junit-xml=logs/core_stable/testresults.xml \
+      --color=auto
 
-@test-client-ns:
-  poetry run pytest \
-    -v tests/api tests/e2e/test_client_cli_via_api.py
+@test-core-unstable *specs='':
+    poetry run pytest \
+      -vv {{specs}} --plan=core_unstable \
+      --tap-combined --tap-outdir=logs/core_unstable \
+      --timing-file=logs/core_unstable/test_timings.csv \
+      --junit-xml=logs/core_unstable/testresults.xml \
+      --color=auto
 
+@test-core-experimental *specs='':
+    poetry run pytest \
+      -vv {{specs}} --plan=core_experimental \
+      --tap-combined --tap-outdir=logs/core_experimental \
+      --timing-file=logs/core_experimental/test_timings.csv \
+      --junit-xml=logs/core_experimental/testresults.xml \
+      --color=auto
+
+@test-list:
+  echo "just test-deterministic #(uses cache)"
+  echo "just test-stochastic #(no cache)"
+  echo "just test-core-stable #(no cache)"
+  echo "just test-core-unstable #(no cache)"
+  echo "just test-core-experimental #(no cache)"
+  
 @install:
   clear
   poetry lock --no-update

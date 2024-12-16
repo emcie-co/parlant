@@ -110,19 +110,21 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
     return {"patience": 10}
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    group = parser.getgroup("caching")
+    group.addoption(
+        "--use-cache",
+        action="store_true",
+        dest="use_cache",
+        help="Whether to use the cache during the current test suite",
+    )
+
+
 @fixture
 async def container(request: pytest.FixtureRequest) -> AsyncIterator[Container]:
     container = Container()
 
-    stochastic_plan = next(
-        (arg.split("=")[1] for arg in request.config.invocation_params.args if "--plan" in arg),
-        None,
-    )
-
-    use_cache = {
-        None: True,
-        "initial": True,
-    }.get(stochastic_plan, False)
+    use_cache = bool(request.config.getoption("use_cache", False))
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])

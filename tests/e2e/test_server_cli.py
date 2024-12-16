@@ -25,7 +25,7 @@ from tests.e2e.test_utilities import (
     run_server,
 )
 from tests.test_utilities import nlp_test
-from tests.core.services.tools.test_plugin_client import run_service_server
+from tests.core.stable.services.tools.test_plugin_client import run_service_server
 
 
 REASONABLE_AMOUNT_OF_TIME = 5

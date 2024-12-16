@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from pytest_bdd import scenarios
-from tests.core.engines.alpha.utils import load_steps
+from tests.core.stable.engines.alpha.utils import load_steps
 
 
 load_steps(
@@ -31,7 +31,7 @@ load_steps(
 
 scenarios(
     *(
-        f"core/engines/alpha/features/user_stories/{feature}.feature"
+        f"core/stable/engines/alpha/features/user_stories/{feature}.feature"
         for feature in ("conversation",)
     )
 )

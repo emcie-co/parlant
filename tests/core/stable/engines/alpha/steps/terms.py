@@ -17,7 +17,7 @@ from pytest_bdd import given, parsers
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.glossary import GlossaryStore
 
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from tests.core.stable.engines.alpha.utils import ContextOfTest, step
 
 
 @step(given, parsers.parse('the term "{term_name}" defined as {term_description}'))

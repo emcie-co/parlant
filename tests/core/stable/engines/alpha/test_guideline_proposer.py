@@ -45,7 +45,7 @@ from parlant.core.sessions import EventSource
 from parlant.core.logging import Logger
 from parlant.core.glossary import TermId
 
-from tests.core.engines.alpha.utils import create_event_message
+from tests.core.stable.engines.alpha.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
 

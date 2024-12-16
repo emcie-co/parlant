@@ -25,7 +25,7 @@ from parlant.core.guidelines import GuidelineStore
 
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import LocalToolService, ToolId
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from tests.core.stable.engines.alpha.utils import ContextOfTest, step
 
 
 @step(given, parsers.parse('an association between "{guideline_name}" and "{tool_name}"'))

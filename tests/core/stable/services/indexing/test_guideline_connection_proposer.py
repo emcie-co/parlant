@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from lagom import Container
 from typing import Sequence
 
-from lagom import Container
 from pytest import fixture
 
 from parlant.core.agents import Agent, AgentId

@@ -12,18 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pytest_bdd import given, parsers
-from parlant.core.tags import TagStore, TagId
-from tests.core.engines.alpha.utils import ContextOfTest, step
+from pytest_bdd import scenarios
+from tests.core.stable.engines.alpha.utils import load_steps
+from tests.core.stable.engines.alpha.conftest import *
 
+load_steps(
+    "agents",
+    "context_variables",
+    "engines",
+    "events",
+    "guidelines",
+    "sessions",
+    "terms",
+    "tools",
+    "customers",
+    "tags",
+)
 
-@step(given, parsers.parse('a tag "{tag_name}"'))
-def given_a_tag(
-    context: ContextOfTest,
-    tag_name: str,
-) -> TagId:
-    tag_store = context.container[TagStore]
-
-    tag = context.sync_await(tag_store.create_tag(tag_name))
-
-    return tag.id
+scenarios(
+    *(
+        f"core/unstable/engines/alpha/features/user_stories/{feature}.feature"
+        for feature in ("conversation",)
+    )
+)

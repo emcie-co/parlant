@@ -17,8 +17,8 @@ import os
 import time
 from typing import Any, cast
 import dateutil
-from fastapi.testclient import TestClient
 from fastapi import status
+import httpx
 from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
@@ -125,11 +125,11 @@ def get_cow_uttering() -> ToolResult:
 ###############################################################################
 
 
-def test_that_a_session_can_be_created_without_a_title(
-    client: TestClient,
+async def test_that_a_session_can_be_created_without_a_title(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         "/sessions",
         json={
             "customer_id": "test_customer",
@@ -146,13 +146,13 @@ def test_that_a_session_can_be_created_without_a_title(
     assert data["title"] is None
 
 
-def test_that_a_session_can_be_created_with_title(
-    client: TestClient,
+async def test_that_a_session_can_be_created_with_title(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     title = "Test Session Title"
 
-    response = client.post(
+    response = await async_client.post(
         "/sessions",
         json={
             "customer_id": "test_customer",
@@ -169,19 +169,21 @@ def test_that_a_session_can_be_created_with_title(
     assert data["title"] == title
 
 
-def test_that_a_created_session_has_meaningful_creation_utc(
-    client: TestClient,
+async def test_that_a_created_session_has_meaningful_creation_utc(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     time_before_creation = datetime.now(timezone.utc)
 
     data = (
-        client.post(
-            "/sessions",
-            json={
-                "customer_id": "test_customer",
-                "agent_id": agent_id,
-            },
+        (
+            await async_client.post(
+                "/sessions",
+                json={
+                    "customer_id": "test_customer",
+                    "agent_id": agent_id,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -199,20 +201,20 @@ def test_that_a_created_session_has_meaningful_creation_utc(
 
 
 async def test_that_a_session_can_be_read(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     agent = await create_agent(container, "test-agent")
     session = await create_session(container, agent_id=agent.id, title="first-session")
 
-    data = client.get(f"/sessions/{session.id}").raise_for_status().json()
+    data = (await async_client.get(f"/sessions/{session.id}")).raise_for_status().json()
 
     assert data["id"] == session.id
     assert data["agent_id"] == session.agent_id
 
 
 async def test_that_sessions_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     agents = [
@@ -226,7 +228,7 @@ async def test_that_sessions_can_be_listed(
         await create_session(container, agent_id=agents[1].id, title="third-session"),
     ]
 
-    data = client.get("/sessions").raise_for_status().json()
+    data = (await async_client.get("/sessions")).raise_for_status().json()
 
     assert len(data) == len(sessions)
 
@@ -236,7 +238,7 @@ async def test_that_sessions_can_be_listed(
 
 
 async def test_that_sessions_can_be_listed_by_agent_id(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     agents = [
@@ -253,7 +255,11 @@ async def test_that_sessions_can_be_listed_by_agent_id(
     for agent in agents:
         agent_sessions = [s for s in sessions if s.agent_id == agent.id]
 
-        data = client.get("/sessions", params={"agent_id": agent.id}).raise_for_status().json()
+        data = (
+            (await async_client.get("/sessions", params={"agent_id": agent.id}))
+            .raise_for_status()
+            .json()
+        )
 
         assert len(data) == len(agent_sessions)
 
@@ -264,7 +270,7 @@ async def test_that_sessions_can_be_listed_by_agent_id(
 
 
 async def test_that_sessions_can_be_listed_by_customer_id(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -274,17 +280,21 @@ async def test_that_sessions_can_be_listed_by_customer_id(
         container, agent_id=agent_id, title="three-session", customer_id=CustomerId("Joe")
     )
 
-    data = client.get("/sessions", params={"customer_id": "Joe"}).raise_for_status().json()
+    data = (
+        (await async_client.get("/sessions", params={"customer_id": "Joe"}))
+        .raise_for_status()
+        .json()
+    )
 
     assert len(data) == 1
     assert data[0]["customer_id"] == "Joe"
 
 
-def test_that_a_session_is_created_with_zeroed_out_consumption_offsets(
-    client: TestClient,
+async def test_that_a_session_is_created_with_zeroed_out_consumption_offsets(
+    async_client: httpx.AsyncClient,
     long_session_id: SessionId,
 ) -> None:
-    data = client.get(f"/sessions/{long_session_id}").raise_for_status().json()
+    data = (await async_client.get(f"/sessions/{long_session_id}")).raise_for_status().json()
 
     assert "consumption_offsets" in data
     assert "client" in data["consumption_offsets"]
@@ -292,19 +302,21 @@ def test_that_a_session_is_created_with_zeroed_out_consumption_offsets(
 
 
 @mark.parametrize("consumer_id", ["client"])
-def test_that_consumption_offsets_can_be_updated(
-    client: TestClient,
+async def test_that_consumption_offsets_can_be_updated(
+    async_client: httpx.AsyncClient,
     long_session_id: SessionId,
     consumer_id: str,
 ) -> None:
     session_dto = (
-        client.patch(
-            f"/sessions/{long_session_id}",
-            json={
-                "consumption_offsets": {
-                    consumer_id: 1,
-                }
-            },
+        (
+            await async_client.patch(
+                f"/sessions/{long_session_id}",
+                json={
+                    "consumption_offsets": {
+                        consumer_id: 1,
+                    }
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -313,13 +325,13 @@ def test_that_consumption_offsets_can_be_updated(
     assert session_dto["consumption_offsets"][consumer_id] == 1
 
 
-def test_that_title_can_be_updated(
-    client: TestClient,
+async def test_that_title_can_be_updated(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
     session_dto = (
         (
-            client.patch(
+            await async_client.patch(
                 f"/sessions/{session_id}",
                 json={"title": "new session title"},
             )
@@ -331,38 +343,38 @@ def test_that_title_can_be_updated(
     assert session_dto["title"] == "new session title"
 
 
-def test_that_deleting_a_nonexistent_session_returns_404(
-    client: TestClient,
+async def test_that_deleting_a_nonexistent_session_returns_404(
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.delete("/sessions/nonexistent-session-id")
+    response = await async_client.delete("/sessions/nonexistent-session-id")
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_that_a_session_can_be_deleted(
-    client: TestClient,
+async def test_that_a_session_can_be_deleted(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    client.delete(f"/sessions/{session_id}").raise_for_status()
+    (await async_client.delete(f"/sessions/{session_id}")).raise_for_status()
 
-    get_response = client.get(f"/sessions/{session_id}")
+    get_response = await async_client.get(f"/sessions/{session_id}")
     assert get_response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_a_deleted_session_is_removed_from_the_session_list(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    sessions = client.get("/sessions").raise_for_status().json()
+    sessions = (await async_client.get("/sessions")).raise_for_status().json()
     assert any(session["id"] == str(session_id) for session in sessions)
 
-    client.delete(f"/sessions/{session_id}").raise_for_status()
+    (await async_client.delete(f"/sessions/{session_id}")).raise_for_status()
 
-    sessions_after_deletion = client.get("/sessions").raise_for_status().json()
+    sessions_after_deletion = (await async_client.get("/sessions")).raise_for_status().json()
     assert not any(session["session_id"] == str(session_id) for session in sessions_after_deletion)
 
 
 async def test_that_all_sessions_related_to_customer_can_be_deleted_in_one_request(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -373,7 +385,7 @@ async def test_that_all_sessions_related_to_customer_can_be_deleted_in_one_reque
             customer_id=CustomerId("test-customer"),
         )
 
-    response = client.delete("/sessions", params={"customer_id": "test-customer"})
+    response = await async_client.delete("/sessions", params={"customer_id": "test-customer"})
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
@@ -383,7 +395,7 @@ async def test_that_all_sessions_related_to_customer_can_be_deleted_in_one_reque
 
 
 async def test_that_all_sessions_can_be_deleted_with_one_request(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
     container: Container,
 ) -> None:
@@ -394,7 +406,7 @@ async def test_that_all_sessions_can_be_deleted_with_one_request(
             customer_id=CustomerId("test-customer"),
         )
 
-    response = client.delete("/sessions", params={"agent_id": agent_id})
+    response = await async_client.delete("/sessions", params={"agent_id": agent_id})
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
@@ -404,7 +416,7 @@ async def test_that_all_sessions_can_be_deleted_with_one_request(
 
 
 async def test_that_deleting_a_session_also_deletes_its_events(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
@@ -415,12 +427,12 @@ async def test_that_deleting_a_session_also_deletes_its_events(
 
     await populate_session_id(container, session_id, session_events)
 
-    events = client.get(f"/sessions/{session_id}/events").raise_for_status().json()
+    events = (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
     assert len(events) == len(session_events)
 
-    client.delete(f"/sessions/{session_id}").raise_for_status()
+    (await async_client.delete(f"/sessions/{session_id}")).raise_for_status()
 
-    events_after_deletion = client.get(f"/sessions/{session_id}/events")
+    events_after_deletion = await async_client.get(f"/sessions/{session_id}/events")
     assert events_after_deletion.status_code == status.HTTP_404_NOT_FOUND
 
 
@@ -430,7 +442,7 @@ async def test_that_deleting_a_session_also_deletes_its_events(
 
 
 async def test_that_events_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
@@ -444,7 +456,7 @@ async def test_that_events_can_be_listed(
 
     await populate_session_id(container, session_id, session_events)
 
-    data = client.get(f"/sessions/{session_id}/events").raise_for_status().json()
+    data = (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
 
     assert len(data) == len(session_events)
 
@@ -455,7 +467,7 @@ async def test_that_events_can_be_listed(
 
 @mark.parametrize("offset", (0, 2, 4))
 async def test_that_events_can_be_filtered_by_offset(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
     offset: int,
@@ -471,11 +483,13 @@ async def test_that_events_can_be_filtered_by_offset(
     await populate_session_id(container, session_id, session_events)
 
     retrieved_events = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "min_offset": offset,
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "min_offset": offset,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -486,11 +500,11 @@ async def test_that_events_can_be_filtered_by_offset(
 
 
 @mark.skipif(not os.environ.get("LAKERA_API_KEY", False), reason="Lakera API key is missing")
-def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
-    client: TestClient,
+async def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         f"/sessions/{session_id}/events",
         params={"moderation": "paranoid"},
         json={
@@ -508,11 +522,11 @@ def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
     assert "jailbreak" in event["data"].get("tags", [])
 
 
-def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_to_be_flagged_and_tagged_as_such(
-    client: TestClient,
+async def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_to_be_flagged_and_tagged_as_such(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         f"/sessions/{session_id}/events",
         params={"moderation": "auto"},
         json={
@@ -530,11 +544,11 @@ def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_t
     assert "harassment" in event["data"].get("tags", [])
 
 
-def test_that_expressing_frustration_does_not_cause_a_message_to_be_flagged(
-    client: TestClient,
+async def test_that_expressing_frustration_does_not_cause_a_message_to_be_flagged(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         f"/sessions/{session_id}/events",
         params={"moderation": "auto"},
         json={
@@ -551,11 +565,11 @@ def test_that_expressing_frustration_does_not_cause_a_message_to_be_flagged(
     assert not event["data"].get("flagged", True)
 
 
-def test_that_posting_a_customer_message_elicits_a_response_from_the_agent(
-    client: TestClient,
+async def test_that_posting_a_customer_message_elicits_a_response_from_the_agent(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         f"/sessions/{session_id}/events",
         json={
             "kind": "message",
@@ -569,13 +583,15 @@ def test_that_posting_a_customer_message_elicits_a_response_from_the_agent(
     event = response.json()
 
     events_in_session = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "min_offset": event["offset"] + 1,
-                "kinds": "message",
-                "source": "ai_agent",
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "min_offset": event["offset"] + 1,
+                    "kinds": "message",
+                    "source": "ai_agent",
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -585,10 +601,10 @@ def test_that_posting_a_customer_message_elicits_a_response_from_the_agent(
 
 
 async def test_that_posting_a_manual_agent_message_does_not_cause_any_new_events_to_be_generated(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
-    response = client.post(
+    response = await async_client.post(
         f"/sessions/{session_id}/events",
         json={
             "kind": "message",
@@ -604,12 +620,14 @@ async def test_that_posting_a_manual_agent_message_does_not_cause_any_new_events
     await asyncio.sleep(10)
 
     events_in_session = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "min_offset": event["offset"] + 1,
-                "wait_for_data": 0,
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "min_offset": event["offset"] + 1,
+                    "wait_for_data": 0,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -619,7 +637,7 @@ async def test_that_posting_a_manual_agent_message_does_not_cause_any_new_events
 
 
 async def test_that_status_updates_can_be_retrieved_separately_after_posting_a_message(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
@@ -631,12 +649,14 @@ async def test_that_status_updates_can_be_retrieved_separately_after_posting_a_m
     )
 
     events = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "min_offset": event.offset + 1,
-                "kinds": "status",
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "min_offset": event.offset + 1,
+                    "kinds": "status",
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -646,18 +666,20 @@ async def test_that_status_updates_can_be_retrieved_separately_after_posting_a_m
     assert all(e["kind"] == "status" for e in events)
 
 
-def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
-    client: TestClient,
+async def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
+    async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
     posted_event = (
-        client.post(
-            f"/sessions/{session_id}/events",
-            json={
-                "kind": "message",
-                "source": "customer",
-                "message": "Hello there!",
-            },
+        (
+            await async_client.post(
+                f"/sessions/{session_id}/events",
+                json={
+                    "kind": "message",
+                    "source": "customer",
+                    "message": "Hello there!",
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -665,7 +687,7 @@ def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
 
     t_start = time.time()
 
-    client.get(
+    await async_client.get(
         f"/sessions/{session_id}/events",
         params={
             "min_offset": posted_event["offset"] + 1,
@@ -679,7 +701,7 @@ def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
 
 
 async def test_that_tool_events_are_correlated_with_message_events(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     session_id: SessionId,
@@ -700,12 +722,14 @@ async def test_that_tool_events_are_correlated_with_message_events(
     )
 
     events_in_session = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "min_offset": event.offset + 1,
-                "kinds": "message,tool",
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "min_offset": event.offset + 1,
+                    "kinds": "message,tool",
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -717,7 +741,7 @@ async def test_that_tool_events_are_correlated_with_message_events(
 
 
 async def test_that_deleted_events_no_longer_show_up_in_the_listing(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
@@ -730,16 +754,22 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     ]
     await populate_session_id(container, session_id, session_events)
 
-    initial_events = client.get(f"/sessions/{session_id}/events").raise_for_status().json()
+    initial_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
     assert len(initial_events) == len(session_events)
 
     event_to_delete = initial_events[1]
 
-    client.delete(
-        f"/sessions/{session_id}/events?min_offset={event_to_delete['offset']}"
+    (
+        await async_client.delete(
+            f"/sessions/{session_id}/events?min_offset={event_to_delete['offset']}"
+        )
     ).raise_for_status()
 
-    remaining_events = client.get(f"/sessions/{session_id}/events").raise_for_status().json()
+    remaining_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
 
     assert len(remaining_events) == 1
     assert event_is_according_to_params(remaining_events[0], session_events[0])
@@ -747,7 +777,7 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
 
 
 async def test_that_a_message_can_be_inspected(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -806,7 +836,7 @@ async def test_that_a_message_can_be_inspected(
     )
 
     trace = (
-        client.get(f"/sessions/{session.id}/events/{reply_event.id}")
+        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
         .raise_for_status()
         .json()["trace"]
     )
@@ -837,7 +867,7 @@ async def test_that_a_message_can_be_inspected(
 
 
 async def test_that_a_message_is_generated_using_the_active_nlp_service(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -875,7 +905,7 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
     )
 
     inspection_data = (
-        client.get(f"/sessions/{session.id}/events/{reply_event.id}")
+        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
         .raise_for_status()
         .json()["trace"]
     )
@@ -897,7 +927,7 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
 
 
 async def test_that_an_agent_message_can_be_regenerated(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
     agent_id: AgentId,
@@ -913,8 +943,10 @@ async def test_that_an_agent_message_can_be_regenerated(
     await populate_session_id(container, session_id, session_events)
 
     min_offset_to_delete = 3
-    client.delete(
-        f"/sessions/{session_id}/events?min_offset={min_offset_to_delete}"
+    (
+        await async_client.delete(
+            f"/sessions/{session_id}/events?min_offset={min_offset_to_delete}"
+        )
     ).raise_for_status()
 
     _ = await create_guideline(
@@ -925,12 +957,14 @@ async def test_that_an_agent_message_can_be_regenerated(
     )
 
     event = (
-        client.post(
-            f"/sessions/{session_id}/events",
-            json={
-                "kind": "message",
-                "source": "ai_agent",
-            },
+        (
+            await async_client.post(
+                f"/sessions/{session_id}/events",
+                json={
+                    "kind": "message",
+                    "source": "ai_agent",
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -943,12 +977,14 @@ async def test_that_an_agent_message_can_be_regenerated(
     )
 
     events = (
-        client.get(
-            f"/sessions/{session_id}/events",
-            params={
-                "kinds": "message",
-                "correlation_id": event["correlation_id"],
-            },
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+                params={
+                    "kinds": "message",
+                    "correlation_id": event["correlation_id"],
+                },
+            )
         )
         .raise_for_status()
         .json()

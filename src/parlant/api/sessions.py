@@ -975,7 +975,7 @@ def create_router(
     router = APIRouter()
 
     @router.post(
-        "/",
+        "",
         status_code=status.HTTP_201_CREATED,
         operation_id="create_session",
         response_model=SessionDTO,
@@ -1049,7 +1049,7 @@ def create_router(
         )
 
     @router.get(
-        "/",
+        "",
         operation_id="list_sessions",
         response_model=Sequence[SessionDTO],
         responses={
@@ -1112,7 +1112,7 @@ def create_router(
         await session_store.delete_session(session_id)
 
     @router.delete(
-        "/",
+        "",
         status_code=status.HTTP_204_NO_CONTENT,
         operation_id="delete_sessions",
         responses={

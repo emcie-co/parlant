@@ -14,7 +14,7 @@
 
 import dateutil.parser
 from fastapi import status
-from fastapi.testclient import TestClient
+import httpx
 from lagom import Container
 from pytest import raises
 
@@ -23,11 +23,13 @@ from parlant.core.customers import CustomerStore
 from parlant.core.tags import TagStore
 
 
-def test_that_a_customer_can_be_created(client: TestClient) -> None:
+async def test_that_a_customer_can_be_created(
+    async_client: httpx.AsyncClient,
+) -> None:
     name = "John Doe"
     extra = {"email": "john@gmail.com"}
 
-    response = client.post(
+    response = await async_client.post(
         "/customers",
         json={
             "name": name,
@@ -45,7 +47,7 @@ def test_that_a_customer_can_be_created(client: TestClient) -> None:
 
 
 async def test_that_a_customer_can_be_read(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -55,7 +57,7 @@ async def test_that_a_customer_can_be_read(
 
     customer = await customer_store.create_customer(name, extra)
 
-    read_response = client.get(f"/customers/{customer.id}")
+    read_response = await async_client.get(f"/customers/{customer.id}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -66,7 +68,7 @@ async def test_that_a_customer_can_be_read(
 
 
 async def test_that_all_customers_including_guests_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -87,7 +89,7 @@ async def test_that_all_customers_including_guests_can_be_listed(
         extra=second_extra,
     )
 
-    customers = client.get("/customers").raise_for_status().json()
+    customers = (await async_client.get("/customers")).raise_for_status().json()
 
     assert len(customers) == 3
     assert any(
@@ -102,7 +104,7 @@ async def test_that_all_customers_including_guests_can_be_listed(
 
 
 async def test_that_a_customer_can_be_updated_with_a_new_name(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -115,11 +117,13 @@ async def test_that_a_customer_can_be_updated_with_a_new_name(
     new_name = "Updated Name"
 
     customer_dto = (
-        client.patch(
-            f"/customers/{customer.id}",
-            json={
-                "name": new_name,
-            },
+        (
+            await async_client.patch(
+                f"/customers/{customer.id}",
+                json={
+                    "name": new_name,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -130,7 +134,7 @@ async def test_that_a_customer_can_be_updated_with_a_new_name(
 
 
 async def test_that_a_customer_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -139,7 +143,7 @@ async def test_that_a_customer_can_be_deleted(
 
     customer = await customer_store.create_customer(name=name)
 
-    delete_response = client.delete(f"/customers/{customer.id}")
+    delete_response = await async_client.delete(f"/customers/{customer.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
@@ -147,7 +151,7 @@ async def test_that_a_customer_can_be_deleted(
 
 
 async def test_that_a_tag_can_be_added(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -159,7 +163,7 @@ async def test_that_a_tag_can_be_added(
 
     customer = await customer_store.create_customer(name=name)
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
             "tags": {"add": [tag.id]},
@@ -172,7 +176,7 @@ async def test_that_a_tag_can_be_added(
 
 
 async def test_that_a_tag_can_be_removed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -186,7 +190,7 @@ async def test_that_a_tag_can_be_removed(
 
     await customer_store.add_tag(customer_id=customer.id, tag_id=tag.id)
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
             "tags": {"remove": [tag.id]},
@@ -199,7 +203,7 @@ async def test_that_a_tag_can_be_removed(
 
 
 async def test_that_extra_can_be_added(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -209,7 +213,7 @@ async def test_that_extra_can_be_added(
 
     new_extra = {"department": "sales"}
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
             "extra": {"add": new_extra},
@@ -222,7 +226,7 @@ async def test_that_extra_can_be_added(
 
 
 async def test_that_extra_can_be_removed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
@@ -230,7 +234,7 @@ async def test_that_extra_can_be_removed(
 
     customer = await customer_store.create_customer(name=name, extra={"department": "sales"})
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
             "extra": {"remove": ["department"]},

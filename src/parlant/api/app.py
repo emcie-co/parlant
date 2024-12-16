@@ -145,13 +145,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     async def root() -> Response:
         return RedirectResponse("/chat")
 
-    agent_router = APIRouter()
-
-    agent_router.include_router(
-        agents.create_router(
-            agent_store=agent_store,
-        )
-    )
+    agent_router = APIRouter(prefix="/agents")
 
     agent_router.include_router(
         guidelines.create_router(
@@ -160,22 +154,28 @@ async def create_api_app(container: Container) -> ASGIApplication:
             guideline_connection_store=guideline_connection_store,
             service_registry=service_registry,
             guideline_tool_association_store=guideline_tool_association_store,
-        )
+        ),
     )
     agent_router.include_router(
         glossary.create_router(
             glossary_store=glossary_store,
-        )
+        ),
     )
     agent_router.include_router(
         variables.create_router(
             context_variable_store=context_variable_store,
             service_registry=service_registry,
-        )
+        ),
     )
 
     api_app.include_router(
+        router=agents.create_router(
+            agent_store=agent_store,
+        ),
         prefix="/agents",
+    )
+
+    api_app.include_router(
         router=agent_router,
     )
 

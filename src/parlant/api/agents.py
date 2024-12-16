@@ -154,7 +154,7 @@ def create_router(
     router = APIRouter()
 
     @router.post(
-        "/",
+        "",
         status_code=status.HTTP_201_CREATED,
         operation_id="create_agent",
         response_model=AgentDTO,

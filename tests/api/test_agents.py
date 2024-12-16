@@ -26,7 +26,7 @@ async def test_that_an_agent_can_be_created_without_description(
     async_client: httpx.AsyncClient,
 ) -> None:
     response = await async_client.post(
-        "/agents/",
+        "/agents",
         json={"name": "test-agent"},
     )
 
@@ -42,7 +42,7 @@ async def test_that_an_agent_can_be_created_with_description(
     async_client: httpx.AsyncClient,
 ) -> None:
     response = await async_client.post(
-        "/agents/",
+        "/agents",
         json={"name": "test-agent", "description": "You are a test agent"},
     )
 
@@ -58,7 +58,7 @@ async def test_that_an_agent_can_be_created_without_max_engine_iterations(
     async_client: httpx.AsyncClient,
 ) -> None:
     response = await async_client.post(
-        "/agents/",
+        "/agents",
         json={"name": "test-agent"},
     )
 
@@ -74,7 +74,7 @@ async def test_that_an_agent_can_be_created_with_max_engine_iterations(
     async_client: httpx.AsyncClient,
 ) -> None:
     response = await async_client.post(
-        "/agents/",
+        "/agents",
         json={"name": "test-agent", "max_engine_iterations": 1},
     )
 

@@ -126,7 +126,7 @@ In our system, the behavior of a conversational AI agent is guided by "guideline
 These guidelines are used by the agent whenever it interacts with a customer.
 
 Each guideline is composed of two parts:
-- "when": A natural-language condition specifying when the guideline applies. After every message that the user (also refered to as the customer) sends, this condition is tested to determine if the guideline should influence the agent's next reply.
+- "when": A natural-language condition specifying when the guideline applies. After every message that the user (also referred to as the customer) sends, this condition is tested to determine if the guideline should influence the agent's next reply.
 - "then": A natural-language instruction that the agent must follow whenever the "when" condition applies to the current state of the conversation. These instructions are directed solely at the agent and do not apply to the customer.
 
 Your task is to identify cases where the activation of one guideline’s "then" statement directly causes the "when" condition of another guideline to apply. This type of relation between two guidelines is called a "causal connection".
@@ -151,7 +151,6 @@ A causal connection is considered suggestive if either of the following conditio
 - The source guideline's "then" statement is suggestive or optional.
 - The target guideline's "then" statement is suggestive or optional.
 
-TODO I WAS HEREEEE
 
 For example, a connection is suggestive if it's of the form {{source="When <X> then <Y>", target="When <W> then consider <Z>"}} (where <W> is caused by <Y>), or similarly if {{source="When <X> then only do <Y> under certain conditions", target="When <W> then <Z>"}}.
 If both guidelines' "then" statements prescribe mandatory actions that the agent must take, then the connection is not considered suggestive. Conversely, if either "then" statement is optional or suggestive, the connection is considered suggestive.
@@ -519,7 +518,6 @@ Expected Output:
 
 ###
 Example 5:
-{{
 Input:
 
 Test guideline: ###
@@ -648,6 +646,16 @@ Connection Propositions Found:
 ----------------------------------------
 """
         )
+
+        # TODO delete saves
+        with open(f"guideline connection prompt - {guideline_to_test.condition}.txt", "w") as f:
+            f.write(prompt)
+        with open(f"guideline connection response - {guideline_to_test.condition}.txt", "w") as f:
+            f.write(
+                json.dumps(
+                    [p.model_dump(mode="json") for p in response.content.propositions], indent=2
+                )
+            )
 
         relevant_propositions = [
             GuidelineConnectionProposition(

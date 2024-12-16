@@ -1126,3 +1126,57 @@ def test_that_strictly_entailed_predicate_describing_an_agent_action_is_detected
     assert connection_propositions[0].source == source_guideline_content
     assert connection_propositions[0].target == target_guideline_content
     assert connection_propositions[0].kind == ConnectionKind.ENTAILS
+
+
+def test_that_strict_entailment_due_to_the_sources_condition_is_detected(
+    context: _TestContext,
+    agent: Agent,
+) -> None:
+    connection_proposer = context.container[GuidelineConnectionProposer]
+
+    source_guideline_content = _create_guideline_content(
+        condition="Asked for our pizza topping selection",
+        action="list the possible toppings and recommend olives",
+    )
+    target_guideline_content = _create_guideline_content(
+        condition="Recommending pizza toppings", action="Recommend mushrooms as they are healthy"
+    )
+    connection_propositions = list(
+        context.sync_await(
+            connection_proposer.propose_connections(
+                agent,
+                [source_guideline_content, target_guideline_content],
+            )
+        )
+    )
+    assert len(connection_propositions) == 1
+    assert connection_propositions[0].source == source_guideline_content
+    assert connection_propositions[0].target == target_guideline_content
+    assert connection_propositions[0].kind == ConnectionKind.ENTAILS
+
+
+def test_that_suggestive_entailment_due_to_the_sources_condition_is_detected(
+    context: _TestContext,
+    agent: Agent,
+) -> None:
+    connection_proposer = context.container[GuidelineConnectionProposer]
+
+    source_guideline_content = _create_guideline_content(
+        condition="Asked for our pizza topping selection",
+        action="list the possible toppings and recommend olives",
+    )
+    target_guideline_content = _create_guideline_content(
+        condition="Recommending pizza toppings", action="Recommend mushrooms as they are healthy"
+    )
+    connection_propositions = list(
+        context.sync_await(
+            connection_proposer.propose_connections(
+                agent,
+                [source_guideline_content, target_guideline_content],
+            )
+        )
+    )
+    assert len(connection_propositions) == 1
+    assert connection_propositions[0].source == source_guideline_content
+    assert connection_propositions[0].target == target_guideline_content
+    assert connection_propositions[0].kind == ConnectionKind.ENTAILS

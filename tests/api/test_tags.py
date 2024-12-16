@@ -14,7 +14,7 @@
 
 import dateutil.parser
 from fastapi import status
-from fastapi.testclient import TestClient
+import httpx
 from lagom import Container
 from pytest import raises
 
@@ -22,10 +22,12 @@ from parlant.core.common import ItemNotFoundError
 from parlant.core.tags import TagStore
 
 
-def test_that_a_tag_can_be_created(client: TestClient) -> None:
+async def test_that_a_tag_can_be_created(
+    async_client: httpx.AsyncClient,
+) -> None:
     name = "VIP"
 
-    response = client.post(
+    response = await async_client.post(
         "/tags",
         json={
             "name": name,
@@ -41,7 +43,7 @@ def test_that_a_tag_can_be_created(client: TestClient) -> None:
 
 
 async def test_that_a_tag_can_be_read(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     tag_store = container[TagStore]
@@ -50,7 +52,7 @@ async def test_that_a_tag_can_be_read(
 
     tag = await tag_store.create_tag(name)
 
-    read_response = client.get(f"/tags/{tag.id}")
+    read_response = await async_client.get(f"/tags/{tag.id}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -60,7 +62,7 @@ async def test_that_a_tag_can_be_read(
 
 
 async def test_that_tags_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     tag_store = container[TagStore]
@@ -71,7 +73,7 @@ async def test_that_tags_can_be_listed(
     _ = await tag_store.create_tag(first_name)
     _ = await tag_store.create_tag(second_name)
 
-    tags = client.get("/tags").raise_for_status().json()
+    tags = (await async_client.get("/tags")).raise_for_status().json()
 
     assert len(tags) == 2
     assert any(first_name == tag["name"] for tag in tags)
@@ -79,7 +81,7 @@ async def test_that_tags_can_be_listed(
 
 
 async def test_that_a_tag_can_be_updated(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     tag_store = container[TagStore]
@@ -89,7 +91,7 @@ async def test_that_a_tag_can_be_updated(
     tag = await tag_store.create_tag(old_name)
 
     new_name = "Alpha"
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/tags/{tag.id}",
         json={
             "name": new_name,
@@ -102,7 +104,7 @@ async def test_that_a_tag_can_be_updated(
 
 
 async def test_that_a_tag_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     tag_store = container[TagStore]
@@ -111,7 +113,7 @@ async def test_that_a_tag_can_be_deleted(
 
     tag = await tag_store.create_tag(name)
 
-    client.delete(f"/tags/{tag.id}")
+    await async_client.delete(f"/tags/{tag.id}")
 
     with raises(ItemNotFoundError):
         _ = await tag_store.read_tag(tag.id)

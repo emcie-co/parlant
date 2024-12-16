@@ -33,6 +33,7 @@ from parlant.core.services.indexing.common import ProgressReport
 class GuidelineConnectionPropositionSchema(DefaultBaseModel):
     source_id: int
     target_id: int
+    source_when: str
     source_then: str
     target_when: str
     is_target_when_caused_by_source_then: bool
@@ -121,50 +122,58 @@ class GuidelineConnectionProposer:
             f"""
 GENERAL INSTRUCTIONS
 -----------------
-In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a customer.
+In our system, the behavior of a conversational AI agent is guided by "guidelines." 
+These guidelines are used by the agent whenever it interacts with a customer.
 
 Each guideline is composed of two parts:
-- "when": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at any particular state, and we test against this
-          condition to understand if we should have this guideline participate in generating
-          the next reply to the customer.
-- "then": This is a natural-language instruction that should be followed by the agent
-          whenever the "when" part of the guideline applies to the conversation in its particular state.
-          Any instruction described here applies only to the agent, and not to the customer.
-Your task is to identify cases where the activation of one guideline causes another guideline's 'when' condition to apply.
+- "when": A natural-language condition specifying when the guideline applies. After every message that the user (also refered to as the customer) sends, this condition is tested to determine if the guideline should influence the agent's next reply.
+- "then": A natural-language instruction that the agent must follow whenever the "when" condition applies to the current state of the conversation. These instructions are directed solely at the agent and do not apply to the customer.
 
-When multiple guidelines are in use, we may encounter the following situation:
+Your task is to identify cases where the activation of one guideline’s "then" statement directly causes the "when" condition of another guideline to apply. This type of relation between two guidelines is called a "causal connection".
+
+To explain this idea, consider the following scenario:
 Guideline 1: When <X>, then <Y>.
 Guideline 2: When <W>, then <Z>.
-Situations where applying the "then" of Guideline 1 (<Y>) directly causes the "when" of Guideline 2 (<W>) to hold true, form what we call a "causal connection" or simply "causation" from Guideline 1 to Guideline 2. 
+We say that guideline 1 forms a "causal connection" (or simply causes) guideline 2 iff applying the "then" of Guideline 1 (<Y>) directly causes the "when" of Guideline 2 (<W>) to hold true. 
+
+Additionally, you may assume the following: If <Y> occurs due to Guideline 1, then <X> is currently true. This means both <X> and <Y> can be considered true when assessing whether <W> is true for Guideline 2.
 
 
-Rephrasing - cau 
-This causation can only happen if the agent's action in <Y> directly causes the "when" in Guideline 2 (<W>) to become true.
+Important clarifications: 
+1. Agent Actions Only: The agent’s actions cannot directly cause the customer to do something. Causation is valid only if the agent’s action itself directly and immediately triggers the "when" condition of the target guideline. 
+2. Temporal Constraints: If the target guideline’s "when" condition was true in the past or will only become true in the future due to other factors, this is not considered causation. Causation is invalid if the source’s "then" statement can be applied while the target’s "when" condition remains false.
+3. Assume that the condition of the source 
 
-Important clarification: An action taken by the agent can never cause the customer to do anything. Causation only occurs if applying the source's "then" action directly and immediately causes the "when" of the target guideline to apply. Cases where the source's "then" implies that the target's "when" happened in the past, or will happen in the future, are not considered causation.
-As a result of this, if there's any scenario where the source's "then" can be applied while the target's "when" is false - then causation necessarily isn't fulfilled.
-
-When a connection is identified, we wish to know whether it involves actions that the agent must undertake, or if its prescriptions are merely suggestive or optional, resulting in a "suggestive causal connection".
+CAUSAL CONNECTION TYPES
+-----------------
+When a causal connection is identified, we wish to know whether it involves actions that the agent must undertake, or if its prescriptions are merely suggestive or optional, resulting in a "suggestive causal connection".
 A causal connection is considered suggestive if either of the following conditions is met:
 - The source guideline's "then" statement is suggestive or optional.
 - The target guideline's "then" statement is suggestive or optional.
+
+TODO I WAS HEREEEE
+
 For example, a connection is suggestive if it's of the form {{source="When <X> then <Y>", target="When <W> then consider <Z>"}} (where <W> is caused by <Y>), or similarly if {{source="When <X> then only do <Y> under certain conditions", target="When <W> then <Z>"}}.
 If both guidelines' "then" statements prescribe mandatory actions that the agent must take, then the connection is not considered suggestive. Conversely, if either "then" statement is optional or suggestive, the connection is considered suggestive.
 'Then' statements which prescribe actions which the agent must attempt to take, even if they might fail, are NOT considered suggestive, as they describe an action that's mandatory.
 
+
+Task Description
+-----------------
 Your task is to:
-    1. Evaluate pairs of guidelines and detect which pairs fulfill such causal connections.
-    2. Identify whether the causal connections are suggestive. Meaning, if the action described in either guideline's 'then' statement is optional.
-    To fulfill the second task, please identify if each 'then' statement in a candidate connection as either suggestive or not.
+    1. Evaluate pairs of guidelines and detect which pairs fulfill such causal connections, by assessing whether the source’s "then" action directly and immediately causes the target’s "when" condition.
+    2. Determine whether the causal connections are suggestive, based on the nature of the "then" statements. 
 
+OUTPUT FORMAT
+-----------------
 Please output JSON structured in the following format:
-
+```json
 {{
     "propositions": [
         {{
             "source_id": <id of the source guideline>,
             "target_id": <id of the target guideline>,
+            "source_when: <the source guideline's 'when'>,
             "source_then": <The source guideline's 'then'>,
             "target_when": <The target guideline's 'when'>,
             "is_target_when_caused_by_source_then": <BOOL>,
@@ -177,9 +186,11 @@ Please output JSON structured in the following format:
         ...
     ]
 }}
-
+```
 For each causation candidate, you should evaluate two potential propositions: one in which the test guideline is treated as the "source" and the candidate as the "target," and another in which the roles are reversed
 
+EXAMPLES
+-----------------
 The following are examples of expected outputs for a given input:
 ###
 Example 1:
@@ -203,6 +214,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 1,
+            "source_when": "providing the weather update",
             "source_then": "try to estimate whether it's likely to rain",
             "target_when": "the customer asked about the weather",
             "is_target_when_caused_by_source_then": false,
@@ -215,6 +227,7 @@ Expected Output:
         {{
             "source_id": 1,
             "target_id": 0,
+            "source_when": "the customer asked about the weather",
             "source_then": "provide the current weather update",
             "target_when": "providing the weather update",
             "is_target_when_caused_by_source_then": true,
@@ -227,6 +240,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 2,
+            "source_when": "providing the weather update",
             "source_then": "try to estimate whether it's likely to rain",
             "target_when": "discussing whether an umbrella is needed",
             "is_target_when_caused_by_source_then": false,
@@ -239,6 +253,7 @@ Expected Output:
         {{
             "source_id": 2,
             "target_id": 0,
+            "source_when": "discussing whether an umbrella is needed",
             "source_then": "refer the customer to our electronic store",
             "target_when": "providing the weather update",
             "is_target_when_caused_by_source_then": false,
@@ -271,6 +286,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 1,
+            "source_when": "The customer asks for a book recommendation",
             "source_then": "suggest a book",
             "target_when": "suggesting a book",
             "is_target_when_caused_by_source_then": true,
@@ -280,6 +296,7 @@ Expected Output:
         {{
             "source_id": 1,
             "target_id": 0,
+            "source_when": "suggesting a book",
             "source_then": "mention its availability in the local library",
             "target_when": "The customer asks for a book recommendation",
             "is_target_when_caused_by_source_then": false,
@@ -289,6 +306,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 2,
+            "source_when": "The customer asks for a book recommendation",
             "source_then": "suggest a book",
             "target_when": "recommending books",
             "is_target_when_caused_by_source_then": true,
@@ -301,6 +319,7 @@ Expected Output:
         {{
             "source_id": 2,
             "target_id": 0,
+            "source_when": "recommending books",
             "source_then": "consider highlighting the ones with the best reviews",
             "target_when": "The customer asks for a book recommendation",
             "is_target_when_caused_by_source_then": false,
@@ -313,6 +332,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 3,
+            "source_when": "The customer asks for a book recommendation",
             "source_then": "suggest a book",
             "target_when": "the customer greets you",
             "is_target_when_caused_by_source_then": false,
@@ -325,6 +345,7 @@ Expected Output:
         {{
             "source_id": 3,
             "target_id": 0,
+            "source_when": "the customer greets you",
             "source_then": "greet them back with 'hello'",
             "target_when": "The customer asks for a book recommendation",
             "is_target_when_caused_by_source_then": false,
@@ -334,6 +355,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 4,
+            "source_when": "The customer asks for a book recommendation",
             "source_then": "suggest a book",
             "target_when": "suggesting products",
             "is_target_when_caused_by_source_then": true,
@@ -346,6 +368,7 @@ Expected Output:
         {{
             "source_id": 4,
             "target_id": 0,
+            "source_when": "suggesting products",
             "source_then": "check if the product is available in our store, and only offer it if it is'",
             "target_when": "The customer asks for a book recommendation",
             "is_target_when_caused_by_source_then": false,
@@ -377,6 +400,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 1,
+            "source_when": "a new topping is suggested",
             "source_then": "announce that the suggestion will be forwarded to management for consideration",
             "target_when": "discussing opening hours",
             "is_target_when_caused_by_source_then": false,
@@ -386,6 +410,7 @@ Expected Output:
         {{
             "source_id": 1,
             "target_id": 0,
+            "source_when": "discussing opening hours",
             "source_then": "mention that the store closes early on Sundays",
             "target_when": "a new topping is suggested",
             "is_target_when_caused_by_source_then": false,
@@ -395,6 +420,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 2,
+            "source_when": "a new topping is suggested",
             "source_then": "announce that the suggestion will be forwarded to management for consideration",
             "target_when": "the customer asks for a topping we do not offer",
             "is_target_when_caused_by_source_then": false,
@@ -404,6 +430,7 @@ Expected Output:
         {{
             "source_id": 2,
             "target_id": 0,
+            "source_when": "the customer asks for a topping we do not offer",
             "source_then": "suggest to add the topping to the menu in the future",
             "target_when": "a new topping is suggested",
             "is_target_when_caused_by_source_then": true,
@@ -416,6 +443,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 3,
+            "source_when": "a new topping is suggested",
             "source_then": "announce that the suggestion will be forwarded to management for consideration",
             "target_when": "forwarding messages to management",
             "is_target_when_caused_by_source_then": true,
@@ -428,6 +456,7 @@ Expected Output:
         {{
             "source_id": 3,
             "target_id": 0,
+            "source_when": "forwarding messages to management",
             "source_then": "try to forward the message to management via email",
             "target_when": "a new topping is suggested",
             "is_target_when_caused_by_source_then": false,
@@ -461,6 +490,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 1,
+            "source_when": "the customer requests a refund",
             "source_then": "ask the customer for the date of their purchase",
             "target_when": "the customer mentions a past purchase",
             "is_target_when_caused_by_source_then": false,
@@ -473,13 +503,13 @@ Expected Output:
         {{
             "source_id": 1,
             "target_id": 0,
+            "source_when": "the customer mentions a past purchase",
             "source_then": "ask for the order number",
             "target_when": "the customer requests a refund",
             "is_target_when_caused_by_source_then": false,
             "is_source_then_suggestive_or_optional": false,
             "target_then": "ask the customer for the date of their purchase",
             "is_target_then_suggestive_or_optional": false,
-
             "rationale": "actions taken by the agent cannot ever cause the customer to do anything",
             "causation_score": 3
         }}
@@ -509,6 +539,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 1,
+            "source_when": "mentioning electronic products",
             "source_then": "check if the product is available, and inform the customer about its price if it is",
             "target_when": "the customer complains about their television",
             "is_target_when_caused_by_source_then": false,
@@ -521,6 +552,7 @@ Expected Output:
         {{
             "source_id": 1,
             "target_id": 0,
+            "source_when": "the customer complains about their television",
             "source_then": "consider suggesting buying a new TV",
             "target_when": "mentioning electronic products",
             "is_target_when_caused_by_source_then": true,
@@ -533,6 +565,7 @@ Expected Output:
         {{
             "source_id": 0,
             "target_id": 2,
+            "source_when": "mentioning electronic products",
             "source_then": "check if the product is available, and inform the customer about its price if it is",
             "target_when": "discussing product prices",
             "is_target_when_caused_by_source_then": true,
@@ -545,6 +578,7 @@ Expected Output:
         {{
             "source_id": 2,
             "target_id": 0,
+            "source_when": "discussing product prices",
             "source_then": "inform the customer about our black friday deals",
             "target_when": "mentioning electronic products",
             "is_target_when_caused_by_source_then": false,

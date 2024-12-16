@@ -16,7 +16,6 @@ import json
 import os
 import tempfile
 from fastapi import status
-from fastapi.testclient import TestClient
 import httpx
 from lagom import Container
 
@@ -35,17 +34,19 @@ from tests.core.services.tools.test_plugin_client import run_service_server
 
 
 async def test_that_sdk_service_is_created(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
 ) -> None:
     content = (
-        client.put(
-            "/services/my_sdk_service",
-            json={
-                "kind": "sdk",
-                "sdk": {
-                    "url": "https://example.com/sdk",
+        (
+            await async_client.put(
+                "/services/my_sdk_service",
+                json={
+                    "kind": "sdk",
+                    "sdk": {
+                        "url": "https://example.com/sdk",
+                    },
                 },
-            },
+            )
         )
         .raise_for_status()
         .json()
@@ -57,9 +58,9 @@ async def test_that_sdk_service_is_created(
 
 
 async def test_that_sdk_service_fails_to_create_due_to_url_not_starting_with_http_or_https(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
 ) -> None:
-    response = client.put(
+    response = await async_client.put(
         "/services/my_sdk_service",
         json={
             "kind": "sdk",
@@ -142,31 +143,32 @@ async def test_that_openapi_service_is_created_with_file_source(
     os.remove(source)
 
 
-def test_that_sdk_service_is_created_and_deleted(
-    client: TestClient,
+async def test_that_sdk_service_is_created_and_deleted(
+    async_client: httpx.AsyncClient,
 ) -> None:
     _ = (
-        client.put(
-            "/services/my_sdk_service",
-            json={
-                "kind": "sdk",
-                "sdk": {
-                    "url": "https://example.com/sdk",
+        (
+            await async_client.put(
+                "/services/my_sdk_service",
+                json={
+                    "kind": "sdk",
+                    "sdk": {
+                        "url": "https://example.com/sdk",
+                    },
                 },
-            },
+            )
         )
         .raise_for_status()
         .json()
     )
 
-    client.delete("/services/my_sdk_service")
+    await async_client.delete("/services/my_sdk_service")
 
-    response = client.get("/services/my_sdk_service")
+    response = await async_client.get("/services/my_sdk_service")
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_openapi_service_is_created_and_deleted(
-    client: TestClient,
     async_client: httpx.AsyncClient,
 ) -> None:
     async with run_openapi_server(rng_app()):
@@ -185,27 +187,28 @@ async def test_that_openapi_service_is_created_and_deleted(
             )
         ).raise_for_status()
 
-    client.delete("/services/my_openapi_service")
+    await async_client.delete("/services/my_openapi_service")
 
-    response = client.get("/services/my_sdk_service")
+    response = await async_client.get("/services/my_sdk_service")
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_services_can_be_listed(
-    client: TestClient,
     async_client: httpx.AsyncClient,
 ) -> None:
-    assert client.get("/services/").raise_for_status().json() == []
+    assert (await async_client.get("/services")).raise_for_status().json() == []
 
     _ = (
-        client.put(
-            "/services/my_sdk_service",
-            json={
-                "kind": "sdk",
-                "sdk": {
-                    "url": "https://example.com/sdk",
+        (
+            await async_client.put(
+                "/services/my_sdk_service",
+                json={
+                    "kind": "sdk",
+                    "sdk": {
+                        "url": "https://example.com/sdk",
+                    },
                 },
-            },
+            )
         )
         .raise_for_status()
         .json()
@@ -225,7 +228,7 @@ async def test_that_services_can_be_listed(
         )
         response.raise_for_status()
 
-    services = client.get("/services/").raise_for_status().json()
+    services = (await async_client.get("/services")).raise_for_status().json()
 
     assert len(services) == 2
 
@@ -241,7 +244,7 @@ async def test_that_services_can_be_listed(
 
 
 async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and_tools(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     service_registry = container[ServiceRegistry]
@@ -255,7 +258,9 @@ async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and
             source=source,
         )
 
-    service_data = client.get("/services/my_openapi_service").raise_for_status().json()
+    service_data = (
+        (await async_client.get("/services/my_openapi_service")).raise_for_status().json()
+    )
 
     assert service_data["name"] == "my_openapi_service"
     assert service_data["kind"] == "openapi"

@@ -20,6 +20,7 @@ from itertools import chain
 from typing import NewType, Optional, Sequence, TypedDict
 from typing_extensions import override, Self
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
@@ -125,6 +126,8 @@ class GlossaryVectorStore(GlossaryStore):
         self._embedder = embedder_factory.create_embedder(embedder_type)
         self._embedder_type = embedder_type
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._collection = await self._vector_db.get_or_create_collection(
             name="glossary",
@@ -172,23 +175,24 @@ class GlossaryVectorStore(GlossaryStore):
         creation_utc: Optional[datetime] = None,
         synonyms: Optional[Sequence[str]] = None,
     ) -> Term:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        content = self._assemble_term_content(
-            name=name,
-            description=description,
-            synonyms=synonyms,
-        )
+            content = self._assemble_term_content(
+                name=name,
+                description=description,
+                synonyms=synonyms,
+            )
 
-        term = Term(
-            id=TermId(generate_id()),
-            creation_utc=creation_utc,
-            name=name,
-            description=description,
-            synonyms=list(synonyms) if synonyms else [],
-        )
+            term = Term(
+                id=TermId(generate_id()),
+                creation_utc=creation_utc,
+                name=name,
+                description=description,
+                synonyms=list(synonyms) if synonyms else [],
+            )
 
-        await self._collection.insert_one(document=self._serialize(term, term_set, content))
+            await self._collection.insert_one(document=self._serialize(term, term_set, content))
 
         return term
 
@@ -199,36 +203,37 @@ class GlossaryVectorStore(GlossaryStore):
         term_id: TermId,
         params: TermUpdateParams,
     ) -> Term:
-        document_to_update = await self._collection.find_one(
-            {"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
-        )
+        async with self._lock.writer_lock:
+            document_to_update = await self._collection.find_one(
+                {"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
+            )
 
-        if not document_to_update:
-            raise ItemNotFoundError(item_id=UniqueId(term_id))
+            if not document_to_update:
+                raise ItemNotFoundError(item_id=UniqueId(term_id))
 
-        assert "name" in document_to_update
-        assert "description" in document_to_update
-        assert "synonyms" in document_to_update
+            assert "name" in document_to_update
+            assert "description" in document_to_update
+            assert "synonyms" in document_to_update
 
-        name = params.get("name", document_to_update["name"])
-        description = params.get("description", document_to_update["description"])
-        synonyms = params.get("synonyms", document_to_update["synonyms"])
+            name = params.get("name", document_to_update["name"])
+            description = params.get("description", document_to_update["description"])
+            synonyms = params.get("synonyms", document_to_update["synonyms"])
 
-        content = self._assemble_term_content(
-            name=name,
-            description=description,
-            synonyms=synonyms,
-        )
+            content = self._assemble_term_content(
+                name=name,
+                description=description,
+                synonyms=synonyms,
+            )
 
-        update_result = await self._collection.update_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]},
-            params={
-                "content": content,
-                "name": name,
-                "description": description,
-                "synonyms": ", ".join(synonyms) if synonyms else "",
-            },
-        )
+            update_result = await self._collection.update_one(
+                filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]},
+                params={
+                    "content": content,
+                    "name": name,
+                    "description": description,
+                    "synonyms": ", ".join(synonyms) if synonyms else "",
+                },
+            )
 
         assert update_result.updated_document
 
@@ -240,9 +245,11 @@ class GlossaryVectorStore(GlossaryStore):
         term_set: str,
         term_id: TermId,
     ) -> Term:
-        term_document = await self._collection.find_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
-        )
+        async with self._lock.reader_lock:
+            term_document = await self._collection.find_one(
+                filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
+            )
+
         if not term_document:
             raise ItemNotFoundError(item_id=UniqueId(term_id), message=f"term_set={term_set}")
 
@@ -253,10 +260,11 @@ class GlossaryVectorStore(GlossaryStore):
         self,
         term_set: str,
     ) -> Sequence[Term]:
-        return [
-            self._deserialize(term_document=d)
-            for d in await self._collection.find(filters={"term_set": {"$eq": term_set}})
-        ]
+        async with self._lock.reader_lock:
+            return [
+                self._deserialize(term_document=d)
+                for d in await self._collection.find(filters={"term_set": {"$eq": term_set}})
+            ]
 
     @override
     async def delete_term(
@@ -264,16 +272,17 @@ class GlossaryVectorStore(GlossaryStore):
         term_set: str,
         term_id: TermId,
     ) -> None:
-        term_document = await self._collection.find_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
-        )
+        async with self._lock.writer_lock:
+            term_document = await self._collection.find_one(
+                filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
+            )
 
-        if not term_document:
-            raise ItemNotFoundError(item_id=UniqueId(term_id))
+            if not term_document:
+                raise ItemNotFoundError(item_id=UniqueId(term_id))
 
-        await self._collection.delete_one(
-            filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
-        )
+            await self._collection.delete_one(
+                filters={"$and": [{"term_set": {"$eq": term_set}}, {"id": {"$eq": term_id}}]}
+            )
 
     async def _query_chunks(self, query: str) -> list[str]:
         max_length = self._embedder.max_tokens // 5
@@ -304,16 +313,17 @@ class GlossaryVectorStore(GlossaryStore):
         query: str,
         max_terms: int = 20,
     ) -> Sequence[Term]:
-        queries = await self._query_chunks(query)
+        async with self._lock.reader_lock:
+            queries = await self._query_chunks(query)
 
-        tasks = [
-            self._collection.find_similar_documents(
-                filters={"term_set": {"$eq": term_set}},
-                query=q,
-                k=max_terms,
-            )
-            for q in queries
-        ]
+            tasks = [
+                self._collection.find_similar_documents(
+                    filters={"term_set": {"$eq": term_set}},
+                    query=q,
+                    k=max_terms,
+                )
+                for q in queries
+            ]
 
         all_results = chain.from_iterable(await asyncio.gather(*tasks))
         unique_results = list(set(all_results))

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Mapping, NewType, Optional, Sequence
 from typing_extensions import override, TypedDict, Self
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.persistence.common import ObjectId
@@ -133,6 +134,8 @@ class CustomerDocumentStore(CustomerStore):
             _CustomerTagAssociationDocument
         ]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._customers_collection = await self._database.get_or_create_collection(
             name="customers",
@@ -184,19 +187,20 @@ class CustomerDocumentStore(CustomerStore):
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
     ) -> Customer:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        customer = Customer(
-            id=CustomerId(generate_id()),
-            name=name,
-            extra=extra,
-            creation_utc=creation_utc,
-            tags=[],
-        )
+            customer = Customer(
+                id=CustomerId(generate_id()),
+                name=name,
+                extra=extra,
+                creation_utc=creation_utc,
+                tags=[],
+            )
 
-        await self._customers_collection.insert_one(
-            document=self._serialize_customer(customer=customer)
-        )
+            await self._customers_collection.insert_one(
+                document=self._serialize_customer(customer=customer)
+            )
 
         return customer
 
@@ -205,18 +209,19 @@ class CustomerDocumentStore(CustomerStore):
         self,
         customer_id: CustomerId,
     ) -> Customer:
-        if customer_id == CustomerStore.GUEST_ID:
-            return Customer(
-                id=CustomerStore.GUEST_ID,
-                name="<guest>",
-                creation_utc=datetime.now(timezone.utc),
-                extra={},
-                tags=[],
-            )
+        async with self._lock.reader_lock:
+            if customer_id == CustomerStore.GUEST_ID:
+                return Customer(
+                    id=CustomerStore.GUEST_ID,
+                    name="<guest>",
+                    creation_utc=datetime.now(timezone.utc),
+                    extra={},
+                    tags=[],
+                )
 
-        customer_document = await self._customers_collection.find_one(
-            filters={"id": {"$eq": customer_id}}
-        )
+            customer_document = await self._customers_collection.find_one(
+                filters={"id": {"$eq": customer_id}}
+            )
 
         if not customer_document:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
@@ -229,17 +234,18 @@ class CustomerDocumentStore(CustomerStore):
         customer_id: CustomerId,
         params: CustomerUpdateParams,
     ) -> Customer:
-        customer_document = await self._customers_collection.find_one(
-            filters={"id": {"$eq": customer_id}}
-        )
+        async with self._lock.writer_lock:
+            customer_document = await self._customers_collection.find_one(
+                filters={"id": {"$eq": customer_id}}
+            )
 
-        if not customer_document:
-            raise ItemNotFoundError(item_id=UniqueId(customer_id))
+            if not customer_document:
+                raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
-        result = await self._customers_collection.update_one(
-            filters={"id": {"$eq": customer_id}},
-            params={"name": params["name"]},
-        )
+            result = await self._customers_collection.update_one(
+                filters={"id": {"$eq": customer_id}},
+                params={"name": params["name"]},
+            )
 
         assert result.updated_document
 
@@ -248,9 +254,11 @@ class CustomerDocumentStore(CustomerStore):
     async def list_customers(
         self,
     ) -> Sequence[Customer]:
-        return [await self.read_customer(CustomerStore.GUEST_ID)] + [
-            await self._deserialize_customer(e) for e in await self._customers_collection.find({})
-        ]
+        async with self._lock.reader_lock:
+            return [await self.read_customer(CustomerStore.GUEST_ID)] + [
+                await self._deserialize_customer(e)
+                for e in await self._customers_collection.find({})
+            ]
 
     @override
     async def delete_customer(
@@ -260,7 +268,8 @@ class CustomerDocumentStore(CustomerStore):
         if customer_id == CustomerStore.GUEST_ID:
             raise ValueError("Removing the guest customer is not allowed")
 
-        result = await self._customers_collection.delete_one({"id": {"$eq": customer_id}})
+        async with self._lock.writer_lock:
+            result = await self._customers_collection.delete_one({"id": {"$eq": customer_id}})
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
@@ -272,26 +281,29 @@ class CustomerDocumentStore(CustomerStore):
         tag_id: TagId,
         creation_utc: Optional[datetime] = None,
     ) -> Customer:
-        customer = await self.read_customer(customer_id)
+        async with self._lock.writer_lock:
+            customer = await self.read_customer(customer_id)
 
-        if tag_id in customer.tags:
-            return customer
+            if tag_id in customer.tags:
+                return customer
 
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        association_document: _CustomerTagAssociationDocument = {
-            "id": ObjectId(generate_id()),
-            "version": self.VERSION.to_string(),
-            "creation_utc": creation_utc.isoformat(),
-            "customer_id": customer_id,
-            "tag_id": tag_id,
-        }
+            association_document: _CustomerTagAssociationDocument = {
+                "id": ObjectId(generate_id()),
+                "version": self.VERSION.to_string(),
+                "creation_utc": creation_utc.isoformat(),
+                "customer_id": customer_id,
+                "tag_id": tag_id,
+            }
 
-        _ = await self._customer_tag_association_collection.insert_one(
-            document=association_document
-        )
+            _ = await self._customer_tag_association_collection.insert_one(
+                document=association_document
+            )
 
-        customer_document = await self._customers_collection.find_one({"id": {"$eq": customer_id}})
+            customer_document = await self._customers_collection.find_one(
+                {"id": {"$eq": customer_id}}
+            )
 
         if not customer_document:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
@@ -304,17 +316,20 @@ class CustomerDocumentStore(CustomerStore):
         customer_id: CustomerId,
         tag_id: TagId,
     ) -> Customer:
-        delete_result = await self._customer_tag_association_collection.delete_one(
-            {
-                "customer_id": {"$eq": customer_id},
-                "tag_id": {"$eq": tag_id},
-            }
-        )
+        async with self._lock.writer_lock:
+            delete_result = await self._customer_tag_association_collection.delete_one(
+                {
+                    "customer_id": {"$eq": customer_id},
+                    "tag_id": {"$eq": tag_id},
+                }
+            )
 
-        if delete_result.deleted_count == 0:
-            raise ItemNotFoundError(item_id=UniqueId(tag_id))
+            if delete_result.deleted_count == 0:
+                raise ItemNotFoundError(item_id=UniqueId(tag_id))
 
-        customer_document = await self._customers_collection.find_one({"id": {"$eq": customer_id}})
+            customer_document = await self._customers_collection.find_one(
+                {"id": {"$eq": customer_id}}
+            )
 
         if not customer_document:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
@@ -327,17 +342,20 @@ class CustomerDocumentStore(CustomerStore):
         customer_id: CustomerId,
         extra: Mapping[str, str],
     ) -> Customer:
-        customer_document = await self._customers_collection.find_one({"id": {"$eq": customer_id}})
+        async with self._lock.writer_lock:
+            customer_document = await self._customers_collection.find_one(
+                {"id": {"$eq": customer_id}}
+            )
 
-        if not customer_document:
-            raise ItemNotFoundError(item_id=UniqueId(customer_id))
+            if not customer_document:
+                raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
-        updated_extra = {**customer_document["extra"], **extra}
+            updated_extra = {**customer_document["extra"], **extra}
 
-        result = await self._customers_collection.update_one(
-            filters={"id": {"$eq": customer_id}},
-            params={"extra": updated_extra},
-        )
+            result = await self._customers_collection.update_one(
+                filters={"id": {"$eq": customer_id}},
+                params={"extra": updated_extra},
+            )
 
         assert result.updated_document
 
@@ -349,17 +367,20 @@ class CustomerDocumentStore(CustomerStore):
         customer_id: CustomerId,
         keys: Sequence[str],
     ) -> Customer:
-        customer_document = await self._customers_collection.find_one({"id": {"$eq": customer_id}})
+        async with self._lock.writer_lock:
+            customer_document = await self._customers_collection.find_one(
+                {"id": {"$eq": customer_id}}
+            )
 
-        if not customer_document:
-            raise ItemNotFoundError(item_id=UniqueId(customer_id))
+            if not customer_document:
+                raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
-        updated_extra = {k: v for k, v in customer_document["extra"].items() if k not in keys}
+            updated_extra = {k: v for k, v in customer_document["extra"].items() if k not in keys}
 
-        result = await self._customers_collection.update_one(
-            filters={"id": {"$eq": customer_id}},
-            params={"extra": updated_extra},
-        )
+            result = await self._customers_collection.update_one(
+                filters={"id": {"$eq": customer_id}},
+                params={"extra": updated_extra},
+            )
 
         assert result.updated_document
 

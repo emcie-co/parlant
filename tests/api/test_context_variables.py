@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from fastapi import status
-from fastapi.testclient import TestClient
+import httpx
 from lagom import Container
 from pytest import fixture
 
@@ -37,13 +37,13 @@ async def tool_id(container: Container) -> ToolId:
 
 
 async def test_that_context_variable_can_be_created(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
     tool_id: ToolId,
 ) -> None:
     freshness_rules = "0 18 14 5 4"
 
-    response = client.post(
+    response = await async_client.post(
         f"/agents/{agent_id}/context-variables",
         json={
             "name": "test_variable",
@@ -66,7 +66,7 @@ async def test_that_context_variable_can_be_created(
 
 async def test_that_context_variable_can_be_updated(
     container: Container,
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
     tool_id: ToolId,
 ) -> None:
@@ -84,13 +84,15 @@ async def test_that_context_variable_can_be_updated(
     freshness_rules = "0 18 14 5 4"
 
     context_variable_dto = (
-        client.patch(
-            f"/agents/{agent_id}/context-variables/{context_variable.id}",
-            json={
-                "name": new_name,
-                "description": new_description,
-                "freshness_rules": freshness_rules,
-            },
+        (
+            await async_client.patch(
+                f"/agents/{agent_id}/context-variables/{context_variable.id}",
+                json={
+                    "name": new_name,
+                    "description": new_description,
+                    "freshness_rules": freshness_rules,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -102,13 +104,13 @@ async def test_that_context_variable_can_be_updated(
 
 
 async def test_that_invalid_freshness_rules_raise_error_when_creating_context_variable(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
     tool_id: ToolId,
 ) -> None:
     invalid_freshness_rules = "invalid cron expression"
 
-    response = client.post(
+    response = await async_client.post(
         f"/agents/{agent_id}/context-variables",
         json={
             "name": "test_variable_invalid_cron",
@@ -131,7 +133,7 @@ async def test_that_invalid_freshness_rules_raise_error_when_creating_context_va
 
 
 async def test_that_all_context_variables_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -155,7 +157,7 @@ async def test_that_all_context_variables_can_be_deleted(
     vars = await context_variable_store.list_variables(variable_set=agent_id)
     assert len(vars) == 2
 
-    response = client.delete(f"/agents/{agent_id}/context-variables")
+    response = await async_client.delete(f"/agents/{agent_id}/context-variables")
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     vars = await context_variable_store.list_variables(variable_set=agent_id)
@@ -163,7 +165,7 @@ async def test_that_all_context_variables_can_be_deleted(
 
 
 async def test_that_context_variable_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -177,16 +179,18 @@ async def test_that_context_variable_can_be_deleted(
         tool_id=tool_id,
     )
 
-    client.delete(
-        f"/agents/{agent_id}/context-variables/{variable_to_delete.id}"
+    (
+        await async_client.delete(f"/agents/{agent_id}/context-variables/{variable_to_delete.id}")
     ).raise_for_status()
 
-    response = client.get(f"/agents/{agent_id}/context-variables/{variable_to_delete.id}")
+    response = await async_client.get(
+        f"/agents/{agent_id}/context-variables/{variable_to_delete.id}"
+    )
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_context_variables_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -209,7 +213,9 @@ async def test_that_context_variables_can_be_listed(
         freshness_rules=None,
     )
 
-    variables = client.get(f"/agents/{agent_id}/context-variables/").raise_for_status().json()
+    variables = (
+        (await async_client.get(f"/agents/{agent_id}/context-variables")).raise_for_status().json()
+    )
     assert len(variables) == 2
 
     assert first_variable.id == variables[0]["id"]
@@ -226,7 +232,7 @@ async def test_that_context_variables_can_be_listed(
 
 
 async def test_that_context_variable_value_can_be_retrieved(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -251,7 +257,7 @@ async def test_that_context_variable_value_can_be_retrieved(
     )
 
     value = (
-        client.get(f"/agents/{agent_id}/context-variables/{variable.id}/{key}")
+        (await async_client.get(f"/agents/{agent_id}/context-variables/{variable.id}/{key}"))
         .raise_for_status()
         .json()
     )
@@ -260,7 +266,7 @@ async def test_that_context_variable_value_can_be_retrieved(
 
 
 async def test_that_context_variable_value_can_be_set(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -279,9 +285,11 @@ async def test_that_context_variable_value_can_be_set(
     data = {"zen_level": 5000}
 
     value = (
-        client.put(
-            f"/agents/{agent_id}/context-variables/{variable.id}/{key}",
-            json={"data": data},
+        (
+            await async_client.put(
+                f"/agents/{agent_id}/context-variables/{variable.id}/{key}",
+                json={"data": data},
+            )
         )
         .raise_for_status()
         .json()
@@ -291,9 +299,11 @@ async def test_that_context_variable_value_can_be_set(
 
     data = {"zen_level": 9000}
     value = (
-        client.put(
-            f"/agents/{agent_id}/context-variables/{variable.id}/{key}",
-            json={"data": data},
+        (
+            await async_client.put(
+                f"/agents/{agent_id}/context-variables/{variable.id}/{key}",
+                json={"data": data},
+            )
         )
         .raise_for_status()
         .json()
@@ -303,7 +313,7 @@ async def test_that_context_variable_value_can_be_set(
 
 
 async def test_that_context_variable_values_can_be_listed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -331,7 +341,7 @@ async def test_that_context_variable_values_can_be_listed(
             data=data,
         )
 
-    response = client.get(f"/agents/{agent_id}/context-variables/{variable.id}")
+    response = await async_client.get(f"/agents/{agent_id}/context-variables/{variable.id}")
     assert response.status_code == status.HTTP_200_OK
 
     retrieved_variable = response.json()["context_variable"]
@@ -348,7 +358,7 @@ async def test_that_context_variable_values_can_be_listed(
 
 
 async def test_that_context_variable_value_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
     tool_id: ToolId,
@@ -365,7 +375,7 @@ async def test_that_context_variable_value_can_be_deleted(
     key = "yam_choock"
     data = {"zen_level": 9000}
 
-    response = client.put(
+    response = await async_client.put(
         f"/agents/{agent_id}/context-variables/{variable.id}/{key}",
         json={"data": data},
     )
@@ -374,7 +384,7 @@ async def test_that_context_variable_value_can_be_deleted(
     assert variable_value["data"] == data
     assert "last_modified" in variable_value
 
-    client.delete(f"/agents/{agent_id}/context-variables/{variable.id}/{key}")
+    (await async_client.delete(f"/agents/{agent_id}/context-variables/{variable.id}/{key}"))
 
-    response = client.get(f"/agents/{agent_id}/context-variables/{variable.id}/{key}")
+    response = await async_client.get(f"/agents/{agent_id}/context-variables/{variable.id}/{key}")
     assert response.status_code == status.HTTP_404_NOT_FOUND

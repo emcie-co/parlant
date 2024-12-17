@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
@@ -94,6 +95,8 @@ class AgentDocumentStore(AgentStore):
         self._database = database
         self._collection: DocumentCollection[_AgentDocument]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="agents",
@@ -136,18 +139,19 @@ class AgentDocumentStore(AgentStore):
         creation_utc: Optional[datetime] = None,
         max_engine_iterations: Optional[int] = None,
     ) -> Agent:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
-        max_engine_iterations = max_engine_iterations or 3
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
+            max_engine_iterations = max_engine_iterations or 3
 
-        agent = Agent(
-            id=AgentId(generate_id()),
-            name=name,
-            description=description,
-            creation_utc=creation_utc,
-            max_engine_iterations=max_engine_iterations,
-        )
+            agent = Agent(
+                id=AgentId(generate_id()),
+                name=name,
+                description=description,
+                creation_utc=creation_utc,
+                max_engine_iterations=max_engine_iterations,
+            )
 
-        await self._collection.insert_one(document=self._serialize(agent=agent))
+            await self._collection.insert_one(document=self._serialize(agent=agent))
 
         return agent
 
@@ -155,15 +159,17 @@ class AgentDocumentStore(AgentStore):
     async def list_agents(
         self,
     ) -> Sequence[Agent]:
-        return [self._deserialize(d) for d in await self._collection.find(filters={})]
+        async with self._lock.reader_lock:
+            return [self._deserialize(d) for d in await self._collection.find(filters={})]
 
     @override
     async def read_agent(self, agent_id: AgentId) -> Agent:
-        agent_document = await self._collection.find_one(
-            filters={
-                "id": {"$eq": agent_id},
-            }
-        )
+        async with self._lock.reader_lock:
+            agent_document = await self._collection.find_one(
+                filters={
+                    "id": {"$eq": agent_id},
+                }
+            )
 
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
@@ -176,19 +182,20 @@ class AgentDocumentStore(AgentStore):
         agent_id: AgentId,
         params: AgentUpdateParams,
     ) -> Agent:
-        agent_document = await self._collection.find_one(
-            filters={
-                "id": {"$eq": agent_id},
-            }
-        )
+        async with self._lock.writer_lock:
+            agent_document = await self._collection.find_one(
+                filters={
+                    "id": {"$eq": agent_id},
+                }
+            )
 
-        if not agent_document:
-            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+            if not agent_document:
+                raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
-        result = await self._collection.update_one(
-            filters={"id": {"$eq": agent_id}},
-            params=cast(_AgentDocument, params),
-        )
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": agent_id}},
+                params=cast(_AgentDocument, params),
+            )
 
         assert result.updated_document
 
@@ -199,7 +206,8 @@ class AgentDocumentStore(AgentStore):
         self,
         agent_id: AgentId,
     ) -> None:
-        result = await self._collection.delete_one({"id": {"$eq": agent_id}})
+        async with self._lock.writer_lock:
+            result = await self._collection.delete_one({"id": {"$eq": agent_id}})
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))

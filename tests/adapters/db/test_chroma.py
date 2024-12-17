@@ -322,7 +322,8 @@ async def test_loading_collections(
 
 
 async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_large_query_input(
-    container: Container, agent_id: AgentId,
+    container: Container,
+    agent_id: AgentId,
 ) -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         async with ChromaDatabase(

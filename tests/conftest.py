@@ -18,7 +18,6 @@ import os
 import tempfile
 from typing import Any, AsyncIterator, cast
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 import httpx
 from lagom import Container, Singleton
 from pytest import fixture, Config
@@ -260,12 +259,6 @@ async def container(request: pytest.FixtureRequest) -> AsyncIterator[Container]:
 @fixture
 async def api_app(container: Container) -> ASGIApplication:
     return await create_api_app(container)
-
-
-@fixture
-async def client(api_app: FastAPI) -> AsyncIterator[TestClient]:
-    with TestClient(api_app) as client:
-        yield client
 
 
 @fixture

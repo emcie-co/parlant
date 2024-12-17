@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi.testclient import TestClient
 from fastapi import status
+import httpx
 from lagom import Container
 from pytest import raises
 
@@ -48,7 +48,7 @@ async def create_and_connect(
 
 
 async def test_that_a_guideline_can_be_created(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     request_data = {
@@ -79,7 +79,7 @@ async def test_that_a_guideline_can_be_created(
         ],
     }
 
-    response = client.post(f"/agents/{agent_id}/guidelines/", json=request_data)
+    response = await async_client.post(f"/agents/{agent_id}/guidelines", json=request_data)
     assert response.status_code == status.HTTP_201_CREATED
     items = response.json()["items"]
 
@@ -89,7 +89,7 @@ async def test_that_a_guideline_can_be_created(
 
 
 async def test_that_a_guideline_can_be_deleted(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -101,7 +101,9 @@ async def test_that_a_guideline_can_be_deleted(
         action="ask for confirmation",
     )
 
-    client.delete(f"/agents/{agent_id}/guidelines/{guideline_to_delete.id}").raise_for_status()
+    (
+        await async_client.delete(f"/agents/{agent_id}/guidelines/{guideline_to_delete.id}")
+    ).raise_for_status()
 
     with raises(ItemNotFoundError):
         await guideline_store.read_guideline(
@@ -110,7 +112,7 @@ async def test_that_a_guideline_can_be_deleted(
 
 
 async def test_that_an_unapproved_invoice_is_rejected(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
 ) -> None:
     request_data = {
         "invoices": [
@@ -140,7 +142,7 @@ async def test_that_an_unapproved_invoice_is_rejected(
         ],
     }
 
-    response = client.post("/agents/{agent_id}/guidelines", json=request_data)
+    response = await async_client.post("/agents/{agent_id}/guidelines", json=request_data)
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     response_data = response.json()
@@ -149,7 +151,7 @@ async def test_that_an_unapproved_invoice_is_rejected(
 
 
 async def test_that_a_connection_between_two_introduced_guidelines_is_created(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -229,11 +231,13 @@ async def test_that_a_connection_between_two_introduced_guidelines_is_created(
     ]
 
     items = (
-        client.post(
-            f"/agents/{agent_id}/guidelines/",
-            json={
-                "invoices": invoices,
-            },
+        (
+            await async_client.post(
+                f"/agents/{agent_id}/guidelines",
+                json={
+                    "invoices": invoices,
+                },
+            )
         )
         .raise_for_status()
         .json()["items"]
@@ -258,7 +262,7 @@ async def test_that_a_connection_between_two_introduced_guidelines_is_created(
 
 
 async def test_that_a_connection_to_an_existing_guideline_is_created(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -308,11 +312,13 @@ async def test_that_a_connection_to_an_existing_guideline_is_created(
     }
 
     introduced_guideline = (
-        client.post(
-            f"/agents/{agent_id}/guidelines/",
-            json={
-                "invoices": [invoice],
-            },
+        (
+            await async_client.post(
+                f"/agents/{agent_id}/guidelines",
+                json={
+                    "invoices": [invoice],
+                },
+            )
         )
         .raise_for_status()
         .json()["items"][0]["guideline"]
@@ -329,7 +335,7 @@ async def test_that_a_connection_to_an_existing_guideline_is_created(
 
 
 async def test_that_a_guideline_can_be_read_by_id(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -342,7 +348,9 @@ async def test_that_a_guideline_can_be_read_by_id(
     )
 
     item = (
-        client.get(f"/agents/{agent_id}/guidelines/{stored_guideline.id}").raise_for_status().json()
+        (await async_client.get(f"/agents/{agent_id}/guidelines/{stored_guideline.id}"))
+        .raise_for_status()
+        .json()
     )
 
     assert item["guideline"]["id"] == stored_guideline.id
@@ -352,7 +360,7 @@ async def test_that_a_guideline_can_be_read_by_id(
 
 
 async def test_that_guidelines_can_be_listed_for_an_agent(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -365,7 +373,9 @@ async def test_that_guidelines_can_be_listed_for_an_agent(
         ],
     )
 
-    response_guidelines = client.get(f"/agents/{agent_id}/guidelines/").raise_for_status().json()
+    response_guidelines = (
+        (await async_client.get(f"/agents/{agent_id}/guidelines")).raise_for_status().json()
+    )
 
     assert len(response_guidelines) == 2
     assert any(stored_guidelines[0].id == g["id"] for g in response_guidelines)
@@ -373,7 +383,7 @@ async def test_that_guidelines_can_be_listed_for_an_agent(
 
 
 async def test_that_a_connection_can_be_added_to_a_guideline(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -387,19 +397,21 @@ async def test_that_a_connection_can_be_added_to_a_guideline(
     )
 
     response_connections = (
-        client.patch(
-            f"/agents/{agent_id}/guidelines/{guidelines[0].id}",
-            json={
-                "connections": {
-                    "add": [
-                        {
-                            "source": guidelines[0].id,
-                            "target": guidelines[1].id,
-                            "kind": "entails",
-                        }
-                    ],
+        (
+            await async_client.patch(
+                f"/agents/{agent_id}/guidelines/{guidelines[0].id}",
+                json={
+                    "connections": {
+                        "add": [
+                            {
+                                "source": guidelines[0].id,
+                                "target": guidelines[1].id,
+                                "kind": "entails",
+                            }
+                        ],
+                    },
                 },
-            },
+            )
         )
         .raise_for_status()
         .json()["connections"]
@@ -424,7 +436,7 @@ async def test_that_a_connection_can_be_added_to_a_guideline(
 
 
 async def test_that_a_direct_target_connection_can_be_removed_from_a_guideline(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -438,13 +450,15 @@ async def test_that_a_direct_target_connection_can_be_removed_from_a_guideline(
     )
 
     response_collections = (
-        client.patch(
-            f"/agents/{agent_id}/guidelines/{guidelines[0].id}",
-            json={
-                "connections": {
-                    "remove": [guidelines[1].id],
+        (
+            await async_client.patch(
+                f"/agents/{agent_id}/guidelines/{guidelines[0].id}",
+                json={
+                    "connections": {
+                        "remove": [guidelines[1].id],
+                    },
                 },
-            },
+            )
         )
         .raise_for_status()
         .json()["connections"]
@@ -461,7 +475,7 @@ async def test_that_a_direct_target_connection_can_be_removed_from_a_guideline(
 
 
 async def test_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -475,7 +489,7 @@ async def test_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
         ],
     )
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/agents/{agent_id}/guidelines/{guidelines[0].id}",
         json={
             "connections": {
@@ -495,7 +509,7 @@ async def test_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
 
 
 async def test_that_deleting_a_guideline_also_deletes_all_of_its_direct_connections(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -508,7 +522,9 @@ async def test_that_deleting_a_guideline_also_deletes_all_of_its_direct_connecti
         ],
     )
 
-    client.delete(f"/agents/{agent_id}/guidelines/{guidelines[0].id}").raise_for_status()
+    (
+        await async_client.delete(f"/agents/{agent_id}/guidelines/{guidelines[0].id}")
+    ).raise_for_status()
 
     stored_connections = await container[GuidelineConnectionStore].list_connections(
         indirect=False,
@@ -519,7 +535,7 @@ async def test_that_deleting_a_guideline_also_deletes_all_of_its_direct_connecti
 
 
 async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connections(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -544,7 +560,9 @@ async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connectio
         )
 
     third_item = (
-        client.get(f"/agents/{agent_id}/guidelines/{guidelines[2].id}").raise_for_status().json()
+        (await async_client.get(f"/agents/{agent_id}/guidelines/{guidelines[2].id}"))
+        .raise_for_status()
+        .json()
     )
 
     assert 2 == len([c for c in third_item["connections"] if c["indirect"]])
@@ -573,7 +591,7 @@ async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connectio
 
 
 async def test_that_a_tool_association_can_be_added(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -608,7 +626,7 @@ async def test_that_a_tool_association_can_be_added(
         }
     }
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/agents/{agent_id}/guidelines/{guideline.id}",
         json=request_data,
     )
@@ -636,7 +654,7 @@ async def test_that_a_tool_association_can_be_added(
     assert len(matching_associations) == 1
 
     tool_associations = (
-        client.get(f"/agents/{agent_id}/guidelines/{guideline.id}")
+        (await async_client.get(f"/agents/{agent_id}/guidelines/{guideline.id}"))
         .raise_for_status()
         .json()["tool_associations"]
     )
@@ -650,7 +668,7 @@ async def test_that_a_tool_association_can_be_added(
 
 
 async def test_that_a_tool_association_can_be_removed(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -691,7 +709,7 @@ async def test_that_a_tool_association_can_be_removed(
         }
     }
 
-    response = client.patch(
+    response = await async_client.patch(
         f"/agents/{agent_id}/guidelines/{guideline.id}",
         json=request_data,
     )
@@ -710,7 +728,7 @@ async def test_that_a_tool_association_can_be_removed(
     )
 
     tool_associations = (
-        client.get(f"/agents/{agent_id}/guidelines/{guideline.id}")
+        (await async_client.get(f"/agents/{agent_id}/guidelines/{guideline.id}"))
         .raise_for_status()
         .json()["tool_associations"]
     )
@@ -719,7 +737,7 @@ async def test_that_a_tool_association_can_be_removed(
 
 
 async def test_that_guideline_deletion_removes_tool_associations(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -749,14 +767,14 @@ async def test_that_guideline_deletion_removes_tool_associations(
         tool_id=ToolId(service_name=service_name, tool_name=tool_name),
     )
 
-    client.delete(f"/agents/{agent_id}/guidelines/{guideline.id}")
+    await async_client.delete(f"/agents/{agent_id}/guidelines/{guideline.id}")
 
     associations_after = await association_store.list_associations()
     assert not any(assoc.guideline_id == guideline.id for assoc in associations_after)
 
 
 async def test_that_an_existing_guideline_can_be_updated(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -831,7 +849,7 @@ async def test_that_an_existing_guideline_can_be_updated(
     }
 
     items = (
-        client.post(f"/agents/{agent_id}/guidelines/", json=request_data)
+        (await async_client.post(f"/agents/{agent_id}/guidelines", json=request_data))
         .raise_for_status()
         .json()["items"]
     )
@@ -852,7 +870,7 @@ async def test_that_an_existing_guideline_can_be_updated(
 
 
 async def test_that_an_updated_guideline_can_entail_an_added_guideline(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -946,7 +964,7 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
     }
 
     items = (
-        client.post(f"/agents/{agent_id}/guidelines/", json=request_data)
+        (await async_client.post(f"/agents/{agent_id}/guidelines", json=request_data))
         .raise_for_status()
         .json()["items"]
     )
@@ -974,7 +992,7 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
 
 
 async def test_that_guideline_update_retains_existing_connections_with_disabled_connection_proposition(
-    client: TestClient,
+    async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
@@ -1030,7 +1048,7 @@ async def test_that_guideline_update_retains_existing_connections_with_disabled_
     }
 
     items = (
-        client.post(f"/agents/{agent_id}/guidelines/", json=request_data)
+        (await async_client.post(f"/agents/{agent_id}/guidelines", json=request_data))
         .raise_for_status()
         .json()["items"]
     )

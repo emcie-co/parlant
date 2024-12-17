@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
@@ -108,6 +109,8 @@ class GuidelineDocumentStore(GuidelineStore):
         self._database = database
         self._collection: DocumentCollection[_GuidelineDocument]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="guidelines",
@@ -157,23 +160,24 @@ class GuidelineDocumentStore(GuidelineStore):
         action: str,
         creation_utc: Optional[datetime] = None,
     ) -> Guideline:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        guideline = Guideline(
-            id=GuidelineId(generate_id()),
-            creation_utc=creation_utc,
-            content=GuidelineContent(
-                condition=condition,
-                action=action,
-            ),
-        )
-
-        await self._collection.insert_one(
-            document=self._serialize(
-                guideline=guideline,
-                guideline_set=guideline_set,
+            guideline = Guideline(
+                id=GuidelineId(generate_id()),
+                creation_utc=creation_utc,
+                content=GuidelineContent(
+                    condition=condition,
+                    action=action,
+                ),
             )
-        )
+
+            await self._collection.insert_one(
+                document=self._serialize(
+                    guideline=guideline,
+                    guideline_set=guideline_set,
+                )
+            )
 
         return guideline
 
@@ -182,10 +186,13 @@ class GuidelineDocumentStore(GuidelineStore):
         self,
         guideline_set: str,
     ) -> Sequence[Guideline]:
-        return [
-            self._deserialize(d)
-            for d in await self._collection.find(filters={"guideline_set": {"$eq": guideline_set}})
-        ]
+        async with self._lock.reader_lock:
+            return [
+                self._deserialize(d)
+                for d in await self._collection.find(
+                    filters={"guideline_set": {"$eq": guideline_set}}
+                )
+            ]
 
     @override
     async def read_guideline(
@@ -193,12 +200,13 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_set: str,
         guideline_id: GuidelineId,
     ) -> Guideline:
-        guideline_document = await self._collection.find_one(
-            filters={
-                "guideline_set": {"$eq": guideline_set},
-                "id": {"$eq": guideline_id},
-            }
-        )
+        async with self._lock.reader_lock:
+            guideline_document = await self._collection.find_one(
+                filters={
+                    "guideline_set": {"$eq": guideline_set},
+                    "id": {"$eq": guideline_id},
+                }
+            )
 
         if not guideline_document:
             raise ItemNotFoundError(
@@ -213,12 +221,13 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_set: str,
         guideline_id: GuidelineId,
     ) -> None:
-        result = await self._collection.delete_one(
-            filters={
-                "guideline_set": {"$eq": guideline_set},
-                "id": {"$eq": guideline_id},
-            }
-        )
+        async with self._lock.writer_lock:
+            result = await self._collection.delete_one(
+                filters={
+                    "guideline_set": {"$eq": guideline_set},
+                    "id": {"$eq": guideline_id},
+                }
+            )
 
         if not result.deleted_document:
             raise ItemNotFoundError(
@@ -231,18 +240,23 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_id: GuidelineId,
         params: GuidelineUpdateParams,
     ) -> Guideline:
-        guideline_document = _GuidelineDocument(
-            {
-                **({"guideline_set": params["guideline_set"]} if "guideline_set" in params else {}),
-                **({"condition": params["condition"]} if "condition" in params else {}),
-                **({"action": params["action"]} if "action" in params else {}),
-            }
-        )
+        async with self._lock.writer_lock:
+            guideline_document = _GuidelineDocument(
+                {
+                    **(
+                        {"guideline_set": params["guideline_set"]}
+                        if "guideline_set" in params
+                        else {}
+                    ),
+                    **({"condition": params["condition"]} if "condition" in params else {}),
+                    **({"action": params["action"]} if "action" in params else {}),
+                }
+            )
 
-        result = await self._collection.update_one(
-            filters={"id": {"$eq": guideline_id}},
-            params=guideline_document,
-        )
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params=guideline_document,
+            )
 
         assert result.updated_document
 
@@ -254,13 +268,14 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_set: str,
         guideline_content: GuidelineContent,
     ) -> Guideline:
-        guideline_document = await self._collection.find_one(
-            filters={
-                "guideline_set": {"$eq": guideline_set},
-                "condition": {"$eq": guideline_content.condition},
-                "action": {"$eq": guideline_content.action},
-            }
-        )
+        async with self._lock.reader_lock:
+            guideline_document = await self._collection.find_one(
+                filters={
+                    "guideline_set": {"$eq": guideline_set},
+                    "condition": {"$eq": guideline_content.condition},
+                    "action": {"$eq": guideline_content.action},
+                }
+            )
 
         if not guideline_document:
             raise ItemNotFoundError(

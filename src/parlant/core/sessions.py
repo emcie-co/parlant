@@ -659,15 +659,16 @@ class SessionDocumentStore(SessionStore):
         agent_id: Optional[AgentId] = None,
         customer_id: Optional[CustomerId] = None,
     ) -> Sequence[Session]:
-        filters = {
-            **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
-            **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
-        }
+        async with self._lock.reader_lock:
+            filters = {
+                **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
+                **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
+            }
 
-        return [
-            self._deserialize_session(d)
-            for d in await self._session_collection.find(filters=cast(Where, filters))
-        ]
+            return [
+                self._deserialize_session(d)
+                for d in await self._session_collection.find(filters=cast(Where, filters))
+            ]
 
     @override
     async def create_event(

@@ -244,7 +244,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
 
 
 async def test_that_server_starts_with_single_module(context: ContextOfTest) -> None:
-    with run_server(context, extra_args=["--modules", "examples.modules.tech_store"]):
+    with run_server(context, extra_args=["--module", "examples.modules.tech_store"]):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await context.api.get_first_agent()

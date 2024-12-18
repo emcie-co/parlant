@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 import os
 import tempfile
 from typing import Any, AsyncIterator, cast
@@ -48,6 +48,7 @@ from parlant.core.guideline_connections import (
 from parlant.core.guidelines import GuidelineDocumentStore, GuidelineStore
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.core.nlp.service import NLPService
+from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.services.tools.service_registry import (
     ServiceDocumentRegistry,
     ServiceRegistry,
@@ -110,19 +111,21 @@ def test_config(pytestconfig: Config) -> dict[str, Any]:
     return {"patience": 10}
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    group = parser.getgroup("caching")
+    group.addoption(
+        "--use-cache",
+        action="store_true",
+        dest="use_cache",
+        help="Whether to use the cache during the current test suite",
+    )
+
+
 @fixture
 async def container(request: pytest.FixtureRequest) -> AsyncIterator[Container]:
     container = Container()
 
-    stochastic_plan = next(
-        (arg.split("=")[1] for arg in request.config.invocation_params.args if "--plan" in arg),
-        None,
-    )
-
-    use_cache = {
-        None: True,
-        "initial": True,
-    }.get(stochastic_plan, False)
+    use_cache = bool(request.config.getoption("use_cache", False))
 
     container[ContextualCorrelator] = Singleton(ContextualCorrelator)
     container[Logger] = StdoutLogger(container[ContextualCorrelator])
@@ -275,3 +278,18 @@ async def async_client(api_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
         base_url="http://testserver",
     ) as client:
         yield client
+
+
+@asynccontextmanager
+async def run_service_server(
+    tools: list[ToolEntry],
+) -> AsyncIterator[PluginServer]:
+    async with PluginServer(
+        tools=tools,
+        port=8091,
+        host="127.0.0.1",
+    ) as server:
+        try:
+            yield server
+        finally:
+            await server.shutdown()

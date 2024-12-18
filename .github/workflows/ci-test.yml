@@ -2,9 +2,9 @@ name: Verify and Test
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [ "develop" ]
 
 jobs:
   build:
@@ -15,10 +15,7 @@ jobs:
         python-version: ["3.10"]
         poetry-version: ["1.8.3"]
 
-    env:
-      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-    
-    steps:  
+    steps:
     - name: checkout branch commit
       uses: actions/checkout@v4
 
@@ -33,60 +30,36 @@ jobs:
         pip install poetry==${{ matrix.poetry-version }}
         git config --local core.hooksPath .githooks/
         chmod +x .githooks/pre-commit .githooks/pre-push
-    
+
     - name: Set up Poetry Cache
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'poetry'
 
-    - name: Setup SSH 
-      run: |
-        ssh-agent -a $SSH_AUTH_SOCK > /dev/null
-        ssh-add - <<< "${{ secrets.MC_DEPLOY_PTSTS }}" 
-
     - name: Install packages
       run: python scripts/install_packages.py
 
-    - name: Determine test plan
-      id: test_plan
-      run: |
-        if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" == "develop" ]]; then
-          PLAN="initial"
-        elif [[ "${{ github.event_name }}" == "push" && "${{ github.base_ref }}" == "develop" ]]; then
-          PLAN="initial"
-        elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" == "main" ]]; then
-          PLAN="initial"
-        elif [[ "${{ github.event_name }}" == "push" && "${{ github.base_ref }}" == "main" ]]; then
-          PLAN="initial"
-        else
-          echo "how did we get here?"
-          PLAN="initial"
-        fi
-        echo plan=$PLAN >> $GITHUB_OUTPUT
-        echo "Using plan '$PLAN' for ${{ github.event_name }} to ${{ github.base_ref }}"
+    - name: install just
+      uses: extractions/setup-just@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Test Parlant
+    - name: Test Parlant (deterministic)
       if: always()
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: |
-        mkdir logs
-        poetry run pytest -v \
-          --plan=${{ steps.test_plan.outputs.plan }} \
-          --tap-combined \
-          --tap-outdir=logs \
-          --junit-xml=logs/testresults.xml \
-          | tee logs/testresults.log
-        exit ${PIPESTATUS[0]}
+      run: just test-deterministic
+    
+    - name: Test Parlant (core-unstable)
+      if: always()
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: just test-core-unstable
     
     - name: test log artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: testresults
-        path: |
-          logs/testresults.tap
-          logs/testresults.log
-          logs/testresults.xml
-          
+        path: logs/*

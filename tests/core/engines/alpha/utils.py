@@ -62,7 +62,9 @@ def load_steps(*module_names: str) -> None:
     assert this_module
 
     for module_name in module_names:
-        module = importlib.import_module(f"steps.{module_name}", this_module.__name__)
+        module = importlib.import_module(
+            f"tests.core.engines.alpha.steps.{module_name}", this_module.__name__
+        )
         steps = [a for a in module.__dict__.values() if isinstance(a, Step)]
 
         for s in steps:

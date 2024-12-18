@@ -1,6 +1,7 @@
 .env
 .pytest_cache
 .mypy_cache
+.ruff_cache
 __pycache__
 .justfile
 testresults**
@@ -17,3 +18,5 @@ runtime-data
 scripts/sdks/
 scripts/fern/openapi
 fern.generate.log
+schematic_generation_test_cache.json
+test_timing.csv

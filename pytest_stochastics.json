@@ -1,119 +1,91 @@
 {
     "test_plan_list": [
         {
-            "plan": "initial",
+            "plan": "complete",
+            "_comment": "utility plan equivalent to running all the other plans. used for vscode test explorer.",
             "policy_tests": [
                 {
-                    "policy": "mostly",
+                    "policy": "default",
                     "tests": [
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_a_single_message_event_is_emitted_for_a_session_with_a_few_messages",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_a_single_message_event_is_emitted_for_a_session_with_a_user_message",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_add_and_multiply_tools_called_multiple_times_each",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_add_and_multiply_tools_called_once_each",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_add_tool_called_twice",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_adherence_to_guidelines_without_fabricating_responses",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_drinks_and_toppings_tools_called_from_different_guidelines",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_drinks_and_toppings_tools_called_from_same_guideline",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_failure_to_process_a_message_emits_an_error_status",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_message_generation_is_cancelled",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_no_message_is_emitted_for_an_empty_session",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_preference_for_user_request_over_guideline_account_related_questions",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_preference_for_user_request_over_guideline_account_related_questions", 
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_prioritizing_freezing_transactions_over_processing_refunds",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_prioritizing_transferring_the_upset_customer_to_the_manager_over_offering_pizza",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_relevant_guidelines_are_not_refreshed_based_on_tool_results_if_no_second_iteration_of_proposing_a_new_guideline_is_made",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_relevant_guidelines_are_refreshed_based_on_tool_results",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_single_tool_is_being_called_multiple_times",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_single_tool_is_being_called_once",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_single_tool_is_being_called_once[check_drinks_in_stock-get_available_drinks-Sprite and Coca Cola as available drinks]",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_single_tool_is_being_called_once[check_toppings_in_stock-get_available_toppings-Mushrooms and Olives as available toppings]",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_continues_a_conversation_that_was_started_on_its_behalf",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_distinguishes_between_tools_from_different_services",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_does_not_repeat_responses",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_does_not_start_a_conversation_if_no_proactive_guidelines_exist",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_doesnt_give_false_information_upon_user_request",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_doesnt_initiate_conversation_unprompted",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_explains_an_ambiguous_term",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_finds_and_follows_relevant_guidelines_like_a_needle_in_a_haystack",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_follows_a_guideline_that_is_entailed_by_another_guideline",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_follows_a_guideline_that_mentions_a_term_by_name",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_follows_a_guideline_that_refers_to_a_terms_definition",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_greets_the_user",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_ignores_deleted_messages_when_responding",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_initiates_conversation_when_instructed",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_offers_a_thirsty_user_a_drink",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_replies_to_farewell_messages",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_responds_to_a_censored_harassment_message",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_responds_with_a_term_retrieved_from_guideline_content",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_responds_with_a_term_retrieved_from_tool_content",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_sells_pizza_in_accordance_with_its_defined_description",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_starts_a_conversation_based_on_context_values",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_stops_replying_when_asked_explicitly",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_tool_call_is_correlated_with_the_message_with_which_it_was_generated",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_tool_call_takes_context_variables_into_consideration",
-                        "tests/core/engines/alpha/test_guideline_proposer.py::test_that_guidelines_with_the_same_conditions_are_scored_identically",
-                        "tests/core/engines/alpha/test_guideline_proposer.py::test_that_irrelevant_guidelines_are_not_proposed",
-                        "tests/core/engines/alpha/test_guideline_proposer.py::test_that_relevant_guidelines_are_proposed",
-                        "tests/core/services/indexing/test_coherence.py::test_that_a_terminology_based_incoherency_is_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_an_agent_description_based_incoherency_is_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_contextual_contradictions_are_detected_as_contingent_incoherence",
-                        "tests/core/services/indexing/test_coherence.py::test_that_contingent_incoherencies_are_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_contradicting_actions_that_are_contextualized_by_their_conditions_are_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_contradicting_actions_with_hierarchical_conditions_are_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_contradictory_next_message_commands_are_detected_as_incoherencies",
-                        "tests/core/services/indexing/test_coherence.py::test_that_entailing_conditions_with_unrelated_actions_arent_false_positives",
-                        "tests/core/services/indexing/test_coherence.py::test_that_existing_guidelines_are_not_checked_against_each_other",
-                        "tests/core/services/indexing/test_coherence.py::test_that_guidelines_with_many_incoherencies_are_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_logically_contradicting_response_actions_are_detected_as_incoherencies",
-                        "tests/core/services/indexing/test_coherence.py::test_that_many_coherent_guidelines_arent_detected_as_false_positive",
-                        "tests/core/services/indexing/test_coherence.py::test_that_many_guidelines_which_are_all_contradictory_are_detected",
-                        "tests/core/services/indexing/test_coherence.py::test_that_misspelled_contradicting_actions_are_detected_as_incoherencies",
-                        "tests/core/services/indexing/test_coherence.py::test_that_non_contradicting_guidelines_arent_false_positives",
-                        "tests/core/services/indexing/test_coherence.py::test_that_seemingly_contradictory_but_actually_complementary_actions_are_not_false_positives",
-                        "tests/core/services/indexing/test_coherence.py::test_that_suggestive_conditions_with_contradicting_actions_are_detected_as_contingent_incoherencies",
-                        "tests/core/services/indexing/test_coherence.py::test_that_temporal_contradictions_are_detected_as_incoherencies",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_a_connection_is_proposed_based_on_given_glossary",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_a_connection_is_proposed_based_on_multiple_glossary_terms",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_a_suggestion_connection_is_proposed_for_two_guidelines_where_the_content_of_one_suggests_a_follow_up_to_the_condition_of_the_other",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_a_suggestive_guideline_which_entails_another_guideline_are_connected_as_suggestive",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_agent_based_connection_is_detected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_an_entailment_connection_is_proposed_for_two_guidelines_where_the_content_of_one_entails_the_condition_of_the_other",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_circular_connection_is_proposed_for_three_guidelines_where_each_action_entails_the_following_condition",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_connection_is_proposed_for_a_sequence_where_each_guideline_entails_the_next_one_using_pronouns_from_then_to_when",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_connection_is_proposed_for_a_sequence_where_each_guideline_entails_the_next_one",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_connection_is_proposed_for_a_sequence_where_each_guideline_suggests_the_next_one",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_entailing_thens_are_not_connected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_entailing_whens_are_not_connected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_guidelines_with_similar_thens_arent_connected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_identical_actions_arent_connected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_many_guidelines_with_agent_description_and_glossary_arent_detected_as_false_positives",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_misspelled_entailing_guidelines_are_connected",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_multiple_connections_are_detected_and_proposed_at_the_same_time",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_no_connection_is_made_for_a_guideline_which_implies_but_not_causes_another_guideline",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_no_connection_is_made_for_a_guidelines_whose_condition_entails_another_guidelines_condition",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_one_guideline_can_entail_multiple_guidelines",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_possible_connections_between_existing_guidelines_are_not_proposed",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_try_actions_are_connected_but_not_suggestive",
-                        "tests/core/services/indexing/test_guideline_connection_proposer.py::test_that_try_actions_are_connected_but_not_suggestive",                    
-                        "tests/core/services/indexing/test_guideline_proposer.py::test_that_guidelines_with_the_same_conditions_are_scored_identically",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_tool_called_again_by_context_after_user_response",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_correctly_calls_tools_from_an_entailed_guideline",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_uses_tools_based_on_the_agents_description",
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_uses_tools_correctly_when_many_are_available"                        
+                        "tests/(?!core)"
                     ]
                 },
                 {
-                    "policy": "best_effort",
+                    "policy": "majority3",
                     "tests": [
-                        "tests/core/engines/alpha/test_baseline_scenarios.py::test_the_agent_does_not_get_stuck_in_apology_loop_when_facing_frustrated_user",
-                        "tests/e2e/test_client_cli_via_api.py::test_that_guidelines_can_be_entailed"
+                        "tests/core/"
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "plan": "default_disabled",
+            "_comment": "baseline plan to disbale all tests that are not specifically enabled by using it as a base for other plans",
+            "policy_tests": [
                 {
                     "policy": "disable",
                     "tests": [
-                        "tests/e2e/test_client_cli_via_api.py::test_that_view_a_guideline_with_connections_displays_indirect_and_direct_connections",
-                        "tests/e2e/test_server_cli.py::test_that_the_server_recovery_restarts_all_active_evaluation_tasks"
+                        "tests/"
+                    ]
+                }
+            ]
+        },
+        {
+            "plan": "deterministic",
+            "_comment": "Plan to test all the non-stochastic tests. All should pass.",
+            "policy_tests": [
+                {
+                    "policy": "default",
+                    "tests": [
+                        "tests/(?!core)"
+                    ]
+                }
+            ]
+        },
+        {
+            "plan": "stochastic",
+            "_comment": "[Not in use] Placeholder plan for when we'll have non-core stochastic tests.",
+            "policy_tests": [
+                {
+                    "policy": "majority3",
+                    "tests": [
+                        "tests/(?!core)"
+                    ]
+                }
+            ]
+        },
+        {
+            "plan": "core_stable",
+            "_comment": "[Not in use] Stable stochastic tests should pass 3 out of 3 runs.",
+            "policy_tests": [
+                {
+                    "policy": "strict3",
+                    "tests": [
+                        "tests/core/stable"
+                    ]
+                }
+            ]
+        },
+        {
+            "plan": "core_unstable",
+            "_comment": "Unstable test are allowed one failure out of 3 runs. (Temporarily encompases all of `core`)",
+            "policy_tests": [
+                {
+                    "policy": "majority3",
+                    "tests": [
+                        "tests/core/(unstable)?"
+                    ]
+                }
+            ]
+        },
+        {
+            "plan": "core_experimental",
+            "_comment": "[Not in use] Experimental test may fail, we're mostly tracking them as reminders that we need to work on somehting.",
+            "policy_tests": [
+                {
+                    "policy": "experimental",
+                    "tests": [
+                        "tests/core/experimental"
                     ]
                 }
             ]
@@ -126,15 +98,47 @@
             "out_of": 0
         },
         {
-            "policy": "best_effort",
+            "policy": "default",
+            "at_least": 1,
+            "out_of": 1
+        },
+        {
+            "policy": "experimental",
             "at_least": 0,
+            "out_of": 3,
+            "pass_fast": false
+        },
+        {
+            "policy": "majority3",
+            "at_least": 2,
             "out_of": 3
         },
         {
-            "policy": "mostly",
-            "at_least": 2,
+            "policy": "strict3",
+            "at_least": 3,
             "out_of": 3
         }
     ],
-    "plan_fallback_list": []
+    "plan_fallback_list": [
+        {
+            "plan": "deterministic",
+            "overrides": "default_disabled"
+        },
+        {
+            "plan": "stochastic",
+            "overrides": "default_disabled"
+        },
+        {
+            "plan": "core_stable",
+            "overrides": "default_disabled"
+        },
+        {
+            "plan": "core_unstable",
+            "overrides": "default_disabled"
+        },
+        {
+            "plan": "core_experimental",
+            "overrides": "default_disabled"
+        }
+    ]
 }

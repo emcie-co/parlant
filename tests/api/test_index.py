@@ -17,10 +17,12 @@ import asyncio
 from fastapi import status
 from fastapi.testclient import TestClient
 from lagom import Container
+
 from parlant.core.agents import AgentId
 from parlant.core.evaluations import EvaluationStore
 from parlant.core.guidelines import GuidelineStore
-from tests.core.services.indexing.test_evaluator import (
+
+from tests.core.common.conftest import (
     AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING,
 )
 

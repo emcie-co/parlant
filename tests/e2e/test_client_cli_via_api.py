@@ -23,6 +23,12 @@ from fastapi.responses import JSONResponse
 import httpx
 import uvicorn
 
+from parlant.core.services.tools.plugins import tool
+from parlant.core.tools import ToolResult, ToolContext
+
+from tests.conftest import (
+    run_service_server,
+)
 from tests.e2e.test_utilities import (
     CLI_CLIENT_PATH,
     SERVER_ADDRESS,
@@ -31,8 +37,6 @@ from tests.e2e.test_utilities import (
     is_server_responsive,
     run_server,
 )
-from parlant.core.services.tools.plugins import tool, ToolEntry, PluginServer
-from parlant.core.tools import ToolResult, ToolContext
 
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
 
@@ -87,21 +91,6 @@ def rng_app() -> FastAPI:
         registration_func(f"/{t.__name__}", operation_id=t.__name__)(t)
 
     return app
-
-
-@asynccontextmanager
-async def run_service_server(
-    tools: list[ToolEntry],
-) -> AsyncIterator[PluginServer]:
-    async with PluginServer(
-        tools=tools,
-        port=8091,
-        host="127.0.0.1",
-    ) as server:
-        try:
-            yield server
-        finally:
-            await server.shutdown()
 
 
 async def run_cli(*args: str, **kwargs: Any) -> asyncio.subprocess.Process:

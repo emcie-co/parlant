@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 import json
 import math
 import time
-from typing import Optional, Sequence
+from typing import Optional, Sequence, cast
 
+from parlant.core import async_utils
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -127,12 +127,14 @@ class GuidelineProposer:
             ]
 
             batch_generations, condition_evaluations_batches = zip(
-                *(await asyncio.gather(*batch_tasks))
+                *(await async_utils.safe_gather(*batch_tasks))
             )
 
         propositions_batches: list[list[GuidelineProposition]] = []
 
-        for batch in condition_evaluations_batches:
+        for batch in cast(
+            tuple[list[ConditionApplicabilityEvaluation]], condition_evaluations_batches
+        ):
             guideline_propositions = []
             for evaluation in batch:
                 guideline_propositions.append(
@@ -153,7 +155,7 @@ class GuidelineProposer:
         return GuidelinePropositionResult(
             total_duration=t_end - t_start,
             batch_count=len(batches),
-            batch_generations=batch_generations,
+            batch_generations=list(cast(tuple[GenerationInfo], batch_generations)),
             batches=propositions_batches,
         )
 

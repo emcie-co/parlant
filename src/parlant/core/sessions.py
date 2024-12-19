@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import (
@@ -29,6 +28,7 @@ from typing import (
 )
 from typing_extensions import override, TypedDict, NotRequired, Self
 
+from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock, Timeout
 from parlant.core.common import (
     ItemNotFoundError,
@@ -606,7 +606,7 @@ class SessionDocumentStore(SessionStore):
     ) -> None:
         async with self._lock.writer_lock:
             events = await self._event_collection.find(filters={"session_id": {"$eq": session_id}})
-            asyncio.gather(
+            await async_utils.safe_gather(
                 *(
                     self._event_collection.delete_one(filters={"id": {"$eq": e["id"]}})
                     for e in events

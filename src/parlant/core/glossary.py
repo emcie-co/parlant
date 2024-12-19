@@ -13,13 +13,13 @@
 # limitations under the License.
 
 from abc import abstractmethod
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
 from typing import NewType, Optional, Sequence, TypedDict
 from typing_extensions import override, Self
 
+from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId
 from parlant.core.persistence.common import ObjectId
@@ -325,7 +325,7 @@ class GlossaryVectorStore(GlossaryStore):
                 for q in queries
             ]
 
-        all_results = chain.from_iterable(await asyncio.gather(*tasks))
+        all_results = chain.from_iterable(await async_utils.safe_gather(*tasks))
         unique_results = list(set(all_results))
         top_results = sorted(unique_results, key=lambda r: r.distance)[:max_terms]
 

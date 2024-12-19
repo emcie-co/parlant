@@ -221,6 +221,15 @@ def then_a_single_message_event_is_emitted(
     assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
 
 
+@step("a total of {count:d} message event(s) (is|are) emitted")
+def then_message_events_are_emitted(
+    emitted_events: list[EmittedEvent],
+    count: int,
+) -> None:
+    message_count = sum(1 for e in emitted_events if e.kind == "message")
+    assert message_count == count, f"Expected {count} message events, but found {message_count}"
+
+
 @step(then, parsers.parse("the message contains {something}"))
 def then_the_message_contains(
     context: ContextOfTest,

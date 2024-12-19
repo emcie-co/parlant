@@ -14,6 +14,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Sequence
 
 from parlant.core.agents import AgentId
 from parlant.core.sessions import SessionId
@@ -26,10 +28,29 @@ class Context:
     agent_id: AgentId
 
 
+class UtteranceReason(Enum):
+    BUY_TIME = auto()
+    FOLLOW_UP = auto()
+
+
+@dataclass(frozen=True)
+class UtteranceRequest:
+    action: str
+    reason: UtteranceReason
+
+
 class Engine(ABC):
     @abstractmethod
     async def process(
         self,
         context: Context,
         event_emitter: EventEmitter,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def utter(
+        self,
+        context: Context,
+        event_emmitter: EventEmitter,
+        actions: Sequence[UtteranceRequest],
     ) -> bool: ...

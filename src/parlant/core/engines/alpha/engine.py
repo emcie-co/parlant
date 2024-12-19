@@ -15,7 +15,7 @@
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import chain
 import traceback
 from typing import Mapping, Optional, Sequence, cast
@@ -30,7 +30,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerStore
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
@@ -60,7 +60,7 @@ from parlant.core.engines.alpha.guideline_proposition import (
 from parlant.core.engines.alpha.message_event_generator import MessageEventGenerator
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.alpha.utils import context_variables_to_json
-from parlant.core.engines.types import Context, Engine
+from parlant.core.engines.types import Context, Engine, UtteranceReason, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.logging import Logger
@@ -137,6 +137,48 @@ class AlphaEngine(Engine):
             return False
         except BaseException as exc:
             self._logger.critical(f"Critical processing error: {traceback.format_exception(exc)}")
+            raise
+
+    @override
+    async def utter(
+        self,
+        context: Context,
+        event_emitter: EventEmitter,
+        actions: Sequence[UtteranceRequest],
+    ) -> bool:
+        interaction_state = await self._load_interaction_state(context)
+        session_id = context.session_id
+
+        try:
+            with self._logger.operation(f"Uttering actions '{actions}' for session {session_id}"):
+                await self._do_utter(context, interaction_state, event_emitter, actions)
+            return True
+
+        except asyncio.CancelledError:
+            self._logger.warning(f"Uttering actions for session {session_id} was cancelled.")
+            return False
+
+        except Exception as exc:
+            formatted_exception = traceback.format_exception(type(exc), exc, exc.__traceback__)
+            self._logger.error(
+                f"Error during uttering actions for session {session_id}: {formatted_exception}"
+            )
+
+            await event_emitter.emit_status_event(
+                correlation_id=self._correlator.correlation_id,
+                data={
+                    "status": "error",
+                    "acknowledged_offset": interaction_state.last_known_event_offset,
+                    "data": {"exception": formatted_exception},
+                },
+            )
+            return False
+
+        except BaseException as exc:
+            self._logger.critical(
+                f"Critical error during uttering actions for session {session_id}: "
+                f"{traceback.format_exception(type(exc), exc, exc.__traceback__)}"
+            )
             raise
 
     async def _load_interaction_state(self, context: Context) -> _InteractionState:
@@ -396,6 +438,107 @@ class AlphaEngine(Engine):
                 },
             )
 
+    async def _do_utter(
+        self,
+        context: Context,
+        interaction: _InteractionState,
+        event_emitter: EventEmitter,
+        actions: Sequence[UtteranceRequest],
+    ) -> None:
+        agent = await self._agent_store.read_agent(context.agent_id)
+        session = await self._session_store.read_session(context.session_id)
+        customer = await self._customer_store.read_customer(session.customer_id)
+
+        await event_emitter.emit_status_event(
+            correlation_id=self._correlator.correlation_id,
+            data={
+                "acknowledged_offset": interaction.last_known_event_offset,
+                "status": "acknowledged",
+                "data": {},
+            },
+        )
+
+        try:
+            context_variables = await self._load_context_variables(
+                agent_id=context.agent_id, session=session, customer=customer
+            )
+
+            terms = set(
+                await self._load_relevant_terms(
+                    agents=[agent],
+                    context_variables=context_variables,
+                    interaction_history=interaction.history,
+                )
+            )
+
+            ordinary_guideline_propositions = self._utter_requests_to_guideline_propositions(
+                actions
+            )
+
+            await event_emitter.emit_status_event(
+                correlation_id=self._correlator.correlation_id,
+                data={
+                    "acknowledged_offset": interaction.last_known_event_offset,
+                    "status": "processing",
+                    "data": {},
+                },
+            )
+
+            message_generation_inspections = []
+
+            for event_generation_result in await self._message_event_generator.generate_events(
+                event_emitter=event_emitter,
+                agents=[agent],
+                customer=customer,
+                context_variables=context_variables,
+                interaction_history=interaction.history,
+                terms=list(terms),
+                ordinary_guideline_propositions=ordinary_guideline_propositions,
+                tool_enabled_guideline_propositions={},
+                staged_events=[],
+            ):
+                message_generation_inspections.append(
+                    MessageGenerationInspection(
+                        generation=event_generation_result.generation_info,
+                        messages=[
+                            e.data["message"]
+                            if e and e.kind == "message" and isinstance(e.data, dict)
+                            else None
+                            for e in event_generation_result.events
+                        ],
+                    )
+                )
+
+            await self._session_store.create_inspection(
+                session_id=context.session_id,
+                correlation_id=self._correlator.correlation_id,
+                preparation_iterations=[],
+                message_generations=message_generation_inspections,
+            )
+
+        except asyncio.CancelledError:
+            self._logger.warning("Uttering cancelled")
+
+            await event_emitter.emit_status_event(
+                correlation_id=self._correlator.correlation_id,
+                data={
+                    "acknowledged_offset": interaction.last_known_event_offset,
+                    "status": "cancelled",
+                    "data": {},
+                },
+            )
+
+            raise
+        finally:
+            await event_emitter.emit_status_event(
+                correlation_id=self._correlator.correlation_id,
+                data={
+                    "acknowledged_offset": interaction.last_known_event_offset,
+                    "status": "ready",
+                    "data": {},
+                },
+            )
+
     async def _load_context_variables(
         self,
         agent_id: AgentId,
@@ -622,6 +765,34 @@ class AlphaEngine(Engine):
                 query=context,
             )
         return []
+
+    async def _utter_requests_to_guideline_propositions(
+        actions: Sequence[UtteranceRequest],
+    ) -> Sequence[GuidelineProposition]:
+        def utterance_to_proposition(utterance: UtteranceRequest) -> GuidelineProposition:
+            ratioanles = {
+                UtteranceReason.BUY_TIME: "Generating the next message is taking a long time, due to information not currently available to you",
+                UtteranceReason.FOLLOW_UP: "An external module has determined that a follow up is necessary",
+            }
+
+            conditions = {
+                UtteranceReason.BUY_TIME: "Generating the message takes a long time",
+                UtteranceReason.FOLLOW_UP: "The agent needs to follow up on their last message",
+            }
+
+            return GuidelineProposition(
+                guideline=Guideline(
+                    id="",
+                    creation_utc=datetime.now(timezone.utc),
+                    content=GuidelineContent(
+                        condition=conditions[utterance.reason],
+                        action=utterance.action,
+                    ),
+                ),
+                rationale=ratioanles[utterance.reason],
+            )
+
+        return [utterance_to_proposition(action) for action in actions]
 
 
 async def fresh_value(

@@ -14,6 +14,7 @@
 
 from fastapi.testclient import TestClient
 from fastapi import status
+import httpx
 from lagom import Container
 from pytest import raises
 
@@ -22,7 +23,10 @@ from parlant.core.common import ItemNotFoundError
 from parlant.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import LocalToolService, ToolId
+from tests.core.services.tools.test_openapi import OPENAPI_SERVER_URL, rng_app, run_openapi_server
+from tests.core.services.tools.test_plugin_client import run_service_server
 
 
 async def create_and_connect(
@@ -753,6 +757,127 @@ async def test_that_guideline_deletion_removes_tool_associations(
 
     associations_after = await association_store.list_associations()
     assert not any(assoc.guideline_id == guideline.id for assoc in associations_after)
+
+
+async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_local_tool_to_a_guideline(
+    client: TestClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        guideline_set=agent_id,
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    service_name = "local"
+    tool_name = "nonexistent_tool"
+
+    request_data = {
+        "tool_associations": {
+            "add": [
+                {
+                    "service_name": service_name,
+                    "tool_name": tool_name,
+                }
+            ]
+        }
+    }
+
+    response = client.patch(
+        f"/agents/{agent_id}/guidelines/{guideline.id}",
+        json=request_data,
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_openapi_tool_to_a_guideline(
+    client: TestClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    service_registry = container[ServiceRegistry]
+
+    guideline = await guideline_store.create_guideline(
+        guideline_set=agent_id,
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    tool_name = "nonexistent_tool"
+
+    async with run_openapi_server(rng_app()):
+        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+        await service_registry.update_tool_service(
+            name="my_openapi_service",
+            kind="openapi",
+            url=OPENAPI_SERVER_URL,
+            source=source,
+        )
+
+        request_data = {
+            "tool_associations": {
+                "add": [
+                    {
+                        "service_name": "my_openapi_service",
+                        "tool_name": tool_name,
+                    }
+                ]
+            }
+        }
+
+        response = client.patch(
+            f"/agents/{agent_id}/guidelines/{guideline.id}",
+            json=request_data,
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_sdk_tool_to_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    service_registry = container[ServiceRegistry]
+
+    guideline = await guideline_store.create_guideline(
+        guideline_set=agent_id,
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    tool_name = "nonexistent_tool"
+
+    async with run_service_server([]) as server:
+        await service_registry.update_tool_service(
+            name="my_sdk_service",
+            kind="sdk",
+            url=server.url,
+        )
+
+        request_data = {
+            "tool_associations": {
+                "add": [
+                    {
+                        "service_name": "my_sdk_service",
+                        "tool_name": tool_name,
+                    }
+                ]
+            }
+        }
+
+        response = await async_client.patch(
+            f"/agents/{agent_id}/guidelines/{guideline.id}",
+            json=request_data,
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 async def test_that_an_existing_guideline_can_be_updated(

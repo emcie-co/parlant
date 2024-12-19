@@ -56,7 +56,7 @@ from parlant.core.tools import (
     ToolResultError,
     normalize_tool_arguments,
 )
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.sessions import SessionId, SessionStatus
@@ -336,13 +336,28 @@ class PluginServer:
 
         @app.get("/tools/{name}")
         async def read_tool(name: str) -> ReadToolResponse:
-            return ReadToolResponse(tool=self.tools[name].tool)
+            try:
+                spec = self.tools[name]
+            except KeyError:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tool: '{name}' does not exists",
+                )
+            return ReadToolResponse(tool=spec.tool)
 
         @app.post("/tools/{name}/calls")
         async def call_tool(
             name: str,
             request: CallToolRequest,
         ) -> StreamingResponse:
+            try:
+                self.tools[name]
+            except KeyError:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tool: '{name}' does not exists",
+                )
+
             end = asyncio.Event()
             chunks_received = asyncio.Semaphore(value=0)
             lock = asyncio.Lock()
@@ -495,6 +510,8 @@ class PluginClient(ToolService):
     @override
     async def read_tool(self, name: str) -> Tool:
         response = await self._http_client.get(self._get_url(f"/tools/{name}"))
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            raise ItemNotFoundError(UniqueId(name))
         content = response.json()
         tool = content["tool"]
         return Tool(
@@ -524,6 +541,9 @@ class PluginClient(ToolService):
                     "arguments": arguments,
                 },
             ) as response:
+                if response.status_code == status.HTTP_404_NOT_FOUND:
+                    raise ItemNotFoundError(UniqueId(name))
+
                 if response.is_error:
                     raise ToolExecutionError(
                         tool_name=name,

@@ -33,7 +33,7 @@ from typing import (
 )
 from typing_extensions import override, TypedDict, NotRequired
 
-from parlant.core.common import JSONSerializable
+from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId
 
 ToolParameterType = Literal[
     "string",
@@ -241,7 +241,10 @@ class LocalToolService(ToolService):
         self,
         name: str,
     ) -> Tool:
-        return self._local_tool_to_tool(self._local_tools_by_name[name])
+        try:
+            return self._local_tool_to_tool(self._local_tools_by_name[name])
+        except KeyError:
+            raise ItemNotFoundError(item_id=UniqueId(name))
 
     @override
     async def call_tool(

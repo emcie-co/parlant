@@ -348,4 +348,4 @@ async def test_that_a_plugin_tool_that_returns_a_huge_payload_raises_an_error(
             with raises(ToolResultError) as exc:
                 await client.call_tool(huge_payload_tool.tool.name, context, arguments={})
 
-            assert "Response exceeds 15KB limit" in str(exc.value)
+            assert "Response exceeds 16KB limit" in str(exc.value)

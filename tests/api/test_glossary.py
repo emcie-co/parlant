@@ -13,21 +13,21 @@
 # limitations under the License.
 
 from fastapi import status
-from fastapi.testclient import TestClient
+import httpx
 
 from parlant.core.agents import AgentId
 
 
-def test_that_a_term_can_be_created(
-    client: TestClient,
+async def test_that_a_term_can_be_created(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
-    response = client.post(
-        f"/agents/{agent_id}/terms/",
+    response = await async_client.post(
+        f"/agents/{agent_id}/terms",
         json={
             "name": name,
             "description": description,
@@ -44,15 +44,15 @@ def test_that_a_term_can_be_created(
     assert data["synonyms"] == synonyms
 
 
-def test_that_a_term_can_be_created_without_synonyms(
-    client: TestClient,
+async def test_that_a_term_can_be_created_without_synonyms(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
     description = "when and then statements"
 
-    response = client.post(
-        f"/agents/{agent_id}/terms/",
+    response = await async_client.post(
+        f"/agents/{agent_id}/terms",
         json={
             "name": name,
             "description": description,
@@ -68,16 +68,16 @@ def test_that_a_term_can_be_created_without_synonyms(
     assert data["synonyms"] == []
 
 
-def test_that_a_term_can_be_read(
-    client: TestClient,
+async def test_that_a_term_can_be_read(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
-    create_response = client.post(
-        f"/agents/{agent_id}/terms/",
+    create_response = await async_client.post(
+        f"/agents/{agent_id}/terms",
         json={
             "name": name,
             "description": description,
@@ -87,7 +87,7 @@ def test_that_a_term_can_be_read(
     assert create_response.status_code == status.HTTP_201_CREATED
     term = create_response.json()
 
-    read_response = client.get(f"agents/{agent_id}/terms/{term['id']}")
+    read_response = await async_client.get(f"agents/{agent_id}/terms/{term['id']}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -96,15 +96,15 @@ def test_that_a_term_can_be_read(
     assert data["synonyms"] == synonyms
 
 
-def test_that_a_term_can_be_read_without_synonyms(
-    client: TestClient,
+async def test_that_a_term_can_be_read_without_synonyms(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
     description = "when and then statements"
 
-    create_response = client.post(
-        f"/agents/{agent_id}/terms/",
+    create_response = await async_client.post(
+        f"/agents/{agent_id}/terms",
         json={
             "name": name,
             "description": description,
@@ -113,7 +113,7 @@ def test_that_a_term_can_be_read_without_synonyms(
     assert create_response.status_code == status.HTTP_201_CREATED
     term = create_response.json()
 
-    read_response = client.get(f"/agents/{agent_id}/terms/{term['id']}")
+    read_response = await async_client.get(f"/agents/{agent_id}/terms/{term['id']}")
     assert read_response.status_code == status.HTTP_200_OK
 
     data = read_response.json()
@@ -122,8 +122,8 @@ def test_that_a_term_can_be_read_without_synonyms(
     assert data["synonyms"] == []
 
 
-def test_that_terms_can_be_listed_for_an_agent(
-    client: TestClient,
+async def test_that_terms_can_be_listed_for_an_agent(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     terms = [
@@ -132,7 +132,7 @@ def test_that_terms_can_be_listed_for_an_agent(
     ]
 
     for term in terms:
-        response = client.post(
+        response = await async_client.post(
             f"/agents/{agent_id}/terms",
             json={
                 "name": term["name"],
@@ -142,7 +142,7 @@ def test_that_terms_can_be_listed_for_an_agent(
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-    returned_terms = client.get(f"/agents/{agent_id}/terms/").raise_for_status().json()
+    returned_terms = (await async_client.get(f"/agents/{agent_id}/terms")).raise_for_status().json()
 
     assert len(returned_terms) == 2
     assert {
@@ -158,8 +158,8 @@ def test_that_terms_can_be_listed_for_an_agent(
     } in terms
 
 
-def test_that_a_term_can_be_updated(
-    client: TestClient,
+async def test_that_a_term_can_be_updated(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
@@ -167,13 +167,15 @@ def test_that_a_term_can_be_updated(
     synonyms = ["rule", "principle"]
 
     term = (
-        client.post(
-            f"/agents/{agent_id}/terms/",
-            json={
-                "name": name,
-                "description": description,
-                "synonyms": synonyms,
-            },
+        (
+            await async_client.post(
+                f"/agents/{agent_id}/terms",
+                json={
+                    "name": name,
+                    "description": description,
+                    "synonyms": synonyms,
+                },
+            )
         )
         .raise_for_status()
         .json()
@@ -183,7 +185,7 @@ def test_that_a_term_can_be_updated(
     updated_description = "Updated guideline description"
     updated_synonyms = ["instruction"]
 
-    update_response = client.patch(
+    update_response = await async_client.patch(
         f"/agents/{agent_id}/terms/{term['id']}",
         json={
             "name": updated_name,
@@ -200,8 +202,8 @@ def test_that_a_term_can_be_updated(
     assert data["synonyms"] == updated_synonyms
 
 
-def test_that_a_term_can_be_deleted(
-    client: TestClient,
+async def test_that_a_term_can_be_deleted(
+    async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
     name = "guideline"
@@ -209,19 +211,21 @@ def test_that_a_term_can_be_deleted(
     synonyms = ["rule", "principle"]
 
     term = (
-        client.post(
-            f"/agents/{agent_id}/terms",
-            json={
-                "name": name,
-                "description": description,
-                "synonyms": synonyms,
-            },
+        (
+            await async_client.post(
+                f"/agents/{agent_id}/terms",
+                json={
+                    "name": name,
+                    "description": description,
+                    "synonyms": synonyms,
+                },
+            )
         )
         .raise_for_status()
         .json()
     )
 
-    client.delete(f"/agents/{agent_id}/terms/{term['id']}").raise_for_status()
+    (await async_client.delete(f"/agents/{agent_id}/terms/{term['id']}")).raise_for_status()
 
-    read_response = client.get(f"/agents/{agent_id}/terms/{name}")
+    read_response = await async_client.get(f"/agents/{agent_id}/terms/{name}")
     assert read_response.status_code == status.HTTP_404_NOT_FOUND

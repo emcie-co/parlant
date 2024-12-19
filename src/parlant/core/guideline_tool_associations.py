@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 from typing_extensions import override, TypedDict, Self
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import ObjectId
@@ -78,6 +79,8 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         self._database = database
         self._collection: DocumentCollection[_GuidelineToolAssociationDocument]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="associations", schema=_GuidelineToolAssociationDocument
@@ -122,16 +125,17 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         tool_id: ToolId,
         creation_utc: Optional[datetime] = None,
     ) -> GuidelineToolAssociation:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        association = GuidelineToolAssociation(
-            id=GuidelineToolAssociationId(generate_id()),
-            creation_utc=creation_utc,
-            guideline_id=guideline_id,
-            tool_id=tool_id,
-        )
+            association = GuidelineToolAssociation(
+                id=GuidelineToolAssociationId(generate_id()),
+                creation_utc=creation_utc,
+                guideline_id=guideline_id,
+                tool_id=tool_id,
+            )
 
-        await self._collection.insert_one(document=self._serialize(association))
+            await self._collection.insert_one(document=self._serialize(association))
 
         return association
 
@@ -140,9 +144,10 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         self,
         association_id: GuidelineToolAssociationId,
     ) -> GuidelineToolAssociation:
-        guideline_tool_association_document = await self._collection.find_one(
-            filters={"id": {"$eq": association_id}}
-        )
+        async with self._lock.reader_lock:
+            guideline_tool_association_document = await self._collection.find_one(
+                filters={"id": {"$eq": association_id}}
+            )
 
         if not guideline_tool_association_document:
             raise ItemNotFoundError(item_id=UniqueId(association_id))
@@ -151,11 +156,13 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
 
     @override
     async def delete_association(self, association_id: GuidelineToolAssociationId) -> None:
-        result = await self._collection.delete_one(filters={"id": {"$eq": association_id}})
+        async with self._lock.writer_lock:
+            result = await self._collection.delete_one(filters={"id": {"$eq": association_id}})
 
         if not result.deleted_document:
             raise ItemNotFoundError(item_id=UniqueId(association_id))
 
     @override
     async def list_associations(self) -> Sequence[GuidelineToolAssociation]:
-        return [self._deserialize(d) for d in await self._collection.find(filters={})]
+        async with self._lock.reader_lock:
+            return [self._deserialize(d) for d in await self._collection.find(filters={})]

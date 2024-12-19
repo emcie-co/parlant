@@ -524,7 +524,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         await service_registry.delete_service(name)
 
     @router.get(
-        "/",
+        "",
         operation_id="list_services",
         response_model=Sequence[ServiceDTO],
         responses={

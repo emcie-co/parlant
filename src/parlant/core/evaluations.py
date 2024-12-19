@@ -29,7 +29,7 @@ from typing import (
 from typing_extensions import Literal, override, TypedDict, Self
 
 from parlant.core.agents import AgentId
-from parlant.core.async_utils import Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout
 from parlant.core.common import (
     ItemNotFoundError,
     JSONSerializable,
@@ -235,6 +235,8 @@ class EvaluationDocumentStore(EvaluationStore):
     def __init__(self, database: DocumentDatabase):
         self._database = database
         self._collection: DocumentCollection[_EvaluationDocument]
+
+        self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
@@ -449,34 +451,35 @@ class EvaluationDocumentStore(EvaluationStore):
         creation_utc: Optional[datetime] = None,
         extra: Optional[Mapping[str, JSONSerializable]] = None,
     ) -> Evaluation:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        evaluation_id = EvaluationId(generate_id())
+            evaluation_id = EvaluationId(generate_id())
 
-        invoices = [
-            Invoice(
-                kind=k,
-                payload=p,
-                state_version="",
-                checksum="",
-                approved=False,
-                data=None,
+            invoices = [
+                Invoice(
+                    kind=k,
+                    payload=p,
+                    state_version="",
+                    checksum="",
+                    approved=False,
+                    data=None,
+                    error=None,
+                )
+                for k, p in payload_descriptors
+            ]
+
+            evaluation = Evaluation(
+                id=evaluation_id,
+                agent_id=agent_id,
+                status=EvaluationStatus.PENDING,
+                creation_utc=creation_utc,
                 error=None,
+                invoices=invoices,
+                progress=0.0,
             )
-            for k, p in payload_descriptors
-        ]
 
-        evaluation = Evaluation(
-            id=evaluation_id,
-            agent_id=agent_id,
-            status=EvaluationStatus.PENDING,
-            creation_utc=creation_utc,
-            error=None,
-            invoices=invoices,
-            progress=0.0,
-        )
-
-        await self._collection.insert_one(self._serialize_evaluation(evaluation=evaluation))
+            await self._collection.insert_one(self._serialize_evaluation(evaluation=evaluation))
 
         return evaluation
 
@@ -486,23 +489,24 @@ class EvaluationDocumentStore(EvaluationStore):
         evaluation_id: EvaluationId,
         params: EvaluationUpdateParams,
     ) -> Evaluation:
-        evaluation = await self.read_evaluation(evaluation_id)
+        async with self._lock.writer_lock:
+            evaluation = await self.read_evaluation(evaluation_id)
 
-        update_params: _EvaluationDocument = {}
-        if "invoices" in params:
-            update_params["invoices"] = [self._serialize_invoice(i) for i in params["invoices"]]
+            update_params: _EvaluationDocument = {}
+            if "invoices" in params:
+                update_params["invoices"] = [self._serialize_invoice(i) for i in params["invoices"]]
 
-        if "status" in params:
-            update_params["status"] = params["status"].name
-            update_params["error"] = params["error"] if "error" in params else None
+            if "status" in params:
+                update_params["status"] = params["status"].name
+                update_params["error"] = params["error"] if "error" in params else None
 
-        if "progress" in params:
-            update_params["progress"] = params["progress"]
+            if "progress" in params:
+                update_params["progress"] = params["progress"]
 
-        result = await self._collection.update_one(
-            filters={"id": {"$eq": evaluation.id}},
-            params=update_params,
-        )
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": evaluation.id}},
+                params=update_params,
+            )
 
         assert result.updated_document
 
@@ -513,9 +517,10 @@ class EvaluationDocumentStore(EvaluationStore):
         self,
         evaluation_id: EvaluationId,
     ) -> Evaluation:
-        evaluation_document = await self._collection.find_one(
-            filters={"id": {"$eq": evaluation_id}},
-        )
+        async with self._lock.reader_lock:
+            evaluation_document = await self._collection.find_one(
+                filters={"id": {"$eq": evaluation_id}},
+            )
 
         if not evaluation_document:
             raise ItemNotFoundError(item_id=UniqueId(evaluation_id))
@@ -526,10 +531,11 @@ class EvaluationDocumentStore(EvaluationStore):
     async def list_evaluations(
         self,
     ) -> Sequence[Evaluation]:
-        return [
-            self._deserialize_evaluation(evaluation_document=e)
-            for e in await self._collection.find(filters={})
-        ]
+        async with self._lock.reader_lock:
+            return [
+                self._deserialize_evaluation(evaluation_document=e)
+                for e in await self._collection.find(filters={})
+            ]
 
 
 class EvaluationListener(ABC):

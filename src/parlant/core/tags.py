@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence
 from typing_extensions import override, TypedDict, Self
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, generate_id, UniqueId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
@@ -84,6 +85,8 @@ class TagDocumentStore(TagStore):
         self._database = database
         self._collection: DocumentCollection[_TagDocument]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="tags",
@@ -123,10 +126,11 @@ class TagDocumentStore(TagStore):
         name: str,
         creation_utc: Optional[datetime] = None,
     ) -> Tag:
-        creation_utc = creation_utc or datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        tag = Tag(id=TagId(generate_id()), creation_utc=creation_utc, name=name)
-        await self._collection.insert_one(self._serialize(tag))
+            tag = Tag(id=TagId(generate_id()), creation_utc=creation_utc, name=name)
+            await self._collection.insert_one(self._serialize(tag))
 
         return tag
 
@@ -135,7 +139,8 @@ class TagDocumentStore(TagStore):
         self,
         tag_id: TagId,
     ) -> Tag:
-        document = await self._collection.find_one({"id": {"$eq": tag_id}})
+        async with self._lock.reader_lock:
+            document = await self._collection.find_one({"id": {"$eq": tag_id}})
 
         if not document:
             raise ItemNotFoundError(item_id=UniqueId(tag_id))
@@ -148,15 +153,16 @@ class TagDocumentStore(TagStore):
         tag_id: TagId,
         params: TagUpdateParams,
     ) -> Tag:
-        tag_document = await self._collection.find_one(filters={"id": {"$eq": tag_id}})
+        async with self._lock.writer_lock:
+            tag_document = await self._collection.find_one(filters={"id": {"$eq": tag_id}})
 
-        if not tag_document:
-            raise ItemNotFoundError(item_id=UniqueId(tag_id))
+            if not tag_document:
+                raise ItemNotFoundError(item_id=UniqueId(tag_id))
 
-        result = await self._collection.update_one(
-            filters={"id": {"$eq": tag_id}},
-            params={"name": params["name"]},
-        )
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": tag_id}},
+                params={"name": params["name"]},
+            )
 
         assert result.updated_document
 
@@ -166,14 +172,16 @@ class TagDocumentStore(TagStore):
     async def list_tags(
         self,
     ) -> Sequence[Tag]:
-        return [self._deserialize(doc) for doc in await self._collection.find({})]
+        async with self._lock.reader_lock:
+            return [self._deserialize(doc) for doc in await self._collection.find({})]
 
     @override
     async def delete_tag(
         self,
         tag_id: TagId,
     ) -> None:
-        result = await self._collection.delete_one({"id": {"$eq": tag_id}})
+        async with self._lock.writer_lock:
+            result = await self._collection.delete_one({"id": {"$eq": tag_id}})
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(tag_id))

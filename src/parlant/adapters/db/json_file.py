@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from __future__ import annotations
-import asyncio
 import importlib
 import json
 import operator
@@ -23,6 +22,7 @@ from typing_extensions import override, Self
 import aiofiles
 
 from parlant.core.persistence.common import Where, matches_filters, ensure_is_total
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
@@ -44,19 +44,20 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         self.file_path = file_path
 
         self._logger = logger
-        self._lock = asyncio.Lock()
         self._op_counter = 0
+
+        self._lock = ReaderWriterLock()
 
         if not self.file_path.exists():
             self.file_path.write_text(json.dumps({}))
         self._collections: dict[str, JSONFileDocumentCollection[BaseDocument]]
 
     async def flush(self) -> None:
-        async with self._lock:
+        async with self._lock.writer_lock:
             await self._flush_unlocked()
 
     async def __aenter__(self) -> Self:
-        async with self._lock:
+        async with self._lock.reader_lock:
             raw_data = await self._load_data()
 
         schemas: dict[str, Any] = raw_data.get("__schemas__", {})
@@ -83,7 +84,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         exc_value: Optional[BaseException],
         traceback: Optional[object],
     ) -> bool:
-        async with self._lock:
+        async with self._lock.writer_lock:
             await self._flush_unlocked()
         return False
 
@@ -189,7 +190,8 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self._name = name
         self._schema = schema
         self._op_counter = 0
-        self._lock = asyncio.Lock()
+
+        self._lock = ReaderWriterLock()
 
         self.documents = [cast(TDocument, doc) for doc in data] if data else []
 
@@ -199,11 +201,12 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
     ) -> Sequence[TDocument]:
         result = []
-        for doc in filter(
-            lambda d: matches_filters(filters, d),
-            self.documents,
-        ):
-            result.append(doc)
+        async with self._lock.reader_lock:
+            for doc in filter(
+                lambda d: matches_filters(filters, d),
+                self.documents,
+            ):
+                result.append(doc)
 
         return result
 
@@ -212,9 +215,10 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self,
         filters: Where,
     ) -> Optional[TDocument]:
-        for doc in self.documents:
-            if matches_filters(filters, doc):
-                return doc
+        async with self._lock.reader_lock:
+            for doc in self.documents:
+                if matches_filters(filters, doc):
+                    return doc
 
         return None
 
@@ -225,7 +229,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> InsertResult:
         ensure_is_total(document, self._schema)
 
-        async with self._lock:
+        async with self._lock.writer_lock:
             self.documents.append(document)
 
         await self._database.flush()
@@ -241,7 +245,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> UpdateResult[TDocument]:
         for i, d in enumerate(self.documents):
             if matches_filters(filters, d):
-                async with self._lock:
+                async with self._lock.writer_lock:
                     self.documents[i] = cast(TDocument, {**self.documents[i], **params})
 
                 await self._database.flush()
@@ -277,7 +281,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     ) -> DeleteResult[TDocument]:
         for i, d in enumerate(self.documents):
             if matches_filters(filters, d):
-                async with self._lock:
+                async with self._lock.writer_lock:
                     document = self.documents.pop(i)
 
                 await self._database.flush()

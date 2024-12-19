@@ -131,7 +131,7 @@ def create_router(
     router = APIRouter()
 
     @router.post(
-        "/",
+        "",
         status_code=status.HTTP_201_CREATED,
         operation_id="create_tag",
         response_model=TagDTO,
@@ -187,7 +187,7 @@ def create_router(
         return TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name)
 
     @router.get(
-        "/",
+        "",
         operation_id="list_tags",
         response_model=list[TagDTO],
         responses={

@@ -19,6 +19,7 @@ from typing_extensions import TypedDict, override, Self
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import (
     ItemNotFoundError,
     JSONSerializable,
@@ -160,6 +161,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
         self._variable_collection: DocumentCollection[_ContextVariableDocument]
         self._value_collection: DocumentCollection[_ContextVariableValueDocument]
 
+        self._lock = ReaderWriterLock()
+
     async def __aenter__(self) -> Self:
         self._variable_collection = await self._database.get_or_create_collection(
             name="variables",
@@ -245,17 +248,18 @@ class ContextVariableDocumentStore(ContextVariableStore):
         tool_id: Optional[ToolId] = None,
         freshness_rules: Optional[str] = None,
     ) -> ContextVariable:
-        context_variable = ContextVariable(
-            id=ContextVariableId(generate_id()),
-            name=name,
-            description=description,
-            tool_id=tool_id,
-            freshness_rules=freshness_rules,
-        )
+        async with self._lock.writer_lock:
+            context_variable = ContextVariable(
+                id=ContextVariableId(generate_id()),
+                name=name,
+                description=description,
+                tool_id=tool_id,
+                freshness_rules=freshness_rules,
+            )
 
-        await self._variable_collection.insert_one(
-            self._serialize_context_variable(context_variable, variable_set)
-        )
+            await self._variable_collection.insert_one(
+                self._serialize_context_variable(context_variable, variable_set)
+            )
 
         return context_variable
 
@@ -266,40 +270,43 @@ class ContextVariableDocumentStore(ContextVariableStore):
         id: ContextVariableId,
         params: ContextVariableUpdateParams,
     ) -> ContextVariable:
-        variable_document = await self._variable_collection.find_one(
-            filters={
-                "id": {"$eq": id},
-                "variable_set": {"$eq": variable_set},
-            }
-        )
-
-        if not variable_document:
-            raise ItemNotFoundError(item_id=UniqueId(id), message=f"variable_set={variable_set}")
-
-        update_params = {
-            **({"name": params["name"]} if "name" in params else {}),
-            **({"description": params["description"]} if "description" in params else {}),
-            **(
-                {"tool_id": params["tool_id"].to_string()}
-                if "tool_id" in params and params["tool_id"]
-                else {}
-            ),
-            **(
-                {
-                    "freshness_rules": params["freshness_rules"]
-                    if "freshness_rules" in params and params["freshness_rules"]
-                    else {}
+        async with self._lock.writer_lock:
+            variable_document = await self._variable_collection.find_one(
+                filters={
+                    "id": {"$eq": id},
+                    "variable_set": {"$eq": variable_set},
                 }
-            ),
-        }
+            )
 
-        result = await self._variable_collection.update_one(
-            filters={
-                "id": {"$eq": id},
-                "variable_set": {"$eq": variable_set},
-            },
-            params=cast(_ContextVariableDocument, update_params),
-        )
+            if not variable_document:
+                raise ItemNotFoundError(
+                    item_id=UniqueId(id), message=f"variable_set={variable_set}"
+                )
+
+            update_params = {
+                **({"name": params["name"]} if "name" in params else {}),
+                **({"description": params["description"]} if "description" in params else {}),
+                **(
+                    {"tool_id": params["tool_id"].to_string()}
+                    if "tool_id" in params and params["tool_id"]
+                    else {}
+                ),
+                **(
+                    {
+                        "freshness_rules": params["freshness_rules"]
+                        if "freshness_rules" in params and params["freshness_rules"]
+                        else {}
+                    }
+                ),
+            }
+
+            result = await self._variable_collection.update_one(
+                filters={
+                    "id": {"$eq": id},
+                    "variable_set": {"$eq": variable_set},
+                },
+                params=cast(_ContextVariableDocument, update_params),
+            )
 
         assert result.updated_document
 
@@ -311,27 +318,33 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         id: ContextVariableId,
     ) -> None:
-        variable_deletion_result = await self._variable_collection.delete_one(
-            {
-                "id": {"$eq": id},
-                "variable_set": {"$eq": variable_set},
-            }
-        )
-        if variable_deletion_result.deleted_count == 0:
-            raise ItemNotFoundError(item_id=UniqueId(id), message=f"variable_set={variable_set}")
+        async with self._lock.writer_lock:
+            variable_deletion_result = await self._variable_collection.delete_one(
+                {
+                    "id": {"$eq": id},
+                    "variable_set": {"$eq": variable_set},
+                }
+            )
+            if variable_deletion_result.deleted_count == 0:
+                raise ItemNotFoundError(
+                    item_id=UniqueId(id), message=f"variable_set={variable_set}"
+                )
 
-        for k, _ in await self.list_values(variable_set=variable_set, variable_id=id):
-            await self.delete_value(variable_set=variable_set, variable_id=id, key=k)
+            for k, _ in await self.list_values(variable_set=variable_set, variable_id=id):
+                await self.delete_value(variable_set=variable_set, variable_id=id, key=k)
 
     @override
     async def list_variables(
         self,
         variable_set: str,
     ) -> Sequence[ContextVariable]:
-        return [
-            self._deserialize_context_variable(d)
-            for d in await self._variable_collection.find({"variable_set": {"$eq": variable_set}})
-        ]
+        async with self._lock.reader_lock:
+            return [
+                self._deserialize_context_variable(d)
+                for d in await self._variable_collection.find(
+                    {"variable_set": {"$eq": variable_set}}
+                )
+            ]
 
     @override
     async def read_variable(
@@ -339,12 +352,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         id: ContextVariableId,
     ) -> ContextVariable:
-        variable_document = await self._variable_collection.find_one(
-            {
-                "variable_set": {"$eq": variable_set},
-                "id": {"$eq": id},
-            }
-        )
+        async with self._lock.reader_lock:
+            variable_document = await self._variable_collection.find_one(
+                {
+                    "variable_set": {"$eq": variable_set},
+                    "id": {"$eq": id},
+                }
+            )
+
         if not variable_document:
             raise ItemNotFoundError(
                 item_id=UniqueId(id),
@@ -361,28 +376,29 @@ class ContextVariableDocumentStore(ContextVariableStore):
         key: str,
         data: JSONSerializable,
     ) -> ContextVariableValue:
-        last_modified = datetime.now(timezone.utc)
+        async with self._lock.writer_lock:
+            last_modified = datetime.now(timezone.utc)
 
-        value = ContextVariableValue(
-            id=ContextVariableValueId(generate_id()),
-            last_modified=last_modified,
-            data=data,
-        )
+            value = ContextVariableValue(
+                id=ContextVariableValueId(generate_id()),
+                last_modified=last_modified,
+                data=data,
+            )
 
-        result = await self._value_collection.update_one(
-            {
-                "variable_set": {"$eq": variable_set},
-                "variable_id": {"$eq": variable_id},
-                "key": {"$eq": key},
-            },
-            self._serialize_context_variable_value(
-                context_variable_value=value,
-                variable_set=variable_set,
-                variable_id=variable_id,
-                key=key,
-            ),
-            upsert=True,
-        )
+            result = await self._value_collection.update_one(
+                {
+                    "variable_set": {"$eq": variable_set},
+                    "variable_id": {"$eq": variable_id},
+                    "key": {"$eq": key},
+                },
+                self._serialize_context_variable_value(
+                    context_variable_value=value,
+                    variable_set=variable_set,
+                    variable_id=variable_id,
+                    key=key,
+                ),
+                upsert=True,
+            )
 
         assert result.updated_document
 
@@ -395,13 +411,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         key: str,
     ) -> Optional[ContextVariableValue]:
-        value_document = await self._value_collection.find_one(
-            {
-                "variable_set": {"$eq": variable_set},
-                "variable_id": {"$eq": variable_id},
-                "key": {"$eq": key},
-            }
-        )
+        async with self._lock.reader_lock:
+            value_document = await self._value_collection.find_one(
+                {
+                    "variable_set": {"$eq": variable_set},
+                    "variable_id": {"$eq": variable_id},
+                    "key": {"$eq": key},
+                }
+            )
 
         if not value_document:
             return None
@@ -415,13 +432,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         key: str,
     ) -> None:
-        await self._value_collection.delete_one(
-            {
-                "variable_set": {"$eq": variable_set},
-                "variable_id": {"$eq": variable_id},
-                "key": {"$eq": key},
-            }
-        )
+        async with self._lock.writer_lock:
+            await self._value_collection.delete_one(
+                {
+                    "variable_set": {"$eq": variable_set},
+                    "variable_id": {"$eq": variable_id},
+                    "key": {"$eq": key},
+                }
+            )
 
     @override
     async def list_values(
@@ -429,12 +447,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         variable_id: ContextVariableId,
     ) -> Sequence[tuple[str, ContextVariableValue]]:
-        return [
-            (d["key"], self._deserialize_context_variable_value(d))
-            for d in await self._value_collection.find(
-                {
-                    "variable_set": {"$eq": variable_set},
-                    "variable_id": {"$eq": variable_id},
-                }
-            )
-        ]
+        async with self._lock.reader_lock:
+            return [
+                (d["key"], self._deserialize_context_variable_value(d))
+                for d in await self._value_collection.find(
+                    {
+                        "variable_set": {"$eq": variable_set},
+                        "variable_id": {"$eq": variable_id},
+                    }
+                )
+            ]

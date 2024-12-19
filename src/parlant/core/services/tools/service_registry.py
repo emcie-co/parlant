@@ -22,6 +22,7 @@ import aiofiles
 import httpx
 from typing_extensions import Literal
 
+from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.nlp.moderation import ModerationService
@@ -118,6 +119,8 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._exit_stack: AsyncExitStack
         self._running_services: dict[str, ToolService] = {}
         self._service_sources: dict[str, str] = {}
+
+        self._lock = ReaderWriterLock()
 
     def _cast_to_specific_tool_service_class(
         self,
@@ -219,27 +222,34 @@ class ServiceDocumentRegistry(ServiceRegistry):
         source: Optional[str] = None,
         transient: bool = False,
     ) -> ToolService:
-        service: ToolService
+        async with self._lock.writer_lock:
+            service: ToolService
 
-        if kind in "local":
-            self._running_services[name] = LocalToolService()
-            return self._running_services[name]
-        elif kind == "openapi":
-            assert source
-            openapi_json = await self._get_openapi_json_from_source(source)
-            service = OpenAPIClient(server_url=url, openapi_json=openapi_json)
-            self._service_sources[name] = source
-        else:
-            service = PluginClient(
-                url=url,
-                event_emitter_factory=self._event_emitter_factory,
-                correlator=self._correlator,
+            if kind == "local":
+                self._running_services[name] = LocalToolService()
+                return self._running_services[name]
+            elif kind == "openapi":
+                assert source
+                openapi_json = await self._get_openapi_json_from_source(source)
+                service = OpenAPIClient(server_url=url, openapi_json=openapi_json)
+                self._service_sources[name] = source
+            else:
+                service = PluginClient(
+                    url=url,
+                    event_emitter_factory=self._event_emitter_factory,
+                    correlator=self._correlator,
+                )
+
+            if name in self._running_services:
+                await (
+                    self._cast_to_specific_tool_service_class(self._running_services[name])
+                ).__aexit__(None, None, None)
+
+            await self._exit_stack.enter_async_context(
+                self._cast_to_specific_tool_service_class(service)
             )
 
-        if name in self._running_services:
-            await (
-                self._cast_to_specific_tool_service_class(self._running_services[name])
-            ).__aexit__(None, None, None)
+            self._running_services[name] = service
 
         await self._exit_stack.enter_async_context(
             self._cast_to_specific_tool_service_class(service)
@@ -263,6 +273,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
     ) -> ToolService:
         if name not in self._running_services:
             raise ItemNotFoundError(item_id=UniqueId(name))
+
         return self._running_services[name]
 
     @override
@@ -278,6 +289,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
     ) -> ModerationService:
         if name not in self._moderation_services:
             raise ItemNotFoundError(item_id=UniqueId(name))
+
         return self._moderation_services[name]
 
     @override
@@ -293,6 +305,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
     ) -> NLPService:
         if name not in self._nlp_services:
             raise ItemNotFoundError(item_id=UniqueId(name))
+
         return self._nlp_services[name]
 
     @override
@@ -303,17 +316,21 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     @override
     async def delete_service(self, name: str) -> None:
-        if name in self._running_services:
-            if isinstance(self._running_services[name], LocalToolService):
+        async with self._lock.writer_lock:
+            if name in self._running_services:
+                if isinstance(self._running_services[name], LocalToolService):
+                    del self._running_services[name]
+                    return
+
+                service = self._running_services[name]
+                await (self._cast_to_specific_tool_service_class(service)).__aexit__(
+                    None, None, None
+                )
                 del self._running_services[name]
-                return
+                if name in self._service_sources:
+                    del self._service_sources[name]
 
-            service = self._running_services[name]
-            await (self._cast_to_specific_tool_service_class(service)).__aexit__(None, None, None)
-            del self._running_services[name]
-            if name in self._service_sources:
-                del self._service_sources[name]
+            result = await self._tool_services_collection.delete_one({"name": {"$eq": name}})
 
-        result = await self._tool_services_collection.delete_one({"name": {"$eq": name}})
         if not result.deleted_count:
             raise ItemNotFoundError(item_id=UniqueId(name))

@@ -219,7 +219,7 @@ def create_router(
     router = APIRouter()
 
     @router.post(
-        "/",
+        "",
         operation_id="create_customer",
         status_code=status.HTTP_201_CREATED,
         response_model=CustomerDTO,
@@ -291,7 +291,7 @@ def create_router(
         )
 
     @router.get(
-        "/",
+        "",
         operation_id="list_customers",
         response_model=Sequence[CustomerDTO],
         responses={

@@ -13,9 +13,11 @@
 # limitations under the License.
 
 from __future__ import annotations
-from typing import Any, Coroutine, Iterable, TypeVar, overload
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Coroutine, Iterable, TypeVar, overload, AsyncContextManager
 import asyncio
 import math
+import aiorwlock
 
 
 class Timeout:
@@ -127,3 +129,28 @@ async def safe_gather(  # type: ignore[misc]
         for future in futures:
             future.cancel()
         raise
+
+
+class ReaderWriterLock:
+    def __init__(self) -> None:
+        _lock = aiorwlock.RWLock()
+        self._reader_lock = _lock.reader
+        self._writer_lock = _lock.writer
+
+    @property
+    def reader_lock(self) -> AsyncContextManager[None]:
+        @asynccontextmanager
+        async def _reader_cm() -> AsyncIterator[None]:
+            async with self._reader_lock:
+                yield
+
+        return _reader_cm()
+
+    @property
+    def writer_lock(self) -> AsyncContextManager[None]:
+        @asynccontextmanager
+        async def _writer_cm() -> AsyncIterator[None]:
+            async with self._writer_lock:
+                yield
+
+        return _writer_cm()

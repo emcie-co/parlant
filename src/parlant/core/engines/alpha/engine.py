@@ -30,7 +30,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerStore
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent, GuidelineStore
 from parlant.core.guideline_connections import ConnectionKind, GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
@@ -471,7 +471,7 @@ class AlphaEngine(Engine):
                 )
             )
 
-            ordinary_guideline_propositions = self._utter_requests_to_guideline_propositions(
+            ordinary_guideline_propositions = await self._utter_requests_to_guideline_propositions(
                 actions
             )
 
@@ -767,6 +767,7 @@ class AlphaEngine(Engine):
         return []
 
     async def _utter_requests_to_guideline_propositions(
+        self,
         actions: Sequence[UtteranceRequest],
     ) -> Sequence[GuidelineProposition]:
         def utterance_to_proposition(utterance: UtteranceRequest) -> GuidelineProposition:
@@ -782,7 +783,7 @@ class AlphaEngine(Engine):
 
             return GuidelineProposition(
                 guideline=Guideline(
-                    id="",
+                    id=GuidelineId(""),
                     creation_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition=conditions[utterance.reason],
@@ -790,6 +791,7 @@ class AlphaEngine(Engine):
                     ),
                 ),
                 rationale=ratioanles[utterance.reason],
+                score=10,
             )
 
         return [utterance_to_proposition(action) for action in actions]

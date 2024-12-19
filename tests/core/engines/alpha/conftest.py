@@ -33,6 +33,7 @@ def context(sync_await: SyncAwaiter, container: Container) -> ContextOfTest:
         guidelines=dict(),
         guideline_propositions=dict(),
         tools=dict(),
+        actions=list(),
     )
 
 

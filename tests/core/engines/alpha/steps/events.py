@@ -20,6 +20,7 @@ from parlant.core.common import JSONSerializable
 from parlant.core.customers import CustomerStore
 from parlant.core.engines.alpha.utils import emitted_tool_event_to_dict
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.types import UtteranceReason, UtteranceRequest
 from parlant.core.nlp.moderation import ModerationTag
 from parlant.core.sessions import (
     MessageEventData,
@@ -194,6 +195,22 @@ def given_a_flagged_customer_message(
 
 
 @step(
+    given,
+    parsers.parse('an utterance with action of "{action}" and reason of "{reason}"'),
+)
+def given_an_utterance(
+    context: ContextOfTest,
+    action: str,
+    reason: str,
+) -> UtteranceRequest:
+    utterance_request = UtteranceRequest(action=action, reason=UtteranceReason[reason])
+
+    context.actions.append(utterance_request)
+
+    return utterance_request
+
+
+@step(
     when,
     parsers.parse("the last {num_messages:d} messages are deleted"),
     target_fixture="session_id",
@@ -221,7 +238,7 @@ def then_a_single_message_event_is_emitted(
     assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
 
 
-@step("a total of {count:d} message event(s) (is|are) emitted")
+@step(then, parsers.parse("a total of {count:d} message event(s) (is|are) emitted"))
 def then_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
     count: int,

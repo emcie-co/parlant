@@ -42,6 +42,7 @@ scenarios(
             "glossary",
             "tools",
             "context_variables",
+            "utterances",
         )
     )
 )

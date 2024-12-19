@@ -23,6 +23,7 @@ from pytest_bdd import parsers
 
 from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
+from parlant.core.engines.types import UtteranceRequest
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.guidelines import Guideline
@@ -55,6 +56,7 @@ class ContextOfTest:
     guidelines: dict[str, Guideline]
     guideline_propositions: dict[str, GuidelineProposition]
     tools: dict[str, Tool]
+    actions: list[UtteranceRequest]
 
 
 def load_steps(*module_names: str) -> None:

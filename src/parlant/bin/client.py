@@ -15,6 +15,7 @@
 # mypy: disable-error-code=import-untyped
 
 import asyncio
+import os
 import click
 import click.shell_completion
 import click_completion  # type: ignore
@@ -3027,6 +3028,19 @@ async def async_main() -> None:
     @click.pass_context
     def tag_delete(ctx: click.Context, id: str) -> None:
         Interface.delete_tag(ctx, id)
+
+    @cli.command("help", context_settings={"ignore_unknown_options": True})
+    @click.argument("command", nargs=-1, required=False)
+    @click.pass_context
+    def help_command(ctx: click.Context, command: Optional[tuple[str]] = None) -> None:
+        def transform_and_exec_help(command: str) -> None:
+            new_args = [sys.argv[0]] + command.split() + ["--help"]
+            os.execvp(sys.executable, [sys.executable] + new_args)
+
+        if not command:
+            click.echo(cli.get_help(ctx))
+        else:
+            transform_and_exec_help(" ".join(command))
 
     cli()
 

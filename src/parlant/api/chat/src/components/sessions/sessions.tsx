@@ -9,7 +9,7 @@ export default function Sessions(): ReactElement {
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const {sessionId, setSessions, sessions, setAgents, setCustomers} = useSession();
     const {data, ErrorTemplate, loading, refetch} = useFetch<SessionInterface[]>('sessions');
-    const {data: agentsData} = useFetch<AgentInterface[]>('agents');
+    const {data: agentsData} = useFetch<AgentInterface[]>('agents/');
     const {data: customersData} = useFetch<AgentInterface[]>('customers');
 
     useEffect(() => {

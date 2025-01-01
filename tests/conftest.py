@@ -372,3 +372,12 @@ def no_cache(container: Container) -> None:
             CachedSchematicGenerator[GuidelineConnectionPropositionsSchema],
             container[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
         ).use_cache = False
+
+    if isinstance(
+        container[SchematicGenerator[StyleGuideContradictionsSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[StyleGuideContradictionsSchema],
+            container[SchematicGenerator[StyleGuideContradictionsSchema]],
+        ).use_cache = False

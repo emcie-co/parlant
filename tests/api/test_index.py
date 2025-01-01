@@ -458,23 +458,21 @@ async def test_that_a_guideline_evaluation_that_failed_due_to_duplicate_guidelin
     assert data["detail"] == "Duplicate guideline found among the provided guidelines."
 
 
-async def test_that_a_style_guide_evaluation_that_failed_due_to_duplicate_guidelines_payloads_contains_a_relevant_error_message(
+async def test_that_a_style_guide_evaluation_that_failed_due_to_duplicate_style_guides_payloads_contains_a_relevant_error_message(
     async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
-    duplicate_payload = (
-        {
-            "kind": "style_guide",
-            "style_guide": {
-                "content": {
-                    "principle": "Be extremely formal",
-                    "examples": [],
-                },
-                "coherence_check": True,
-                "operation": "add",
+    duplicate_payload = {
+        "kind": "style_guide",
+        "style_guide": {
+            "content": {
+                "principle": "Be extremely formal",
+                "examples": [],
             },
+            "coherence_check": True,
+            "operation": "add",
         },
-    )
+    }
 
     response = await async_client.post(
         "/index/evaluations",
@@ -1016,13 +1014,12 @@ async def test_that_a_style_guide_evaluation_task_with_update_of_existing_style_
         "kind": "style_guide",
         "style_guide": {
             "content": {
-                "principle": "Be extremely formal",
+                "principle": "Be super formal!",
                 "examples": [],
             },
             "operation": "update",
             "updated_id": existing_style_guide.id,
             "coherence_check": True,
-            "connection_proposition": True,
         },
     }
 
@@ -1130,7 +1127,6 @@ async def test_that_evaluation_task_with_update_of_existing_style_guide_is_unapp
             "operation": "update",
             "updated_id": style_guide_to_override.id,
             "coherence_check": True,
-            "connection_proposition": True,
         },
     }
 
@@ -1472,8 +1468,8 @@ async def test_that_evaluation_task_with_conflicting_updated_and_added_style_gui
             },
         },
         {
-            "kind": "guideline",
-            "guideline": {
+            "kind": "style_guide",
+            "style_guide": {
                 "content": added_style_guide_content,
                 "operation": "add",
                 "coherence_check": True,

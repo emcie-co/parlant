@@ -222,7 +222,7 @@ Be forgiving regarding misspellings and grammatical errors.
 Please output JSON structured in the following format:
 ```json
 {{
-    "action_contradictions": [
+    "contradictions": [
         {{
             "compared_style_guide_id": <id of the compared style_guide>,
             "origin_style_guide_principle": <The origin style_guide's 'principle'>,

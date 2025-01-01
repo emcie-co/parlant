@@ -14,6 +14,7 @@
 
 import asyncio
 import hashlib
+from itertools import chain
 from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 
 from parlant.core import async_utils
@@ -494,18 +495,28 @@ class BehavioralChangeEvaluator:
         evaluation_store: EvaluationStore,
         guideline_store: GuidelineStore,
         guideline_connection_proposer: GuidelineConnectionProposer,
-        coherence_checker: GuidelineCoherenceChecker,
+        style_guide_store: StyleGuideStore,
+        guideline_coherence_checker: GuidelineCoherenceChecker,
+        style_guide_coherence_checker: StyleGuideCoherenceChecker,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
         self._agent_store = agent_store
         self._evaluation_store = evaluation_store
+
         self._guideline_store = guideline_store
         self._guideline_evaluator = GuidelineEvaluator(
             logger=logger,
             guideline_store=guideline_store,
             guideline_connection_proposer=guideline_connection_proposer,
-            coherence_checker=coherence_checker,
+            coherence_checker=guideline_coherence_checker,
+        )
+
+        self._style_guide_store = style_guide_store
+        self._style_guide_evaluator = StyleGuideEvaluator(
+            logger=logger,
+            style_guide_store=style_guide_store,
+            coherence_checker=style_guide_coherence_checker,
         )
 
     async def validate_payloads(
@@ -519,27 +530,50 @@ class BehavioralChangeEvaluator:
         guideline_payloads = [p for k, p in payload_descriptors if k == PayloadKind.GUIDELINE]
 
         if guideline_payloads:
-
-            async def _check_for_duplications() -> None:
-                seen_guidelines = set((g.content) for g in guideline_payloads)
-                if len(seen_guidelines) < len(guideline_payloads):
-                    raise EvaluationValidationError(
-                        "Duplicate guideline found among the provided guidelines."
-                    )
-
-                existing_guidelines = await self._guideline_store.list_guidelines(
-                    guideline_set=agent.id,
+            seen_guidelines = set((g.content) for g in guideline_payloads)
+            if len(seen_guidelines) < len(guideline_payloads):
+                raise EvaluationValidationError(
+                    "Duplicate guideline found among the provided guidelines."
                 )
 
-                if guideline := next(
-                    iter(g for g in existing_guidelines if (g.content) in seen_guidelines),
-                    None,
-                ):
-                    raise EvaluationValidationError(
-                        f"Duplicate guideline found against existing guidelines: {str(guideline)} in {agent.id} guideline_set"
-                    )
+            existing_guidelines = await self._guideline_store.list_guidelines(
+                guideline_set=agent.id,
+            )
 
-            await _check_for_duplications()
+            if guideline := next(
+                iter(g for g in existing_guidelines if (g.content) in seen_guidelines),
+                None,
+            ):
+                raise EvaluationValidationError(
+                    f"Duplicate guideline found against existing guideline: {str(guideline)} in {agent.id} guideline_set"
+                )
+
+        style_guide_payloads = [
+            cast(StyleGuidePayload, p)
+            for k, p in payload_descriptors
+            if k == PayloadKind.STYLE_GUIDE
+        ]
+
+        if style_guide_payloads:
+            seen_style_guides = set((s.content.principle) for s in style_guide_payloads)
+            if len(seen_style_guides) < len(style_guide_payloads):
+                raise EvaluationValidationError(
+                    "Duplicate style guide found among the provided style guides."
+                )
+
+            existing_style_guides = await self._style_guide_store.list_style_guides(
+                style_guide_set=agent.id,
+            )
+
+            if style_guide := next(
+                iter(
+                    s for s in existing_style_guides if (s.content.principle) in seen_style_guides
+                ),
+                None,
+            ):
+                raise EvaluationValidationError(
+                    f"Duplicate style guide found against existing style guide: {str(style_guide.content.principle)} in {agent.id} style_guide_set"
+                )
 
     async def create_evaluation_task(
         self,
@@ -590,29 +624,54 @@ class BehavioralChangeEvaluator:
 
             agent = await self._agent_store.read_agent(agent_id=evaluation.agent_id)
 
-            guideline_evaluation_data = await self._guideline_evaluator.evaluate(
+            invoices: list[Invoice] = []
+
+            guideline_payloads = [
+                cast(GuidelinePayload, invoice.payload)
+                for invoice in evaluation.invoices
+                if invoice.kind == PayloadKind.GUIDELINE
+            ]
+            guideline_evaluation_task = self._guideline_evaluator.evaluate(
                 agent=agent,
-                payloads=[
-                    cast(GuidelinePayload, invoice.payload)
-                    for invoice in evaluation.invoices
-                    if invoice.kind == PayloadKind.GUIDELINE
-                ],
+                payloads=guideline_payloads,
                 progress_report=progress_report,
             )
 
-            invoices: list[Invoice] = []
-            for i, result in enumerate(guideline_evaluation_data):
-                invoice_checksum = md5_checksum(str(evaluation.invoices[i].payload))
+            style_guide_payloads = [
+                cast(StyleGuidePayload, invoice.payload)
+                for invoice in evaluation.invoices
+                if invoice.kind == PayloadKind.STYLE_GUIDE
+            ]
+            style_guide_evaluation_task = self._style_guide_evaluator.evaluate(
+                agent=agent,
+                payloads=style_guide_payloads,
+                progress_report=progress_report,
+            )
+
+            guideline_evaluation_data, style_guide_evaluation_data = await async_utils.safe_gather(
+                guideline_evaluation_task, style_guide_evaluation_task
+            )
+
+            for payload, result in chain(
+                zip(guideline_payloads, guideline_evaluation_data),
+                zip(style_guide_payloads, style_guide_evaluation_data),
+            ):
+                invoice_checksum = md5_checksum(str(payload))
                 state_version = str(hash("Temporarily"))
+                is_approved = not bool(
+                    cast(GuidelineInvoiceData | StyleGuideInvoiceData, result).coherence_checks
+                )
 
                 invoices.append(
                     Invoice(
-                        kind=PayloadKind.GUIDELINE,
-                        payload=cast(GuidelinePayload, evaluation.invoices[i].payload),
+                        kind=PayloadKind.GUIDELINE
+                        if isinstance(payload, GuidelinePayload)
+                        else PayloadKind.STYLE_GUIDE,
+                        payload=cast(GuidelinePayload | StyleGuidePayload, payload),
                         checksum=invoice_checksum,
                         state_version=state_version,
-                        approved=True if not result.coherence_checks else False,
-                        data=result,
+                        approved=is_approved,
+                        data=cast(GuidelineInvoiceData | StyleGuideInvoiceData, result),
                         error=None,
                     )
                 )

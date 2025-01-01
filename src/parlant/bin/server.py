@@ -35,6 +35,10 @@ from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
 from parlant.core.engines.alpha import message_event_generator
 from parlant.core.nlp.service import NLPService
+from parlant.core.services.indexing.style_guide_coherence_checker import (
+    StyleGuideCoherenceChecker,
+    StyleGuideContradictionsSchema,
+)
 from parlant.core.shots import ShotCollection
 from parlant.core.style_guides import StyleGuideDocumentStore, StyleGuideStore
 from parlant.core.tags import TagDocumentStore, TagStore
@@ -377,6 +381,12 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
         c[GlossaryStore],
     )
 
+    c[StyleGuideCoherenceChecker] = StyleGuideCoherenceChecker(
+        c[Logger],
+        c[SchematicGenerator[StyleGuideContradictionsSchema]],
+        c[GlossaryStore],
+    )
+
     c[BehavioralChangeEvaluator] = BehavioralChangeEvaluator(
         c[Logger],
         c[BackgroundTaskService],
@@ -384,7 +394,9 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
         c[EvaluationStore],
         c[GuidelineStore],
         c[GuidelineConnectionProposer],
+        c[StyleGuideStore],
         c[GuidelineCoherenceChecker],
+        c[StyleGuideCoherenceChecker],
     )
 
     c[MessageEventGenerator] = MessageEventGenerator(

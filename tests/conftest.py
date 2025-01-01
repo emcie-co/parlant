@@ -50,6 +50,10 @@ from parlant.core.guidelines import GuidelineDocumentStore, GuidelineStore
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.document_database import DocumentCollection
+from parlant.core.services.indexing.style_guide_coherence_checker import (
+    StyleGuideCoherenceChecker,
+    StyleGuideContradictionsSchema,
+)
 from parlant.core.services.tools.service_registry import (
     ServiceDocumentRegistry,
     ServiceRegistry,
@@ -257,6 +261,7 @@ async def container(
             ToolCallInferenceSchema,
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
+            StyleGuideContradictionsSchema,
             GuidelineConnectionPropositionsSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
@@ -274,6 +279,8 @@ async def container(
         container[GuidelineProposer] = Singleton(GuidelineProposer)
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
         container[GuidelineCoherenceChecker] = Singleton(GuidelineCoherenceChecker)
+
+        container[StyleGuideCoherenceChecker] = Singleton(StyleGuideCoherenceChecker)
 
         container[LocalToolService] = cast(
             LocalToolService,

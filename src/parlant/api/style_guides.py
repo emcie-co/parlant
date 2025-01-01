@@ -18,16 +18,14 @@ from fastapi import APIRouter, HTTPException, Path, status
 
 from parlant.api import agents
 from parlant.api.common import (
-    EventSourceDTO,
     ExampleJson,
     InvoiceDataDTO,
     PayloadKindDTO,
     StyleGuideContentDTO,
-    StyleGuideEventDTO,
-    StyleGuideExampleDTO,
     apigen_config,
     InvoiceDTO,
     example_json_content,
+    style_guide_content_dto_to_content,
     style_guide_content_to_dto,
 )
 from parlant.core.common import DefaultBaseModel
@@ -38,14 +36,7 @@ from parlant.core.evaluations import (
     StyleGuideInvoiceData,
     StyleGuidePayload,
 )
-from parlant.core.sessions import EventSource
-from parlant.core.style_guides import (
-    StyleGuideContent,
-    StyleGuideStore,
-    StyleGuideId,
-    StyleGuideExample,
-    StyleGuideEvent,
-)
+from parlant.core.style_guides import StyleGuideStore, StyleGuideId
 
 style_guide_dto_example: ExampleJson = {
     "id": "sg_123xyz",
@@ -164,38 +155,6 @@ class StyleGuideCreationResultDTO(
     items: Sequence[StyleGuideDTO]
 
 
-def _event_dto_to_event(dto: StyleGuideEventDTO) -> StyleGuideEvent:
-    def source_dto_to_source(source: EventSourceDTO) -> EventSource:
-        if source == EventSourceDTO.CUSTOMER:
-            return "customer"
-        elif source == EventSourceDTO.CUSTOMER_UI:
-            return "customer_ui"
-        elif source == EventSourceDTO.HUMAN_AGENT:
-            return "human_agent"
-        elif source == EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT:
-            return "human_agent_on_behalf_of_ai_agent"
-        elif source == EventSourceDTO.AI_AGENT:
-            return "ai_agent"
-        elif source == EventSourceDTO.SYSTEM:
-            return "system"
-
-    return StyleGuideEvent(source=source_dto_to_source(dto.source), message=dto.message)
-
-
-def _example_dto_to_example(dto: StyleGuideExampleDTO) -> StyleGuideExample:
-    return StyleGuideExample(
-        violation=dto.violation,
-        before=[_event_dto_to_event(e) for e in dto.before],
-        after=[_event_dto_to_event(e) for e in dto.after],
-    )
-
-
-def _content_dto_to_content(dto: StyleGuideContentDTO) -> StyleGuideContent:
-    return StyleGuideContent(
-        principle=dto.principle, examples=[_example_dto_to_example(e) for e in dto.examples]
-    )
-
-
 def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> StyleGuideInvoiceData:
     if not dto.style_guide:
         raise HTTPException(
@@ -207,8 +166,8 @@ def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> StyleGuideInvoiceD
         coherence_checks = [
             StyleGuideCoherenceCheck(
                 kind=check.kind.value,
-                first=_content_dto_to_content(check.first),
-                second=_content_dto_to_content(check.second),
+                first=style_guide_content_dto_to_content(check.first),
+                second=style_guide_content_dto_to_content(check.second),
                 issue=check.issue,
                 severity=check.severity,
             )
@@ -249,7 +208,7 @@ def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
         )
 
     style_guide_payload = StyleGuidePayload(
-        content=_content_dto_to_content(dto.payload.style_guide.content),
+        content=style_guide_content_dto_to_content(dto.payload.style_guide.content),
         operation=dto.payload.style_guide.operation.value,
         updated_id=dto.payload.style_guide.updated_id,
         coherence_check=dto.payload.style_guide.coherence_check,

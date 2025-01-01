@@ -41,6 +41,7 @@ from parlant.api.common import (
     apigen_config,
     ExampleJson,
     ErrorField,
+    style_guide_content_dto_to_content,
     style_guide_content_to_dto,
 )
 from parlant.core.async_utils import Timeout
@@ -56,7 +57,6 @@ from parlant.core.evaluations import (
     InvoiceData,
     GuidelineInvoiceData,
     StyleGuideInvoiceData,
-    Payload,
     PayloadDescriptor,
     PayloadKind,
     StyleGuidePayload,
@@ -84,7 +84,7 @@ def _evaluation_status_to_dto(
     )
 
 
-def _payload_from_dto(dto: PayloadDTO) -> Payload:
+def _payload_descriptor_from_dto(dto: PayloadDTO) -> PayloadDescriptor:
     if dto.kind == PayloadKindDTO.GUIDELINE:
         if not dto.guideline:
             raise HTTPException(
@@ -92,15 +92,35 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
                 detail="Missing Guideline payload",
             )
 
-        return GuidelinePayload(
-            content=GuidelineContent(
-                condition=dto.guideline.content.condition,
-                action=dto.guideline.content.action,
+        return PayloadDescriptor(
+            PayloadKind.GUIDELINE,
+            GuidelinePayload(
+                content=GuidelineContent(
+                    condition=dto.guideline.content.condition,
+                    action=dto.guideline.content.action,
+                ),
+                operation=dto.guideline.operation.value,
+                updated_id=dto.guideline.updated_id,
+                coherence_check=dto.guideline.coherence_check,
+                connection_proposition=dto.guideline.connection_proposition,
             ),
-            operation=dto.guideline.operation.value,
-            updated_id=dto.guideline.updated_id,
-            coherence_check=dto.guideline.coherence_check,
-            connection_proposition=dto.guideline.connection_proposition,
+        )
+
+    if dto.kind == PayloadKindDTO.STYLE_GUIDE:
+        if not dto.style_guide:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing StyleGuide payload",
+            )
+
+        return PayloadDescriptor(
+            PayloadKind.STYLE_GUIDE,
+            StyleGuidePayload(
+                content=style_guide_content_dto_to_content(dto.style_guide.content),
+                operation=dto.style_guide.operation.value,
+                updated_id=dto.style_guide.updated_id,
+                coherence_check=dto.style_guide.coherence_check,
+            ),
         )
 
     raise HTTPException(
@@ -412,10 +432,7 @@ def create_router(
             agent = await agent_store.read_agent(agent_id=params.agent_id)
             evaluation_id = await evaluation_service.create_evaluation_task(
                 agent=agent,
-                payload_descriptors=[
-                    PayloadDescriptor(PayloadKind.GUIDELINE, p)
-                    for p in [_payload_from_dto(p) for p in params.payloads]
-                ],
+                payload_descriptors=[_payload_descriptor_from_dto(p) for p in params.payloads],
             )
         except EvaluationValidationError as exc:
             raise HTTPException(

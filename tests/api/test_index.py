@@ -20,6 +20,7 @@ from lagom import Container
 from parlant.core.agents import AgentId
 from parlant.core.evaluations import EvaluationStore
 from parlant.core.guidelines import GuidelineStore
+from parlant.core.style_guides import StyleGuideStore
 
 from tests.conftest import NoCachedGenerations
 from tests.core.stable.services.indexing.test_evaluator import (
@@ -27,7 +28,7 @@ from tests.core.stable.services.indexing.test_evaluator import (
 )
 
 
-async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_status(
+async def test_that_a_guideline_evaluation_can_be_created_and_fetched_with_completed_status(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -72,6 +73,52 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
 
     assert invoice["approved"]
     assert len(invoice["data"]["guideline"]["coherence_checks"]) == 0
+
+
+async def test_that_a_style_guide_evaluation_can_be_created_and_fetched_with_completed_status(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    evaluation_store = container[EvaluationStore]
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={
+            "agent_id": agent_id,
+            "payloads": [
+                {
+                    "kind": "style_guide",
+                    "style_guide": {
+                        "content": {
+                            "principle": "Be extremely formal",
+                            "examples": [],
+                        },
+                        "coherence_check": True,
+                        "operation": "add",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.json()["id"]
+
+    evaluation = await evaluation_store.read_evaluation(evaluation_id=evaluation_id)
+    assert evaluation.id == evaluation_id
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+    invoice = content["invoices"][0]
+
+    assert invoice["approved"]
+    assert len(invoice["data"]["style_guide"]["coherence_checks"]) == 0
 
 
 async def test_that_an_evaluation_can_be_fetched_with_running_status(
@@ -133,51 +180,7 @@ async def test_that_an_evaluation_can_be_fetched_with_running_status(
     assert content["status"] == "running"
 
 
-async def test_that_an_evaluation_can_be_fetched_with_a_completed_status_containing_a_detailed_approved_invoice(
-    async_client: httpx.AsyncClient,
-    agent_id: AgentId,
-) -> None:
-    evaluation_id = (
-        (
-            await async_client.post(
-                "/index/evaluations",
-                json={
-                    "agent_id": agent_id,
-                    "payloads": [
-                        {
-                            "kind": "guideline",
-                            "guideline": {
-                                "content": {
-                                    "condition": "the customer greets you",
-                                    "action": "greet them back with 'Hello'",
-                                },
-                                "operation": "add",
-                                "coherence_check": True,
-                                "connection_proposition": True,
-                            },
-                        }
-                    ],
-                },
-            )
-        )
-        .raise_for_status()
-        .json()["id"]
-    )
-
-    content = (
-        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
-    )
-
-    assert content["status"] == "completed"
-
-    assert len(content["invoices"]) == 1
-    invoice = content["invoices"][0]
-
-    assert invoice["approved"]
-    assert len(invoice["data"]["guideline"]["coherence_checks"]) == 0
-
-
-async def test_that_an_evaluation_can_be_fetched_with_a_completed_status_containing_a_detailed_unapproved_invoice(
+async def test_that_a_guideline_evaluation_can_be_fetched_with_a_completed_status_containing_a_detailed_unapproved_invoice(
     async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
@@ -231,6 +234,59 @@ async def test_that_an_evaluation_can_be_fetched_with_a_completed_status_contain
     assert not first_invoice["approved"]
 
     assert len(first_invoice["data"]["guideline"]["coherence_checks"]) >= 1
+
+
+async def test_that_a_style_guide_evaluation_can_be_fetched_with_a_completed_status_containing_a_detailed_unapproved_invoice(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    evaluation_id = (
+        (
+            await async_client.post(
+                "/index/evaluations",
+                json={
+                    "agent_id": agent_id,
+                    "payloads": [
+                        {
+                            "kind": "style_guide",
+                            "style_guide": {
+                                "content": {
+                                    "principle": "Be extremely formal",
+                                    "examples": [],
+                                },
+                                "coherence_check": True,
+                                "operation": "add",
+                            },
+                        },
+                        {
+                            "kind": "style_guide",
+                            "style_guide": {
+                                "content": {
+                                    "principle": "Be extremely informal",
+                                    "examples": [],
+                                },
+                                "coherence_check": True,
+                                "operation": "add",
+                            },
+                        },
+                    ],
+                },
+            )
+        )
+        .raise_for_status()
+        .json()["id"]
+    )
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 2
+    first_invoice = content["invoices"][0]
+
+    assert not first_invoice["approved"]
+    assert len(first_invoice["data"]["style_guide"]["coherence_checks"]) >= 1
 
 
 async def test_that_an_evaluation_can_be_fetched_with_a_detailed_approved_invoice_with_existing_guideline_connection_proposition(
@@ -367,7 +423,7 @@ async def test_that_an_evaluation_can_be_fetched_with_a_detailed_approved_invoic
     )
 
 
-async def test_that_an_evaluation_that_failed_due_to_duplicate_guidelines_payloads_contains_a_relevant_error_message(
+async def test_that_a_guideline_evaluation_that_failed_due_to_duplicate_guidelines_payloads_contains_a_relevant_error_message(
     async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
@@ -402,7 +458,43 @@ async def test_that_an_evaluation_that_failed_due_to_duplicate_guidelines_payloa
     assert data["detail"] == "Duplicate guideline found among the provided guidelines."
 
 
-async def test_that_an_evaluation_that_failed_due_to_guideline_duplication_with_existing_guidelines_contains_a_relevant_error_message(
+async def test_that_a_style_guide_evaluation_that_failed_due_to_duplicate_guidelines_payloads_contains_a_relevant_error_message(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    duplicate_payload = (
+        {
+            "kind": "style_guide",
+            "style_guide": {
+                "content": {
+                    "principle": "Be extremely formal",
+                    "examples": [],
+                },
+                "coherence_check": True,
+                "operation": "add",
+            },
+        },
+    )
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={
+            "agent_id": agent_id,
+            "payloads": [
+                duplicate_payload,
+                duplicate_payload,
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    data = response.json()
+
+    assert "detail" in data
+    assert data["detail"] == "Duplicate style guide found among the provided style guides."
+
+
+async def test_that_an_evaluation_that_failed_due_to_guideline_duplication_with_existing_guideline_contains_a_relevant_error_message(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -443,7 +535,51 @@ async def test_that_an_evaluation_that_failed_due_to_guideline_duplication_with_
 
     assert (
         data["detail"]
-        == f"Duplicate guideline found against existing guidelines: When the customer greets you, then greet them back with 'Hello' in {agent_id} guideline_set"
+        == f"Duplicate guideline found against existing guideline: When the customer greets you, then greet them back with 'Hello' in {agent_id} guideline_set"
+    )
+
+
+async def test_that_an_evaluation_that_failed_due_to_style_guide_duplication_with_existing_style_guides_contains_a_relevant_error_message(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    style_guide_store = container[StyleGuideStore]
+
+    await style_guide_store.create_style_guide(
+        style_guide_set=agent_id,
+        principle="Be extremely formal",
+        examples=[],
+    )
+
+    duplicate_payload = {
+        "kind": "style_guide",
+        "style_guide": {
+            "content": {
+                "principle": "Be extremely formal",
+                "examples": [],
+            },
+            "operation": "add",
+            "coherence_check": True,
+        },
+    }
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={
+            "agent_id": agent_id,
+            "payloads": [
+                duplicate_payload,
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    data = response.json()
+
+    assert (
+        data["detail"]
+        == f"Duplicate style guide found against existing style guide: Be extremely formal in {agent_id} style_guide_set"
     )
 
 
@@ -724,7 +860,7 @@ async def test_that_evaluation_task_with_contradictions_is_approved_and_skips_in
     assert content["invoices"][2]["data"]["guideline"]["connection_propositions"] is None
 
 
-async def test_that_evaluation_fails_when_updated_id_does_not_exist(
+async def test_that_evaluation_fails_when_updated_guideline_id_does_not_exist(
     async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
@@ -770,7 +906,52 @@ async def test_that_evaluation_fails_when_updated_id_does_not_exist(
     )
 
 
-async def test_that_evaluation_task_with_update_of_existing_guideline_is_approved(
+async def test_that_evaluation_fails_when_updated_style_guide_id_does_not_exist(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    non_existent_style_guide_id = "non-existent-id"
+
+    evaluation_id = (
+        (
+            await async_client.post(
+                "/index/evaluations",
+                json={
+                    "agent_id": agent_id,
+                    "payloads": [
+                        {
+                            "kind": "style_guide",
+                            "style_guide": {
+                                "content": {
+                                    "principle": "Be extremely formal",
+                                    "examples": [],
+                                },
+                                "operation": "update",
+                                "updated_id": non_existent_style_guide_id,
+                                "coherence_check": True,
+                            },
+                        }
+                    ],
+                },
+            )
+        )
+        .raise_for_status()
+        .json()["id"]
+    )
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "failed"
+
+    assert (
+        content["error"]
+        == f"StyleGuide ID(s): {', '.join([non_existent_style_guide_id])} in '{agent_id}' agent do not exist."
+    )
+
+
+async def test_that_a_guideline_evaluation_task_with_update_of_existing_guideline_is_approved(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -816,6 +997,54 @@ async def test_that_evaluation_task_with_update_of_existing_guideline_is_approve
 
     assert invoice["approved"]
     assert invoice["data"]["guideline"]["coherence_checks"] == []
+
+
+async def test_that_a_style_guide_evaluation_task_with_update_of_existing_style_guide_is_approved(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    style_guide_store = container[StyleGuideStore]
+
+    existing_style_guide = await style_guide_store.create_style_guide(
+        style_guide_set=agent_id,
+        principle="Be extremely formal",
+        examples=[],
+    )
+
+    update_payload = {
+        "kind": "style_guide",
+        "style_guide": {
+            "content": {
+                "principle": "Be extremely formal",
+                "examples": [],
+            },
+            "operation": "update",
+            "updated_id": existing_style_guide.id,
+            "coherence_check": True,
+            "connection_proposition": True,
+        },
+    }
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={"agent_id": agent_id, "payloads": [update_payload]},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    evaluation_id = response.json()["id"]
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+
+    assert len(content["invoices"]) == 1
+    invoice = content["invoices"][0]
+
+    assert invoice["approved"]
+    assert invoice["data"]["style_guide"]["coherence_checks"] == []
 
 
 async def test_that_evaluation_task_with_update_of_existing_guideline_is_unapproved(
@@ -870,6 +1099,60 @@ async def test_that_evaluation_task_with_update_of_existing_guideline_is_unappro
 
     assert not invoice["approved"]
     assert len(invoice["data"]["guideline"]["coherence_checks"]) > 0
+
+
+async def test_that_evaluation_task_with_update_of_existing_style_guide_is_unapproved(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    style_guide_store = container[StyleGuideStore]
+
+    _ = await style_guide_store.create_style_guide(
+        style_guide_set=agent_id,
+        principle="Be extremely formal",
+        examples=[],
+    )
+
+    style_guide_to_override = await style_guide_store.create_style_guide(
+        style_guide_set=agent_id,
+        principle="Be funny when not knowing an answer",
+        examples=[],
+    )
+
+    update_payload = {
+        "kind": "style_guide",
+        "style_guide": {
+            "content": {
+                "principle": "Be extremely informal",
+                "examples": [],
+            },
+            "operation": "update",
+            "updated_id": style_guide_to_override.id,
+            "coherence_check": True,
+            "connection_proposition": True,
+        },
+    }
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={"agent_id": agent_id, "payloads": [update_payload]},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    evaluation_id = response.json()["id"]
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+
+    assert len(content["invoices"]) == 1
+    invoice = content["invoices"][0]
+
+    assert not invoice["approved"]
+    assert len(invoice["data"]["style_guide"]["coherence_checks"]) > 0
 
 
 async def test_that_evaluation_task_with_conflicting_guidelines_approves_only_payload_with_the_coherence_check_disabled(
@@ -930,6 +1213,67 @@ async def test_that_evaluation_task_with_conflicting_guidelines_approves_only_pa
     assert any(
         i["payload"]["guideline"]["content"]["condition"] == "the customer greeting you"
         and i["payload"]["guideline"]["content"]["action"] == "greet them back with 'Good bye'"
+        and i["approved"]
+        for i in invoices
+    )
+
+
+async def test_that_evaluation_task_with_conflicting_style_guides_approves_only_payload_with_the_coherence_check_disabled(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    payloads = [
+        {
+            "kind": "style_guide",
+            "style_guide": {
+                "content": {
+                    "principle": "Be extremely formal",
+                    "examples": [],
+                },
+                "operation": "add",
+                "coherence_check": True,
+            },
+        },
+        {
+            "kind": "style_guide",
+            "style_guide": {
+                "content": {
+                    "principle": "Be extremely informal",
+                    "examples": [],
+                },
+                "operation": "add",
+                "coherence_check": False,
+            },
+        },
+    ]
+
+    response = await async_client.post(
+        "/index/evaluations",
+        json={"agent_id": agent_id, "payloads": payloads},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    evaluation_id = response.json()["id"]
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+
+    invoices = content["invoices"]
+    assert len(invoices) == 2
+
+    assert any(
+        i["payload"]["style_guide"]["content"]["principle"] == "Be extremely formal"
+        and i["payload"]["style_guide"]["content"]["examples"] == []
+        and not i["approved"]
+        for i in invoices
+    )
+
+    assert any(
+        i["payload"]["style_guide"]["content"]["principle"] == "Be extremely informal"
+        and i["payload"]["style_guide"]["content"]["examples"] == []
         and i["approved"]
         for i in invoices
     )
@@ -1090,6 +1434,95 @@ async def test_that_evaluation_task_with_conflicting_updated_and_added_guideline
     assert (
         conflict["second"] == updated_invoice["payload"]["guideline"]["content"]
         or new_invoice["payload"]["guideline"]["content"]
+    )
+
+    assert conflict["first"] != conflict["second"]
+
+
+async def test_that_evaluation_task_with_conflicting_updated_and_added_style_guides_is_unapproved(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    style_guide_store = container[StyleGuideStore]
+
+    existing_style_guide = await style_guide_store.create_style_guide(
+        style_guide_set=agent_id,
+        principle="Be funny when you do not know the answer",
+        examples=[],
+    )
+
+    updated_style_guide_content = {
+        "principle": "Be extremely formal",
+        "examples": [],
+    }
+    added_style_guide_content = {
+        "principle": "Be extremely informal",
+        "examples": [],
+    }
+
+    payloads = [
+        {
+            "kind": "style_guide",
+            "style_guide": {
+                "content": updated_style_guide_content,
+                "operation": "update",
+                "updated_id": existing_style_guide.id,
+                "coherence_check": True,
+            },
+        },
+        {
+            "kind": "guideline",
+            "guideline": {
+                "content": added_style_guide_content,
+                "operation": "add",
+                "coherence_check": True,
+            },
+        },
+    ]
+
+    evaluation_id = (
+        (
+            await async_client.post(
+                "/index/evaluations",
+                json={"agent_id": agent_id, "payloads": payloads},
+            )
+        )
+        .raise_for_status()
+        .json()["id"]
+    )
+
+    content = (
+        (await async_client.get(f"/index/evaluations/{evaluation_id}")).raise_for_status().json()
+    )
+
+    assert content["status"] == "completed"
+
+    invoices = content["invoices"]
+    assert len(invoices) == 2
+
+    updated_invoice = next(
+        (i for i in invoices if i["payload"]["style_guide"]["operation"] == "update"), None
+    )
+    new_invoice = next(
+        (i for i in invoices if i["payload"]["style_guide"]["operation"] == "add"), None
+    )
+
+    assert updated_invoice is not None
+    assert new_invoice is not None
+
+    assert len(updated_invoice["data"]["style_guide"]["coherence_checks"]) == 1
+    conflict = updated_invoice["data"]["style_guide"]["coherence_checks"][0]
+
+    assert conflict["kind"] == "contradiction_with_another_evaluated_style_guide"
+
+    assert (
+        conflict["first"] == updated_invoice["payload"]["style_guide"]["content"]
+        or new_invoice["payload"]["style_guide"]["content"]
+    )
+    assert (
+        conflict["second"] == updated_invoice["payload"]["style_guide"]["content"]
+        or new_invoice["payload"]["style_guide"]["content"]
     )
 
     assert conflict["first"] != conflict["second"]

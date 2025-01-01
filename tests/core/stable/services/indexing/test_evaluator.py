@@ -27,6 +27,7 @@ from parlant.core.evaluations import (
     GuidelineInvoiceData,
     PayloadDescriptor,
     PayloadKind,
+    StyleGuidePayload,
 )
 from parlant.core.guidelines import GuidelineContent, GuidelineStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
@@ -34,12 +35,13 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
     EvaluationValidationError,
 )
 
+from parlant.core.style_guides import StyleGuideContent, StyleGuideStore
 from tests.conftest import NoCachedGenerations
 
 AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING = 0.3
 
 
-async def test_that_a_new_evaluation_starts_with_a_pending_status(
+async def test_that_a_new_guideline_evaluation_starts_with_a_pending_status(
     container: Container,
     agent: Agent,
 ) -> None:
@@ -69,7 +71,36 @@ async def test_that_a_new_evaluation_starts_with_a_pending_status(
     assert evaluation.status == EvaluationStatus.PENDING
 
 
-async def test_that_an_evaluation_completes_when_all_invoices_have_data(
+async def test_that_a_new_style_guide_evaluation_starts_with_a_pending_status(
+    container: Container,
+    agent: Agent,
+) -> None:
+    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_store = container[EvaluationStore]
+
+    evaluation_id = await evaluation_service.create_evaluation_task(
+        agent=agent,
+        payload_descriptors=[
+            PayloadDescriptor(
+                kind=PayloadKind.STYLE_GUIDE,
+                payload=StyleGuidePayload(
+                    content=StyleGuideContent(
+                        principle="the customer greets you",
+                        examples=[],
+                    ),
+                    operation="add",
+                    coherence_check=True,
+                ),
+            ),
+        ],
+    )
+
+    evaluation = await evaluation_store.read_evaluation(evaluation_id)
+
+    assert evaluation.status == EvaluationStatus.PENDING
+
+
+async def test_that_a_guideline_evaluation_completes_when_all_invoices_have_data(
     container: Container,
     agent: Agent,
 ) -> None:
@@ -110,6 +141,47 @@ async def test_that_an_evaluation_completes_when_all_invoices_have_data(
 
     assert invoice_data.coherence_checks == []
     assert invoice_data.connection_propositions is None
+
+
+async def test_that_a_style_guide_evaluation_completes_when_all_invoices_have_data(
+    container: Container,
+    agent: Agent,
+) -> None:
+    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_store = container[EvaluationStore]
+    evaluation_listener = container[EvaluationListener]
+
+    evaluation_id = await evaluation_service.create_evaluation_task(
+        agent=agent,
+        payload_descriptors=[
+            PayloadDescriptor(
+                PayloadKind.STYLE_GUIDE,
+                payload=StyleGuidePayload(
+                    content=StyleGuideContent(
+                        principle="the customer greets you",
+                        examples=[],
+                    ),
+                    operation="add",
+                    coherence_check=True,
+                ),
+            )
+        ],
+    )
+
+    assert await evaluation_listener.wait_for_completion(evaluation_id)
+
+    evaluation = await evaluation_store.read_evaluation(evaluation_id)
+
+    assert evaluation.status == EvaluationStatus.COMPLETED
+
+    assert len(evaluation.invoices) == 1
+
+    assert evaluation.invoices[0].approved
+
+    assert evaluation.invoices[0].data
+    invoice_data = cast(GuidelineInvoiceData, evaluation.invoices[0].data)
+
+    assert invoice_data.coherence_checks == []
 
 
 async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_approved_invoice(
@@ -419,6 +491,37 @@ async def test_that_an_evaluation_validation_failed_due_to_guidelines_duplicatio
     assert str(exc.value) == "Duplicate guideline found among the provided guidelines."
 
 
+async def test_that_an_evaluation_validation_failed_due_to_style_guides_duplication_in_the_payloads_contains_relevant_error_details(
+    container: Container,
+    agent: Agent,
+) -> None:
+    evaluation_service = container[BehavioralChangeEvaluator]
+
+    duplicate_payload = StyleGuidePayload(
+        content=StyleGuideContent(
+            principle="Be extremely formal",
+            examples=[],
+        ),
+        operation="add",
+        coherence_check=True,
+    )
+
+    with raises(EvaluationValidationError) as exc:
+        await evaluation_service.create_evaluation_task(
+            agent=agent,
+            payload_descriptors=[
+                PayloadDescriptor(PayloadKind.STYLE_GUIDE, p)
+                for p in [
+                    duplicate_payload,
+                    duplicate_payload,
+                ]
+            ],
+        )
+        await asyncio.sleep(AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING)
+
+    assert str(exc.value) == "Duplicate style guide found among the provided style guides."
+
+
 async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_with_existing_contains_relevant_error_details(
     container: Container,
     agent: Agent,
@@ -454,7 +557,45 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
 
     assert (
         str(exc.value)
-        == f"Duplicate guideline found against existing guidelines: When the customer greets you, then greet them back with 'Hello' in {agent.id} guideline_set"
+        == f"Duplicate guideline found against existing guideline: When the customer greets you, then greet them back with 'Hello' in {agent.id} guideline_set"
+    )
+
+
+async def test_that_an_evaluation_validation_failed_due_to_duplicate_style_guides_with_existing_contains_relevant_error_details(
+    container: Container,
+    agent: Agent,
+) -> None:
+    evaluation_service = container[BehavioralChangeEvaluator]
+    style_guide_store = container[StyleGuideStore]
+
+    await style_guide_store.create_style_guide(
+        style_guide_set=agent.id,
+        principle="Be extremely formal",
+        examples=[],
+    )
+
+    with raises(EvaluationValidationError) as exc:
+        await evaluation_service.create_evaluation_task(
+            agent=agent,
+            payload_descriptors=[
+                PayloadDescriptor(
+                    PayloadKind.STYLE_GUIDE,
+                    StyleGuidePayload(
+                        content=StyleGuideContent(
+                            principle="Be extremely formal",
+                            examples=[],
+                        ),
+                        operation="add",
+                        coherence_check=True,
+                    ),
+                )
+            ],
+        )
+        await asyncio.sleep(AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING)
+
+    assert (
+        str(exc.value)
+        == f"Duplicate style guide found against existing style guide: Be extremely formal in {agent.id} style_guide_set"
     )
 
 

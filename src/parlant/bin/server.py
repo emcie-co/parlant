@@ -359,6 +359,9 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
     c[
         SchematicGenerator[GuidelineConnectionPropositionsSchema]
     ] = await nlp_service.get_schematic_generator(GuidelineConnectionPropositionsSchema)
+    c[
+        SchematicGenerator[StyleGuideContradictionsSchema]
+    ] = await nlp_service.get_schematic_generator(StyleGuideContradictionsSchema)
 
     c[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
     c[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection

@@ -40,23 +40,31 @@ from parlant.core.style_guides import StyleGuideStore, StyleGuideId
 
 style_guide_dto_example: ExampleJson = {
     "id": "sg_123xyz",
-    "principle": "Be friendly, casual, and helpful",
+    "principle": "Adopt a whimsical tone and include jokes or playful remarks.",
     "examples": [
         {
             "before": [
                 {
+                    "source": "customer",
+                    "message": "Can you tell me the weather for today?",
+                },
+                {
                     "source": "ai_agent",
-                    "message": "Your request is denied.",
-                }
+                    "message": "It's sunny and warm, about 75°F.",
+                },
             ],
             "after": [
                 {
+                    "source": "customer",
+                    "message": "Can you tell me the weather for today?",
+                },
+                {
                     "source": "ai_agent",
-                    "message": "We can’t do that now, but let's see what else might help!",
-                }
+                    "message": "It's sunny and warm, about 75°F. Perfect weather for pretending you’re on a tropical island... even if you're just in your backyard with a kiddie pool!",
+                },
             ],
-            "violation": "The 'before' message is abrupt and lacking empathy.",
-        }
+            "violation": "The 'before' message does not include a joke or playful remark.",
+        },
     ],
 }
 
@@ -87,18 +95,31 @@ style_guide_creation_params_example: ExampleJson = {
             "payload": {
                 "kind": "style_guide",
                 "style_guide": {
-                    "principle": "Avoid negative or abrupt phrasing",
+                    "principle": "Adopt a whimsical tone and include jokes or playful remarks.",
                     "examples": [
                         {
-                            "before": [{"source": {"id": "editor"}, "message": "Denied."}],
+                            "before": [
+                                {
+                                    "source": "customer",
+                                    "message": "Can you tell me the weather for today?",
+                                },
+                                {
+                                    "source": "ai_agent",
+                                    "message": "It's sunny and warm, about 75°F.",
+                                },
+                            ],
                             "after": [
                                 {
-                                    "source": {"id": "editor"},
-                                    "message": "We’re unable to do that. Let’s find another option.",
-                                }
+                                    "source": "customer",
+                                    "message": "Can you tell me the weather for today?",
+                                },
+                                {
+                                    "source": "ai_agent",
+                                    "message": "It's sunny and warm, about 75°F. Perfect weather for pretending you're on a tropical island... even if you're just in your backyard with a kiddie pool!",
+                                },
                             ],
-                            "violation": "The 'before' text sounds blunt and unfriendly.",
-                        }
+                            "violation": "The 'before' message does not include a joke or playful remark.",
+                        },
                     ],
                 },
             },
@@ -131,7 +152,12 @@ style_guide_creation_result_example: ExampleJson = {
             "principle": "Be friendly, casual, and helpful",
             "examples": [
                 {
-                    "before": [{"source": "ai_agent", "message": "Your request is denied."}],
+                    "before": [
+                        {
+                            "source": "ai_agent",
+                            "message": "Your request is denied.",
+                        }
+                    ],
                     "after": [
                         {
                             "source": "ai_agent",

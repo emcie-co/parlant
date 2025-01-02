@@ -132,17 +132,6 @@ class GuidelineCoherenceCheckKindDTO(Enum):
     )
 
 
-class StyleGuideCoherenceCheckKindDTO(Enum):
-    """
-    The specific relationship between the contradicting style guides.
-    """
-
-    CONTRADICTION_WITH_EXISTING_STYLE_GUIDE = "contradiction_with_existing_style_guide"
-    CONTRADICTION_WITH_ANOTHER_EVALUATED_STYLE_GUIDE = (
-        "contradiction_with_another_evaluated_style_guide"
-    )
-
-
 class ConnectionPropositionKindDTO(Enum):
     """
     The specific relationship between the connected guidelines.
@@ -238,27 +227,6 @@ GuidelineCoherenceCheckSeverityField: TypeAlias = Annotated[
     ),
 ]
 
-StyleGuideCoherenceCheckIssueField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Description of the contradiction or conflict between StyleGuides",
-        examples=[
-            "The actions contradict each other: one suggests being formal while the other suggests being casual",
-            "The conditions overlap but lead to opposing actions",
-        ],
-    ),
-]
-
-StyleGuideCoherenceCheckSeverityField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="Numerical rating of the contradiction's severity (1-10, where 10 is most severe)",
-        examples=[5, 8],
-        ge=1,
-        le=10,
-    ),
-]
-
 guidelines_coherence_check_example: ExampleJson = {
     "kind": "contradiction_with_existing_guideline",
     "first": {"condition": "User is frustrated", "action": "Respond with technical details"},
@@ -307,6 +275,27 @@ guideline_invoice_data_example: ExampleJson = {
     "connection_propositions": [connection_proposition_example],
 }
 
+StyleGuideCoherenceCheckIssueField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Description of the contradiction or conflict between StyleGuides",
+        examples=[
+            "The actions contradict each other: one suggests being formal while the other suggests being casual",
+            "The conditions overlap but lead to opposing actions",
+        ],
+    ),
+]
+
+StyleGuideCoherenceCheckSeverityField: TypeAlias = Annotated[
+    int,
+    Field(
+        description="Numerical rating of the contradiction's severity (1-10, where 10 is most severe)",
+        examples=[5, 8],
+        ge=1,
+        le=10,
+    ),
+]
+
 
 StyleGuideEventMessageField: TypeAlias = Annotated[
     str,
@@ -331,6 +320,17 @@ StyleGuideViolationField: TypeAlias = Annotated[
         examples=["Too formal and lacks an engaging tone"],
     ),
 ]
+
+
+class StyleGuideCoherenceCheckKindDTO(Enum):
+    """
+    The specific relationship between the contradicting style guides.
+    """
+
+    CONTRADICTION_WITH_EXISTING_STYLE_GUIDE = "contradiction_with_existing_style_guide"
+    CONTRADICTION_WITH_ANOTHER_EVALUATED_STYLE_GUIDE = (
+        "contradiction_with_another_evaluated_style_guide"
+    )
 
 
 class StyleGuideEventDTO(DefaultBaseModel):
@@ -358,11 +358,16 @@ style_guide_content_example: ExampleJson = {
     "principle": "Use inclusive language and a positive tone",
     "examples": [
         {
-            "before": [{"source": "ai_agent", "message": "Your request is denied. Try again."}],
+            "before": [
+                {
+                    "source": "ai_agent",
+                    "message": "Your request is denied. Try again.",
+                }
+            ],
             "after": [
                 {
                     "source": "ai_agent",
-                    "message": "Unfortunately we can’t fulfill that request right now. Let’s see what else we can do to help!",
+                    "message": "Unfortunately we can't fulfill that request right now. Let's see what else we can do to help!",
                 }
             ],
             "violation": "The 'before' response is abrupt and lacks empathy.",
@@ -388,46 +393,50 @@ class StyleGuideContentDTO(
 style_guides_coherence_check_example: ExampleJson = {
     "kind": "contradiction_with_existing_style_guide",
     "first": {
-        "principle": "Greet with 'Howdy'",
+        "principle": "Use Imperial units",
         "examples": [
             {
                 "before": [
                     {
-                        "source": "ai_agent",
-                        "message": "Hello there, friend!",
-                    }
+                        "source": "customer",
+                        "message": "How tall do I have to be to get on the roller coaster?",
+                    },
+                    {"source": "ai_agent", "message": "1.8 meters"},
                 ],
                 "after": [
                     {
-                        "source": "ai_agent",
-                        "message": "Howdy there, friend!",
-                    }
+                        "source": "customer",
+                        "message": "How tall do I have to be to get on the roller coaster?",
+                    },
+                    {"source": "ai_agent", "message": "5 feet 11 inches"},
                 ],
-                "violation": "The 'before' message doesn't align with the 'Howdy' greeting style.",
+                "violation": "The 'before' message is in metric units, which is not imperial.",
             }
         ],
     },
     "second": {
-        "principle": "Greet with 'hey'",
+        "principle": "Use Metric units",
         "examples": [
             {
                 "before": [
                     {
-                        "source": "ai_agent",
-                        "message": "Howdy there, friend!",
-                    }
+                        "source": "customer",
+                        "message": "How tall do I have to be to get on the roller coaster?",
+                    },
+                    {"source": "ai_agent", "message": "5 feet 11 inches"},
                 ],
                 "after": [
                     {
-                        "source": "ai_agent",
-                        "message": "Hey there, friend!",
-                    }
+                        "source": "customer",
+                        "message": "How tall do I have to be to get on the roller coaster?",
+                    },
+                    {"source": "ai_agent", "message": "1.8 meters"},
                 ],
-                "violation": "The 'before' message doesn't align with the 'hey' greeting style.",
+                "violation": "The 'before' message is in imperial units, which is not metric.",
             }
         ],
     },
-    "issue": "Conflicting approaches to how to greet users",
+    "issue": "Conflicting approaches to writing units",
     "severity": 8,
 }
 
@@ -480,29 +489,36 @@ StyleGuidePayloadCoherenceCheckField: TypeAlias = Annotated[
 
 style_guide_payload_example: ExampleJson = {
     "content": {
-        "principle": "Use a cold formal tone",
+        "principle": "Adopt a whimsical tone and include jokes or playful remarks.",
         "examples": [
             {
                 "before": [
                     {
+                        "source": "customer",
+                        "message": "Can you tell me the weather for today?",
+                    },
+                    {
                         "source": "ai_agent",
-                        "message": "Unfortunately we can’t fulfill that request right now. Let’s see what else we can do to help!",
-                    }
+                        "message": "It's sunny and warm, about 75°F.",
+                    },
                 ],
                 "after": [
                     {
+                        "source": "customer",
+                        "message": "Can you tell me the weather for today?",
+                    },
+                    {
                         "source": "ai_agent",
-                        "message": "Your request is denied. Try again.",
-                    }
+                        "message": "It's sunny and warm, about 75°F. Perfect weather for pretending you're on a tropical island... even if you're just in your backyard with a kiddie pool!",
+                    },
                 ],
-                "violation": "The 'before' response is abrupt and lacks empathy.",
-            }
+                "violation": "The 'before' message does not include a joke or playful remark.",
+            },
         ],
     },
     "operation": "add",
     "updated_id": None,
     "coherence_check": True,
-    "connection_proposition": True,
 }
 
 

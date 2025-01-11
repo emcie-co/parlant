@@ -1,7 +1,7 @@
 
 <div align="center">
 <img alt="Parlant Logo" src="https://github.com/emcie-co/parlant/blob/e0fefba25efd1b956ead881964025baae5dc4119/banner.png" />
-  <h2>Parlant: The Behavior Guidance Framework for Customer-Facing Agents </h2>
+  <h2>Parlant: The Behavioral Control Framework for Customer-Facing LLM Agents </h2>
   <p>
     <a href="https://www.parlant.io/" target="_blank">Website</a> |
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> |
@@ -19,8 +19,6 @@
   </p>
 </div>
 
-**IMPORTANT NOTE:** Parlant is in active development by a team of (currently) 12 contributors (developers, researchers, and QA) from leading instutions, such as Microsoft, Check Point, and Dynamic Yield. We're looking for more contributors to help get customer-facing agents under control! Please consider joining our Discord server and participating in our development.
-
 ## ✨ What is Parlant?
 **Parlant is a framework that transforms how AI agents make decisions in customer-facing scenarios.**
 
@@ -28,20 +26,11 @@
 
 Unlike traditional approaches that rely on prompt engineering or conversational flow charts, Parlant introduces a dynamic control system that ensures agents follow your specific business rules, in the form of behavioral guidelines that you provide, by matching and activating the appropriate combination of guidelines for every specific context.
 
-```mermaid
-graph TD
-    API(Parlant REST API) -->|React to Session Trigger| Engine[AI Response Engine]
-    Engine -->|Load Domain Terminology| GlossaryStore
-    Engine -->|Match Guidelines| GuidelineProposer
-    Engine -->|Infer & Call Tools| ToolCaller
-    Engine -->|Tailor Guided Message| MessageGenerator
-```
-
 When an agent needs to respond to a customer, Parlant's engine evaluates the situation, checks relevant guidelines, gathers necessary information through your tools, and continuously re-evaluates its approach based on your guidelines as new information emerges. When it's time to generate a message, Parlant implements self-critique mechanisms to ensure that the agent's responses precisely align with your intended behavior as given by the contextually-matched guidelines.
 
-## 📦 Quickstart
 Parlant comes pre-built with responsive session (conversation) management, a detection mechanism for incoherence and contradictions in guidelines, content-filtering, jailbreak protection, an integrated sandbox UI for behavioral testing, native API clients in Python and TypeScript, and other goodies.
 
+## 📦 Quickstart
 ```bash
 $ pip install parlant
 $ parlant-server

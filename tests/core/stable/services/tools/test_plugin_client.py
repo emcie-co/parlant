@@ -14,12 +14,12 @@
 
 import asyncio
 import enum
-from typing import Any, Mapping, Optional, cast
+from typing import Mapping, Optional, cast
 from lagom import Container
 from pytest import fixture, raises
 import pytest
 
-from parlant.core.tools import ToolContext, ToolError, ToolResult, ToolResultError
+from parlant.core.tools import ToolContext, ToolResult, ToolResultError
 from parlant.core.services.tools.plugins import PluginServer, tool
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -353,62 +353,3 @@ async def test_that_a_plugin_tool_that_returns_a_huge_payload_raises_an_error(
                 await client.call_tool(huge_payload_tool.tool.name, tool_context, arguments={})
 
             assert "Response exceeds 16KB limit" in str(exc.value)
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        {},
-        {"paramA": 123, "paramX": 999},
-    ],
-)
-async def test_that_a_plugin_raises_tool_error_for_argument_mismatch(
-    tool_context: ToolContext,
-    container: Container,
-    arguments: dict[str, Any],
-) -> None:
-    @tool
-    def mismatch_tool(context: ToolContext, paramA: int) -> ToolResult:
-        return ToolResult(paramA)
-
-    async with run_service_server([mismatch_tool]) as server:
-        async with create_client(server, container[EventBufferFactory]) as client:
-            with pytest.raises(ToolError) as exc_info:
-                await client.call_tool(
-                    mismatch_tool.tool.name,
-                    tool_context,
-                    arguments=arguments,
-                )
-
-            error_msg = str(exc_info.value)
-            assert "Expected parameters" in error_msg
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        {"paramA": True},
-        {"paramA": "not_an_int"},
-    ],
-)
-async def test_that_a_plugin_raises_tool_error_for_type_mismatch(
-    tool_context: ToolContext,
-    container: Container,
-    arguments: dict[str, Any],
-) -> None:
-    @tool
-    def typed_tool(context: ToolContext, paramA: int) -> ToolResult:
-        return ToolResult(paramA)
-
-    async with run_service_server([typed_tool]) as server:
-        async with create_client(server, container[EventBufferFactory]) as client:
-            with pytest.raises(ToolError) as exc_info:
-                await client.call_tool(
-                    typed_tool.tool.name,
-                    tool_context,
-                    arguments=arguments,
-                )
-
-            error_msg = str(exc_info.value)
-            assert "paramA" in error_msg
-            assert "Expected" in error_msg or "must be" in error_msg

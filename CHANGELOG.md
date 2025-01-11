@@ -3,15 +3,7 @@
 All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
-- Add shot creation helper functions under Shot
-- Fix mistake in coherence checker few shots
-- Fix markdown tables in sandbox UI
-
-
-## [1.5.1] - 2025-01-05
-
-### Fixed
-- Fix server CLI boot
+TBD
 
 
 ## [1.5.1] - 2025-01-05

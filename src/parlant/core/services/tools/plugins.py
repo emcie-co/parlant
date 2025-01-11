@@ -55,7 +55,6 @@ from parlant.core.tools import (
     EnumValueType,
     ToolResultError,
     normalize_tool_arguments,
-    validate_tool_arguments,
 )
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -562,9 +561,6 @@ class PluginClient(ToolService):
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         try:
-            tool = await self.read_tool(name)
-            validate_tool_arguments(tool, arguments)
-
             async with self._http_client.stream(
                 method="post",
                 url=self._get_url(f"/tools/{name}/calls"),

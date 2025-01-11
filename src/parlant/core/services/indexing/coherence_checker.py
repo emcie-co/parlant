@@ -399,8 +399,8 @@ Expected Output:
             "origin_guideline_when": "offering products to the customer",
             "compared_guideline_when": "the customer asks for recommendations",
             "origin_entails_compared_rationale": "offering products to the customer does not entail them asking for recommendations, since the agent might be offering items for a different reason",
-            "origin_when_entails_compared_when": false,
-            "origin_entails_compared_severity": 4,
+            "origin_when_entails_compared_when": 4,
+            "origin_entails_compared_severity": false,
             "compared_entails_origin_rationale": "the customer asking for recommendations does not entail that a product is offered to them. They could be asking out of their own accord",
             "compared_when_entails_origin_when": false,
             "compared_entails_origin_severity": 3
@@ -421,8 +421,8 @@ Expected Output:
             "origin_guideline_when": "offering products to the customer",
             "compared_guideline_when": "discussing store items",
             "origin_entails_compared_rationale": "discussing store items does not entail offering products, since a different kind of discussion might be occurring",
-            "origin_when_entails_compared_when": false,
-            "origin_entails_compared_severity": 3,
+            "origin_when_entails_compared_when": 3,
+            "origin_entails_compared_severity": false,
             "compared_entails_origin_rationale": "offering a product to the customer entails the discussion of a store item, as it's fair to assume that product is a store item",
             "compared_when_entails_origin_when": true,
             "compared_entails_origin_severity": 7

@@ -92,7 +92,7 @@ export default function Chatbot(): ReactElement {
                         <div className="bg-white h-full pb-4 border-solid w-[332px] max-mobile:hidden">
                             <Sessions />
                         </div>
-                        <div className='h-full w-[calc(100vw-332px)] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
+                        <div className='h-full w-full'>
                             {sessionId && <Suspense><Chat /></Suspense>}
                         </div>
                     </div>

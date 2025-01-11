@@ -123,7 +123,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         if hints.get("strict", False):
             t_start = time.time()
             response = await self._client.beta.chat.completions.parse(
-                messages=[{"role": "developer", "content": prompt}],
+                messages=[{"role": "user", "content": prompt}],
                 model=self.model_name,
                 response_format=self.schema,
                 **openai_api_arguments,
@@ -159,7 +159,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         else:
             t_start = time.time()
             response = await self._client.chat.completions.create(
-                messages=[{"role": "developer", "content": prompt}],
+                messages=[{"role": "user", "content": prompt}],
                 model=self.model_name,
                 response_format={"type": "json_object"},
                 **openai_api_arguments,

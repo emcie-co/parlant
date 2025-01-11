@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from typing import Any
-from pytest import mark, raises
+from pytest import mark
 
-from parlant.core.tools import ToolContext, ToolError
+from parlant.core.tools import ToolContext
 from parlant.core.services.tools.openapi import OpenAPIClient
 
 from tests.test_utilities import (
@@ -101,60 +101,3 @@ async def test_that_a_tool_can_be_called_via_an_openapi_server(
             )
             result = await client.call_tool(tool_name, stub_context, tool_args)
             assert result.data == expected_result
-
-
-@mark.parametrize(
-    "tool_name,arguments",
-    [
-        (one_required_query_param.__name__, {}),
-        (one_required_query_param.__name__, {"query_param": 123, "bogus": 999}),
-    ],
-)
-async def test_that_openapi_client_raises_tool_error_on_argument_mismatch(
-    tool_name: str,
-    arguments: dict[str, Any],
-) -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
-
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
-            stub_context = ToolContext(
-                agent_id="test-agent",
-                session_id="test_session",
-                customer_id="test_customer",
-            )
-
-            with raises(ToolError) as exc_info:
-                await client.call_tool(tool_name, stub_context, arguments)
-
-            error_msg = str(exc_info.value)
-            assert "Expected parameters" in error_msg
-
-
-@mark.parametrize(
-    "tool_name,arguments",
-    [
-        (one_required_query_param.__name__, {"query_param": "not_an_integer"}),
-        (one_required_query_param.__name__, {"query_param": True}),
-    ],
-)
-async def test_that_openapi_client_raises_tool_error_on_type_mismatch(
-    tool_name: str,
-    arguments: dict[str, Any],
-) -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
-
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
-            stub_context = ToolContext(
-                agent_id="test-agent",
-                session_id="test_session",
-                customer_id="test_customer",
-            )
-
-            with raises(ToolError) as exc_info:
-                await client.call_tool(tool_name, stub_context, arguments)
-
-            error_msg = str(exc_info.value)
-            assert "must be" in error_msg or "type" in error_msg
-            assert "query_param" in error_msg

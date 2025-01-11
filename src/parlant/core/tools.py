@@ -265,16 +265,11 @@ class LocalToolService(ToolService):
             raise ToolImportError(name) from e
 
         try:
-            tool = await self.read_tool(name)
-            validate_tool_arguments(tool, arguments)
-
             func_params = inspect.signature(func).parameters
             result: ToolResult = func(**normalize_tool_arguments(func_params, arguments))
 
             if inspect.isawaitable(result):
                 result = await result
-        except ToolError as e:
-            raise e
         except Exception as e:
             raise ToolExecutionError(name) from e
 
@@ -282,54 +277,6 @@ class LocalToolService(ToolService):
             raise ToolResultError(name, "Tool result is not an instance of ToolResult")
 
         return result
-
-
-def validate_tool_arguments(
-    tool: Tool,
-    arguments: Mapping[str, Any],
-) -> None:
-    expected = set(tool.parameters.keys())
-    received = set(arguments.keys())
-
-    extra_args = received - expected
-
-    missing_required = [p for p in tool.required if p not in arguments]
-
-    if extra_args or missing_required:
-        message = f"Argument mismatch.\n - Expected parameters: {sorted(expected)}"
-        raise ToolExecutionError(message)
-
-    type_map = {
-        "string": str,
-        "boolean": bool,
-        "integer": int,
-        "number": float,
-    }
-
-    for param_name, arg_value in arguments.items():
-        param_def = tool.parameters[param_name]
-        param_type = param_def["type"]
-
-        if param_type == "enum":
-            allowed_values = param_def.get("enum", [])
-            if arg_value not in allowed_values:
-                message = (
-                    f"Parameter '{param_name}' must be one of {allowed_values}, "
-                    f"but got '{arg_value}'."
-                )
-                raise ToolExecutionError(tool.name, message)
-        else:
-            expected_types = type_map.get(param_type)
-            if expected_types is None:
-                raise ToolExecutionError(
-                    tool.name, f"Parameter '{param_name}' has unknown type '{param_type}'"
-                )
-            if type(arg_value) is not expected_types:
-                raise ToolExecutionError(
-                    tool.name,
-                    f"Parameter '{param_name}' must be of type {expected_types}, "
-                    f"but got {type(arg_value).__name__}: {arg_value}",
-                )
 
 
 def normalize_tool_arguments(

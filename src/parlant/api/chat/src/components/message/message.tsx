@@ -7,7 +7,6 @@ import { Spacer } from '../ui/custom/spacer';
 import { useSession } from '../chatbot/chatbot';
 import Tooltip from '../ui/custom/tooltip';
 import { twMerge } from 'tailwind-merge';
-import remarkGfm from 'remark-gfm';
 
 interface Props {
     event: EventInterface;
@@ -33,17 +32,17 @@ export default function Message({event, isContinual, isRegenerateHidden, regener
     const serverStatus = event.serverStatus;
 
     return (
-        <div className='flex my-4 mx-0 mb-1 w-full justify-between animate-fade-in scrollbar'>
+        <div className='flex my-4 mx-0 mb-1 w-full justify-between animate-fade-in'>
             <Spacer/>
-            <div className={(isClient ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
+            <div className={(isClient ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end'}>
                 {!isClient &&
                     <div className='flex items-end me-[14px]'>
                         {!isContinual ? <img src="parlant-bubble-muted.svg" alt="Parlant" height={36} width={36}/> : <div className='h-[36px] w-[36px]'/>}
                     </div>
                 }
                 <div tabIndex={0} data-testid="message" className={(isClient ? 'bg-white text-black rounded-br-none rounded-tr-[22px]' : 'bg-transparent border-[1.3px] border-muted border-solid rounded-bl-none rounded-tl-[22px]') + (isClient && serverStatus === 'error' ? ' !bg-[#FDF2F1]' : '') + (isContinual ? ' !rounded-br-[26px] !rounded-bl-[26px] !rounded-tl-[26px] !rounded-tr-[26px]' : '') + ' rounded-[26px] peer w-fit max-w-[min(564px,85%)] flex gap-1 items-center relative'}>
-                    <div className="markdown overflow-auto relative max-w-[inherit] [word-break:break-word] font-light text-[16px] pt-[18px] pb-[22px] ps-[32px] pe-[24px]">
-                        <Markdown  remarkPlugins={[remarkGfm]} className={styles.markdown}>{event?.data?.message}</Markdown>
+                    <div className="markdown relative max-w-full [word-break:break-word] font-light text-[16px] pt-[18px] pb-[22px] ps-[32px] pe-[24px]">
+                        <Markdown className={styles.markdown}>{event?.data?.message}</Markdown>
                     </div>
                     <div className='flex h-full font-normal text-[11px] text-[#AEB4BB] pt-[36px] pb-[10px] pe-[12px] font-inter self-end items-end whitespace-nowrap'>
                         <div className='flex items-center w-[46px]'>
@@ -56,8 +55,8 @@ export default function Message({event, isContinual, isRegenerateHidden, regener
                 <div className={twMerge('self-stretch items-center px-[16px] flex invisible peer-hover:visible hover:visible', isRegenerateHidden && 'hidden')}>
                     <Tooltip value='Regenerate' side='right'>
                         <div data-testid='regenerate-button'role='button' onClick={() => regenerateMessageFn?.(sessionId as string)} className='group cursor-pointer'>
-                            <img src="icons/regenerate.svg" alt="regenerate" className='block group-hover:hidden h-[36px] min-w-[20px]'/>
-                            <img src="icons/regenerate-filled.svg" alt="regenerate" className='hidden group-hover:block h-[36px] min-w-[20px]'/>
+                            <img src="icons/regenerate.svg" alt="regenerate" className='block group-hover:hidden'/>
+                            <img src="icons/regenerate-filled.svg" alt="regenerate" className='hidden group-hover:block'/>
                         </div>
                     </Tooltip>
                 </div>}

@@ -18,6 +18,10 @@ from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentStore
+from parlant.core.common import (
+    GuidelineContent,
+    GuidelineId,
+)
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.evaluations import (
     CoherenceCheck,
@@ -32,7 +36,7 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )

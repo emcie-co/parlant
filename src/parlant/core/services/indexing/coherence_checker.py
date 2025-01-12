@@ -22,10 +22,9 @@ from more_itertools import chunked
 from dataclasses import dataclass
 
 from parlant.core import async_utils
-from parlant.core.common import DefaultBaseModel
+from parlant.core.common import DefaultBaseModel, GuidelineContent
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.guidelines import GuidelineContent
 from parlant.core.logging import Logger
 from parlant.core.glossary import GlossaryStore
 from parlant.core.agents import Agent

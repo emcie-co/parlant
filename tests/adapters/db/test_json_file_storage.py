@@ -21,11 +21,17 @@ import tempfile
 from lagom import Container
 from pytest import fixture, mark
 
-from parlant.core.agents import AgentDocumentStore, AgentId, AgentStore
+from parlant.core.agents import AgentDocumentStore, AgentStore
+from parlant.core.common import (
+    AgentId,
+    CustomerId,
+    GuidelineContent,
+    GuidelineId,
+)
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
 )
-from parlant.core.customers import CustomerDocumentStore, CustomerId
+from parlant.core.customers import CustomerDocumentStore
 from parlant.core.evaluations import (
     EvaluationDocumentStore,
     GuidelinePayload,
@@ -36,9 +42,7 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.guidelines import (
-    GuidelineContent,
     GuidelineDocumentStore,
-    GuidelineId,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.core.sessions import SessionDocumentStore

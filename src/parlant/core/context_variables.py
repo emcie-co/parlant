@@ -14,25 +14,31 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import NewType, Optional, Sequence, cast
-from typing_extensions import TypedDict, override, Self
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Sequence, cast
+from typing_extensions import Self, TypedDict, override
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    ContextVariableId,
+    ContextVariableValueId,
     ItemNotFoundError,
     JSONSerializable,
+    SchemaVersion,
     UniqueId,
     Version,
     generate_id,
 )
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
+from parlant.core.documents.context_variables import (
+    _ContextVariableDocument_v1,
+    _ContextVariableValueDocument_v1,
+)
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 from parlant.core.tools import ToolId
-
-ContextVariableId = NewType("ContextVariableId", str)
-ContextVariableValueId = NewType("ContextVariableValueId", str)
 
 
 @dataclass(frozen=True)
@@ -153,25 +159,27 @@ class _ContextVariableValueDocument(TypedDict, total=False):
     data: JSONSerializable
 
 
-class ContextVariableDocumentStore(ContextVariableStore):
-    VERSION = Version.from_string("0.1.0")
+class ContextVariableDocumentStore(ContextVariableStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(self, database: DocumentDatabase):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._variable_collection: DocumentCollection[_ContextVariableDocument]
-        self._value_collection: DocumentCollection[_ContextVariableValueDocument]
+        self._variable_collection: DocumentCollection[_ContextVariableDocument_v1]
+        self._value_collection: DocumentCollection[_ContextVariableValueDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._variable_collection = await self._database.get_or_create_collection(
             name="variables",
-            schema=_ContextVariableDocument,
+            schema=_ContextVariableDocument_v1,
         )
 
         self._value_collection = await self._database.get_or_create_collection(
             name="values",
-            schema=_ContextVariableValueDocument,
+            schema=_ContextVariableValueDocument_v1,
         )
         return self
 
@@ -187,10 +195,9 @@ class ContextVariableDocumentStore(ContextVariableStore):
         self,
         context_variable: ContextVariable,
         variable_set: str,
-    ) -> _ContextVariableDocument:
-        return _ContextVariableDocument(
+    ) -> _ContextVariableDocument_v1:
+        return _ContextVariableDocument_v1(
             id=ObjectId(context_variable.id),
-            version=self.VERSION.to_string(),
             variable_set=variable_set,
             name=context_variable.name,
             description=context_variable.description,
@@ -204,10 +211,9 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_set: str,
         variable_id: ContextVariableId,
         key: str,
-    ) -> _ContextVariableValueDocument:
-        return _ContextVariableValueDocument(
+    ) -> _ContextVariableValueDocument_v1:
+        return _ContextVariableValueDocument_v1(
             id=ObjectId(context_variable_value.id),
-            version=self.VERSION.to_string(),
             last_modified=context_variable_value.last_modified.isoformat(),
             variable_set=variable_set,
             variable_id=variable_id,
@@ -217,7 +223,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
     def _deserialize_context_variable(
         self,
-        context_variable_document: _ContextVariableDocument,
+        context_variable_document: _ContextVariableDocument_v1,
     ) -> ContextVariable:
         return ContextVariable(
             id=ContextVariableId(context_variable_document["id"]),
@@ -231,13 +237,27 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
     def _deserialize_context_variable_value(
         self,
-        context_variable_value_document: _ContextVariableValueDocument,
+        context_variable_value_document: _ContextVariableValueDocument_v1,
     ) -> ContextVariableValue:
         return ContextVariableValue(
             id=ContextVariableValueId(context_variable_value_document["id"]),
             last_modified=datetime.fromisoformat(context_variable_value_document["last_modified"]),
             data=context_variable_value_document["data"],
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_variable(
@@ -305,7 +325,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                     "id": {"$eq": id},
                     "variable_set": {"$eq": variable_set},
                 },
-                params=cast(_ContextVariableDocument, update_params),
+                params=cast(_ContextVariableDocument_v1, update_params),
             )
 
         assert result.updated_document

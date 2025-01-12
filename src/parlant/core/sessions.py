@@ -13,51 +13,56 @@
 # limitations under the License.
 
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import (
     Literal,
     Mapping,
-    NewType,
     Optional,
     Sequence,
     TypeAlias,
     cast,
 )
-from typing_extensions import override, TypedDict, NotRequired, Self
+from typing_extensions import NotRequired, Self, TypedDict, override
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock, Timeout
 from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    AgentId,
+    ConsumerId,
+    ContextVariable,
+    CustomerId,
+    EventId,
+    EventKind,
+    EventSource,
+    GuidelineProposition,
     ItemNotFoundError,
     JSONSerializable,
+    SchemaVersion,
+    SessionId,
+    SessionMode,
+    Term,
+    ToolCall,
     UniqueId,
     Version,
     generate_id,
 )
-from parlant.core.agents import AgentId
-from parlant.core.context_variables import ContextVariableId
-from parlant.core.customers import CustomerId
-from parlant.core.guidelines import GuidelineId
+from parlant.core.documents.sessions import (
+    _EventDocument_v1,
+    _GenerationInfoDocument_v1,
+    _GuidelinePropositionInspectionDocument_v1,
+    _InspectionDocument_v1,
+    _MessageGenerationInspectionDocument_v1,
+    _PreparationIterationGenerationsDocument_v1,
+    _SessionDocument_v1,
+    _UsageInfoDocument_v1,
+)
 from parlant.core.nlp.generation import GenerationInfo, UsageInfo
-from parlant.core.persistence.common import ObjectId, Where
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
-from parlant.core.glossary import TermId
-
-SessionId = NewType("SessionId", str)
-
-EventId = NewType("EventId", str)
-EventSource: TypeAlias = Literal[
-    "customer",
-    "customer_ui",
-    "human_agent",
-    "human_agent_on_behalf_of_ai_agent",
-    "ai_agent",
-    "system",
-]
-EventKind: TypeAlias = Literal["message", "tool", "status", "custom"]
+from parlant.core.persistence.common import VersionedStore, ObjectId, Where
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 
 @dataclass(frozen=True)
@@ -101,22 +106,6 @@ class MessageEventData(TypedDict):
     tags: NotRequired[list[str]]
 
 
-class ControlOptions(TypedDict, total=False):
-    mode: SessionMode
-
-
-class ToolResult(TypedDict):
-    data: JSONSerializable
-    metadata: Mapping[str, JSONSerializable]
-    control: ControlOptions
-
-
-class ToolCall(TypedDict):
-    tool_id: str
-    arguments: Mapping[str, JSONSerializable]
-    result: ToolResult
-
-
 class ToolEventData(TypedDict):
     tool_calls: list[ToolCall]
 
@@ -135,29 +124,6 @@ class StatusEventData(TypedDict):
     acknowledged_offset: NotRequired[int]
     status: SessionStatus
     data: JSONSerializable
-
-
-class GuidelineProposition(TypedDict):
-    guideline_id: GuidelineId
-    condition: str
-    action: str
-    score: int
-    rationale: str
-
-
-class Term(TypedDict):
-    id: TermId
-    name: str
-    description: str
-    synonyms: list[str]
-
-
-class ContextVariable(TypedDict):
-    id: ContextVariableId
-    name: str
-    description: Optional[str]
-    key: str
-    value: JSONSerializable
 
 
 @dataclass(frozen=True)
@@ -191,12 +157,6 @@ class PreparationIteration:
 class Inspection:
     message_generations: Sequence[MessageGenerationInspection]
     preparation_iterations: Sequence[PreparationIteration]
-
-
-ConsumerId: TypeAlias = Literal["client"]
-"""In the future we may support multiple consumer IDs"""
-
-SessionMode: TypeAlias = Literal["auto", "manual"]
 
 
 @dataclass(frozen=True)
@@ -375,29 +335,31 @@ class _InspectionDocument(TypedDict, total=False):
     preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
-class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.1.0")
+class SessionDocumentStore(SessionStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(self, database: DocumentDatabase):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._session_collection: DocumentCollection[_SessionDocument]
-        self._event_collection: DocumentCollection[_EventDocument]
-        self._inspection_collection: DocumentCollection[_InspectionDocument]
+        self._session_collection: DocumentCollection[_SessionDocument_v1]
+        self._event_collection: DocumentCollection[_EventDocument_v1]
+        self._inspection_collection: DocumentCollection[_InspectionDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._session_collection = await self._database.get_or_create_collection(
             name="sessions",
-            schema=_SessionDocument,
+            schema=_SessionDocument_v1,
         )
         self._event_collection = await self._database.get_or_create_collection(
             name="events",
-            schema=_EventDocument,
+            schema=_EventDocument_v1,
         )
         self._inspection_collection = await self._database.get_or_create_collection(
             name="inspections",
-            schema=_InspectionDocument,
+            schema=_InspectionDocument_v1,
         )
         return self
 
@@ -412,10 +374,9 @@ class SessionDocumentStore(SessionStore):
     def _serialize_session(
         self,
         session: Session,
-    ) -> _SessionDocument:
-        return _SessionDocument(
+    ) -> _SessionDocument_v1:
+        return _SessionDocument_v1(
             id=ObjectId(session.id),
-            version=self.VERSION.to_string(),
             creation_utc=session.creation_utc.isoformat(),
             customer_id=session.customer_id,
             agent_id=session.agent_id,
@@ -426,7 +387,7 @@ class SessionDocumentStore(SessionStore):
 
     def _deserialize_session(
         self,
-        session_document: _SessionDocument,
+        session_document: _SessionDocument_v1,
     ) -> Session:
         return Session(
             id=SessionId(session_document["id"]),
@@ -442,10 +403,9 @@ class SessionDocumentStore(SessionStore):
         self,
         event: Event,
         session_id: SessionId,
-    ) -> _EventDocument:
-        return _EventDocument(
+    ) -> _EventDocument_v1:
+        return _EventDocument_v1(
             id=ObjectId(event.id),
-            version=self.VERSION.to_string(),
             creation_utc=event.creation_utc.isoformat(),
             session_id=session_id,
             source=event.source,
@@ -458,7 +418,7 @@ class SessionDocumentStore(SessionStore):
 
     def _deserialize_event(
         self,
-        event_document: _EventDocument,
+        event_document: _EventDocument_v1,
     ) -> Event:
         return Event(
             id=EventId(event_document["id"]),
@@ -476,26 +436,25 @@ class SessionDocumentStore(SessionStore):
         inspection: Inspection,
         session_id: SessionId,
         correlation_id: str,
-    ) -> _InspectionDocument:
-        def serialize_generation_info(generation: GenerationInfo) -> _GenerationInfoDocument:
-            return _GenerationInfoDocument(
+    ) -> _InspectionDocument_v1:
+        def serialize_generation_info(generation: GenerationInfo) -> _GenerationInfoDocument_v1:
+            return _GenerationInfoDocument_v1(
                 schema_name=generation.schema_name,
                 model=generation.model,
                 duration=generation.duration,
-                usage=_UsageInfoDocument(
+                usage=_UsageInfoDocument_v1(
                     input_tokens=generation.usage.input_tokens,
                     output_tokens=generation.usage.output_tokens,
                     extra=generation.usage.extra,
                 ),
             )
 
-        return _InspectionDocument(
+        return _InspectionDocument_v1(
             id=ObjectId(generate_id()),
-            version=self.VERSION.to_string(),
             session_id=session_id,
             correlation_id=correlation_id,
             message_generations=[
-                _MessageGenerationInspectionDocument(
+                _MessageGenerationInspectionDocument_v1(
                     generation=serialize_generation_info(m.generation), messages=m.messages
                 )
                 for m in inspection.message_generations
@@ -506,8 +465,8 @@ class SessionDocumentStore(SessionStore):
                     "tool_calls": i.tool_calls,
                     "terms": i.terms,
                     "context_variables": i.context_variables,
-                    "generations": _PreparationIterationGenerationsDocument(
-                        guideline_proposition=_GuidelinePropositionInspectionDocument(
+                    "generations": _PreparationIterationGenerationsDocument_v1(
+                        guideline_proposition=_GuidelinePropositionInspectionDocument_v1(
                             total_duration=i.generations.guideline_proposition.total_duration,
                             batches=[
                                 serialize_generation_info(g)
@@ -523,10 +482,10 @@ class SessionDocumentStore(SessionStore):
 
     def _deserialize_message_inspection(
         self,
-        inspection_document: _InspectionDocument,
+        inspection_document: _InspectionDocument_v1,
     ) -> Inspection:
         def deserialize_generation_info(
-            generation_document: _GenerationInfoDocument,
+            generation_document: _GenerationInfoDocument_v1,
         ) -> GenerationInfo:
             return GenerationInfo(
                 schema_name=generation_document["schema_name"],
@@ -570,6 +529,20 @@ class SessionDocumentStore(SessionStore):
                 for i in inspection_document["preparation_iterations"]
             ],
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_session(
@@ -646,7 +619,7 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params=cast(_SessionDocument, params),
+                params=cast(_SessionDocument_v1, params),
             )
 
         assert result.updated_document
@@ -732,7 +705,7 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             result = await self._event_collection.update_one(
                 filters={"id": {"$eq": event_id}},
-                params=cast(_EventDocument, {"deleted": True}),
+                params=cast(_EventDocument_v1, {"deleted": True}),
             )
 
         if result.matched_count == 0:

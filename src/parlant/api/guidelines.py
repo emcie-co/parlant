@@ -14,24 +14,27 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import chain
-from typing import Annotated, Optional, Sequence, TypeAlias
 from fastapi import APIRouter, HTTPException, Path, status
+from itertools import chain
 from pydantic import Field
+from typing import Annotated, Optional, Sequence, TypeAlias
 
 from parlant.api import agents, common
 from parlant.api.common import (
+    ExampleJson,
+    GuidelineActionField,
+    GuidelineConditionField,
     InvoiceDataDTO,
     PayloadKindDTO,
     ToolIdDTO,
     apigen_config,
 )
 from parlant.api.index import InvoiceDTO
+from parlant.core.application import Application
 from parlant.core.common import (
     DefaultBaseModel,
-)
-from parlant.api.common import (
-    ExampleJson,
+    GuidelineContent,
+    GuidelineId,
 )
 from parlant.core.evaluations import (
     CoherenceCheck,
@@ -45,19 +48,13 @@ from parlant.core.guideline_connections import (
     GuidelineConnectionId,
     GuidelineConnectionStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationId,
     GuidelineToolAssociationStore,
 )
-from parlant.core.application import Application
+from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolId
-
-from parlant.api.common import (
-    GuidelineConditionField,
-    GuidelineActionField,
-)
 
 API_GROUP = "guidelines"
 

@@ -14,7 +14,7 @@
 
 from parlant.core.agents import Agent
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.common import GuidelineContent
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
     IncoherenceKind,

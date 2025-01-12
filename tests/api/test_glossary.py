@@ -15,7 +15,7 @@
 from fastapi import status
 import httpx
 
-from parlant.core.agents import AgentId
+from parlant.core.common import AgentId
 
 
 async def test_that_a_term_can_be_created(

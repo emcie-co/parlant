@@ -13,36 +13,39 @@
 # limitations under the License.
 
 from __future__ import annotations
+
 import asyncio
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, Optional, TypeAlias, cast
 from lagom import Container
+from typing import Any, Iterable, Mapping, Optional, TypeAlias, cast
 
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import generate_id
+from parlant.core.common import (
+    AgentId,
+    CustomerId,
+    EventKind,
+    EventSource,
+    GuidelineId,
+    SessionId,
+    generate_id,
+)
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.customers import CustomerId
+from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.evaluations import ConnectionProposition, Invoice
 from parlant.core.guideline_connections import (
     GuidelineConnectionStore,
 )
-from parlant.core.guidelines import GuidelineId, GuidelineStore
+from parlant.core.guidelines import GuidelineStore
+from parlant.core.logging import Logger
 from parlant.core.sessions import (
     Event,
-    EventKind,
-    EventSource,
     Session,
-    SessionId,
     SessionListener,
     SessionStore,
 )
-from parlant.core.engines.types import Context, Engine, UtteranceRequest
-from parlant.core.logging import Logger
-
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
 

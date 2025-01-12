@@ -18,12 +18,20 @@ from typing import Annotated, Optional, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import Field
 
-from parlant.api.common import apigen_config, ExampleJson, ServiceNameField, ToolNameField
-from parlant.core.common import DefaultBaseModel
+from parlant.api.common import (
+    apigen_config,
+    ExampleJson,
+    ServiceNameField,
+    ToolNameField,
+)
+from parlant.core.common import (
+    DefaultBaseModel,
+    ToolServiceKind,
+)
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.tools import Tool, ToolParameter
 from parlant.core.services.tools.openapi import OpenAPIClient
-from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolService
 
 API_GROUP = "services"

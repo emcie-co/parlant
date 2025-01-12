@@ -19,8 +19,8 @@ from pydantic import Field
 from typing import Annotated, Mapping, Optional, Sequence, TypeAlias
 
 from parlant.api.common import apigen_config, ExampleJson, example_json_content
-from parlant.core.common import DefaultBaseModel
-from parlant.core.customers import CustomerId, CustomerStore
+from parlant.core.common import DefaultBaseModel, CustomerId
+from parlant.core.customers import CustomerStore
 from parlant.core.tags import TagId
 
 API_GROUP = "customers"

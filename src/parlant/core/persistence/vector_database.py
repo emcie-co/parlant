@@ -17,14 +17,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, Optional, Sequence, TypeVar, TypedDict
 
-from parlant.core.common import Version
 from parlant.core.nlp.embedding import Embedder
-from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.common import ObjectId, VersionedDatabase, Where
 
 
 class BaseDocument(TypedDict, total=False):
     id: ObjectId
-    version: Version.String
     content: str
 
 
@@ -65,7 +63,7 @@ class SimilarDocumentResult(Generic[TDocument]):
         return False
 
 
-class VectorDatabase(ABC):
+class VectorDatabase(VersionedDatabase, ABC):
     @abstractmethod
     async def create_collection(
         self,

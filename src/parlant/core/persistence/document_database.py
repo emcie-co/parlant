@@ -23,13 +23,11 @@ from typing import (
     TypedDict,
 )
 
-from parlant.core.persistence.common import ObjectId, Where
-from parlant.core.common import Version
+from parlant.core.persistence.common import ObjectId, VersionedDatabase, Where
 
 
 class BaseDocument(TypedDict, total=False):
     id: ObjectId
-    version: Version.String
 
 
 TDocument = TypeVar("TDocument", bound=BaseDocument)
@@ -55,7 +53,7 @@ class DeleteResult(Generic[TDocument]):
     deleted_document: Optional[TDocument]
 
 
-class DocumentDatabase(ABC):
+class DocumentDatabase(VersionedDatabase, ABC):
     @abstractmethod
     async def create_collection(
         self,

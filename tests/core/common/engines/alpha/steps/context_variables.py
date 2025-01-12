@@ -14,14 +14,17 @@
 
 from pytest_bdd import given, parsers
 
-from parlant.core.agents import AgentId
+from parlant.core.common import (
+    AgentId,
+    SessionId,
+)
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableStore,
     ContextVariableValue,
 )
 from parlant.core.customers import CustomerStore
-from parlant.core.sessions import SessionId, SessionStore
+from parlant.core.sessions import SessionStore
 from parlant.core.tags import TagStore
 from parlant.core.tools import ToolId
 

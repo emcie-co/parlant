@@ -15,16 +15,27 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Mapping, NewType, Optional, Sequence
-from typing_extensions import override, TypedDict, Self
+from pathlib import Path
+from typing import Mapping, Optional, Sequence
+from typing_extensions import Self, TypedDict, override
 
 from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    CustomerId,
+    ItemNotFoundError,
+    SchemaVersion,
+    UniqueId,
+    Version,
+    generate_id,
+)
+from parlant.core.documents.customers import (
+    _CustomerDocument_v1,
+    _CustomerTagAssociationDocument_v1,
+)
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
-
-CustomerId = NewType("CustomerId", str)
 
 
 @dataclass(frozen=True)
@@ -121,17 +132,19 @@ class _CustomerTagAssociationDocument(TypedDict, total=False):
     tag_id: TagId
 
 
-class CustomerDocumentStore(CustomerStore):
-    VERSION = Version.from_string("0.1.0")
+class CustomerDocumentStore(CustomerStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(
         self,
         database: DocumentDatabase,
     ) -> None:
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._customers_collection: DocumentCollection[_CustomerDocument]
+        self._customers_collection: DocumentCollection[_CustomerDocument_v1]
         self._customer_tag_association_collection: DocumentCollection[
-            _CustomerTagAssociationDocument
+            _CustomerTagAssociationDocument_v1
         ]
 
         self._lock = ReaderWriterLock()
@@ -139,11 +152,11 @@ class CustomerDocumentStore(CustomerStore):
     async def __aenter__(self) -> Self:
         self._customers_collection = await self._database.get_or_create_collection(
             name="customers",
-            schema=_CustomerDocument,
+            schema=_CustomerDocument_v1,
         )
         self._customer_tag_association_collection = await self._database.get_or_create_collection(
             name="customer_tag_associations",
-            schema=_CustomerTagAssociationDocument,
+            schema=_CustomerTagAssociationDocument_v1,
         )
         return self
 
@@ -155,16 +168,15 @@ class CustomerDocumentStore(CustomerStore):
     ) -> None:
         pass
 
-    def _serialize_customer(self, customer: Customer) -> _CustomerDocument:
-        return _CustomerDocument(
+    def _serialize_customer(self, customer: Customer) -> _CustomerDocument_v1:
+        return _CustomerDocument_v1(
             id=ObjectId(customer.id),
-            version=self.VERSION.to_string(),
             creation_utc=customer.creation_utc.isoformat(),
             name=customer.name,
             extra=customer.extra,
         )
 
-    async def _deserialize_customer(self, customer_document: _CustomerDocument) -> Customer:
+    async def _deserialize_customer(self, customer_document: _CustomerDocument_v1) -> Customer:
         tags = [
             doc["tag_id"]
             for doc in await self._customer_tag_association_collection.find(
@@ -179,6 +191,20 @@ class CustomerDocumentStore(CustomerStore):
             extra=customer_document["extra"],
             tags=tags,
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_customer(
@@ -289,9 +315,8 @@ class CustomerDocumentStore(CustomerStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_document: _CustomerTagAssociationDocument = {
+            association_document: _CustomerTagAssociationDocument_v1 = {
                 "id": ObjectId(generate_id()),
-                "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "customer_id": customer_id,
                 "tag_id": tag_id,

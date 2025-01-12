@@ -1,7 +1,7 @@
 set dotenv-load
 set positional-arguments
 
-PARLANT_HOME := "./runtime-data"
+PARLANT_HOME := "./parlant-data"
 LOGS_DIR := "./logs"
 SERVER_ADDRESS := env("SERVER_ADDRESS", "http://localhost:8800")
 
@@ -41,7 +41,7 @@ setup-logdir:
 
 
 @test-deterministic *specs='': setup-logdir
-    mkdir -p logs/deterministric
+    mkdir -p logs/deterministic
     poetry run pytest \
       -vv {{specs}} --plan=deterministic --no-cache \
       --tap-combined --tap-outdir=logs/deterministic \

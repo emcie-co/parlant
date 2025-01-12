@@ -20,8 +20,7 @@ from more_itertools import chunked
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent
-from parlant.core.common import DefaultBaseModel
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.common import DefaultBaseModel, GuidelineContent
 from parlant.core.logging import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.glossary import GlossaryStore

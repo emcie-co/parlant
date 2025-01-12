@@ -18,6 +18,9 @@ from lagom import Container
 from pytest import raises
 
 from parlant.core.agents import Agent
+from parlant.core.common import (
+    GuidelineContent,
+)
 from parlant.core.evaluations import (
     EvaluationListener,
     EvaluationStatus,
@@ -26,7 +29,7 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineContent, GuidelineStore
+from parlant.core.guidelines import GuidelineStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,

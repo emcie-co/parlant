@@ -16,8 +16,7 @@ from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
 
-from parlant.core.common import DefaultBaseModel
-from parlant.core.guidelines import GuidelineId
+from parlant.core.common import DefaultBaseModel, GuidelineId
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:

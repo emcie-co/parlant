@@ -13,29 +13,31 @@
 # limitations under the License.
 
 import asyncio
-import os
-import time
-from typing import Any, cast
+from datetime import datetime, timezone
 import dateutil
 from fastapi import status
 import httpx
 from lagom import Container
+import os
 from pytest import fixture, mark
-from datetime import datetime, timezone
+import time
+from typing import Any, cast
 
+from parlant.core.async_utils import Timeout
+from parlant.core.common import (
+    AgentId,
+    CustomerId,
+    EventSource,
+    SessionId,
+)
 from parlant.core.engines.alpha.message_event_generator import MessageEventSchema
 from parlant.core.nlp.service import NLPService
-from parlant.core.tools import ToolResult
-from parlant.core.agents import AgentId
-from parlant.core.async_utils import Timeout
-from parlant.core.customers import CustomerId
 from parlant.core.sessions import (
-    EventSource,
     MessageEventData,
-    SessionId,
     SessionListener,
     SessionStore,
 )
+from parlant.core.tools import ToolResult
 
 from tests.test_utilities import (
     create_agent,

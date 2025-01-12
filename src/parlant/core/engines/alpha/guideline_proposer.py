@@ -23,6 +23,11 @@ from typing import Optional, Sequence, cast
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent
+from parlant.core.common import (
+    EventId,
+    EventSource,
+    GuidelineContent,
+)
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
@@ -32,8 +37,8 @@ from parlant.core.engines.alpha.guideline_proposition import (
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline, GuidelineContent
-from parlant.core.sessions import Event, EventId, EventSource
+from parlant.core.guidelines import Guideline
+from parlant.core.sessions import Event
 from parlant.core.emissions import EmittedEvent
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.logging import Logger

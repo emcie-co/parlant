@@ -15,15 +15,23 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import NewType, Optional, Sequence, cast
-from typing_extensions import override, TypedDict, Self
+from pathlib import Path
+from typing import Optional, Sequence, cast
+from typing_extensions import Self, TypedDict, override
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
-
-AgentId = NewType("AgentId", str)
+from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    ItemNotFoundError,
+    SchemaVersion,
+    UniqueId,
+    Version,
+    generate_id,
+    AgentId,
+)
+from parlant.core.documents.agents import _AgentDocument_v1
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 
 class AgentUpdateParams(TypedDict, total=False):
@@ -85,22 +93,24 @@ class _AgentDocument(TypedDict, total=False):
     max_engine_iterations: int
 
 
-class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.1.0")
+class AgentDocumentStore(AgentStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(
         self,
         database: DocumentDatabase,
     ):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._collection: DocumentCollection[_AgentDocument]
+        self._collection: DocumentCollection[_AgentDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="agents",
-            schema=_AgentDocument,
+            schema=_AgentDocument_v1,
         )
         return self
 
@@ -112,17 +122,16 @@ class AgentDocumentStore(AgentStore):
     ) -> None:
         pass
 
-    def _serialize(self, agent: Agent) -> _AgentDocument:
-        return _AgentDocument(
+    def _serialize(self, agent: Agent) -> _AgentDocument_v1:
+        return _AgentDocument_v1(
             id=ObjectId(agent.id),
-            version=self.VERSION.to_string(),
             creation_utc=agent.creation_utc.isoformat(),
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
         )
 
-    def _deserialize(self, agent_document: _AgentDocument) -> Agent:
+    def _deserialize(self, agent_document: _AgentDocument_v1) -> Agent:
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
@@ -130,6 +139,20 @@ class AgentDocumentStore(AgentStore):
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_agent(
@@ -194,7 +217,7 @@ class AgentDocumentStore(AgentStore):
 
             result = await self._collection.update_one(
                 filters={"id": {"$eq": agent_id}},
-                params=cast(_AgentDocument, params),
+                params=cast(_AgentDocument_v1, params),
             )
 
         assert result.updated_document

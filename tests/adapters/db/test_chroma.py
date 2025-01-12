@@ -21,8 +21,8 @@ from pytest import fixture
 
 from parlant.adapters.nlp.openai import OpenAITextEmbedding3Large
 from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
-from parlant.core.agents import AgentStore, AgentId
-from parlant.core.common import Version
+from parlant.core.agents import AgentStore
+from parlant.core.common import AgentId
 from parlant.core.glossary import GlossaryVectorStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.logging import Logger
@@ -32,9 +32,8 @@ from parlant.core.persistence.common import ObjectId
 from tests.test_utilities import SyncAwaiter
 
 
-class _TestDocument(TypedDict, total=False):
+class _TestDocument_v1(TypedDict, total=False):
     id: ObjectId
-    version: Version.String
     content: str
     name: str
 
@@ -66,11 +65,6 @@ def context(container: Container) -> Iterator[_TestContext]:
 
 
 @fixture
-def doc_version() -> Version.String:
-    return Version.from_string("0.1.0").to_string()
-
-
-@fixture
 async def chroma_database(context: _TestContext) -> AsyncIterator[ChromaDatabase]:
     async with create_database(context) as chroma_database:
         yield chroma_database
@@ -87,10 +81,10 @@ def create_database(context: _TestContext) -> ChromaDatabase:
 @fixture
 async def chroma_collection(
     chroma_database: ChromaDatabase,
-) -> AsyncIterator[ChromaCollection[_TestDocument]]:
+) -> AsyncIterator[ChromaCollection[_TestDocument_v1]]:
     collection = await chroma_database.get_or_create_collection(
         "test_collection",
-        _TestDocument,
+        _TestDocument_v1,
         embedder_type=OpenAITextEmbedding3Large,
     )
     yield collection
@@ -98,12 +92,10 @@ async def chroma_collection(
 
 
 async def test_that_a_document_can_be_found_based_on_a_metadata_field(
-    chroma_collection: ChromaCollection[_TestDocument],
-    doc_version: Version.String,
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    doc = _TestDocument(
+    doc = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="test content",
         name="test name",
     )
@@ -133,21 +125,18 @@ async def test_that_a_document_can_be_found_based_on_a_metadata_field(
 
 
 async def test_that_update_one_without_upsert_updates_existing_document(
-    chroma_collection: ChromaCollection[_TestDocument],
-    doc_version: Version.String,
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    document = _TestDocument(
+    document = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="test content",
         name="test name",
     )
 
     await chroma_collection.insert_one(document)
 
-    updated_document = _TestDocument(
+    updated_document = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="test content",
         name="new name",
     )
@@ -167,9 +156,9 @@ async def test_that_update_one_without_upsert_updates_existing_document(
 
 
 async def test_that_update_one_without_upsert_and_no_preexisting_document_with_same_id_does_not_insert(
-    chroma_collection: ChromaCollection[_TestDocument],
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    updated_document = _TestDocument(
+    updated_document = _TestDocument_v1(
         id=ObjectId("1"),
         content="test content",
         name="test name",
@@ -186,12 +175,10 @@ async def test_that_update_one_without_upsert_and_no_preexisting_document_with_s
 
 
 async def test_that_update_one_with_upsert_and_no_preexisting_document_with_same_id_does_insert_new_document(
-    chroma_collection: ChromaCollection[_TestDocument],
-    doc_version: Version.String,
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    updated_document = _TestDocument(
+    updated_document = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="test content",
         name="test name",
     )
@@ -209,12 +196,10 @@ async def test_that_update_one_with_upsert_and_no_preexisting_document_with_same
 
 
 async def test_delete_one(
-    chroma_collection: ChromaCollection[_TestDocument],
-    doc_version: Version.String,
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    document = _TestDocument(
+    document = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="test content",
         name="test name",
     )
@@ -236,26 +221,22 @@ async def test_delete_one(
 
 
 async def test_find_similar_documents(
-    chroma_collection: ChromaCollection[_TestDocument],
-    doc_version: Version.String,
+    chroma_collection: ChromaCollection[_TestDocument_v1],
 ) -> None:
-    apple_document = _TestDocument(
+    apple_document = _TestDocument_v1(
         id=ObjectId("1"),
-        version=doc_version,
         content="apple",
         name="Apple",
     )
 
-    banana_document = _TestDocument(
+    banana_document = _TestDocument_v1(
         id=ObjectId("2"),
-        version=doc_version,
         content="banana",
         name="Banana",
     )
 
-    cherry_document = _TestDocument(
+    cherry_document = _TestDocument_v1(
         id=ObjectId("3"),
-        version=doc_version,
         content="cherry",
         name="Cherry",
     )
@@ -264,17 +245,15 @@ async def test_find_similar_documents(
     await chroma_collection.insert_one(banana_document)
     await chroma_collection.insert_one(cherry_document)
     await chroma_collection.insert_one(
-        _TestDocument(
+        _TestDocument_v1(
             id=ObjectId("4"),
-            version=doc_version,
             content="date",
             name="Date",
         )
     )
     await chroma_collection.insert_one(
-        _TestDocument(
+        _TestDocument_v1(
             id=ObjectId("5"),
-            version=doc_version,
             content="elderberry",
             name="Elderberry",
         )
@@ -293,18 +272,16 @@ async def test_find_similar_documents(
 
 async def test_loading_collections(
     context: _TestContext,
-    doc_version: Version.String,
 ) -> None:
     async with create_database(context) as first_db:
         created_collection = await first_db.get_or_create_collection(
             "test_collection",
-            _TestDocument,
+            _TestDocument_v1,
             embedder_type=OpenAITextEmbedding3Large,
         )
 
-        document = _TestDocument(
+        document = _TestDocument_v1(
             id=ObjectId("1"),
-            version=doc_version,
             content="test content",
             name="test name",
         )
@@ -312,7 +289,7 @@ async def test_loading_collections(
         await created_collection.insert_one(document)
 
     async with create_database(context) as second_db:
-        fetched_collection: ChromaCollection[_TestDocument] = await second_db.get_collection(
+        fetched_collection: ChromaCollection[_TestDocument_v1] = await second_db.get_collection(
             "test_collection"
         )
 

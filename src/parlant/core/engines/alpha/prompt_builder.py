@@ -18,9 +18,9 @@ import json
 from typing import Any, Optional, Sequence, cast
 
 from parlant.core.agents import Agent
-from parlant.core.common import generate_id
+from parlant.core.common import generate_id, EventSource
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
-from parlant.core.sessions import Event, EventSource, MessageEventData, ToolEventData
+from parlant.core.sessions import Event, MessageEventData, ToolEventData
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.utils import (
     context_variables_to_json,

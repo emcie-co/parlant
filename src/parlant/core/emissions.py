@@ -15,13 +15,15 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from parlant.core.agents import AgentId
-from parlant.core.common import JSONSerializable
-from parlant.core.sessions import (
+from parlant.core.common import (
+    AgentId,
     EventKind,
     EventSource,
-    MessageEventData,
+    JSONSerializable,
     SessionId,
+)
+from parlant.core.sessions import (
+    MessageEventData,
     StatusEventData,
     ToolEventData,
 )

@@ -35,8 +35,8 @@ from parlant.api.common import (
     ExampleJson,
 )
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel
-from parlant.core.agents import AgentId, AgentStore
+from parlant.core.common import AgentId, DefaultBaseModel, GuidelineContent
+from parlant.core.agents import AgentStore
 from parlant.core.evaluations import (
     Evaluation,
     EvaluationId,
@@ -49,7 +49,6 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,

@@ -13,29 +13,28 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from contextlib import AsyncExitStack
-from types import TracebackType
-from typing import Mapping, Optional, Sequence, cast
-from typing_extensions import override, TypedDict, Self
-
+from pathlib import Path
 import aiofiles
+from contextlib import AsyncExitStack
 import httpx
-from typing_extensions import Literal
+from types import TracebackType
+from typing import Mapping, Optional, Sequence, TypedDict, cast
+from typing_extensions import override, Self
+
 
 from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.common import SCHEMA_VERSION_UNKNOWN, ToolServiceKind, Version
 from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.documents.service_registry import _ToolServiceDocument_v1
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.tools import LocalToolService, ToolService
-from parlant.core.common import ItemNotFoundError, Version, UniqueId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.common import ItemNotFoundError, SchemaVersion, UniqueId
+from parlant.core.persistence.common import ObjectId, VersionedStore
 from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
-
-
-ToolServiceKind = Literal["openapi", "sdk", "local"]
 
 
 class ServiceRegistry(ABC):
@@ -98,8 +97,8 @@ class _ToolServiceDocument(TypedDict, total=False):
     source: Optional[str]
 
 
-class ServiceDocumentRegistry(ServiceRegistry):
-    VERSION = Version.from_string("0.1.0")
+class ServiceDocumentRegistry(ServiceRegistry, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(
         self,
@@ -108,8 +107,10 @@ class ServiceDocumentRegistry(ServiceRegistry):
         correlator: ContextualCorrelator,
         nlp_services: Mapping[str, NLPService],
     ):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
+        self._tool_services_collection: DocumentCollection[_ToolServiceDocument_v1]
 
         self._event_emitter_factory = event_emitter_factory
         self._correlator = correlator
@@ -134,7 +135,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
     async def __aenter__(self) -> Self:
         self._tool_services_collection = await self._database.get_or_create_collection(
             name="tool_services",
-            schema=_ToolServiceDocument,
+            schema=_ToolServiceDocument_v1,
         )
 
         self._moderation_services = {
@@ -184,10 +185,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self,
         name: str,
         service: ToolService,
-    ) -> _ToolServiceDocument:
-        return _ToolServiceDocument(
+    ) -> _ToolServiceDocument_v1:
+        return _ToolServiceDocument_v1(
             id=ObjectId(name),
-            version=self.VERSION.to_string(),
             name=name,
             kind="openapi" if isinstance(service, OpenAPIClient) else "sdk",
             url=service.server_url
@@ -196,7 +196,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
             source=self._service_sources.get(name) if isinstance(service, OpenAPIClient) else None,
         )
 
-    async def _deserialize_tool_service(self, document: _ToolServiceDocument) -> ToolService:
+    async def _deserialize_tool_service(self, document: _ToolServiceDocument_v1) -> ToolService:
         if document["kind"] == "openapi":
             openapi_json = await self._get_openapi_json_from_source(cast(str, document["source"]))
 
@@ -212,6 +212,20 @@ class ServiceDocumentRegistry(ServiceRegistry):
             )
         else:
             raise ValueError("Unsupported ToolService kind.")
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def update_tool_service(

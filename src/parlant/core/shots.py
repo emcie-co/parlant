@@ -16,11 +16,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TypeVar, Generic, Sequence, cast
 
-from parlant.core.common import generate_id, JSONSerializable
-from parlant.core.sessions import (
-    Event,
+from parlant.core.common import (
     EventId,
     EventSource,
+    generate_id,
+    JSONSerializable,
+)
+from parlant.core.sessions import (
+    Event,
     MessageEventData,
     ToolEventData,
 )

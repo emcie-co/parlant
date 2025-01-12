@@ -15,14 +15,23 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import NewType, Optional, Sequence
-from typing_extensions import override, TypedDict, Self
+from pathlib import Path
+from typing import NewType, Optional, Sequence, TypedDict
+from typing_extensions import Self, override
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId
-from parlant.core.guidelines import GuidelineId
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
+from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    ItemNotFoundError,
+    SchemaVersion,
+    UniqueId,
+    Version,
+    generate_id,
+    GuidelineId,
+)
+from parlant.core.documents.guideline_tools_associations import _GuidelineToolAssociationDocument_v1
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 from parlant.core.tools import ToolId
 
 GuidelineToolAssociationId = NewType("GuidelineToolAssociationId", str)
@@ -72,18 +81,20 @@ class _GuidelineToolAssociationDocument(TypedDict, total=False):
     tool_id: str
 
 
-class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
-    VERSION = Version.from_string("0.1.0")
+class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(self, database: DocumentDatabase):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._collection: DocumentCollection[_GuidelineToolAssociationDocument]
+        self._collection: DocumentCollection[_GuidelineToolAssociationDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
-            name="associations", schema=_GuidelineToolAssociationDocument
+            name="associations", schema=_GuidelineToolAssociationDocument_v1
         )
         return self
 
@@ -98,10 +109,9 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
     def _serialize(
         self,
         association: GuidelineToolAssociation,
-    ) -> _GuidelineToolAssociationDocument:
-        return _GuidelineToolAssociationDocument(
+    ) -> _GuidelineToolAssociationDocument_v1:
+        return _GuidelineToolAssociationDocument_v1(
             id=ObjectId(association.id),
-            version=self.VERSION.to_string(),
             creation_utc=association.creation_utc.isoformat(),
             guideline_id=association.guideline_id,
             tool_id=association.tool_id.to_string(),
@@ -109,7 +119,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
 
     def _deserialize(
         self,
-        association_document: _GuidelineToolAssociationDocument,
+        association_document: _GuidelineToolAssociationDocument_v1,
     ) -> GuidelineToolAssociation:
         return GuidelineToolAssociation(
             id=GuidelineToolAssociationId(association_document["id"]),
@@ -117,6 +127,20 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
             guideline_id=association_document["guideline_id"],
             tool_id=ToolId.from_string(association_document["tool_id"]),
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_association(

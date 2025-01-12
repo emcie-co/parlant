@@ -13,10 +13,88 @@
 # limitations under the License.
 
 from __future__ import annotations
-from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+from dataclasses import dataclass
+from typing_extensions import Literal, TypedDict
 import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
 import semver  # type: ignore
+from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+
+
+AgentId = NewType("AgentId", str)
+ContextVariableId = NewType("ContextVariableId", str)
+ContextVariableValueId = NewType("ContextVariableValueId", str)
+CustomerId = NewType("CustomerId", str)
+GuidelineId = NewType("GuidelineId", str)
+EventId = NewType("EventId", str)
+SessionId = NewType("SessionId", str)
+TermId = NewType("TermId", str)
+
+
+class ContextVariable(TypedDict):
+    id: ContextVariableId
+    name: str
+    description: Optional[str]
+    key: str
+    value: JSONSerializable
+
+
+class ControlOptions(TypedDict, total=False):
+    mode: SessionMode
+
+
+@dataclass(frozen=True)
+class GuidelineContent:
+    condition: str
+    action: str
+
+
+class GuidelineProposition(TypedDict):
+    guideline_id: GuidelineId
+    condition: str
+    action: str
+    score: int
+    rationale: str
+
+
+class Term(TypedDict):
+    id: TermId
+    name: str
+    description: str
+    synonyms: list[str]
+
+
+class ToolCall(TypedDict):
+    tool_id: str
+    arguments: Mapping[str, JSONSerializable]
+    result: ToolResult
+
+
+class ToolResult(TypedDict):
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable]
+    control: ControlOptions
+
+
+CoherenceCheckKind = Literal[
+    "contradiction_with_existing_guideline", "contradiction_with_another_evaluated_guideline"
+]
+ConnectionPropositionKind = Literal[
+    "connection_with_existing_guideline", "connection_with_another_evaluated_guideline"
+]
+ConsumerId: TypeAlias = Literal["client"]
+"""In the future we may support multiple consumer IDs"""
+EventSource: TypeAlias = Literal[
+    "customer",
+    "customer_ui",
+    "human_agent",
+    "human_agent_on_behalf_of_ai_agent",
+    "ai_agent",
+    "system",
+]
+EventKind: TypeAlias = Literal["message", "tool", "status", "custom"]
+SessionMode: TypeAlias = Literal["auto", "manual"]
+ToolServiceKind = Literal["openapi", "sdk", "local"]
 
 
 def _without_dto_suffix(obj: Any, *args: Any) -> str:
@@ -91,6 +169,11 @@ class Version:
 
     def to_string(self) -> Version.String:
         return Version.String(str(self._v))
+
+
+SchemaVersion = NewType("SchemaVersion", int)
+SCHEMA_VERSION_UNKNOWN = SchemaVersion(-1)
+SCHEMA_VERSION_UNVERSIONED = SchemaVersion(0)
 
 
 class ItemNotFoundError(Exception):

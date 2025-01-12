@@ -17,7 +17,7 @@ from croniter import croniter
 from lagom import Container
 from pytest import mark
 
-from parlant.core.agents import AgentId
+from parlant.core.common import AgentId
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Session
 from parlant.core.context_variables import ContextVariableStore

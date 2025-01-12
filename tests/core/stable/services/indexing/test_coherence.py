@@ -14,8 +14,8 @@
 
 from datetime import datetime, timezone
 
-from parlant.core.agents import Agent, AgentId
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.agents import Agent
+from parlant.core.common import GuidelineContent, AgentId
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,

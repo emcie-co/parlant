@@ -13,10 +13,12 @@
 # limitations under the License.
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, auto
+from pathlib import Path
 from typing import (
     Mapping,
     NamedTuple,
@@ -26,20 +28,35 @@ from typing import (
     TypeAlias,
     Union,
 )
-from typing_extensions import Literal, override, TypedDict, Self
+from typing_extensions import Literal, Self, TypedDict, override
 
-from parlant.core.agents import AgentId
 from parlant.core.async_utils import ReaderWriterLock, Timeout
 from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    AgentId,
+    CoherenceCheckKind,
+    ConnectionPropositionKind,
+    GuidelineContent,
+    GuidelineId,
     ItemNotFoundError,
     JSONSerializable,
+    SchemaVersion,
     UniqueId,
     Version,
     generate_id,
 )
-from parlant.core.guidelines import GuidelineContent, GuidelineId
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
+from parlant.core.documents.evaluations import (
+    _CoherenceCheckDocument_v1,
+    _ConnectionPropositionDocument_v1,
+    _EvaluationDocument_v1,
+    _GuidelineContentDocument_v1,
+    _GuidelinePayloadDocument_v1,
+    _InvoiceDocument_v1,
+    _InvoiceGuidelineDataDocument_v1,
+    _PayloadDocument_v1,
+)
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 EvaluationId = NewType("EvaluationId", str)
 
@@ -53,14 +70,6 @@ class EvaluationStatus(Enum):
 
 class PayloadKind(Enum):
     GUIDELINE = auto()
-
-
-CoherenceCheckKind = Literal[
-    "contradiction_with_existing_guideline", "contradiction_with_another_evaluated_guideline"
-]
-ConnectionPropositionKind = Literal[
-    "connection_with_existing_guideline", "connection_with_another_evaluated_guideline"
-]
 
 
 @dataclass(frozen=True)
@@ -226,19 +235,21 @@ class _EvaluationDocument(TypedDict, total=False):
     progress: float
 
 
-class EvaluationDocumentStore(EvaluationStore):
-    VERSION = Version.from_string("0.1.0")
+class EvaluationDocumentStore(EvaluationStore, VersionedStore):
+    VERSION = SchemaVersion(3)
 
     def __init__(self, database: DocumentDatabase):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._collection: DocumentCollection[_EvaluationDocument]
+        self._collection: DocumentCollection[_EvaluationDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="evaluations",
-            schema=_EvaluationDocument,
+            schema=_EvaluationDocument_v1,
         )
         return self
 
@@ -250,15 +261,15 @@ class EvaluationDocumentStore(EvaluationStore):
     ) -> None:
         pass
 
-    def _serialize_invoice(self, invoice: Invoice) -> _InvoiceDocument:
-        def serialize_coherence_check(check: CoherenceCheck) -> _CoherenceCheckDocument:
-            return _CoherenceCheckDocument(
+    def _serialize_invoice(self, invoice: Invoice) -> _InvoiceDocument_v1:
+        def serialize_coherence_check(check: CoherenceCheck) -> _CoherenceCheckDocument_v1:
+            return _CoherenceCheckDocument_v1(
                 kind=check.kind,
-                first=_GuidelineContentDocument(
+                first=_GuidelineContentDocument_v1(
                     condition=check.first.condition,
                     action=check.first.action,
                 ),
-                second=_GuidelineContentDocument(
+                second=_GuidelineContentDocument_v1(
                     condition=check.second.condition,
                     action=check.second.action,
                 ),
@@ -268,14 +279,14 @@ class EvaluationDocumentStore(EvaluationStore):
 
         def serialize_connection_proposition(
             cp: ConnectionProposition,
-        ) -> _ConnectionPropositionDocument:
-            return _ConnectionPropositionDocument(
+        ) -> _ConnectionPropositionDocument_v1:
+            return _ConnectionPropositionDocument_v1(
                 check_kind=cp.check_kind,
-                source=_GuidelineContentDocument(
+                source=_GuidelineContentDocument_v1(
                     condition=cp.source.condition,
                     action=cp.source.action,
                 ),
-                target=_GuidelineContentDocument(
+                target=_GuidelineContentDocument_v1(
                     condition=cp.target.condition,
                     action=cp.target.action,
                 ),
@@ -283,8 +294,8 @@ class EvaluationDocumentStore(EvaluationStore):
 
         def serialize_invoice_guideline_data(
             data: InvoiceGuidelineData,
-        ) -> _InvoiceGuidelineDataDocument:
-            return _InvoiceGuidelineDataDocument(
+        ) -> _InvoiceGuidelineDataDocument_v1:
+            return _InvoiceGuidelineDataDocument_v1(
                 coherence_checks=[serialize_coherence_check(cc) for cc in data.coherence_checks],
                 connection_propositions=(
                     [serialize_connection_proposition(cp) for cp in data.connection_propositions]
@@ -293,10 +304,10 @@ class EvaluationDocumentStore(EvaluationStore):
                 ),
             )
 
-        def serialize_payload(payload: Payload) -> _PayloadDocument:
+        def serialize_payload(payload: Payload) -> _PayloadDocument_v1:
             if isinstance(payload, GuidelinePayload):
-                return _GuidelinePayloadDocument(
-                    content=_GuidelineContentDocument(
+                return _GuidelinePayloadDocument_v1(
+                    content=_GuidelineContentDocument_v1(
                         condition=payload.content.condition,
                         action=payload.content.action,
                     ),
@@ -310,7 +321,7 @@ class EvaluationDocumentStore(EvaluationStore):
 
         kind = invoice.kind.name  # Convert Enum to string
         if kind == "GUIDELINE":
-            return _InvoiceDocument(
+            return _InvoiceDocument_v1(
                 kind=kind,
                 payload=serialize_payload(invoice.payload),
                 checksum=invoice.checksum,
@@ -322,10 +333,9 @@ class EvaluationDocumentStore(EvaluationStore):
         else:
             raise ValueError(f"Unsupported invoice kind: {kind}")
 
-    def _serialize_evaluation(self, evaluation: Evaluation) -> _EvaluationDocument:
-        return _EvaluationDocument(
+    def _serialize_evaluation(self, evaluation: Evaluation) -> _EvaluationDocument_v1:
+        return _EvaluationDocument_v1(
             id=ObjectId(evaluation.id),
-            version=self.VERSION.to_string(),
             agent_id=evaluation.agent_id,
             creation_utc=evaluation.creation_utc.isoformat(),
             status=evaluation.status.name,
@@ -334,16 +344,18 @@ class EvaluationDocumentStore(EvaluationStore):
             progress=evaluation.progress,
         )
 
-    def _deserialize_evaluation(self, evaluation_document: _EvaluationDocument) -> Evaluation:
+    def _deserialize_evaluation(self, evaluation_document: _EvaluationDocument_v1) -> Evaluation:
         def deserialize_guideline_content_document(
-            gc_doc: _GuidelineContentDocument,
+            gc_doc: _GuidelineContentDocument_v1,
         ) -> GuidelineContent:
             return GuidelineContent(
                 condition=gc_doc["condition"],
                 action=gc_doc["action"],
             )
 
-        def deserialize_coherence_check_document(cc_doc: _CoherenceCheckDocument) -> CoherenceCheck:
+        def deserialize_coherence_check_document(
+            cc_doc: _CoherenceCheckDocument_v1,
+        ) -> CoherenceCheck:
             return CoherenceCheck(
                 kind=cc_doc["kind"],
                 first=deserialize_guideline_content_document(cc_doc["first"]),
@@ -353,7 +365,7 @@ class EvaluationDocumentStore(EvaluationStore):
             )
 
         def deserialize_connection_proposition_document(
-            cp_doc: _ConnectionPropositionDocument,
+            cp_doc: _ConnectionPropositionDocument_v1,
         ) -> ConnectionProposition:
             return ConnectionProposition(
                 check_kind=cp_doc["check_kind"],
@@ -362,7 +374,7 @@ class EvaluationDocumentStore(EvaluationStore):
             )
 
         def deserialize_invoice_guideline_data(
-            data_doc: _InvoiceGuidelineDataDocument,
+            data_doc: _InvoiceGuidelineDataDocument_v1,
         ) -> InvoiceGuidelineData:
             return InvoiceGuidelineData(
                 coherence_checks=[
@@ -380,7 +392,7 @@ class EvaluationDocumentStore(EvaluationStore):
             )
 
         def deserialize_payload_document(
-            kind: PayloadKind, payload_doc: _PayloadDocument
+            kind: PayloadKind, payload_doc: _PayloadDocument_v1
         ) -> Payload:
             if kind == PayloadKind.GUIDELINE:
                 return GuidelinePayload(
@@ -396,7 +408,7 @@ class EvaluationDocumentStore(EvaluationStore):
             else:
                 raise ValueError(f"Unsupported payload kind: {kind}")
 
-        def deserialize_invoice_document(invoice_doc: _InvoiceDocument) -> Invoice:
+        def deserialize_invoice_document(invoice_doc: _InvoiceDocument_v1) -> Invoice:
             kind = PayloadKind[invoice_doc["kind"]]
 
             payload = deserialize_payload_document(kind, invoice_doc["payload"])
@@ -435,6 +447,20 @@ class EvaluationDocumentStore(EvaluationStore):
             invoices=invoices,
             progress=evaluation_document["progress"],
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_evaluation(
@@ -485,7 +511,7 @@ class EvaluationDocumentStore(EvaluationStore):
         async with self._lock.writer_lock:
             evaluation = await self.read_evaluation(evaluation_id)
 
-            update_params: _EvaluationDocument = {}
+            update_params: _EvaluationDocument_v1 = {}
             if "invoices" in params:
                 update_params["invoices"] = [self._serialize_invoice(i) for i in params["invoices"]]
 

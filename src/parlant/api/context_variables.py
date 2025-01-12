@@ -12,23 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pydantic import Field, field_validator
 from datetime import datetime
 from croniter import croniter
 from enum import Enum
-from fastapi import HTTPException, Path, Query, status
+from fastapi import HTTPException, Path, Query, status, APIRouter
+from pydantic import Field, field_validator
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
 
-from fastapi import APIRouter
 from parlant.api import common
 from parlant.api.common import ToolIdDTO, JSONSerializableDTO, apigen_config, ExampleJson
-from parlant.core.agents import AgentId
-from parlant.core.common import DefaultBaseModel
-from parlant.core.context_variables import (
+from parlant.core.common import (
+    AgentId,
     ContextVariableId,
+    ContextVariableValueId,
+    DefaultBaseModel,
+)
+from parlant.core.context_variables import (
     ContextVariableStore,
     ContextVariableUpdateParams,
-    ContextVariableValueId,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolId

@@ -14,9 +14,14 @@
 
 import asyncio
 import hashlib
+import httpx
+
 import json
 import logging
 from contextlib import asynccontextmanager, contextmanager
+from fastapi import FastAPI, Query, Request, Response
+from fastapi.responses import JSONResponse
+from lagom import Container
 from pathlib import Path
 from time import sleep
 from typing import (
@@ -28,33 +33,40 @@ from typing import (
     Iterator,
     Mapping,
     Optional,
-    TypeVar,
     TypedDict,
+    TypeVar,
     cast,
 )
-
-from fastapi import FastAPI, Query, Request, Response
-from fastapi.responses import JSONResponse
-import httpx
-from lagom import Container
 import uvicorn
+
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.nlp.openai import GPT_4o
-from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.agents import Agent, AgentStore
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel, JSONSerializable, Version
+from parlant.core.common import (
+    AgentId,
+    ContextVariableId,
+    CustomerId,
+    DefaultBaseModel,
+    JSONSerializable,
+    SchemaVersion,
+    SessionId,
+)
 from parlant.core.context_variables import (
     ContextVariable,
-    ContextVariableId,
     ContextVariableStore,
     ContextVariableValue,
 )
-from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.customers import Customer, CustomerStore
+from parlant.core.documents.sessions import _UsageInfoDocument_v1
+from parlant.core.documents.sessions import (
+    _GenerationInfoDocument_v1,
+)
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineStore
-from parlant.core.logging import LogLevel, Logger
+from parlant.core.logging import Logger, LogLevel
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     GenerationInfo,
@@ -63,19 +75,16 @@ from parlant.core.nlp.generation import (
     UsageInfo,
 )
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.document_database import DocumentCollection
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.sessions import (
-    _GenerationInfoDocument,
-    _UsageInfoDocument,
     Event,
     MessageEventData,
     Session,
-    SessionId,
     SessionStore,
 )
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentCollection
 
 T = TypeVar("T")
 GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
@@ -365,13 +374,12 @@ TBaseModel = TypeVar("TBaseModel", bound=DefaultBaseModel)
 
 class SchematicGenerationResultDocument(TypedDict, total=False):
     id: ObjectId
-    version: Version.String
     content: JSONSerializable
-    info: _GenerationInfoDocument
+    info: _GenerationInfoDocument_v1
 
 
 class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
-    VERSION = Version.from_string("0.1.0")
+    VERSION = SchemaVersion(1)
 
     def __init__(
         self,
@@ -403,12 +411,12 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         id: str,
         result: SchematicGenerationResult[TBaseModel],
     ) -> SchematicGenerationResultDocument:
-        def serialize_generation_info(generation: GenerationInfo) -> _GenerationInfoDocument:
-            return _GenerationInfoDocument(
+        def serialize_generation_info(generation: GenerationInfo) -> _GenerationInfoDocument_v1:
+            return _GenerationInfoDocument_v1(
                 schema_name=generation.schema_name,
                 model=generation.model,
                 duration=generation.duration,
-                usage=_UsageInfoDocument(
+                usage=_UsageInfoDocument_v1(
                     input_tokens=generation.usage.input_tokens,
                     output_tokens=generation.usage.output_tokens,
                     extra=generation.usage.extra,
@@ -417,7 +425,6 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 
         return SchematicGenerationResultDocument(
             id=ObjectId(id),
-            version=self.VERSION.to_string(),
             content=result.content.model_dump(mode="json"),
             info=serialize_generation_info(result.info),
         )
@@ -428,7 +435,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         schema_type: type[TBaseModel],
     ) -> SchematicGenerationResult[TBaseModel]:
         def deserialize_generation_info(
-            generation_document: _GenerationInfoDocument,
+            generation_document: _GenerationInfoDocument_v1,
         ) -> GenerationInfo:
             return GenerationInfo(
                 schema_name=generation_document["schema_name"],

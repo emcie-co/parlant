@@ -19,8 +19,9 @@ from pytest import fixture
 
 from parlant.core.async_utils import Timeout
 from parlant.core.application import Application
-from parlant.core.agents import AgentId, AgentStore
-from parlant.core.customers import CustomerId, CustomerStore
+from parlant.core.agents import AgentStore
+from parlant.core.common import CustomerId, AgentId
+from parlant.core.customers import CustomerStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.sessions import Session, SessionStore
 from parlant.core.tools import ToolResult

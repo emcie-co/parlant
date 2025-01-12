@@ -12,8 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from abc import ABC, abstractmethod
 from typing import Any, Callable, Mapping, NewType, Union, cast, get_type_hints
 from typing_extensions import Literal, TypedDict
+
+from parlant.core.common import SchemaVersion
+
+
+class VersionedDatabase(ABC):
+    @property
+    @abstractmethod
+    def version(self) -> SchemaVersion:
+        """Returns the schema version of this database."""
+        ...
+
+    @version.setter
+    @abstractmethod
+    def version(self, value: SchemaVersion) -> None:
+        """Sets the schema version of this database."""
+        ...
+
+
+class VersionedStore(ABC):
+    VERSION: SchemaVersion
+
+    @property
+    @abstractmethod
+    def database_version(self) -> SchemaVersion:
+        """Returns the database of this store."""
+        ...
+
+    @property
+    @abstractmethod
+    def database_name(self) -> str:
+        """Returns the name of this store's database."""
+        ...
 
 
 ObjectId = NewType("ObjectId", str)

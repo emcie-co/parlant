@@ -16,9 +16,10 @@ from datetime import datetime, timezone
 import json
 from pytest_bdd import given, parsers
 
-from parlant.core.agents import Agent, AgentId
+from parlant.core.agents import Agent
+from parlant.core.common import AgentId, SessionId
 from parlant.core.customers import Customer, CustomerStore
-from parlant.core.sessions import Session, SessionId, SessionStore
+from parlant.core.sessions import Session, SessionStore
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest

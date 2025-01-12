@@ -12,24 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import NewType, Optional, Sequence
-from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Sequence
+from typing_extensions import Self, TypedDict, override
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
-
-GuidelineId = NewType("GuidelineId", str)
-
-
-@dataclass(frozen=True)
-class GuidelineContent:
-    condition: str
-    action: str
+from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    GuidelineId,
+    GuidelineContent,
+    ItemNotFoundError,
+    SchemaVersion,
+    UniqueId,
+    Version,
+    generate_id,
+)
+from parlant.core.documents.guidelines import _GuidelineDocument_v1
+from parlant.core.persistence.common import VersionedStore, ObjectId
+from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
 
 
 @dataclass(frozen=True)
@@ -102,19 +105,21 @@ class _GuidelineDocument(TypedDict, total=False):
     action: str
 
 
-class GuidelineDocumentStore(GuidelineStore):
-    VERSION = Version.from_string("0.1.0")
+class GuidelineDocumentStore(GuidelineStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(self, database: DocumentDatabase):
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._collection: DocumentCollection[_GuidelineDocument]
+        self._collection: DocumentCollection[_GuidelineDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="guidelines",
-            schema=_GuidelineDocument,
+            schema=_GuidelineDocument_v1,
         )
         return self
 
@@ -130,10 +135,9 @@ class GuidelineDocumentStore(GuidelineStore):
         self,
         guideline: Guideline,
         guideline_set: str,
-    ) -> _GuidelineDocument:
-        return _GuidelineDocument(
+    ) -> _GuidelineDocument_v1:
+        return _GuidelineDocument_v1(
             id=ObjectId(guideline.id),
-            version=self.VERSION.to_string(),
             creation_utc=guideline.creation_utc.isoformat(),
             guideline_set=guideline_set,
             condition=guideline.content.condition,
@@ -142,7 +146,7 @@ class GuidelineDocumentStore(GuidelineStore):
 
     def _deserialize(
         self,
-        guideline_document: _GuidelineDocument,
+        guideline_document: _GuidelineDocument_v1,
     ) -> Guideline:
         return Guideline(
             id=GuidelineId(guideline_document["id"]),
@@ -151,6 +155,20 @@ class GuidelineDocumentStore(GuidelineStore):
                 condition=guideline_document["condition"], action=guideline_document["action"]
             ),
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_guideline(
@@ -241,7 +259,7 @@ class GuidelineDocumentStore(GuidelineStore):
         params: GuidelineUpdateParams,
     ) -> Guideline:
         async with self._lock.writer_lock:
-            guideline_document = _GuidelineDocument(
+            guideline_document = _GuidelineDocument_v1(
                 {
                     **(
                         {"guideline_set": params["guideline_set"]}

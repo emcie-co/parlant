@@ -20,8 +20,8 @@ from pydantic import Field
 from typing import Annotated, Optional, Sequence, TypeAlias
 
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
-from parlant.core.common import DefaultBaseModel
+from parlant.core.agents import AgentStore, AgentUpdateParams
+from parlant.core.common import AgentId, DefaultBaseModel
 
 API_GROUP = "agents"
 

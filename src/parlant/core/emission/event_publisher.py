@@ -15,12 +15,15 @@
 from typing import cast
 from typing_extensions import override
 
-from parlant.core.common import JSONSerializable
-from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.agents import Agent, AgentStore
+from parlant.core.common import (
+    AgentId,
+    JSONSerializable,
+    SessionId,
+)
 from parlant.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
 from parlant.core.sessions import (
     MessageEventData,
-    SessionId,
     SessionStore,
     StatusEventData,
     ToolEventData,

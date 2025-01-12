@@ -15,9 +15,7 @@
 from lagom import Container
 from pytest import fixture
 
-from parlant.core.agents import AgentId
-from parlant.core.customers import CustomerId
-from parlant.core.sessions import SessionId
+from parlant.core.common import AgentId, CustomerId, SessionId
 
 from tests.test_utilities import create_agent, create_customer, create_session
 

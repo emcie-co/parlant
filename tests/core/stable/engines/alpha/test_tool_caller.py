@@ -15,21 +15,27 @@
 from datetime import datetime, timezone
 import enum
 from itertools import chain
-from typing import Any, Optional, cast
 from lagom import Container
 from pytest import fixture
+from typing import Any, Optional, cast
 
 from parlant.core.agents import Agent
-from parlant.core.common import generate_id
-from parlant.core.customers import Customer, CustomerStore, CustomerId
+from parlant.core.common import (
+    CustomerId,
+    EventSource,
+    GuidelineContent,
+    GuidelineId,
+    generate_id,
+)
+from parlant.core.customers import Customer, CustomerStore
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
+from parlant.core.engines.alpha.tool_caller import ToolCaller, ToolCallInferenceSchema
+from parlant.core.guidelines import Guideline
 from parlant.core.logging import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, EventSource
+from parlant.core.sessions import Event
 from parlant.core.tools import LocalToolService, Tool, ToolContext, ToolId, ToolResult
 
 from tests.core.common.utils import create_event_message

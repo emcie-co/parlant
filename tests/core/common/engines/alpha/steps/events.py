@@ -15,18 +15,21 @@
 from typing import Optional, cast
 from pytest_bdd import given, then, parsers, when
 
-from parlant.core.agents import AgentId, AgentStore
-from parlant.core.common import JSONSerializable
+from parlant.core.agents import AgentStore
+from parlant.core.common import (
+    AgentId,
+    JSONSerializable,
+    SessionId,
+    ToolCall,
+)
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.moderation import ModerationTag
 from parlant.core.sessions import (
     MessageEventData,
-    SessionId,
     SessionStatus,
     SessionStore,
     StatusEventData,
-    ToolCall,
     ToolEventData,
 )
 

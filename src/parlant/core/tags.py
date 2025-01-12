@@ -15,14 +15,22 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import NewType, Optional, Sequence
-from typing_extensions import override, TypedDict, Self
+from typing_extensions import Self, TypedDict, override
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, generate_id, UniqueId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.common import (
+    SCHEMA_VERSION_UNKNOWN,
+    ItemNotFoundError,
+    SchemaVersion,
+    UniqueId,
+    Version,
+    generate_id,
+)
+from parlant.core.documents.tags import _TagDocument_v1
+from parlant.core.persistence.common import VersionedStore, ObjectId
 from parlant.core.persistence.document_database import DocumentCollection, DocumentDatabase
-from parlant.core.common import Version
 
 TagId = NewType("TagId", str)
 
@@ -78,19 +86,21 @@ class _TagDocument(TypedDict, total=False):
     name: str
 
 
-class TagDocumentStore(TagStore):
-    VERSION = Version.from_string("0.1.0")
+class TagDocumentStore(TagStore, VersionedStore):
+    VERSION = SchemaVersion(1)
 
     def __init__(self, database: DocumentDatabase) -> None:
+        if database.version == SCHEMA_VERSION_UNKNOWN:
+            database.version = self.VERSION
         self._database = database
-        self._collection: DocumentCollection[_TagDocument]
+        self._collection: DocumentCollection[_TagDocument_v1]
 
         self._lock = ReaderWriterLock()
 
     async def __aenter__(self) -> Self:
         self._collection = await self._database.get_or_create_collection(
             name="tags",
-            schema=_TagDocument,
+            schema=_TagDocument_v1,
         )
         return self
 
@@ -105,20 +115,33 @@ class TagDocumentStore(TagStore):
     def _serialize(
         self,
         tag: Tag,
-    ) -> _TagDocument:
-        return _TagDocument(
+    ) -> _TagDocument_v1:
+        return _TagDocument_v1(
             id=ObjectId(tag.id),
-            version=self.VERSION.to_string(),
             creation_utc=tag.creation_utc.isoformat(),
             name=tag.name,
         )
 
-    def _deserialize(self, document: _TagDocument) -> Tag:
+    def _deserialize(self, document: _TagDocument_v1) -> Tag:
         return Tag(
             id=TagId(document["id"]),
             creation_utc=datetime.fromisoformat(document["creation_utc"]),
             name=document["name"],
         )
+
+    @property
+    @override
+    def database_version(self) -> SchemaVersion:
+        return self._database.version
+
+    @property
+    @override
+    def database_name(self) -> str:
+        if "file_path" in self._database.__dict__ and isinstance(
+            db_path := getattr(self._database, "file_path"), Path
+        ):
+            return db_path.name
+        return "unknown"
 
     @override
     async def create_tag(

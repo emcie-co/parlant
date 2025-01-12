@@ -17,6 +17,7 @@ from typing import Optional, Sequence, cast
 from typing_extensions import override
 from typing_extensions import get_type_hints
 
+from parlant.core.common import SCHEMA_VERSION_UNKNOWN, SchemaVersion
 from parlant.core.persistence.common import matches_filters, Where, ObjectId, ensure_is_total
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -31,7 +32,20 @@ from parlant.core.persistence.document_database import (
 
 class TransientDocumentDatabase(DocumentDatabase):
     def __init__(self) -> None:
+        self._version = SCHEMA_VERSION_UNKNOWN
         self._collections: dict[str, TransientDocumentCollection[BaseDocument]] = {}
+
+    @property
+    @override
+    def version(self) -> SchemaVersion:
+        """Returns the schema version of the implementing store."""
+        return self._version
+
+    @version.setter
+    @override
+    def version(self, value: SchemaVersion) -> None:
+        """Sets the schema version of this database."""
+        self._version = value
 
     @override
     async def create_collection(

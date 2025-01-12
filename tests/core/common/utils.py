@@ -14,18 +14,21 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-
-from typing import Optional, cast
 from lagom import Container
+from typing import Optional, cast
 
-
-from parlant.core.common import generate_id, JSONSerializable
+from parlant.core.common import (
+    EventId,
+    EventSource,
+    JSONSerializable,
+    generate_id,
+)
 from parlant.core.customers import Customer
-from parlant.core.engines.types import UtteranceRequest
-from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.types import UtteranceRequest
 from parlant.core.guidelines import Guideline
-from parlant.core.sessions import Event, MessageEventData, EventSource, EventId
+from parlant.core.sessions import Event, MessageEventData
+from parlant.core.tools import Tool
 
 from tests.test_utilities import SyncAwaiter
 

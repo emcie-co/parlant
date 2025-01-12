@@ -17,7 +17,7 @@ from fastapi import status
 import httpx
 from lagom import Container
 
-from parlant.core.agents import AgentId
+from parlant.core.common import AgentId
 from parlant.core.evaluations import EvaluationStore
 from parlant.core.guidelines import GuidelineStore
 

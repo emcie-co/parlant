@@ -20,7 +20,7 @@ from parlant.core.guideline_connections import (
     GuidelineConnectionDocumentStore,
     GuidelineConnectionStore,
 )
-from parlant.core.guidelines import GuidelineId
+from parlant.core.common import GuidelineId
 from parlant.core.persistence.document_database import DocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 

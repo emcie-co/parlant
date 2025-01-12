@@ -18,9 +18,8 @@ from pydantic import Field
 
 from parlant.api import common
 from parlant.api.common import apigen_config, ExampleJson
-from parlant.core.agents import AgentId
-from parlant.core.common import DefaultBaseModel
-from parlant.core.glossary import TermUpdateParams, GlossaryStore, TermId
+from parlant.core.common import AgentId, DefaultBaseModel, TermId
+from parlant.core.glossary import TermUpdateParams, GlossaryStore
 
 API_GROUP = "glossary"
 

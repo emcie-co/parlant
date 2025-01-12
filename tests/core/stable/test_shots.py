@@ -29,8 +29,11 @@ from parlant.core.engines.alpha.message_event_generator import (
 )
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
-from parlant.core.guidelines import GuidelineContent
-from parlant.core.sessions import Event, EventId
+from parlant.core.common import (
+    EventId,
+    GuidelineContent,
+)
+from parlant.core.sessions import Event
 from parlant.core.shots import ShotCollection
 
 

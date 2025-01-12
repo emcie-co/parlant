@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, cast
 from pytest_bdd import given, parsers
+from typing import Any, cast
 
-from parlant.core.tools import Tool
-from parlant.core.agents import AgentId, AgentStore
+from parlant.core.agents import AgentStore
+from parlant.core.common import AgentId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociation,
     GuidelineToolAssociationStore,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tools import LocalToolService, ToolId
+from parlant.core.tools import LocalToolService, Tool, ToolId
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest

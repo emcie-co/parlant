@@ -22,6 +22,7 @@ from typing_extensions import override, Self
 import chromadb
 
 from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.common import SCHEMA_VERSION_UNKNOWN, SCHEMA_VERSION_UNVERSIONED, SchemaVersion
 from parlant.core.logging import Logger
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import Where, ensure_is_total
@@ -48,8 +49,32 @@ class ChromaDatabase(VectorDatabase):
         self._logger = logger
         self._embedder_factory = embedder_factory
 
+        self._version_file: Path = dir_path / "chroma_schema_version"
+        if not self._version_file.exists():
+            self._version = SCHEMA_VERSION_UNKNOWN
+            self._version_file.write_text(json.dumps(self._version))
+        else:
+            with open(self._version_file, mode="r") as file:
+                self._version = SCHEMA_VERSION_UNVERSIONED
+                try:
+                    self._version = json.loads(file.read())
+                except Exception:
+                    pass
+
         self._chroma_client: chromadb.api.ClientAPI
         self._collections: dict[str, ChromaCollection[BaseDocument]] = {}
+
+    @property
+    @override
+    def version(self) -> SchemaVersion:
+        """Returns the schema version of the implementing store."""
+        return self._version
+
+    @version.setter
+    @override
+    def version(self, value: SchemaVersion) -> None:
+        """Sets the schema version of this database."""
+        self._version = value
 
     async def __aenter__(self) -> Self:
         self._chroma_client = chromadb.PersistentClient(str(self._dir_path))

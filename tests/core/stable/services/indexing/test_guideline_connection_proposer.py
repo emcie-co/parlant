@@ -15,13 +15,13 @@
 from datetime import datetime, timezone
 from typing import Sequence
 
-
-from parlant.core.agents import Agent, AgentId
+from parlant.core.agents import Agent
+from parlant.core.common import AgentId, GuidelineContent
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
 )
+
 from tests.core.common.utils import ContextOfTest
 
 

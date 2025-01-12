@@ -17,11 +17,14 @@ import httpx
 from lagom import Container
 from pytest import raises
 
-from parlant.core.agents import AgentId
-from parlant.core.common import ItemNotFoundError
+from parlant.core.common import (
+    AgentId,
+    GuidelineContent,
+    ItemNotFoundError,
+)
 from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import LocalToolService, ToolId
 

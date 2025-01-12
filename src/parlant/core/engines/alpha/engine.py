@@ -22,15 +22,23 @@ from typing import Mapping, Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
-from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.agents import Agent, AgentStore
+from parlant.core.common import (
+    AgentId,
+    ContextVariable as StoredContextVariable,
+    ContextVariableId,
+    GuidelineContent,
+    GuidelineId,
+    GuidelineProposition as StoredGuidelineProposition,
+    Term as StoredTerm,
+)
 from parlant.core.context_variables import (
     ContextVariable,
-    ContextVariableId,
     ContextVariableStore,
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerStore
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
@@ -38,16 +46,13 @@ from parlant.core.guideline_tool_associations import (
 from parlant.core.glossary import Term, GlossaryStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import (
-    ContextVariable as StoredContextVariable,
     Event,
-    GuidelineProposition as StoredGuidelineProposition,
     GuidelinePropositionInspection,
     MessageGenerationInspection,
     PreparationIteration,
     PreparationIterationGenerations,
     Session,
     SessionStore,
-    Term as StoredTerm,
     ToolEventData,
 )
 from parlant.core.engines.alpha.guideline_proposer import (

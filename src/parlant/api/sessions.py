@@ -22,11 +22,18 @@ from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast
 
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
 from parlant.api.glossary import TermDTO
-from parlant.core.agents import AgentId, AgentStore
+from parlant.core.agents import AgentStore
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel
-from parlant.core.customers import CustomerId, CustomerStore
+from parlant.core.common import (
+    AgentId,
+    CustomerId,
+    DefaultBaseModel,
+    EventId,
+    EventKind,
+    SessionId,
+)
+from parlant.core.customers import CustomerStore
 from parlant.core.engines.types import UtteranceReason, UtteranceRequest
 from parlant.core.logging import Logger
 from parlant.core.nlp.generation import GenerationInfo
@@ -34,12 +41,9 @@ from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (
     Event,
-    EventId,
-    EventKind,
     MessageEventData,
     MessageGenerationInspection,
     PreparationIteration,
-    SessionId,
     SessionListener,
     SessionStore,
     SessionUpdateParams,

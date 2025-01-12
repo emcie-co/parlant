@@ -17,12 +17,19 @@ from itertools import chain
 from typing import Sequence, cast
 
 from parlant.core.agents import Agent
-from parlant.core.common import generate_id, JSONSerializable
+from parlant.core.common import (
+    generate_id,
+    JSONSerializable,
+    ContextVariableId,
+    ContextVariableValueId,
+    EventSource,
+    GuidelineId,
+    GuidelineContent,
+    TermId,
+)
 from parlant.core.context_variables import (
     ContextVariable,
-    ContextVariableId,
     ContextVariableValue,
-    ContextVariableValueId,
 )
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
@@ -34,11 +41,9 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline
 from parlant.core.logging import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventSource
-from parlant.core.glossary import TermId
 
 from tests.core.common.utils import ContextOfTest, create_event_message
 

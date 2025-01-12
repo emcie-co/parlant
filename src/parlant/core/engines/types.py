@@ -17,8 +17,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Sequence
 
-from parlant.core.agents import AgentId
-from parlant.core.sessions import SessionId
+from parlant.core.common import AgentId, SessionId
 from parlant.core.emissions import EventEmitter
 
 

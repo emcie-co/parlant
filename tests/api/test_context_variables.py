@@ -17,7 +17,7 @@ import httpx
 from lagom import Container
 from pytest import fixture
 
-from parlant.core.agents import AgentId
+from parlant.core.common import AgentId
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.tools import LocalToolService, ToolId
 

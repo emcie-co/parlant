@@ -22,9 +22,10 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.logging import Logger
 from parlant.core.agents import Agent
+from parlant.core.common import SessionId
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, SessionId, ToolEventData
+from parlant.core.sessions import Event, ToolEventData
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller

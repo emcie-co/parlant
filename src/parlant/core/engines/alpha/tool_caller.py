@@ -24,11 +24,11 @@ from parlant.core import async_utils
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolContext
 from parlant.core.agents import Agent
-from parlant.core.common import JSONSerializable, generate_id, DefaultBaseModel
+from parlant.core.common import JSONSerializable, ToolResult, generate_id, DefaultBaseModel
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, ToolResult
+from parlant.core.sessions import Event
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus

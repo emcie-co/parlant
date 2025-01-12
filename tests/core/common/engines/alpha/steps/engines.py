@@ -17,14 +17,15 @@ from typing import cast
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
-from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.agents import Agent, AgentStore
+from parlant.core.common import AgentId, SessionId
 from parlant.core.customers import CustomerStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.engines.alpha.message_event_generator import MessageEventGenerator
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.types import Context, UtteranceReason, UtteranceRequest
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.sessions import SessionId, SessionStore
+from parlant.core.sessions import SessionStore
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest

@@ -41,10 +41,9 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 import httpx
 from urllib.parse import urljoin
-
 import uvicorn
 
-from parlant.core.agents import AgentId
+
 from parlant.core.tools import (
     Tool,
     ToolError,
@@ -57,10 +56,17 @@ from parlant.core.tools import (
     normalize_tool_arguments,
     validate_tool_arguments,
 )
-from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
+from parlant.core.common import (
+    AgentId,
+    DefaultBaseModel,
+    ItemNotFoundError,
+    JSONSerializable,
+    SessionId,
+    UniqueId,
+)
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.sessions import SessionId, SessionStatus
+from parlant.core.sessions import SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
 ToolFunction = Union[

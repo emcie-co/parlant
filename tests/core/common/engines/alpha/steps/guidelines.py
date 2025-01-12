@@ -14,7 +14,7 @@
 
 from pytest_bdd import given, parsers
 
-from parlant.core.agents import AgentId
+from parlant.core.common import AgentId
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guidelines import Guideline, GuidelineStore

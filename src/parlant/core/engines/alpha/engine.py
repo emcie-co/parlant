@@ -541,7 +541,7 @@ class AlphaEngine(Engine):
                 terms=list(terms),
                 ordinary_guideline_propositions=ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions={},
-                staged_events=[],
+                staged_events=[],  # TODO add argument for whether we're uttering
             ):
                 message_generation_inspections.append(
                     MessageGenerationInspection(

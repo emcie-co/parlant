@@ -66,7 +66,7 @@ Feature: Conversation
 
     Scenario: The agent doesnt hallucinate services that it cannot offer 2
         Given an agent whose job is to be a customer success representative for Chase Bank
-        And a guideline to tell them that they need to visit chase.com to book when the customer wants to schedule an appointment with a bank manager
+        And a guideline to tell them that they need to book via chase.com when the customer wants to schedule a meeting with a bank manager
         And a guideline to ask them to provide the recipient details when if the user wants to schedule a wire transfer
         And a customer message, "I need to schedule an appointment because I want to do a high amount wire transfer"
         And an agent message, "To schedule an appointment for your wire transfer, please visit chase.com. Additionally, could you provide the recipient's details so I can assist you further?"
@@ -78,6 +78,7 @@ Feature: Conversation
     Scenario: The agent doesnt postpone replying when its inappropriate
         Given an agent whose job is to represent a bank, and to help customers with performing transactions 
         And a guideline to transfer money to the recipient and confirm the transaction providing its ID when user wants to transfer money and has successfully confirmed their PIN code
+        And the tool ""
         And a customer message, "I want to transfer 20$ to Vishal and my pin code is 400013."
         And an agent message, "It seems the PIN code you provided is incorrect, so the transfer could not be completed. Could you please double-check your PIN code? Also, to confirm, you want to transfer $20 to Vishal. Let me know if this is correct."
         And a customer message, "Ok, sorry my pin code is 1921. And yes that is correct."

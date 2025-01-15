@@ -366,9 +366,17 @@ class Actions:
         action: str,
         check: bool,
         index: bool,
-        updated_id: Optional[str] = None,
+        updated_id: str,
     ) -> GuidelineWithConnectionsAndToolAssociations:
         client = cast(ParlantClient, ctx.obj.client)
+
+        if not (condition and action):
+            retrived_guideline = client.guidelines.retrieve(
+                agent_id=agent_id, guideline_id=updated_id
+            )
+
+            condition = condition or retrived_guideline.guideline.condition
+            action = action or retrived_guideline.guideline.action
 
         evaluation = client.evaluations.create(
             agent_id=agent_id,
@@ -2429,13 +2437,13 @@ async def async_main() -> None:
         "--condition",
         type=str,
         help="A statement describing when the guideline should apply",
-        required=True,
+        required=False,
     )
     @click.option(
         "--action",
         type=str,
         help="The instruction to perform when the guideline applies",
-        required=True,
+        required=False,
     )
     @click.option(
         "--agent-id",
@@ -2468,6 +2476,8 @@ async def async_main() -> None:
         check: bool,
         connect: bool,
     ) -> None:
+        assert condition or action
+
         agent_id = agent_id if agent_id else Interface.get_default_agent(ctx)
         assert agent_id
 

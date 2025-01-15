@@ -14,6 +14,7 @@ All notable changes to Parlant will be documented here.
 - Fix wrong import of RateLimitError
 - Reduced likelihood of agent offering hallucinated services
 - Add a log command under client CLI for streaming logs
+- Allow only specifying guideline condition or action when updating guideline from CLI
 
 
 ## [1.5.1] - 2025-01-05

@@ -160,7 +160,9 @@ const { trace } = await client.sessions.inspectEvent(
 ```
 
 ## 👋 Contributing
-We're currently finalizing our contribution guidelines. Check back soon!
+We use the Developer Certificate of Origin ([DCO.md](DCO.md)), this attests that you have the rights to submit your contribution under our project's license. We require all commits to be signed off with the DCO. 
+
+Please consult [CONTRIBUTING.md](CONTRIBUTING.md) for additional details.
 
 Can't wait to get involved? Join us on [Discord](https://discord.gg/duxWqxKk6J) and let's discuss how you can help shape Parlant. We're excited to work with contributors directly while we set up our formal processes!
 

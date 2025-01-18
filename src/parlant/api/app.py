@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 from lagom import Container
 
+from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.api import agents, index
 from parlant.api import sessions
 from parlant.api import glossary
@@ -31,6 +32,7 @@ from parlant.api import context_variables as variables
 from parlant.api import services
 from parlant.api import tags
 from parlant.api import customers
+from parlant.api import web_socket_logger
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
@@ -79,6 +81,7 @@ class AppWrapper:
 
 async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
+    websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
     agent_store = container[AgentStore]
     customer_store = container[CustomerStore]
@@ -222,5 +225,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
             customer_store=customer_store,
         ),
     )
+
+    api_app.include_router(router=web_socket_logger.create_router(websocket_logger, logger))
 
     return AppWrapper(api_app)

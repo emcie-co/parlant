@@ -22,6 +22,7 @@ from lagom import Container, Singleton
 from pytest import fixture, Config
 import pytest
 
+from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.openai import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
@@ -186,10 +187,15 @@ async def container(
 
     container[ContextualCorrelator] = correlator
     container[Logger] = logger
+    container[WebSocketLogger] = WebSocketLogger(container[ContextualCorrelator])
 
     async with AsyncExitStack() as stack:
         container[BackgroundTaskService] = await stack.enter_async_context(
             BackgroundTaskService(container[Logger])
+        )
+
+        await container[BackgroundTaskService].start(
+            container[WebSocketLogger].flush(), tag="websocket-logger"
         )
 
         container[AgentStore] = await stack.enter_async_context(

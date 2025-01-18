@@ -30,6 +30,7 @@ from pathlib import Path
 import sys
 import uvicorn
 
+from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.chroma import ChromaDatabase
 from parlant.core.engines.alpha import hooks
 from parlant.core.engines.alpha import guideline_proposer
@@ -253,15 +254,21 @@ async def load_modules(
 async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
     c = Container()
 
+    c[BackgroundTaskService] = await EXIT_STACK.enter_async_context(BACKGROUND_TASK_SERVICE)
+
     c[ContextualCorrelator] = CORRELATOR
+
+    c[WebSocketLogger] = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[Logger] = CompositeLogger(
         [
             LOGGER,
             await EXIT_STACK.enter_async_context(
                 ZMQLogger(CORRELATOR, LogLevel.INFO, port=PARLANT_LOG_PORT)
             ),
+            c[WebSocketLogger],
         ]
     )
+    await c[BackgroundTaskService].start(c[WebSocketLogger].flush(), tag="websocket-logger")
 
     agents_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "agents.json")
@@ -319,8 +326,6 @@ async def setup_container(nlp_service_name: str) -> AsyncIterator[Container]:
     c[EvaluationListener] = PollingEvaluationListener
 
     c[EventEmitterFactory] = Singleton(EventPublisherFactory)
-
-    c[BackgroundTaskService] = await EXIT_STACK.enter_async_context(BACKGROUND_TASK_SERVICE)
 
     nlp_service_initializer: dict[str, Callable[[], NLPService]] = {
         "anthropic": load_anthropic,

@@ -19,7 +19,8 @@ All notable changes to Parlant will be documented here.
 - Improved GuidelineProposer's ability to handle compound actions
 - Improved GuidelineProposer's ability to distinguish between a fulfilled and unfulfilled action
 - Fix PluginServer validation for optional tool arguments when they're passed None
-
+- Allow only specifying guideline condition or action when updating guideline from CLI
+- Add WebSocket logger feature for streaming logs in real time
 
 ## [1.5.1] - 2025-01-05
 

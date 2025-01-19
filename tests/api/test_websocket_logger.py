@@ -43,3 +43,29 @@ async def test_that_websocket_logger_sends_messages(
         assert data["message"] == "Hello from test!"
         assert data["level"] == "INFO"
         assert data["correlation_id"] == correlator.correlation_id
+
+
+async def test_that_websocket_reconnects_and_receives_messages(
+    container: Container,
+    test_client: TestClient,
+) -> None:
+    ws_logger = container[WebSocketLogger]
+    correlator = container[ContextualCorrelator]
+
+    with test_client.websocket_connect("/logs") as ws1:
+        ws_logger.info("First connection test")
+        await asyncio.sleep(1)
+
+        data1 = ws1.receive_json()
+        assert data1["message"] == "First connection test"
+        assert data1["level"] == "INFO"
+        assert data1["correlation_id"] == correlator.correlation_id
+
+    with test_client.websocket_connect("/logs") as ws2:
+        ws_logger.info("Second connection test")
+        await asyncio.sleep(1)
+
+        data2 = ws2.receive_json()
+        assert data2["message"] == "Second connection test"
+        assert data2["level"] == "INFO"
+        assert data2["correlation_id"] == correlator.correlation_id

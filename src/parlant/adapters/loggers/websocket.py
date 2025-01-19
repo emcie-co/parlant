@@ -63,9 +63,16 @@ class WebSocketLogger(CorrelationalLogger):
         while True:
             try:
                 payload = await self._messages.get()
+                stale_ids = []
 
-                for ws in self._web_sockets.values():
-                    await ws.send_json(payload)
+                for ws_id, ws in self._web_sockets.items():
+                    try:
+                        await ws.send_json(payload)
+                    except Exception:
+                        stale_ids.append(ws_id)
+
+                for ws_id in stale_ids:
+                    self.remove(ws_id)
 
                 await asyncio.sleep(0.1)
             except asyncio.CancelledError:

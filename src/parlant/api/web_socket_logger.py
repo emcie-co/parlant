@@ -25,7 +25,6 @@ def create_router(
                 await asyncio.sleep(0.1)
         except WebSocketDisconnect:
             logger.info("WebSocket client disconnected.")
-            pass
         finally:
             websocket_logger.remove(logger_id)
             logger.info(f"WebSocket logger with ID {logger_id} removed.")

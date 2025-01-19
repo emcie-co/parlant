@@ -15,6 +15,7 @@
 # mypy: disable-error-code=import-untyped
 
 import asyncio
+import json
 import os
 from urllib.parse import urlparse
 import click
@@ -63,7 +64,7 @@ from parlant.client.types import (
     Tag,
     ConsumptionOffsetsUpdateParams,
 )
-import zmq
+from websocket import WebSocketConnectionClosedException, create_connection
 
 INDENT = "  "
 
@@ -862,24 +863,24 @@ class Actions:
         union_patterns: list[str],
         intersection_patterns: list[str],
     ) -> Iterator[dict[str, Any]]:
-        context = zmq.Context.instance()
-        sub_socket = context.socket(zmq.SUB)
+        url = f"{ctx.obj.server_address.replace('http', 'ws')}/logs"
+        ws = create_connection(url)
 
         try:
-            sub_socket.connect(f"{ctx.obj.log_server_address}")
-
-            sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-
             rich.print(Text("Streaming logs...", style="bold yellow"))
 
             while True:
-                message = cast(dict[str, Any], sub_socket.recv_json())
+                raw_message = ws.recv()
+                message = json.loads(raw_message)
+
                 if Actions._log_entry_matches(message, union_patterns, intersection_patterns):
                     yield message
         except KeyboardInterrupt:
             rich.print(Text("Log streaming interrupted by user.", style="bold red"))
+        except WebSocketConnectionClosedException:
+            Interface.write_error("The WebSocket connection was closed.")
         finally:
-            sub_socket.close()
+            ws.close()
 
     @staticmethod
     def _log_entry_matches(

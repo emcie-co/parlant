@@ -42,7 +42,7 @@ class Agent:
     description: Optional[str]
     creation_utc: datetime
     max_engine_iterations: int
-    composition_mode: CompositionMode
+    composition_mode: CompositionMode = "fluid"
 
 
 class AgentStore(ABC):

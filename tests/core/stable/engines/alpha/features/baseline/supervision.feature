@@ -29,13 +29,13 @@ Feature: Supervision
 
 
     Scenario: the agent does not repeat responses
-        Given a customer message, "Is it ever okay to lie to save someone's feelings?"
+        Given a customer message, "Is it ever okay to lie out of care for someone's feelings?"
         And an agent message, "This is a nuanced topic. While honesty is generally the best policy, there are situations where a small lie might be considered if it prevents unnecessary harm or distress."
         And a customer message, "This statement is false. Is it true or false?"
-        And an agent message, "It sounds like you're asking for clarification on a stetement. Could you provide more context or specify which statement you're referring to?"
+        And an agent message, "It sounds like you're asking for clarification on a statement. Could you provide more context or specify which statement you're referring to?"
         And a customer message, "This statement here is false. is it true or false?"
         When messages are emitted
-        Then the message contains no restatement or rephrasing of the following message: It sounds like you're asking for clarification on a stetement. Could you provide more context or specify which statement you're referring to?
+        Then the message contains no restatement or rephrasing of the following message: It sounds like you're asking for clarification on a statement. Could you provide more context or specify which statement you're referring to?
 
     Scenario: the agent doesnt give false information upon customer request
         Given a guideline "table_price" to state that a table costs $100 when the customer asks for the price of tables

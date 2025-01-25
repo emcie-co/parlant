@@ -62,6 +62,7 @@ google-generativeai = {version = "^0.8.3", optional = true}
 together = {version = "^1.2.12", optional = true}
 torch = {version = "^2.5.1", optional = true}
 transformers = {version = "^4.46.2", optional = true}
+regex = "^2024.11.6"
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"

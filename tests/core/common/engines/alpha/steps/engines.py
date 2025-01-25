@@ -17,11 +17,13 @@ from typing import cast
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
-from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.agents import AgentId, AgentStore
 from parlant.core.customers import CustomerStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.fluid_message_generator import FluidMessageGenerator
+from parlant.core.engines.alpha.message_assembler import MessageAssembler
+from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
 from parlant.core.engines.types import Context, UtteranceReason, UtteranceRequest
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.sessions import SessionId, SessionStore
@@ -127,9 +129,10 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
 @step(when, "messages are emitted", target_fixture="emitted_events")
 def when_messages_are_emitted(
     context: ContextOfTest,
-    agent: Agent,
+    agent_id: AgentId,
     session_id: SessionId,
 ) -> list[EmittedEvent]:
+    agent = context.sync_await(context.container[AgentStore].read_agent(agent_id))
     session = context.sync_await(context.container[SessionStore].read_session(session_id))
     customer = context.sync_await(
         context.container[CustomerStore].read_customer(session.customer_id)
@@ -141,11 +144,13 @@ def when_messages_are_emitted(
         )
     )
 
+    message_event_composer: MessageEventComposer
+
     match agent.composition_mode:
         case "fluid":
             message_event_composer = context.container[FluidMessageGenerator]
-        case _:
-            raise Exception("Tests do not yet support this composition mode")
+        case "assembly" | "fluid-assembly":
+            message_event_composer = context.container[MessageAssembler]
 
     result = context.sync_await(
         message_event_composer.generate_events(

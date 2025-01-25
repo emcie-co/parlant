@@ -719,7 +719,7 @@ example_3_expected = FluidMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=("I'm sorry, but I'm having trouble accessing our menu at the moment. Can I "),
+            content=("I'm sorry, but I'm having trouble accessing our menu at the moment."),
             instructions_followed=[
                 "#2; Do not state factual information that you do not know or are not sure about"
             ],
@@ -1009,7 +1009,7 @@ example_8_expected = FluidMessageSchema(
                 |--------|-------------------|----------------|-------------------|
                 | 1      | Newark (EWR)      | 10:00 AM       | Los Angeles (LAX) |
                 | 2      | JFK               | 3:30 PM        | Los Angeles (LAX) |
-                While this flights are quite long, please note that we do not offer complementary meals on short flights."""
+                While these flights are quite long, please note that we do not offer complementary meals on short flights."""
             ),
             instructions_followed=[
                 "#2; When asked about first-class tickets, mention that shorter flights do not offer a complementary meal",

@@ -16,7 +16,9 @@ from dataclasses import dataclass
 from itertools import chain
 import json
 import traceback
-from typing import Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
+
+import regex  # type: ignore
 
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent
@@ -27,7 +29,7 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
     MessageEventComposition,
 )
-from parlant.core.fragments import FragmentStore
+from parlant.core.fragments import Fragment, FragmentStore
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
@@ -55,12 +57,25 @@ class ContextEvaluation(DefaultBaseModel):
     should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs: bool = False
 
 
+class MaterializedSlot(DefaultBaseModel):
+    have_sufficient_data_in_context: bool
+    value: str
+
+
+class MaterializedFragment(DefaultBaseModel):
+    fragment_id: str
+    raw_content: str
+    slots: Optional[dict[str, MaterializedSlot]] = {}
+    rationale: str
+
+
 class Revision(DefaultBaseModel):
     revision_number: int
-    content: str
+    content_fragments: list[MaterializedFragment]
+    composited_content: str
     instructions_followed: Optional[list[str]] = []
     instructions_broken: Optional[list[str]] = []
-    is_repeat_message: Optional[bool] = False
+    is_practically_repeating_yourself: Optional[bool] = False
     followed_all_instructions: Optional[bool] = False
     instructions_broken_due_to_missing_data: Optional[bool] = False
     missing_data_rationale: Optional[str] = None
@@ -154,6 +169,8 @@ class MessageAssembler(MessageEventComposer):
                 }"""
             )
 
+            fragments = await self._fragment_store.list_fragments()
+
             prompt = self._format_prompt(
                 agents=agents,
                 context_variables=context_variables,
@@ -163,6 +180,7 @@ class MessageAssembler(MessageEventComposer):
                 ordinary_guideline_propositions=ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
                 staged_events=staged_events,
+                fragments=fragments,
                 shots=await self.shots(),
             )
 
@@ -179,8 +197,8 @@ class MessageAssembler(MessageEventComposer):
 
             generation_attempt_temperatures = {
                 0: 0.1,
-                1: 0.3,
-                2: 0.5,
+                1: 0.05,
+                2: 0.2,
             }
 
             last_generation_exception: Exception | None = None
@@ -191,6 +209,7 @@ class MessageAssembler(MessageEventComposer):
                 try:
                     generation_info, response_message = await self._generate_response_message(
                         prompt,
+                        fragments,
                         temperature=generation_attempt_temperatures[generation_attempt],
                         final_attempt=(generation_attempt + 1)
                         == len(generation_attempt_temperatures),
@@ -220,7 +239,45 @@ class MessageAssembler(MessageEventComposer):
 
             raise MessageCompositionError() from last_generation_exception
 
-    def get_guideline_propositions_text(
+    def _get_fragment_bank_text(self, fragments: Sequence[Fragment]) -> str:
+        content = """
+In formulating your reply, you must rely on the following bank of fragments.
+Each fragment contains content, which may or may not refer to "slots" using curly braces.
+For example, in the fragment 'I can help you with {{something}}', there is one slot called 'something'.
+For your references, some fragment may include some examples for how to fill out their slots properly.
+
+FRAGMENT BANK:
+--------------
+"""
+
+        rendered_fragments = []
+
+        for fragment in fragments:
+            fragment_dict: dict[str, Any] = {"fragment_id": fragment.id, "value": fragment.value}
+
+            if fragment.slots:
+                fragment_dict["slots"] = {}
+
+                for slot in fragment.slots:
+                    slot_description = slot.description
+
+                    if slot.examples:
+                        examples = []
+
+                        for i, example in enumerate(slot.examples, start=1):
+                            examples.append(f"{i}) {example}")
+
+                        slot_description += f" -- Examples: {'; '.join(examples)}"
+
+                    fragment_dict["slots"][slot.name] = slot_description
+
+            rendered_fragments.append(str(fragment_dict))
+
+        content += str(rendered_fragments)
+
+        return content
+
+    def _get_guideline_propositions_text(
         self,
         ordinary: Sequence[GuidelineProposition],
         tool_enabled: Mapping[GuidelineProposition, Sequence[ToolId]],
@@ -279,9 +336,13 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
+        fragments: Sequence[Fragment],
         shots: Sequence[MessageAssemblerShot],
     ) -> str:
         assert len(agents) == 1
+
+        can_suggest_fragments = agents[0].composition_mode == "fluid-assembly"
+
         builder = PromptBuilder()
 
         builder.add_section(
@@ -341,9 +402,17 @@ The only exception where you may not produce a reply is if the customer explicit
 In all other cases, even if the customer is indicating that the conversation is over, you must produce a reply.
                 """)
 
+        if can_suggest_fragments:
+            fragment_instruction = """\
+Prefer to use fragments from the bank in generating the revision's content. \
+If no viable fragments exist in the bank, you may suggest new fragments. \
+For suggested fragments, use the special ID "<auto>". \
+"""
+        else:
+            fragment_instruction = "You can ONLY USE FRAGMENTS FROM THE FRAGMENT BANK in generating the revision's content."
+
         builder.add_section(
             f"""
-
 REVISION MECHANISM
 -----------------
 To craft an optimal response, you must produce incremental revisions of your reply, ensuring alignment with all provided guidelines based on the latest interaction state.
@@ -356,6 +425,15 @@ These insights should include relevant customer requests, applicable principles 
 Ensure to include any customer request as an insight, whether it's explicit or implicit.
 Do not add insights unless you believe that they are absolutely necessary. Prefer suggesting fewer insights, if at all.
 When revising, indicate whether each guideline and insight is satisfied in the suggested reply.
+
+Also note that the content of each revision is to be made up using FRAGMENTS.
+
+How to use fragments:
+    - {fragment_instruction}
+    - When listing fragments from the bank, must be displayed EXACTLY AS-IS FROM THE BANK.
+    - Some fragments have "slots" that you need to fill out by extracting relevant information from the content.
+    - If you don't have sufficient data in the context to fill out a slot, you should explicitly give it a null value.
+    - The composited content may contain VERY SPECIFIC EDITS to the final sequencing, such as capitalization fixes and connective punctuation marks between fragments.
 
 The final output must be a JSON document detailing the message development process, including:
     - Insights to abide by,
@@ -406,8 +484,9 @@ Example {i} - {shot.description}: ###
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
+        builder.add_section(self._get_fragment_bank_text(fragments))
         builder.add_section(
-            self.get_guideline_propositions_text(
+            self._get_guideline_propositions_text(
                 ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions,
             ),
@@ -422,14 +501,17 @@ Example {i} - {shot.description}: ###
             f"""
 Produce a valid JSON object in the following format: ###
 
-{self._get_output_format(interaction_history, list(chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)))}"""
+{self._get_output_format(interaction_history, list(chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)), can_suggest_fragments)}"""
         )
 
         prompt = builder.build()
         return prompt
 
     def _get_output_format(
-        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
+        self,
+        interaction_history: Sequence[Event],
+        guidelines: Sequence[GuidelineProposition],
+        allow_suggestions: bool,
     ) -> str:
         last_customer_message = next(
             (
@@ -494,10 +576,24 @@ Produce a valid JSON object in the following format: ###
     "revisions": [
     {{
         "revision_number": 1,
-        "content": <response chosen after revision 1>,
+        "content_fragments": [
+            {{
+                "fragment_id": "<chosen fragment_id from bank>{' or <auto> if you suggested this fragment yourself' if allow_suggestions else ''}",
+                "raw_content": "<raw fragment content>",
+                "slots": {{
+                    "<slot name from this fragment id>": {{
+                        "have_sufficient_data_in_context": <BOOL whether you have enough data in context to fill out this slot's value>,
+                        "value": "<slot value>"
+                    }}
+                }},
+                "rationale": "<brief justification for choosing this fragment here>"
+            }},
+            ...
+        ],
+        "composited_content": "<a sequenced version of the chosen fragments, with capitalization and punctuation edits to make them blend together correctly>",
         "instructions_followed": <list of guidelines and insights that were followed>,
         "instructions_broken": <list of guidelines and insights that were broken>,
-        "is_repeat_message": <BOOL, indicating whether "content" is a repeat of a previous message by the agent>,
+        "is_practically_repeating_yourself": <BOOL, indicating whether "content" is a repeat of a previous message by the agent>,
         "followed_all_instructions": <BOOL, whether all guidelines and insights followed>,
         "instructions_broken_due_to_missing_data": <BOOL, optional. Necessary only if instructions_broken_only_due_to_prioritization is true>,
         "missing_data_rationale": <STR, optional. Necessary only if instructions_broken_due_to_missing_data is true>,
@@ -512,6 +608,7 @@ Produce a valid JSON object in the following format: ###
     async def _generate_response_message(
         self,
         prompt: str,
+        fragments: Sequence[Fragment],
         temperature: float,
         final_attempt: bool,
     ) -> tuple[GenerationInfo, Optional[str]]:
@@ -543,7 +640,7 @@ Produce a valid JSON object in the following format: ###
             (
                 r
                 for r in message_event_response.content.revisions
-                if not r.is_repeat_message
+                if not r.is_practically_repeating_yourself
                 and (
                     r.followed_all_instructions
                     or r.instructions_broken_only_due_to_prioritization
@@ -562,18 +659,58 @@ Produce a valid JSON object in the following format: ###
         if (
             not final_revision.followed_all_instructions
             and not final_revision.instructions_broken_only_due_to_prioritization
-        ) or final_revision.is_repeat_message:
+        ) or final_revision.is_practically_repeating_yourself:
             if not final_attempt:
                 self._logger.warning(
-                    f"[MessageEventComposer][Assembly] Trying again after problematic message generation: {final_revision.content}"
+                    f"[MessageEventComposer][Assembly] Trying again after problematic message generation: {final_revision.composited_content}"
                 )
                 raise Exception("Retry with another attempt")
             else:
                 self._logger.warning(
-                    f"[MessageEventComposer][Assembly] Conceding despite problematic message generation: {final_revision.content}"
+                    f"[MessageEventComposer][Assembly] Conceding despite problematic message generation: {final_revision.composited_content}"
                 )
 
-        return message_event_response.info, str(final_revision.content)
+        for materialized_fragment in final_revision.content_fragments:
+            if materialized_fragment.fragment_id == "<auto>":
+                continue
+
+            fragment = next(
+                (
+                    fragment
+                    for fragment in fragments
+                    if fragment.id == materialized_fragment.fragment_id
+                ),
+                None,
+            )
+
+            if not fragment:
+                self._logger.error(
+                    f"[MessageEventComposer][Assembly] Invalid fragment selection. ID={materialized_fragment.fragment_id}; Value={materialized_fragment.raw_content}; Slots={materialized_fragment.slots}"
+                )
+
+            assert fragment
+
+            if materialized_fragment.raw_content.lower() != fragment.value.lower():
+                self._logger.error(
+                    f"[MessageEventComposer][Assembly] Fragment hallucination. ID={materialized_fragment.fragment_id}; ExpectedValue={fragment.value}; HallucinatedValue={materialized_fragment.raw_content}"
+                )
+
+        content_stripped_from_fragments = final_revision.composited_content
+        fragments_to_strip_from_content = sorted(
+            [f.raw_content.lower() for f in final_revision.content_fragments],
+            key=lambda f: len(f),
+            reverse=True,
+        )
+
+        for f in fragments_to_strip_from_content:
+            content_stripped_from_fragments.replace(f, "")
+
+        if not regex.match(r"^[\s\p{P}]*$", content_stripped_from_fragments, regex.UNICODE):
+            self._logger.error(
+                "[MessageEventComposer][Assembly] Composited content contains illegal completions"
+            )
+
+        return message_event_response.info, str(final_revision.composited_content)
 
 
 example_1_expected = AssembledMessageSchema(
@@ -617,8 +754,22 @@ example_1_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=(
-                "Train Schedule:\n"
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="jg8-algkjs8",
+                    raw_content="Here's the relevant train schedule:\n{schedule_markdown}",
+                    slots={
+                        "schedule_markdown": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Train 101 departs at 10:00 AM and arrives at 12:30 PM.\n"
+                            "Train 205 departs at 1:00 PM and arrives at 3:45 PM.",
+                        )
+                    },
+                    rationale="Render the train schedule",
+                )
+            ],
+            composited_content=(
+                "Here's the relevant train schedule:\n"
                 "Train 101 departs at 10:00 AM and arrives at 12:30 PM.\n"
                 "Train 205 departs at 1:00 PM and arrives at 3:45 PM."
             ),
@@ -629,21 +780,38 @@ example_1_expected = AssembledMessageSchema(
                 "#2; Did not use markdown format when applicable.",
                 "#3; Was not clear enough that I don't know which trains are next because I don't have the time",
             ],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=False,
             instructions_broken_due_to_missing_data=False,
             instructions_broken_only_due_to_prioritization=False,
         ),
         Revision(
             revision_number=2,
-            content=(
-                """
-                Here's the schedule for Boston, but please note that as I don't have the current time, I can't say which trains are next to arrive right now.
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="jg8-algkjs8",
+                    raw_content="Here's the relevant train schedule:\n{schedule_markdown}",
+                    slots={
+                        "schedule_markdown": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="""\
+| Train | Departure | Arrival |
+|-------|-----------|---------|
+| 101   | 10:00 AM  | 12:30 PM |
+| 205   | 1:00 PM   | 3:45 PM  |""",
+                        )
+                    },
+                    rationale="Render the train schedule",
+                )
+            ],
+            composited_content=(
+                """\
+Here's the relevant train schedule:
 
-                | Train | Departure | Arrival |
-                |-------|-----------|---------|
-                | 101   | 10:00 AM  | 12:30 PM |
-                | 205   | 1:00 PM   | 3:45 PM  |"""
+| Train | Departure | Arrival |
+|-------|-----------|---------|
+| 101   | 10:00 AM  | 12:30 PM |
+| 205   | 1:00 PM   | 3:45 PM  |"""
             ),
             instructions_followed=[
                 "#1; When the customer asks for train schedules, provide them accurately and concisely.",
@@ -651,7 +819,7 @@ example_1_expected = AssembledMessageSchema(
                 "#3; Clearly stated that I can't guarantee which trains are next as I don't have the time.",
             ],
             instructions_broken=[],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=True,
         ),
     ],
@@ -695,7 +863,40 @@ example_2_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=(
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="1111111111",
+                    raw_content="I'd be happy",
+                    rationale="Manners",
+                ),
+                MaterializedFragment(
+                    fragment_id="<auto>",
+                    raw_content="to",
+                    rationale="Linking",
+                ),
+                MaterializedFragment(
+                    fragment_id="2222222222",
+                    raw_content="prepare your burger",
+                    rationale="Customer request",
+                ),
+                MaterializedFragment(
+                    fragment_id="<auto>",
+                    raw_content="as soon as we",
+                    rationale="Linking",
+                ),
+                MaterializedFragment(
+                    fragment_id="2222222222",
+                    raw_content="Restock {something}",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Requested toppings",
+                        )
+                    },
+                    rationale="Requested toppings aren't in stock",
+                ),
+            ],
+            composited_content=(
                 "I'd be happy to prepare your burger as soon as we restock the requested toppings."
             ),
             instructions_followed=[
@@ -704,7 +905,7 @@ example_2_expected = AssembledMessageSchema(
             instructions_broken=[
                 "#1; did not provide the burger with requested toppings immediately due to the unavailability of fresh ingredients."
             ],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=False,
             instructions_broken_only_due_to_prioritization=True,
             prioritization_rationale=(
@@ -753,14 +954,29 @@ example_3_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=("I'm sorry, but I'm having trouble accessing our menu at the moment. Can I "),
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="5555555555",
+                    raw_content="I'm sorry, but I'm having trouble accessing {something} at the moment.",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Our menu",
+                        )
+                    },
+                    rationale="Lacking menu information in context (note that I can still fill out this slot accordingly)",
+                )
+            ],
+            composited_content=(
+                "I'm sorry, but I'm having trouble accessing our menu at the moment."
+            ),
             instructions_followed=[
                 "#2; Do not state factual information that you do not know or are not sure about"
             ],
             instructions_broken=[
                 "#1; Lacking menu data in the context prevented me from providing the client with drink information."
             ],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=False,
             missing_data_rationale="Menu data was missing",
             instructions_broken_due_to_missing_data=True,
@@ -793,35 +1009,61 @@ example_4_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content="I apologize for the confusion. Could you please explain what I'm missing?",
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="5555555555",
+                    raw_content="I apologize for {something}",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="the confusion",
+                        )
+                    },
+                    rationale="Customer is upset",
+                ),
+                MaterializedFragment(
+                    fragment_id="<auto>",
+                    raw_content="Could you please explain what I'm missing?",
+                    rationale="I can't see what I did wrong",
+                ),
+            ],
+            composited_content="I apologize for the confusion. Could you please explain what I'm missing?",
             instructions_followed=[],
             instructions_broken=[
                 "#1; I've already apologized and asked for clarifications, and I shouldn't repeat myself"
             ],
-            is_repeat_message=True,
-            followed_all_instructions=False,
-        ),
-        Revision(
-            revision_number=2,
-            content="I see. What am I missing?",
-            instructions_followed=[],
-            instructions_broken=[
-                "#1; Asking what I'm missing is still asking for clarifications, and I shouldn't repeat myself"
-            ],
-            is_repeat_message=True,
+            is_practically_repeating_yourself=True,
             followed_all_instructions=False,
         ),
         Revision(
             revision_number=3,
-            content=(
-                "It seems like I'm failing to assist you with your issue. "
-                "Let me know if there's anything else I can do for you."
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="5555555555",
+                    raw_content="I apologize for {something}",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Failing to assist you with your issue",
+                        )
+                    },
+                    rationale="I've failed to understand and help the customer",
+                ),
+                MaterializedFragment(
+                    fragment_id="6666666666",
+                    raw_content="If there's anything else I can do for you, please let me know",
+                    rationale="I don't want to keep repeating myself asking for clarifications",
+                ),
+            ],
+            composited_content=(
+                "I apologize for failing to assist you with your issue. "
+                "If there's anything else I can do for you, please let me know."
             ),
             instructions_followed=[
                 "#1; I broke of out of the self-repeating loop by admitting that I can't seem to help"
             ],
             instructions_broken=[],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=True,
         ),
     ],
@@ -865,17 +1107,38 @@ example_5_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=(
-                "Your balance is $1,000. As a helpful assistant, I have the resources necessary to provide "
-                "accurate information. However, I’m unable to disclose details about the specific services I use. "
-                "Is there anything else I can assist you with?"
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="5555555555",
+                    raw_content="Your balance is {balance}",
+                    slots={
+                        "balance": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="$1,000",
+                        )
+                    },
+                    rationale="Customer requested this information",
+                ),
+                MaterializedFragment(
+                    fragment_id="4444444444",
+                    raw_content="However",
+                    rationale="Linking",
+                ),
+                MaterializedFragment(
+                    fragment_id="6666666666",
+                    raw_content="I'm unable to disclose details about the specific services I use.",
+                    rationale="I should not reveal my thought process",
+                ),
+            ],
+            composited_content=(
+                "Your balance is $1,000. However, I’m unable to disclose details about the specific services I use."
             ),
             instructions_followed=[
                 "#1; use the 'check_balance' tool",
                 "#2; Never reveal details about the process you followed to produce your response",
             ],
             instructions_broken=[],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=True,
         )
     ],
@@ -888,55 +1151,6 @@ example_5_shot = MessageAssemblerShot(
 
 
 example_6_expected = AssembledMessageSchema(
-    last_message_of_customer=(
-        "Alright I have the documents ready, how can I send them to you guys?"
-    ),
-    guidelines=[],
-    insights=[],
-    evaluation_for_each_instruction=[
-        InstructionEvaluation(
-            number=1,
-            instruction="ONLY OFFER SERVICES AND INFORMATION PROVIDED IN THIS PROMPT",
-            evaluation="I must not output any contact information, since it was not provided within this prompt.",
-            data_available="Contact info is not available",
-        ),
-    ],
-    revisions=[
-        Revision(
-            revision_number=1,
-            content=(
-                "Thank you for reaching out! To ensure your documents are handled securely, please follow these steps:"
-                "Email your documents to publicengagement@whitehouse.gov."
-                "If your materials are sensitive or require encryption, let us know so we can provide additional instructions."
-            ),
-            instructions_followed=[],
-            instructions_broken=["#1; ONLY OFFER SERVICES AND INFORMATION PROVIDED IN THIS PROMPT"],
-            is_repeat_message=False,
-            followed_all_instructions=False,
-        ),
-        Revision(
-            revision_number=2,
-            content=(
-                "Thank you for reaching out! Unfortunately I don’t have the specific contact information for the Department of Public Engagement. I’d suggest checking online or reaching out to your local representative—they should be able to help!"
-            ),
-            instructions_followed=[
-                "#1; ONLY OFFER SERVICES AND INFORMATION PROVIDED IN THIS PROMPT"
-            ],
-            instructions_broken=[],
-            is_repeat_message=False,
-            followed_all_instructions=False,
-            instructions_broken_due_to_missing_data=False,
-            instructions_broken_only_due_to_prioritization=False,
-        ),
-    ],
-)
-
-example_6_shot = MessageAssemblerShot(
-    description="Not providing information outside of what's provided in the prompt: Assume the agent works for the white house's office of public engagement. Assume no contact information was given as part of the prompt.",
-    expected_result=example_6_expected,
-)
-
-example_7_expected = AssembledMessageSchema(
     last_message_of_customer=("Hey, how can I contact customer support?"),
     guidelines=[],
     context_evaluation=ContextEvaluation(
@@ -959,38 +1173,84 @@ example_7_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=(
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="5555555555",
+                    raw_content="Could you please provide more details on {something}",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="What you would need from customer support?",
+                        )
+                    },
+                    rationale="Customer requested this information",
+                ),
+                MaterializedFragment(
+                    fragment_id="7777777777",
+                    raw_content="Maybe",
+                    rationale="Linking",
+                ),
+                MaterializedFragment(
+                    fragment_id="8888888888",
+                    raw_content="I could help you",
+                    rationale="Offer to help",
+                ),
+            ],
+            composited_content=(
                 "Could you please provide more details on what you would need from customer support? Maybe I could help you."
             ),
             instructions_followed=[],
             instructions_broken=[
                 "#1; Instead of saying I can't help, I asked for more details from the customer",
             ],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=False,
         ),
         Revision(
             revision_number=2,
-            content=(
-                "Unfortunately I cannot help you with this topic as I do not have enough information on it. Is there anything else I can assist you with?"
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="9999999999",
+                    raw_content="Unfortunately",
+                    rationale="Manners",
+                ),
+                MaterializedFragment(
+                    fragment_id="3332333333",
+                    raw_content="I cannot help you with {something} as I do not have enough information about it.",
+                    slots={
+                        "something": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="this topic",
+                        )
+                    },
+                    rationale="I cannot help with this topic",
+                ),
+                MaterializedFragment(
+                    fragment_id="1353087209",
+                    raw_content="Is there anything else I can assist you with?",
+                    rationale="Offer to help",
+                ),
+            ],
+            composited_content=(
+                "Unfortunately I cannot help you with this topic as I do not have enough information about it. Is there anything else I can assist you with?"
             ),
             instructions_followed=[
                 "#1; I adhered to the instruction by clearly stating that I cannot help with this topic",
             ],
             instructions_broken=[],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=True,
         ),
     ],
 )
 
-example_7_shot = MessageAssemblerShot(
+example_6_shot = MessageAssemblerShot(
     description="An insight is derived and followed on not offering to help with something you don't know about",
-    expected_result=example_7_expected,
+    expected_result=example_6_expected,
 )
 
 
-example_8_expected = AssembledMessageSchema(
+example_7_expected = AssembledMessageSchema(
     last_message_of_customer="I don't have any android devices, and I do not want to buy a ticket at the moment. Now, what flights are there from New York to Los Angeles tomorrow?",
     guidelines=[
         "When asked anything about plane tickets, suggest completing the order on our android app",
@@ -1037,13 +1297,54 @@ example_8_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
-            content=(
+            content_fragments=[
+                MaterializedFragment(
+                    fragment_id="3332333333",
+                    raw_content="""\
+Here are the flights from {origin} to {destination} {when}:
+| Option | Departure Airport | Departure Time | Arrival Airport   |
+|--------|-------------------|----------------|-------------------|
+{schedule_rows}""",
+                    slots={
+                        "origin": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="New York",
+                        ),
+                        "destination": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Los Angeles",
+                        ),
+                        "when": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="Tomorrow",
+                        ),
+                        "schedule_rows": MaterializedSlot(
+                            have_sufficient_data_in_context=True,
+                            value="""\
+| Option | Departure Airport | Departure Time | Arrival Airport   |
+|--------|-------------------|----------------|-------------------|
+| 1      | Newark (EWR)      | 10:00 AM       | Los Angeles (LAX) |
+| 2      | JFK               | 3:30 PM        | Los Angeles (LAX) |""",
+                        ),
+                    },
+                    rationale="Customer asks to depart from New York to Los Angeles tomorrow",
+                ),
+                MaterializedFragment(
+                    fragment_id="5358313209",
+                    raw_content="While some of these flights are quite long, please note that we do not offer complementary meals on short flights.",
+                    rationale="Important to keep in mind",
+                ),
+            ],
+            composited_content=(
                 """
+                Here are the flights from New York to Los Angeles tomorrow.
+
                 | Option | Departure Airport | Departure Time | Arrival Airport   |
                 |--------|-------------------|----------------|-------------------|
                 | 1      | Newark (EWR)      | 10:00 AM       | Los Angeles (LAX) |
                 | 2      | JFK               | 3:30 PM        | Los Angeles (LAX) |
-                While this flights are quite long, please note that we do not offer complementary meals on short flights."""
+
+                While some of these flights are quite long, please note that we do not offer complementary meals on short flights."""
             ),
             instructions_followed=[
                 "#2; When asked about first-class tickets, mention that shorter flights do not offer a complementary meal",
@@ -1053,7 +1354,7 @@ example_8_expected = AssembledMessageSchema(
             instructions_broken=[
                 "#1; When asked anything about plane tickets, suggest completing the order on our android app."
             ],
-            is_repeat_message=False,
+            is_practically_repeating_yourself=False,
             followed_all_instructions=False,
             instructions_broken_only_due_to_prioritization=True,
             prioritization_rationale=(
@@ -1065,9 +1366,9 @@ example_8_expected = AssembledMessageSchema(
     ],
 )
 
-example_8_shot = MessageAssemblerShot(
+example_7_shot = MessageAssemblerShot(
     description="Applying Insight—assuming the agent is provided with a list of outgoing flights from a tool call",
-    expected_result=example_8_expected,
+    expected_result=example_7_expected,
 )
 
 _baseline_shots: Sequence[MessageAssemblerShot] = [
@@ -1078,7 +1379,6 @@ _baseline_shots: Sequence[MessageAssemblerShot] = [
     example_5_shot,
     example_6_shot,
     example_7_shot,
-    example_8_shot,
 ]
 
 shot_collection = ShotCollection[MessageAssemblerShot](_baseline_shots)

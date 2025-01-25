@@ -31,6 +31,8 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import Customer, CustomerStore
 from parlant.core.engines.alpha.fluid_message_generator import FluidMessageGenerator
+from parlant.core.engines.alpha.message_assembler import MessageAssembler
+from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent, GuidelineStore
 from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import (
@@ -91,6 +93,7 @@ class AlphaEngine(Engine):
         guideline_proposer: GuidelineProposer,
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: FluidMessageGenerator,
+        message_assembler: MessageAssembler,
     ) -> None:
         self._logger = logger
         self._correlator = correlator
@@ -108,6 +111,7 @@ class AlphaEngine(Engine):
         self._guideline_proposer = guideline_proposer
         self._tool_event_generator = tool_event_generator
         self._fluid_message_generator = fluid_message_generator
+        self._message_assembler = message_assembler
 
     @override
     async def process(
@@ -423,7 +427,7 @@ class AlphaEngine(Engine):
 
             all_emitted_events = [*all_tool_events]
 
-            for event_generation_result in await self._fluid_message_generator.generate_events(
+            for event_generation_result in await self._get_message_composer(agent).generate_events(
                 event_emitter=event_emitter,
                 agents=[agent],
                 customer=customer,
@@ -533,7 +537,7 @@ class AlphaEngine(Engine):
 
             message_generation_inspections = []
 
-            for event_generation_result in await self._fluid_message_generator.generate_events(
+            for event_generation_result in await self._get_message_composer(agent).generate_events(
                 event_emitter=event_emitter,
                 agents=[agent],
                 customer=customer,
@@ -585,6 +589,13 @@ class AlphaEngine(Engine):
                     "data": {},
                 },
             )
+
+    def _get_message_composer(self, agent: Agent) -> MessageEventComposer:
+        match agent.composition_mode:
+            case "fluid":
+                return self._fluid_message_generator
+            case "assembly" | "fluid-assembly":
+                return self._message_assembler
 
     async def _load_context_variables(
         self,

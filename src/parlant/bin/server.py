@@ -35,6 +35,7 @@ from parlant.core.engines.alpha import hooks
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
 from parlant.core.engines.alpha import fluid_message_generator
+from parlant.core.fragments import FragmentDocumentStore, FragmentStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
@@ -88,8 +89,8 @@ from parlant.core.engines.alpha.guideline_proposer import (
 )
 from parlant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
-    MessageEventGeneratorShot,
-    MessageEventSchema,
+    FluidMessageGeneratorShot,
+    FluidMessageSchema,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
@@ -290,6 +291,12 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
             PARLANT_HOME_DIR / "sessions.json",
         )
     )
+    fragment_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR / "fragments.json",
+        )
+    )
     guidelines_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guidelines.json")
     )
@@ -312,6 +319,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     )
     c[TagStore] = await EXIT_STACK.enter_async_context(TagDocumentStore(tags_db))
     c[CustomerStore] = await EXIT_STACK.enter_async_context(CustomerDocumentStore(customers_db))
+    c[FragmentStore] = await EXIT_STACK.enter_async_context(FragmentDocumentStore(fragment_db))
     c[GuidelineStore] = await EXIT_STACK.enter_async_context(GuidelineDocumentStore(guidelines_db))
     c[GuidelineToolAssociationStore] = await EXIT_STACK.enter_async_context(
         GuidelineToolAssociationDocumentStore(guideline_tool_associations_db)
@@ -369,8 +377,8 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     c[SchematicGenerator[GuidelinePropositionsSchema]] = await nlp_service.get_schematic_generator(
         GuidelinePropositionsSchema
     )
-    c[SchematicGenerator[MessageEventSchema]] = await nlp_service.get_schematic_generator(
-        MessageEventSchema
+    c[SchematicGenerator[FluidMessageSchema]] = await nlp_service.get_schematic_generator(
+        FluidMessageSchema
     )
     c[SchematicGenerator[ToolCallInferenceSchema]] = await nlp_service.get_schematic_generator(
         ToolCallInferenceSchema
@@ -387,7 +395,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
 
     c[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
     c[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
-    c[ShotCollection[MessageEventGeneratorShot]] = fluid_message_generator.shot_collection
+    c[ShotCollection[FluidMessageGeneratorShot]] = fluid_message_generator.shot_collection
 
     c[hooks.LifecycleHooks] = hooks.lifecycle_hooks
 
@@ -421,7 +429,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     c[FluidMessageGenerator] = FluidMessageGenerator(
         c[Logger],
         c[ContextualCorrelator],
-        c[SchematicGenerator[MessageEventSchema]],
+        c[SchematicGenerator[FluidMessageSchema]],
     )
 
     c[ToolEventGenerator] = ToolEventGenerator(
@@ -431,7 +439,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
         c[SchematicGenerator[ToolCallInferenceSchema]],
     )
 
-    c[Engine] = AlphaEngine
+    c[Engine] = Singleton(AlphaEngine)
 
     c[Application] = Application(c)
 

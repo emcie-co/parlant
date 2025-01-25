@@ -34,6 +34,7 @@ scenarios(
     *(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
+            "assembly",
             "conversation",
             "errors",
             "guideline_connections",

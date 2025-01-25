@@ -23,7 +23,7 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from parlant.core.engines.alpha.fluid_message_generator import MessageEventSchema
+from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
 from parlant.core.nlp.service import NLPService
 from parlant.core.tools import ToolResult
 from parlant.core.agents import AgentId
@@ -917,7 +917,7 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
 
     assert message_generation_inspections[0]["generation"]["schema_name"] == "MessageEventSchema"
 
-    schematic_generator = await nlp_service.get_schematic_generator(MessageEventSchema)
+    schematic_generator = await nlp_service.get_schematic_generator(FluidMessageSchema)
     assert message_generation_inspections[0]["generation"]["model"] == schematic_generator.id
 
     assert message_generation_inspections[0]["generation"]["usage"]["input_tokens"] > 0

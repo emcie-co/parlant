@@ -34,12 +34,14 @@ from parlant.core.customers import CustomerDocumentStore, CustomerStore
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
 from parlant.core.engines.alpha import fluid_message_generator
+from parlant.core.engines.alpha.message_assembler import MessageAssembler, AssembledMessageSchema
 from parlant.core.evaluations import (
     EvaluationListener,
     PollingEvaluationListener,
     EvaluationDocumentStore,
     EvaluationStore,
 )
+from parlant.core.fragments import FragmentDocumentStore, FragmentStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
 from parlant.core.guideline_connections import (
@@ -69,8 +71,8 @@ from parlant.core.engines.alpha.guideline_proposer import (
 )
 from parlant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
-    MessageEventGeneratorShot,
-    MessageEventSchema,
+    FluidMessageGeneratorShot,
+    FluidMessageSchema,
 )
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
@@ -213,6 +215,9 @@ async def container(
         container[CustomerStore] = await stack.enter_async_context(
             CustomerDocumentStore(TransientDocumentDatabase())
         )
+        container[FragmentStore] = await stack.enter_async_context(
+            FragmentDocumentStore(TransientDocumentDatabase())
+        )
         container[GuidelineToolAssociationStore] = await stack.enter_async_context(
             GuidelineToolAssociationDocumentStore(TransientDocumentDatabase())
         )
@@ -249,7 +254,8 @@ async def container(
 
         for generation_schema in (
             GuidelinePropositionsSchema,
-            MessageEventSchema,
+            FluidMessageSchema,
+            AssembledMessageSchema,
             ToolCallInferenceSchema,
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
@@ -263,7 +269,7 @@ async def container(
 
         container[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
         container[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
-        container[ShotCollection[MessageEventGeneratorShot]] = (
+        container[ShotCollection[FluidMessageGeneratorShot]] = (
             fluid_message_generator.shot_collection
         )
 
@@ -279,9 +285,10 @@ async def container(
         )
 
         container[FluidMessageGenerator] = Singleton(FluidMessageGenerator)
+        container[MessageAssembler] = Singleton(MessageAssembler)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
 
-        container[Engine] = AlphaEngine
+        container[Engine] = Singleton(AlphaEngine)
 
         container[Application] = Application(container)
 
@@ -318,12 +325,21 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[MessageEventSchema]],
+        container[SchematicGenerator[FluidMessageSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[MessageEventSchema],
-            container[SchematicGenerator[MessageEventSchema]],
+            CachedSchematicGenerator[FluidMessageSchema],
+            container[SchematicGenerator[FluidMessageSchema]],
+        ).use_cache = False
+
+    if isinstance(
+        container[SchematicGenerator[AssembledMessageSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[AssembledMessageSchema],
+            container[SchematicGenerator[AssembledMessageSchema]],
         ).use_cache = False
 
     if isinstance(

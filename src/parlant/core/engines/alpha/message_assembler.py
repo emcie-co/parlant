@@ -27,6 +27,7 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
     MessageEventComposition,
 )
+from parlant.core.fragments import FragmentStore
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
@@ -74,7 +75,7 @@ class InstructionEvaluation(DefaultBaseModel):
     data_available: str
 
 
-class FluidMessageSchema(DefaultBaseModel):
+class AssembledMessageSchema(DefaultBaseModel):
     last_message_of_customer: Optional[str]
     produced_reply: Optional[bool] = True
     produced_reply_rationale: Optional[str] = ""
@@ -86,22 +87,24 @@ class FluidMessageSchema(DefaultBaseModel):
 
 
 @dataclass
-class FluidMessageGeneratorShot(Shot):
-    expected_result: FluidMessageSchema
+class MessageAssemblerShot(Shot):
+    expected_result: AssembledMessageSchema
 
 
-class FluidMessageGenerator(MessageEventComposer):
+class MessageAssembler(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
-        schematic_generator: SchematicGenerator[FluidMessageSchema],
+        schematic_generator: SchematicGenerator[AssembledMessageSchema],
+        fragment_store: FragmentStore,
     ) -> None:
         self._logger = logger
         self._correlator = correlator
         self._schematic_generator = schematic_generator
+        self._fragment_store = fragment_store
 
-    async def shots(self) -> Sequence[FluidMessageGeneratorShot]:
+    async def shots(self) -> Sequence[MessageAssemblerShot]:
         return await shot_collection.list()
 
     async def generate_events(
@@ -132,7 +135,7 @@ class FluidMessageGenerator(MessageEventComposer):
                 return []
 
             self._logger.debug(
-                f"""[MessageEventGenerator] Guidelines applied\n{
+                f"""[MessageEventGenerator] Guidelines applied: {
                     json.dumps(
                         [
                             {
@@ -182,7 +185,7 @@ class FluidMessageGenerator(MessageEventComposer):
 
             last_generation_exception: Exception | None = None
 
-            self._logger.debug(f"[MessageEventGenerator][Prompt]\n{prompt}")
+            self._logger.debug(f"[MessageEventGenerator][Prompt] \n{prompt}")
 
             for generation_attempt in range(3):
                 try:
@@ -258,7 +261,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
 
     def _format_shot(
         self,
-        shot: FluidMessageGeneratorShot,
+        shot: MessageAssemblerShot,
     ) -> str:
         return f"""
 - **Expected Result**:
@@ -276,7 +279,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
-        shots: Sequence[FluidMessageGeneratorShot],
+        shots: Sequence[MessageAssemblerShot],
     ) -> str:
         assert len(agents) == 1
         builder = PromptBuilder()
@@ -525,6 +528,17 @@ Produce a valid JSON object in the following format: ###
             self._logger.debug("[MessageEventGenerator] Produced no reply")
             return message_event_response.info, None
 
+        if message_event_response.content.evaluation_for_each_instruction:
+            self._logger.debug(
+                "[MessageEventGenerator][Evaluations]\n"
+                f"{json.dumps([e.model_dump(mode='json') for e in message_event_response.content.evaluation_for_each_instruction], indent=2)}"
+            )
+
+        self._logger.debug(
+            "[MessageEventGenerator][Revisions]\n"
+            f"{json.dumps([r.model_dump(mode='json') for r in message_event_response.content.revisions], indent=2)}"
+        )
+
         if first_correct_revision := next(
             (
                 r
@@ -562,7 +576,7 @@ Produce a valid JSON object in the following format: ###
         return message_event_response.info, str(final_revision.content)
 
 
-example_1_expected = FluidMessageSchema(
+example_1_expected = AssembledMessageSchema(
     last_message_of_customer="Hi, I'd like to know the schedule for the next trains to Boston, please.",
     produced_reply=True,
     guidelines=[
@@ -643,13 +657,13 @@ example_1_expected = FluidMessageSchema(
     ],
 )
 
-example_1_shot = FluidMessageGeneratorShot(
+example_1_shot = MessageAssemblerShot(
     description="A reply that took critique in a few revisions to get right",
     expected_result=example_1_expected,
 )
 
 
-example_2_expected = FluidMessageSchema(
+example_2_expected = AssembledMessageSchema(
     last_message_of_customer="<customer’s last message in the interaction>",
     guidelines=[
         "When the customer chooses and orders a burger, then provide it",
@@ -702,13 +716,13 @@ example_2_expected = FluidMessageSchema(
     ],
 )
 
-example_2_shot = FluidMessageGeneratorShot(
+example_2_shot = MessageAssemblerShot(
     description="A reply where one instruction was prioritized over another",
     expected_result=example_2_expected,
 )
 
 
-example_3_expected = FluidMessageSchema(
+example_3_expected = AssembledMessageSchema(
     last_message_of_customer="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the customer asks for a drink, check the menu and offer what's on it"],
     context_evaluation=ContextEvaluation(
@@ -755,13 +769,13 @@ example_3_expected = FluidMessageSchema(
     ],
 )
 
-example_3_shot = FluidMessageGeneratorShot(
+example_3_shot = MessageAssemblerShot(
     description="Non-Adherence Due to Missing Data",
     expected_result=example_3_expected,
 )
 
 
-example_4_expected = FluidMessageSchema(
+example_4_expected = AssembledMessageSchema(
     last_message_of_customer="This is not what I was asking for",
     guidelines=[],
     context_evaluation=ContextEvaluation(
@@ -813,13 +827,13 @@ example_4_expected = FluidMessageSchema(
     ],
 )
 
-example_4_shot = FluidMessageGeneratorShot(
+example_4_shot = MessageAssemblerShot(
     description="Avoiding repetitive responses—in this case, given that the previous response by the agent was 'I am sorry, could you please clarify your request?'",
     expected_result=example_4_expected,
 )
 
 
-example_5_expected = FluidMessageSchema(
+example_5_expected = AssembledMessageSchema(
     last_message_of_customer=(
         "How much money do I have in my account, and how do you know it? Is there some service you use to check "
         "my balance? Can I access it too?"
@@ -867,13 +881,13 @@ example_5_expected = FluidMessageSchema(
     ],
 )
 
-example_5_shot = FluidMessageGeneratorShot(
+example_5_shot = MessageAssemblerShot(
     description="Not exposing thought process: Assume a tool call for 'check_balance' with a returned value of 1,000$ is staged",
     expected_result=example_5_expected,
 )
 
 
-example_6_expected = FluidMessageSchema(
+example_6_expected = AssembledMessageSchema(
     last_message_of_customer=(
         "Alright I have the documents ready, how can I send them to you guys?"
     ),
@@ -917,12 +931,12 @@ example_6_expected = FluidMessageSchema(
     ],
 )
 
-example_6_shot = FluidMessageGeneratorShot(
+example_6_shot = MessageAssemblerShot(
     description="Not providing information outside of what's provided in the prompt: Assume the agent works for the white house's office of public engagement. Assume no contact information was given as part of the prompt.",
     expected_result=example_6_expected,
 )
 
-example_7_expected = FluidMessageSchema(
+example_7_expected = AssembledMessageSchema(
     last_message_of_customer=("Hey, how can I contact customer support?"),
     guidelines=[],
     context_evaluation=ContextEvaluation(
@@ -970,13 +984,13 @@ example_7_expected = FluidMessageSchema(
     ],
 )
 
-example_7_shot = FluidMessageGeneratorShot(
+example_7_shot = MessageAssemblerShot(
     description="An insight is derived and followed on not offering to help with something you don't know about",
     expected_result=example_7_expected,
 )
 
 
-example_8_expected = FluidMessageSchema(
+example_8_expected = AssembledMessageSchema(
     last_message_of_customer="I don't have any android devices, and I do not want to buy a ticket at the moment. Now, what flights are there from New York to Los Angeles tomorrow?",
     guidelines=[
         "When asked anything about plane tickets, suggest completing the order on our android app",
@@ -1051,12 +1065,12 @@ example_8_expected = FluidMessageSchema(
     ],
 )
 
-example_8_shot = FluidMessageGeneratorShot(
+example_8_shot = MessageAssemblerShot(
     description="Applying Insight—assuming the agent is provided with a list of outgoing flights from a tool call",
     expected_result=example_8_expected,
 )
 
-_baseline_shots: Sequence[FluidMessageGeneratorShot] = [
+_baseline_shots: Sequence[MessageAssemblerShot] = [
     example_1_shot,
     example_2_shot,
     example_3_shot,
@@ -1067,4 +1081,4 @@ _baseline_shots: Sequence[FluidMessageGeneratorShot] = [
     example_8_shot,
 ]
 
-shot_collection = ShotCollection[FluidMessageGeneratorShot](_baseline_shots)
+shot_collection = ShotCollection[MessageAssemblerShot](_baseline_shots)

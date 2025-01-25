@@ -25,7 +25,7 @@ from parlant.core.persistence.document_database import DocumentDatabase, Documen
 
 AgentId = NewType("AgentId", str)
 
-CompositionMode: TypeAlias = Literal["fluid", "strict", "semi-strict"]
+CompositionMode: TypeAlias = Literal["fluid", "assembly", "fluid-assembly"]
 
 
 class AgentUpdateParams(TypedDict, total=False):

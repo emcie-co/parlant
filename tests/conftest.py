@@ -33,7 +33,7 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerDocumentStore, CustomerStore
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
-from parlant.core.engines.alpha import message_event_generator
+from parlant.core.engines.alpha import fluid_message_generator
 from parlant.core.evaluations import (
     EvaluationListener,
     PollingEvaluationListener,
@@ -67,8 +67,8 @@ from parlant.core.engines.alpha.guideline_proposer import (
     GuidelinePropositionShot,
     GuidelinePropositionsSchema,
 )
-from parlant.core.engines.alpha.message_event_generator import (
-    MessageEventGenerator,
+from parlant.core.engines.alpha.fluid_message_generator import (
+    FluidMessageGenerator,
     MessageEventGeneratorShot,
     MessageEventSchema,
 )
@@ -264,7 +264,7 @@ async def container(
         container[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
         container[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
         container[ShotCollection[MessageEventGeneratorShot]] = (
-            message_event_generator.shot_collection
+            fluid_message_generator.shot_collection
         )
 
         container[GuidelineProposer] = Singleton(GuidelineProposer)
@@ -278,7 +278,7 @@ async def container(
             ),
         )
 
-        container[MessageEventGenerator] = Singleton(MessageEventGenerator)
+        container[FluidMessageGenerator] = Singleton(FluidMessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
 
         container[Engine] = AlphaEngine

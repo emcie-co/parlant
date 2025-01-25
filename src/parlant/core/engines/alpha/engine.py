@@ -30,6 +30,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerStore
+from parlant.core.engines.alpha.fluid_message_generator import FluidMessageGenerator
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent, GuidelineStore
 from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import (
@@ -58,7 +59,6 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,
 )
-from parlant.core.engines.alpha.message_event_generator import MessageEventGenerator
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceReason, UtteranceRequest
@@ -90,7 +90,7 @@ class AlphaEngine(Engine):
         guideline_tool_association_store: GuidelineToolAssociationStore,
         guideline_proposer: GuidelineProposer,
         tool_event_generator: ToolEventGenerator,
-        message_event_generator: MessageEventGenerator,
+        fluid_message_generator: FluidMessageGenerator,
     ) -> None:
         self._logger = logger
         self._correlator = correlator
@@ -104,9 +104,10 @@ class AlphaEngine(Engine):
         self._guideline_connection_store = guideline_connection_store
         self._service_registry = service_registry
         self._guideline_tool_association_store = guideline_tool_association_store
+
         self._guideline_proposer = guideline_proposer
         self._tool_event_generator = tool_event_generator
-        self._message_event_generator = message_event_generator
+        self._fluid_message_generator = fluid_message_generator
 
     @override
     async def process(
@@ -422,7 +423,7 @@ class AlphaEngine(Engine):
 
             all_emitted_events = [*all_tool_events]
 
-            for event_generation_result in await self._message_event_generator.generate_events(
+            for event_generation_result in await self._fluid_message_generator.generate_events(
                 event_emitter=event_emitter,
                 agents=[agent],
                 customer=customer,
@@ -532,7 +533,7 @@ class AlphaEngine(Engine):
 
             message_generation_inspections = []
 
-            for event_generation_result in await self._message_event_generator.generate_events(
+            for event_generation_result in await self._fluid_message_generator.generate_events(
                 event_emitter=event_emitter,
                 agents=[agent],
                 customer=customer,

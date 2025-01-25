@@ -30,7 +30,7 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
-from parlant.core.engines.alpha.message_event_generator import MessageEventSchema
+from parlant.core.engines.alpha.fluid_message_generator import MessageEventSchema
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (

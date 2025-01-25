@@ -22,6 +22,11 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.engines.alpha.message_event_composer import (
+    MessageCompositionError,
+    MessageEventComposer,
+    MessageEventComposition,
+)
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
@@ -32,12 +37,6 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.logging import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
-
-
-@dataclass(frozen=True)
-class MessageEventGenerationResult:
-    generation_info: GenerationInfo
-    events: Sequence[Optional[EmittedEvent]]
 
 
 class ContextEvaluation(DefaultBaseModel):
@@ -75,11 +74,6 @@ class InstructionEvaluation(DefaultBaseModel):
     data_available: str
 
 
-class MessageGenerationError(Exception):
-    def __init__(self, message: str = "Message generation failed") -> None:
-        super().__init__(message)
-
-
 class MessageEventSchema(DefaultBaseModel):
     last_message_of_customer: Optional[str]
     produced_reply: Optional[bool] = True
@@ -96,7 +90,7 @@ class MessageEventGeneratorShot(Shot):
     expected_result: MessageEventSchema
 
 
-class MessageEventGenerator:
+class FluidMessageGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
@@ -121,7 +115,7 @@ class MessageEventGenerator:
         ordinary_guideline_propositions: Sequence[GuidelineProposition],
         tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
-    ) -> Sequence[MessageEventGenerationResult]:
+    ) -> Sequence[MessageEventComposition]:
         assert len(agents) == 1
 
         with self._logger.operation("[MessageEventGenerator] Message generation"):
@@ -209,19 +203,19 @@ class MessageEventGenerator:
                             data=response_message,
                         )
 
-                        return [MessageEventGenerationResult(generation_info, [event])]
+                        return [MessageEventComposition(generation_info, [event])]
                     else:
                         self._logger.debug(
                             "[MessageEventGenerator] Skipping response; no response deemed necessary"
                         )
-                        return [MessageEventGenerationResult(generation_info, [])]
+                        return [MessageEventComposition(generation_info, [])]
                 except Exception as exc:
                     self._logger.warning(
                         f"[MessageEventGenerator] Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
                     )
                     last_generation_exception = exc
 
-            raise MessageGenerationError() from last_generation_exception
+            raise MessageCompositionError() from last_generation_exception
 
     def get_guideline_propositions_text(
         self,

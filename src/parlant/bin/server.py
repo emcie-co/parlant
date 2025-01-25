@@ -34,7 +34,7 @@ from parlant.adapters.vector_db.chroma import ChromaDatabase
 from parlant.core.engines.alpha import hooks
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
-from parlant.core.engines.alpha import message_event_generator
+from parlant.core.engines.alpha import fluid_message_generator
 from parlant.core.nlp.service import NLPService
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
@@ -86,8 +86,8 @@ from parlant.core.engines.alpha.guideline_proposer import (
     GuidelinePropositionShot,
     GuidelinePropositionsSchema,
 )
-from parlant.core.engines.alpha.message_event_generator import (
-    MessageEventGenerator,
+from parlant.core.engines.alpha.fluid_message_generator import (
+    FluidMessageGenerator,
     MessageEventGeneratorShot,
     MessageEventSchema,
 )
@@ -387,7 +387,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
 
     c[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
     c[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
-    c[ShotCollection[MessageEventGeneratorShot]] = message_event_generator.shot_collection
+    c[ShotCollection[MessageEventGeneratorShot]] = fluid_message_generator.shot_collection
 
     c[hooks.LifecycleHooks] = hooks.lifecycle_hooks
 
@@ -418,7 +418,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
         c[CoherenceChecker],
     )
 
-    c[MessageEventGenerator] = MessageEventGenerator(
+    c[FluidMessageGenerator] = FluidMessageGenerator(
         c[Logger],
         c[ContextualCorrelator],
         c[SchematicGenerator[MessageEventSchema]],

@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import cast
 from pytest_bdd import given, parsers
 
-from parlant.core.agents import AgentId, AgentStore
+from parlant.core.agents import AgentId, AgentStore, CompositionMode
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -58,3 +59,17 @@ def given_an_agent_with_description_and_name(
         )
     )
     return agent.id
+
+
+@step(given, parsers.parse("that the agent uses the {mode} message composition mode"))
+def given_that_the_agent_uses_a_message_composition(
+    context: ContextOfTest,
+    agent_id: AgentId,
+    mode: str,
+) -> None:
+    context.sync_await(
+        context.container[AgentStore].update_agent(
+            agent_id,
+            {"composition_mode": cast(CompositionMode, mode)},
+        )
+    )

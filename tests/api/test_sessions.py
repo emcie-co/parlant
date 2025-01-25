@@ -23,7 +23,7 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from parlant.core.engines.alpha.message_event_generator import MessageEventSchema
+from parlant.core.engines.alpha.fluid_message_generator import MessageEventSchema
 from parlant.core.nlp.service import NLPService
 from parlant.core.tools import ToolResult
 from parlant.core.agents import AgentId

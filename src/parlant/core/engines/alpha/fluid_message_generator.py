@@ -118,7 +118,7 @@ class FluidMessageGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         assert len(agents) == 1
 
-        with self._logger.operation("[MessageEventGenerator] Message generation"):
+        with self._logger.operation("[MessageEventComposer][Fluid] Message generation"):
             if (
                 not interaction_history
                 and not ordinary_guideline_propositions
@@ -127,29 +127,9 @@ class FluidMessageGenerator(MessageEventComposer):
                 # No interaction and no guidelines that could trigger
                 # a proactive start of the interaction
                 self._logger.info(
-                    "[MessageEventGenerator] Skipping response; interaction is empty and there are no guidelines"
+                    "[MessageEventComposer][Fluid] Skipping response; interaction is empty and there are no guidelines"
                 )
                 return []
-
-            self._logger.debug(
-                f"""[MessageEventGenerator] Guidelines applied\n{
-                    json.dumps(
-                        [
-                            {
-                                "condition": p.guideline.content.condition,
-                                "action": p.guideline.content.action,
-                                "rationale": p.rationale,
-                                "score": p.score,
-                            }
-                            for p in chain(
-                                ordinary_guideline_propositions,
-                                tool_enabled_guideline_propositions.keys(),
-                            )
-                        ],
-                        indent=2,
-                    )
-                }"""
-            )
 
             prompt = self._format_prompt(
                 agents=agents,
@@ -182,7 +162,7 @@ class FluidMessageGenerator(MessageEventComposer):
 
             last_generation_exception: Exception | None = None
 
-            self._logger.debug(f"[MessageEventGenerator][Prompt]\n{prompt}")
+            self._logger.debug(f"[MessageEventComposer][Fluid][Prompt] \n{prompt}")
 
             for generation_attempt in range(3):
                 try:
@@ -195,7 +175,7 @@ class FluidMessageGenerator(MessageEventComposer):
 
                     if response_message is not None:
                         self._logger.debug(
-                            f'[MessageEventGenerator][GeneratedMessage] "{response_message}"'
+                            f'[MessageEventComposer][Fluid][GeneratedMessage] "{response_message}"'
                         )
 
                         event = await event_emitter.emit_message_event(
@@ -206,12 +186,12 @@ class FluidMessageGenerator(MessageEventComposer):
                         return [MessageEventComposition(generation_info, [event])]
                     else:
                         self._logger.debug(
-                            "[MessageEventGenerator] Skipping response; no response deemed necessary"
+                            "[MessageEventComposer][Fluid] Skipping response; no response deemed necessary"
                         )
                         return [MessageEventComposition(generation_info, [])]
                 except Exception as exc:
                     self._logger.warning(
-                        f"[MessageEventGenerator] Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                        f"[MessageEventComposer][Fluid] Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
                     )
                     last_generation_exception = exc
 
@@ -518,11 +498,11 @@ Produce a valid JSON object in the following format: ###
         )
 
         self._logger.debug(
-            f"[MessageEventGenerator][Completion]\n{message_event_response.content.model_dump_json(indent=2)}"
+            f"[MessageEventComposer][Fluid][Completion]\n{message_event_response.content.model_dump_json(indent=2)}"
         )
 
         if not message_event_response.content.produced_reply:
-            self._logger.debug("[MessageEventGenerator] Produced no reply")
+            self._logger.debug("[MessageEventComposer][Fluid] Produced no reply")
             return message_event_response.info, None
 
         if first_correct_revision := next(
@@ -551,12 +531,12 @@ Produce a valid JSON object in the following format: ###
         ) or final_revision.is_repeat_message:
             if not final_attempt:
                 self._logger.warning(
-                    f"[MessageEventGenerator] Trying again after problematic message generation: {final_revision.content}"
+                    f"[MessageEventComposer][Fluid] Trying again after problematic message generation: {final_revision.content}"
                 )
                 raise Exception("Retry with another attempt")
             else:
                 self._logger.warning(
-                    f"[MessageEventGenerator] Conceding despite problematic message generation: {final_revision.content}"
+                    f"[MessageEventComposer][Fluid] Conceding despite problematic message generation: {final_revision.content}"
                 )
 
         return message_event_response.info, str(final_revision.content)

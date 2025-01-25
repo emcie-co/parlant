@@ -3137,10 +3137,10 @@ async def async_main() -> None:
     )
     @click.option("--tool-caller", "-t", is_flag=True, help="Filter logs by [ToolCaller]")
     @click.option(
-        "--message-event-generator",
+        "--message-event-composer",
         "-m",
         is_flag=True,
-        help="Filter logs by [MessageEventGenerator]",
+        help="Filter logs by [MessageEventComposer]",
     )
     @click.option(
         "-a",
@@ -3176,7 +3176,7 @@ async def async_main() -> None:
         if tool_caller:
             union_pattern_list.append("[ToolCaller]")
         if message_event_generator:
-            union_pattern_list.append("[MessageEventGenerator]")
+            union_pattern_list.append("[MessageEventComposer]")
 
         Interface.stream_logs(ctx, union_pattern_list, list(intersection_patterns))
 

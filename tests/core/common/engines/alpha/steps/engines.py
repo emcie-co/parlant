@@ -149,7 +149,7 @@ def when_messages_are_emitted(
     match agent.composition_mode:
         case "fluid":
             message_event_composer = context.container[FluidMessageGenerator]
-        case "assembly" | "fluid-assembly":
+        case "strict-assembly" | "composited-assembly" | "fluid-assembly":
             message_event_composer = context.container[MessageAssembler]
 
     result = context.sync_await(

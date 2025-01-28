@@ -24,5 +24,5 @@ To sign off your commits:
 
 * Add the sign-off manually with:
    ```
-   Signed-off-by: Your Name your.email@example.com
+   Signed-off-by: Your Name <your.email@example.com>
    ```

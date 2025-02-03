@@ -146,8 +146,6 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 	};
 
 	const sessionActions = [
-		{title: 'rename', onClick: editTitle, imgPath: 'icons/rename.svg'},
-		{title: 'delete', onClick: deleteSession, imgPath: 'icons/delete.svg'},
 		{
 			title: 'copy ID',
 			onClick: (e: React.MouseEvent) => {
@@ -156,6 +154,8 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 			},
 			imgPath: 'icons/copy.svg',
 		},
+		{title: 'rename', onClick: editTitle, imgPath: 'icons/rename.svg'},
+		{title: 'delete', onClick: deleteSession, imgPath: 'icons/delete.svg'},
 	];
 	const agent = agentsMap.get(session.agent_id);
 	const customer = customerMap.get(session.customer_id);

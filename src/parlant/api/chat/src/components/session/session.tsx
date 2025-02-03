@@ -13,7 +13,8 @@ import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {spaceClick} from '@/utils/methods';
 import {twJoin} from 'tailwind-merge';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {copy} from '@/lib/utils';
 
 interface Props {
 	session: SessionInterface;
@@ -47,6 +48,7 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 	const [customerMap, setCustomerMap] = useState(new Map());
 	const [, setSession] = useAtom(sessionAtom);
 	const [, setAgent] = useAtom(agentAtom);
+	const [, setCustomer] = useAtom(customerAtom);
 	const [, setNewSession] = useAtom(newSessionAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
 	const [dialog] = useAtom(dialogAtom);
@@ -54,7 +56,10 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 	useEffect(() => {
 		if (!isSelected) return;
 		if (session.id === NEW_SESSION_ID && !session.agent_id) setAgent(null);
-		else setAgent(agents?.find((a) => a.id === session.agent_id) || null);
+		else {
+			setAgent(agents?.find((a) => a.id === session.agent_id) || null);
+			setCustomer(customers?.find((c) => c.id === session.customer_id) || null);
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isSelected, setAgent, session.id, session.agent_id, session.title]);
 
@@ -143,6 +148,14 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 	const sessionActions = [
 		{title: 'rename', onClick: editTitle, imgPath: 'icons/rename.svg'},
 		{title: 'delete', onClick: deleteSession, imgPath: 'icons/delete.svg'},
+		{
+			title: 'copy ID',
+			onClick: (e: React.MouseEvent) => {
+				e.stopPropagation();
+				copy(session.id);
+			},
+			imgPath: 'icons/copy.svg',
+		},
 	];
 	const agent = agentsMap.get(session.agent_id);
 	const customer = customerMap.get(session.customer_id);

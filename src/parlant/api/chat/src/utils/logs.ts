@@ -63,7 +63,7 @@ export const getMessageLogsWithFilters = (correlation_id: string, filters: {leve
 		if (validLevels && !validLevels.has(log.level)) return false;
 		if (pattern) {
 			const regex = new RegExp(pattern, 'i');
-			if (!regex.test(log.message)) return false;
+			if (!regex.test(`[${log.level}]${log.message}`)) return false;
 		}
 		if (filterTypes) {
 			const match = log.message.match(/^\[([^\]]+)\]/);

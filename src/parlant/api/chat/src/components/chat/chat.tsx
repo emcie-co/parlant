@@ -17,7 +17,7 @@ import MessageLogs from '../message-logs/message-logs';
 import {handleChatLogs} from '@/utils/logs';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import CopyText from '../ui/custom/copy-text';
 
 const emptyPendingMessage: () => EventInterface = () => ({
@@ -63,6 +63,7 @@ export default function Chat(): ReactElement {
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
+	const [customer] = useAtom(customerAtom);
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
 	const {data: lastMessages, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
@@ -233,17 +234,19 @@ export default function Chat(): ReactElement {
 					<HeaderWrapper className={twJoin('border-e')}>
 						{session?.id && (
 							<div className='w-full flex items-center h-full'>
-								<div className='h-full border-e flex-1 flex flex-col gap-[5px] ps-[23px] pt-[13px] leading-[20px]'>
-									<div className='font-medium text-[16px] text-[#656565]'>{session?.title}</div>
-									<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
-										<CopyText preText='Session ID:' text={` ${session?.id}`} textToCopy={session?.id} />
-									</div>
-								</div>
-								<div className='h-full flex-1 flex items-center ps-[24px]'>
+								<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
 									<div>
 										<div>{agent?.name}</div>
 										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
 											<CopyText preText='Agent ID:' text={` ${agent?.id}`} textToCopy={agent?.id} />
+										</div>
+									</div>
+								</div>
+								<div className='h-full flex-1 flex items-center ps-[24px]'>
+									<div>
+										<div>{customer?.name}</div>
+										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
+											<CopyText preText='Customer ID:' text={` ${customer?.id}`} textToCopy={customer?.id} />
 										</div>
 									</div>
 								</div>
@@ -256,7 +259,7 @@ export default function Chat(): ReactElement {
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
 								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor="bg-main" />}
+									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-main' />}
 									<div ref={lastMessageRef} className='flex flex-col'>
 										<Message
 											isRegenerateHidden={!!isMissingAgent}

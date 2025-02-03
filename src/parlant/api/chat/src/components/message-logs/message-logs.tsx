@@ -244,7 +244,7 @@ const MessageLogs = ({event, closeLogs, regenerateMessageFn}: {event?: EventInte
 				<div className='bg-[#EBECF0] p-[14px] pt-0 h-auto overflow-auto flex-1'>
 					<div ref={messagesRef} className='rounded-[14px] border-[10px] border-white h-full overflow-auto bg-white fixed-scroll'>
 						{filteredLogs.map((log, i) => (
-							<div key={i} className={twJoin('flex group relative font-ubuntu-mono rounded-[8px] items-center gap-[5px] px-[20px] p-[14px] border-white border text-[14px] transition-all hover:border-[#EDEDED] hover:bg-[#F5F6F8]')}>
+							<div key={i} className={twJoin('flex max-h-[30%] overflow-hidden group relative font-ubuntu-mono rounded-[8px] gap-[5px] px-[20px] p-[14px] border-white border text-[14px] transition-all hover:border-[#EDEDED] hover:bg-[#F5F6F8]')}>
 								<div className='absolute hidden group-hover:flex right-[10px] top-[10px] gap-[10px]'>
 									<Tooltip value='Copy' side='top'>
 										<Copy size={18} onClick={() => copy(log?.message || '')} className='cursor-pointer' />
@@ -253,7 +253,10 @@ const MessageLogs = ({event, closeLogs, regenerateMessageFn}: {event?: EventInte
 										<Fullscreen size={20} className='cursor-pointer' onClick={() => openLogs(log?.message || '')} />
 									</Tooltip>
 								</div>
-								<pre className={clsx('max-w-[-webkit-fill-available] pe-[10px] text-wrap')}>{log?.message}</pre>
+								<pre className={clsx('max-w-[-webkit-fill-available] pe-[10px] text-wrap')}>
+									{log?.level ? `[${log.level}]` : ''}
+									{log?.message}
+								</pre>
 							</div>
 						))}
 					</div>

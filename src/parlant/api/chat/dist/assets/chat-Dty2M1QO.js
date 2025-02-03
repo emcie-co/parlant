@@ -1,8 +1,10 @@
-<<<<<<<< HEAD:src/parlant/api/chat/dist/assets/chat-Bq7S7IXh.js
 import{c as tn,r as I,j as x,a as An,b as fr,g as Ui,t as Pe,d as pe,e as es,u as He,B as Ye,f as $i,h as gr,i as ts,k as ns,l as rs,C as is,D as ji,m as Hi,n as Gi,o as Ki,p as qi,q as Wi,I as as,s as mr,X as vt,T as kt,v as os,w as ss,J as wt,x as hr,y as br,z as ls,H as Vi,A as Yi,E as cs,N as rt,R as us,F as ds,G as ps,K as fs,L as cn,M as gs,O as ms,P as hs,Q as bs}from"./index-e2K0Q6_t.js";/**
 ========
 import{c as tn,r as I,j as x,a as An,b as fr,g as Ui,t as Pe,d as de,e as es,u as je,B as Ze,f as $i,h as gr,i as ts,k as ns,l as rs,C as is,D as ji,m as Hi,n as Gi,o as Ki,p as qi,q as Wi,I as as,s as mr,X as vt,T as kt,v as os,w as ss,J as wt,x as hr,y as br,z as ls,H as Vi,A as Yi,E as cs,N as rt,R as us,F as ds,G as ps,K as fs,L as cn,M as gs,O as ms,P as hs,Q as bs,S as xs}from"./index-gPXWfczq.js";/**
 >>>>>>>> c04e2d79 (npm build):src/parlant/api/chat/dist/assets/chat-DIfEX_f2.js
+=======
+import{c as tn,r as I,j as x,a as An,b as fr,g as Ui,t as Pe,d as de,e as es,u as je,B as Ze,f as $i,h as gr,i as ts,k as ns,l as rs,C as is,D as ji,m as Hi,n as Gi,o as Ki,p as qi,q as Wi,I as as,s as mr,X as vt,T as kt,v as os,w as ss,J as wt,x as hr,y as br,z as ls,H as Vi,A as Yi,E as cs,N as rt,R as us,F as ds,G as ps,K as fs,L as cn,M as gs,O as ms,P as hs,Q as bs,S as xs}from"./index-D3x3s192.js";/**
+>>>>>>> 8077424c (npm build):src/parlant/api/chat/dist/assets/chat-Dty2M1QO.js
  * @license lucide-react v0.453.0 - ISC
  *
  * This source code is licensed under the ISC license.

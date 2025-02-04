@@ -56,13 +56,14 @@ const Header = ({event, regenerateMessageFn, closeLogs, className}: {event: Even
 const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs}: FilterTabsFilterProps) => {
 	const [isEditing, setIsEditing] = useState(false);
 	const [inputVal, setInputVal] = useState('');
-	const deleteFilterTab = (id: number) => {
+
+	const deleteFilterTab = (id: number, index: number) => {
 		const filteredTabs = filterTabs.filter((t) => t.id !== id);
 		setFilterTabs(filteredTabs);
 
 		if (currFilterTabs === id) {
-			const firstTab = filteredTabs[0]?.id || null;
-			setTimeout(() => setCurrFilterTabs(firstTab), 0);
+			const newTab = filteredTabs?.[(index || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
+			setTimeout(() => setCurrFilterTabs(newTab), 0);
 		}
 	};
 
@@ -136,7 +137,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 								<X
 									role='button'
 									className={twJoin('size-[18px] group-hover:visible rounded-[3px]', tab.id !== currFilterTabs && 'invisible group-hover:visible', tab.id === currFilterTabs && isEditing && '!invisible')}
-									onClick={() => (tab.id !== currFilterTabs || !isEditing) && deleteFilterTab(tab.id)}
+									onClick={() => (tab.id !== currFilterTabs || !isEditing) && deleteFilterTab(tab.id, i)}
 								/>
 							)}
 							{/* {filterTabs.length > 0 && <img src='icons/close.svg' alt='close' className='h-[20px]' role='button' height={10} width={10} onClick={() => deleteFilterTab(tab.id)} />} */}
@@ -253,7 +254,8 @@ const MessageLogs = ({event, closeLogs, regenerateMessageFn}: {event?: EventInte
 										<Fullscreen size={20} className='cursor-pointer' onClick={() => openLogs(log?.message || '')} />
 									</Tooltip>
 								</div>
-								<pre className={clsx('max-w-[-webkit-fill-available] pe-[10px] text-wrap')}>
+								<pre className={clsx('max-w-[-webkit-fill-available] pe-[10px] text-wrap [mask-image:linear-gradient(to_bottom,white_60px,_transparent)]')}>
+									{' '}
 									{log?.level ? `[${log.level}]` : ''}
 									{log?.message}
 								</pre>

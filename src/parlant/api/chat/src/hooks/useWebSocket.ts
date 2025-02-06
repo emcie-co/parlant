@@ -7,7 +7,7 @@ interface WebSocketOptions {
 	onClose?: (event: CloseEvent) => void;
 }
 
-export const useWebSocket = (url: string, defaultRunning?: boolean, options?: WebSocketOptions) => {
+export const useWebSocket = (url: string, defaultRunning?: boolean, options?: WebSocketOptions | null, lastMessageFn?: (message: any) => void) => {
 	const [isConnected, setIsConnected] = useState(false);
 	const [lastMessage, setLastMessage] = useState<string | null>(null);
 	const [isRunning, setIsRunning] = useState(false);
@@ -52,7 +52,10 @@ export const useWebSocket = (url: string, defaultRunning?: boolean, options?: We
 
 		socket.addEventListener('message', (event) => {
 			const data = JSON.parse(event.data || '{}');
-			if (data?.correlation_id?.includes('::')) setLastMessage(event.data);
+			if (data?.correlation_id?.includes('::')) {
+				setLastMessage(event.data);
+				lastMessageFn?.(data);
+			}
 			options?.onMessage?.(event.data);
 		});
 

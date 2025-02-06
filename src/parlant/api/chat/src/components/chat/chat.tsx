@@ -5,7 +5,7 @@ import {Button} from '../ui/button';
 import {BASE_URL, deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
-import {EventInterface, Log, SessionInterface} from '@/utils/interfaces';
+import {EventInterface, SessionInterface} from '@/utils/interfaces';
 import {getDateStr} from '@/utils/date';
 import {Spacer} from '../ui/custom/spacer';
 import {toast} from 'sonner';
@@ -47,8 +47,9 @@ export default function Chat(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
 	const submitButtonRef = useRef<HTMLButtonElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const {lastMessage} = useWebSocket(`${BASE_URL}/logs`, true);
-
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	const _socket = useWebSocket(`${BASE_URL}/logs`, true, null, handleChatLogs);
+	void _socket;
 	const [message, setMessage] = useState('');
 	const [pendingMessage, setPendingMessage] = useState<EventInterface>(emptyPendingMessage());
 	const [lastOffset, setLastOffset] = useState(0);
@@ -75,11 +76,22 @@ export default function Chat(): ReactElement {
 		}
 	}, [agents, agent?.id]);
 
-	useEffect(() => {
-		if (lastMessage) {
-			handleChatLogs(JSON.parse(lastMessage) as Log);
-		}
-	}, [lastMessage]);
+	// useEffect(() => {
+	// 	if (lastMessage) {
+	// 		console.count('chat');
+	// 		console.log(2, lastMessage);
+	// 		// setWsQueue((queue: any) => [...queue, JSON.parse(lastMessage)]);
+	// 		handleChatLogs(JSON.parse(lastMessage) as Log);
+	// 	}
+	// }, [lastMessage]);
+
+	// useEffect(() => {
+	// 	if (wsQueue?.length) {
+	// 		const item = wsQueue.shift();
+	// 		setWsQueue(wsQueue);
+	// 		handleChatLogs(item as Log);
+	// 	}
+	// }, [wsQueue]);
 
 	const resetChat = () => {
 		setMessage('');

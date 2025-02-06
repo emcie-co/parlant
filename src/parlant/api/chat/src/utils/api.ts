@@ -1,4 +1,4 @@
-export const BASE_URL = 'http://localhost:8800';
+export const BASE_URL = '';
 
 const request = async (url: string, options: RequestInit = {}) => {
 	try {

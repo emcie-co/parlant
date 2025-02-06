@@ -31,6 +31,7 @@ interface FilterTabsFilterProps {
 	setCurrFilterTabs: React.Dispatch<React.SetStateAction<number | null>>;
 	setFilterTabs: React.Dispatch<React.SetStateAction<Filter[]>>;
 	currFilterTabs: number | null;
+	setFilters: React.Dispatch<React.SetStateAction<any>>;
 }
 
 const Header = ({event, regenerateMessageFn, closeLogs, className}: {event: EventInterface | null; regenerateMessageFn?: (messageId: string) => void; closeLogs?: VoidFunction; className?: ClassNameValue}) => {
@@ -60,7 +61,7 @@ const Header = ({event, regenerateMessageFn, closeLogs, className}: {event: Even
 	);
 };
 
-const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs}: FilterTabsFilterProps) => {
+const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs, setFilters}: FilterTabsFilterProps) => {
 	const [isEditing, setIsEditing] = useState(false);
 	const [inputVal, setInputVal] = useState('');
 
@@ -72,6 +73,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 			const newTab = filteredTabs?.[(index || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
 			setTimeout(() => setCurrFilterTabs(newTab), 0);
 		}
+		if (!filteredTabs.length) setFilters({});
 	};
 
 	const addFilter = () => {
@@ -239,7 +241,7 @@ const MessageLogs = ({event, closeLogs, regenerateMessageFn}: {event?: EventInte
 		<div className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 			<Header event={event || null} closeLogs={closeLogs} regenerateMessageFn={regenerateMessageFn} className={twJoin(event && logs && !logs?.length && 'bg-white', Object.keys(filters).length ? 'border-[#DBDCE0]' : '')} />
 			{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
-			{shouldRenderTabs && <FilterTabs currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
+			{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
 			{event && (
 				<LogFilters
 					className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}

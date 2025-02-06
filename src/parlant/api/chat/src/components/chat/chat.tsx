@@ -2,7 +2,7 @@ import React, {ReactElement, useEffect, useRef, useState} from 'react';
 import useFetch from '@/hooks/useFetch';
 import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
-import {BASE_URL, deleteData, postData} from '@/utils/api';
+import {deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
 import {EventInterface, SessionInterface} from '@/utils/interfaces';
@@ -12,9 +12,7 @@ import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twJoin, twMerge} from 'tailwind-merge';
-import {useWebSocket} from '@/hooks/useWebSocket';
 import MessageLogs from '../message-logs/message-logs';
-import {handleChatLogs} from '@/utils/logs';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
@@ -47,8 +45,7 @@ export default function Chat(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
 	const submitButtonRef = useRef<HTMLButtonElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const socket = useWebSocket(`${BASE_URL}/logs`, true, null, handleChatLogs);
-	void socket;
+
 	const [message, setMessage] = useState('');
 	const [pendingMessage, setPendingMessage] = useState<EventInterface>(emptyPendingMessage());
 	const [lastOffset, setLastOffset] = useState(0);

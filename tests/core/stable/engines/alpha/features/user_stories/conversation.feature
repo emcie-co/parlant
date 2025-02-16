@@ -100,7 +100,7 @@ Feature: Conversation
         When processing is triggered
         Then a single tool calls event is emitted
         And a single message event is emitted
-        And the message contains these flights:
+        And the message contains exactly these flights:
             | PUDW600P | 2025-07-04 | 2025-07-10 | Los Angeles | Denver |
             | CLPAJIHO | 2025-07-01 | 2025-07-10 | Los Angeles | Miami  |
             | 47U0BZFO | 2025-07-05 | 2025-07-15 | Houston     | Miami  |

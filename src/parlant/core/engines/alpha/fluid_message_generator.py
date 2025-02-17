@@ -191,7 +191,7 @@ class FluidMessageGenerator(MessageEventComposer):
         if not all_propositions:
             return """
 In formulating your reply, you are normally required to follow a number of behavioral guidelines.
-However, in this case, no special behavioral guidelines were provided. Therefore, when generating revisions,
+However, in this case, no special behavioral guidelines were provided. Therefore, when generating your response,
 you don't need to specifically double-check if you followed or broke any guidelines.
 """
         guidelines = []
@@ -283,25 +283,25 @@ In all other cases, even if the customer is indicating that the conversation is 
 
         builder.add_section(
             f"""
-REVISION MECHANISM
+MESSAGE GENERATION MECHANISM
 -----------------
 To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
 
 1. INSIGHT GATHERING
-   - Before starting revisions, identify up to three key insights from:
-     * Explicit or implicit customer requests
-     * Relevant principles from this prompt
-     * Notable patterns or conclusions from the interaction
-   - Each insight should be actionable and directly relevant to crafting the response
-   - Only include absolutely necessary insights; fewer is better
-   - Document insights' sources for traceability
+    - Before starting generating a response, identify up to three key insights from:
+        * Explicit or implicit customer requests
+        * Relevant principles from this prompt
+        * Notable patterns or conclusions from the interaction
+    - Each insight should be actionable and directly relevant to crafting the response
+    - Only include absolutely necessary insights; fewer is better
+    - Document insights' sources for traceability
 
 2. RESPONSE GENERATION
-   - Suggest a response based on:
-     * Primary customer needs
-     * Applicable guidelines
-     * Gathered insights
-   - Focus on addressing the core request first
+    - Suggest a response based on:
+        * Primary customer needs
+        * Applicable guidelines
+        * Gathered insights
+    - Focus on addressing the core request first
     The response should have either:
     - All guidelines and insights are satisfied, or
     - Guidelines that were not fulfilled are justified by:
@@ -531,7 +531,7 @@ example_1_expected = FluidMessageSchema(
 )
 
 example_1_shot = FluidMessageGeneratorShot(
-    description="A reply that took critique in a few revisions to get right",
+    description="Simple Example Using Markdown",
     expected_result=example_1_expected,
 )
 

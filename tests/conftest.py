@@ -74,7 +74,7 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
     FluidMessageGeneratorShot,
-    FluidMessageSchema,
+    MessageSchema,
 )
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
@@ -262,7 +262,7 @@ async def container(
 
         for generation_schema in (
             GuidelinePropositionsSchema,
-            FluidMessageSchema,
+            MessageSchema,
             AssembledMessageSchema,
             ToolCallInferenceSchema,
             ConditionsEntailmentTestsSchema,
@@ -337,12 +337,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[FluidMessageSchema]],
+        container[SchematicGenerator[MessageSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[FluidMessageSchema],
-            container[SchematicGenerator[FluidMessageSchema]],
+            CachedSchematicGenerator[MessageSchema],
+            container[SchematicGenerator[MessageSchema]],
         ).use_cache = False
 
     if isinstance(

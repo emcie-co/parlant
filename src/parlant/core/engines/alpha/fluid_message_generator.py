@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from enum import Enum
 from itertools import chain
 import json
 import traceback
@@ -40,6 +41,15 @@ from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
 
+class ReasoningMethod(Enum):
+    NONE = "None"
+    COT = "CoT"
+    ARQ = "ARQ"
+
+
+DEFAULT_REASONING_METHOD = ReasoningMethod.ARQ
+
+
 class ContextEvaluation(DefaultBaseModel):
     most_recent_customer_inquiries_or_needs: Optional[str] = None
     parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs: Optional[
@@ -62,7 +72,8 @@ class InstructionEvaluation(DefaultBaseModel):
     data_available: str
 
 
-class FluidMessageSchema(DefaultBaseModel):
+class MessageSchema(DefaultBaseModel):
+    response: str
     last_message_of_customer: Optional[str]
     produced_reply: Optional[bool] = True
     produced_reply_rationale: Optional[str] = ""
@@ -70,12 +81,11 @@ class FluidMessageSchema(DefaultBaseModel):
     context_evaluation: Optional[ContextEvaluation] = None
     insights: Optional[list[str]] = []
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
-    response: str
 
 
 @dataclass
 class FluidMessageGeneratorShot(Shot):
-    expected_result: FluidMessageSchema
+    expected_result: MessageSchema
 
 
 class FluidMessageGenerator(MessageEventComposer):
@@ -83,13 +93,16 @@ class FluidMessageGenerator(MessageEventComposer):
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
-        schematic_generator: SchematicGenerator[FluidMessageSchema],
+        schematic_generator: SchematicGenerator[MessageSchema],
     ) -> None:
         self._logger = logger
         self._correlator = correlator
         self._schematic_generator = schematic_generator
+        self.reasoning_method = DEFAULT_REASONING_METHOD  # TODO change to something smarter
 
     async def shots(self) -> Sequence[FluidMessageGeneratorShot]:
+        # TODO add ifs based on mode
+
         return await shot_collection.list()
 
     async def generate_events(
@@ -483,7 +496,7 @@ Produce a valid JSON object in the following format: ###
         return message_event_response.info, str(message_event_response.content.response)
 
 
-example_1_expected = FluidMessageSchema(
+example_1_expected = MessageSchema(
     last_message_of_customer="Hi, I'd like to know the schedule for the next trains to Boston, please.",
     produced_reply=True,
     guidelines=[
@@ -536,7 +549,7 @@ example_1_shot = FluidMessageGeneratorShot(
 )
 
 
-example_2_expected = FluidMessageSchema(
+example_2_expected = MessageSchema(
     last_message_of_customer="Alright, can I get the American burger with cheese?",
     guidelines=[
         "When the customer chooses and orders a burger, then provide it",
@@ -574,7 +587,7 @@ example_2_shot = FluidMessageGeneratorShot(
 )
 
 
-example_3_expected = FluidMessageSchema(
+example_3_expected = MessageSchema(
     last_message_of_customer="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the customer asks for a drink, check the menu and offer what's on it"],
     context_evaluation=ContextEvaluation(
@@ -611,7 +624,7 @@ example_3_shot = FluidMessageGeneratorShot(
 )
 
 
-example_4_expected = FluidMessageSchema(
+example_4_expected = MessageSchema(
     last_message_of_customer="This is not what I was asking for",
     guidelines=[],
     context_evaluation=ContextEvaluation(
@@ -636,7 +649,7 @@ example_4_shot = FluidMessageGeneratorShot(
 )
 
 
-example_5_expected = FluidMessageSchema(
+example_5_expected = MessageSchema(
     last_message_of_customer=(
         "How much money do I have in my account, and how do you know it? Is there some service you use to check "
         "my balance? Can I access it too?"
@@ -678,7 +691,7 @@ example_5_shot = FluidMessageGeneratorShot(
 )
 
 
-example_6_expected = FluidMessageSchema(
+example_6_expected = MessageSchema(
     last_message_of_customer=(
         "Alright I have the documents ready, how can I send them to you guys?"
     ),
@@ -700,7 +713,7 @@ example_6_shot = FluidMessageGeneratorShot(
     expected_result=example_6_expected,
 )
 
-example_7_expected = FluidMessageSchema(
+example_7_expected = MessageSchema(
     last_message_of_customer=("Hey, how can I contact customer support?"),
     guidelines=[],
     context_evaluation=ContextEvaluation(
@@ -729,7 +742,7 @@ example_7_shot = FluidMessageGeneratorShot(
 )
 
 
-example_8_expected = FluidMessageSchema(
+example_8_expected = MessageSchema(
     last_message_of_customer="I don't have any android devices, and I do not want to buy a ticket at the moment. Now, what flights are there from New York to Los Angeles tomorrow?",
     guidelines=[
         "When asked anything about plane tickets, suggest completing the order on our android app",
@@ -786,7 +799,7 @@ example_8_shot = FluidMessageGeneratorShot(
     expected_result=example_8_expected,
 )
 
-example_9_expected = FluidMessageSchema(
+example_9_expected = MessageSchema(
     last_message_of_customer=("You are not being helpful. Transfer me to a human."),
     guidelines=[],
     context_evaluation=ContextEvaluation(

@@ -92,7 +92,7 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
     FluidMessageGeneratorShot,
-    FluidMessageSchema,
+    MessageSchema,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
@@ -379,9 +379,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     c[SchematicGenerator[GuidelinePropositionsSchema]] = await nlp_service.get_schematic_generator(
         GuidelinePropositionsSchema
     )
-    c[SchematicGenerator[FluidMessageSchema]] = await nlp_service.get_schematic_generator(
-        FluidMessageSchema
-    )
+    c[SchematicGenerator[MessageSchema]] = await nlp_service.get_schematic_generator(MessageSchema)
     c[SchematicGenerator[AssembledMessageSchema]] = await nlp_service.get_schematic_generator(
         AssembledMessageSchema
     )
@@ -434,7 +432,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     c[FluidMessageGenerator] = FluidMessageGenerator(
         c[Logger],
         c[ContextualCorrelator],
-        c[SchematicGenerator[FluidMessageSchema]],
+        c[SchematicGenerator[MessageSchema]],
     )
 
     c[ToolEventGenerator] = ToolEventGenerator(

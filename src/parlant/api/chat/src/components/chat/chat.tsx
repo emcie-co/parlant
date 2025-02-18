@@ -5,7 +5,7 @@ import {Button} from '../ui/button';
 import {deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
-import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
+import {AgentInterface, EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
 import {getDateStr} from '@/utils/date';
 import {Spacer} from '../ui/custom/spacer';
 import {toast} from 'sonner';
@@ -19,6 +19,7 @@ import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessio
 import CopyText from '../ui/custom/copy-text';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ProgressImage from '../progress-logo/progress-logo';
+import AgentAvatar from '../agent-avatar/agent-avatar';
 
 const emptyPendingMessage: () => EventInterface = () => ({
 	kind: 'message',
@@ -251,6 +252,7 @@ export default function Chat(): ReactElement {
 						{session?.id && (
 							<div className='w-full flex items-center h-full'>
 								<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
+									<AgentAvatar agent={agent as AgentInterface} />
 									<div>
 										<div>{agent?.name}</div>
 										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
@@ -259,6 +261,7 @@ export default function Chat(): ReactElement {
 									</div>
 								</div>
 								<div className='h-full flex-1 flex items-center ps-[24px]'>
+									<AgentAvatar agent={customer as AgentInterface} />
 									<div>
 										<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>
 										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>

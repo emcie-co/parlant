@@ -37,9 +37,9 @@ const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
 	return (
 		<Tooltip value={`${agent.name} / ${!customer?.name || isGuest ? 'Guest' : customer.name}`} side='right' style={style}>
 			<div className='relative'>
-				<div className='size-[44px] rounded-[6.5px] flex me-[10px] items-center justify-center'>
+				<div className='size-[44px] rounded-[6.5px] flex me-[10px] items-center justify-center' style={{background: agentColor.background}}>
 					<div
-						style={{background: agentColor.background, color: agentColor.agentName}}
+						style={{background: customer ? '' : agentColor.background, color: agentColor.agentName}}
 						aria-label={'agent ' + agent.name}
 						className={twMerge('size-[36px] rounded-[5px] flex items-center justify-center text-white text-[20px] font-semibold', isAgentUnavailable && 'text-[14px] !bg-gray-300')}>
 						{isAgentUnavailable ? 'N/A' : agentFirstLetter}

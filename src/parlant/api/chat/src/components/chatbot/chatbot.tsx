@@ -1,5 +1,5 @@
 import {createContext, lazy, ReactElement, Suspense, useEffect, useState} from 'react';
-import Sessions from '../sessions/sessions';
+import Sessions from '../session-list/session-list';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
 import {useDialog} from '@/hooks/useDialog';
@@ -12,7 +12,7 @@ import {dialogAtom, sessionAtom} from '@/store';
 export const SessionProvider = createContext({});
 
 export default function Chatbot(): ReactElement {
-	const Chat = lazy(() => import('../chat/chat'));
+	const SessionView = lazy(() => import('../session-view/session-view'));
 	const [sessionName, setSessionName] = useState<string | null>('');
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
@@ -54,7 +54,7 @@ export default function Chatbot(): ReactElement {
 						<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (
 								<Suspense>
-									<Chat />
+									<SessionView />
 								</Suspense>
 							) : (
 								<HeaderWrapper />

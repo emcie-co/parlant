@@ -4,7 +4,7 @@ import {spaceClick} from '@/utils/methods';
 import AgentList from '../agents-list/agent-list';
 import {Menu} from 'lucide-react';
 import {Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger} from '../ui/sheet';
-import Sessions from '../sessions/sessions';
+import Sessions from '../session-list/session-list';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {agentAtom, dialogAtom, sessionAtom} from '@/store';

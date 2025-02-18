@@ -17,6 +17,7 @@ export default function Chatbot(): ReactElement {
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
+	const [filterSessionVal, setFilterSessionVal] = useState('');
 
 	useEffect(() => {
 		if (session?.id) {
@@ -43,12 +44,12 @@ export default function Chatbot(): ReactElement {
 						<p className='text-[26.96px] font-bold'>Parlant</p>
 					</div>
 					<div className='hidden max-mobile:block rounded-[16px]'>
-						<ChatHeader />
+						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
 					<div className='flex justify-between flex-1 gap-[14px] w-full overflow-auto flex-row p-[14px] bg-[#f4f5f9]'>
-						<div className='bg-white h-full pb-4 rounded-[16px] border-solid w-[332px] max-mobile:hidden z-[11] border-e'>
-							<ChatHeader />
-							<Sessions />
+						<div className='bg-white h-full pb-4 rounded-[16px] border-solid w-[352px] max-mobile:hidden z-[11] border-e'>
+							<ChatHeader setFilterSessionVal={setFilterSessionVal} />
+							<Sessions filterSessionVal={filterSessionVal} />
 						</div>
 						<div className='h-full w-[calc(100vw-332px)] bg-white rounded-[16px] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (

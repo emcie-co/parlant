@@ -8,11 +8,12 @@ import Sessions from '../sessions/sessions';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {agentAtom, dialogAtom, sessionAtom} from '@/store';
+import {Input} from '../ui/input';
 // import DarkModeToggle from '../dark-mode-toggle/dark-mode-toggle';
 
 export const NEW_SESSION_ID = 'NEW_SESSION';
 
-const ChatHeader = (): ReactNode => {
+const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNode => {
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [, setAgent] = useAtom(agentAtom);
@@ -31,7 +32,7 @@ const ChatHeader = (): ReactNode => {
 
 	return (
 		<HeaderWrapper className='z-60 overflow-visible rounded-[16px]'>
-			<div className='w-[332px] border-b rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center justify-between bg-white'>
+			<div className='w-[352px] border-b rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center max-mobile:justify-between bg-white'>
 				<div className='flex items-center min-[751px]:hidden'>
 					<div>
 						<Sheet open={sheetOpen} onOpenChange={() => setSheetOpen(!sheetOpen)}>
@@ -48,20 +49,20 @@ const ChatHeader = (): ReactNode => {
 						</Sheet>
 					</div>
 				</div>
-				<div className='flex items-center'>
-					<img src='/chat/parlant-bubble-app-logo.svg' alt='logo' aria-hidden height={17.9} width={20.89} className='ms-[24px] me-[6px] max-mobile:ms-0' />
-					<p className='text-[19.4px] font-bold'>Parlant</p>
+				<div className='flex items-center ps-[12px] relative'>
+					<img src='icons/search.svg' alt='' className='absolute left-[24px]' />
+					<Input onChange={(e) => setFilterSessionVal(e.target.value)} className='h-[38px] w-[250px] ps-[35px] rounded-[10px]' />
 				</div>
-				<div className='group me-[24px]'>
+				<div className='group ms-[8px]'>
 					<Tooltip value='New Session' side='right'>
 						<div
 							tabIndex={1}
 							role='button'
 							onKeyDown={spaceClick}
 							onClick={createNewSession}
-							className='hover:bg-[#F3F5F9] cursor-pointer py-[9px] ps-[12px] rounded-[10px] border border-transparent hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'>
-							<img src='icons/new-session.svg' alt='add session' height={20} width={20} className='cursor-pointer' />
-							<div className='font-medium'>New</div>
+							className='hover:bg-[#F3F5F9] w-[70px] cursor-pointer py-[9px] h-[38px] ps-[12px] rounded-[10px] border hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'>
+							<img src='icons/new-session.svg' alt='add session' height={15} width={15} className='cursor-pointer' />
+							<div className='font-medium text-[14px]'>New</div>
 						</div>
 					</Tooltip>
 				</div>
@@ -70,7 +71,7 @@ const ChatHeader = (): ReactNode => {
 				<div className='bg-red-300 flex-1'>A</div>
 				<div className='bg-transparent flex-1'></div>
 			</div> */}
-			{/* <div className='w-[332px] h-[70px] flex items-center justify-end me-4'>
+			{/* <div className='w-[352px] h-[70px] flex items-center justify-end me-4'>
                 <DarkModeToggle/>
             </div> */}
 		</HeaderWrapper>

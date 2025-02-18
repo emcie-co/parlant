@@ -1,15 +1,15 @@
 import {Dispatch, ReactElement, SetStateAction, useEffect, useRef, useState} from 'react';
-import {Input} from '../ui/input';
-import Tooltip from '../ui/custom/tooltip';
-import {Button} from '../ui/button';
+import {Input} from '../../ui/input';
+import Tooltip from '../../ui/custom/tooltip';
+import {Button} from '../../ui/button';
 import {deleteData, patchData} from '@/utils/api';
 import {toast} from 'sonner';
 import {SessionInterface} from '@/utils/interfaces';
-import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
+import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
-import styles from './session.module.scss';
-import AgentAvatar from '../agent-avatar/agent-avatar';
-import {NEW_SESSION_ID} from '../chat-header/chat-header';
+import styles from './session-list-item.module.scss';
+import AgentAvatar from '../../agent-avatar/agent-avatar';
+import {NEW_SESSION_ID} from '../../chat-header/chat-header';
 import {spaceClick} from '@/utils/methods';
 import {twJoin} from 'tailwind-merge';
 import {useAtom} from 'jotai';
@@ -28,7 +28,7 @@ interface Props {
 
 export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: SessionInterface; closeDialog: () => void; deleteClicked: (e: React.MouseEvent) => Promise<void> | undefined}) => (
 	<div data-testid='deleteDialogContent'>
-		<Session session={session} disabled />
+		<SessionListItem session={session} disabled />
 		<div className='h-[80px] flex items-center justify-end pe-[18px]'>
 			<Button data-testid='cancel-delete' onClick={closeDialog} className='h-[46px] w-[96px] !bg-white text-[#656565] hover:text-[#151515] rounded-[6px] py-[12px] px-[24px] me-[10px] text-[16px] font-normal border'>
 				Cancel
@@ -40,7 +40,7 @@ export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: Se
 	</div>
 );
 
-export default function Session({session, isSelected, refetch, editingTitle, setEditingTitle, tabIndex, disabled}: Props): ReactElement {
+export default function SessionListItem({session, isSelected, refetch, editingTitle, setEditingTitle, tabIndex, disabled}: Props): ReactElement {
 	const sessionNameRef = useRef<HTMLInputElement>(null);
 	const [agents] = useAtom(agentsAtom);
 	const [customers] = useAtom(customersAtom);

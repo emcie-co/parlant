@@ -1,5 +1,4 @@
 import {createContext, lazy, ReactElement, Suspense, useEffect, useState} from 'react';
-import Sessions from '../sessions/sessions';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
 import {useDialog} from '@/hooks/useDialog';
@@ -8,11 +7,12 @@ import {NEW_SESSION_ID} from '../agents-list/agent-list';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {dialogAtom, sessionAtom} from '@/store';
+import SessionList from '../session-list/session-list';
 
 export const SessionProvider = createContext({});
 
 export default function Chatbot(): ReactElement {
-	const Chat = lazy(() => import('../chat/chat'));
+	const SessionView = lazy(() => import('../session-view/session-view'));
 	const [sessionName, setSessionName] = useState<string | null>('');
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
@@ -44,12 +44,12 @@ export default function Chatbot(): ReactElement {
 					<div className='flex justify-between flex-1 w-full overflow-auto flex-row'>
 						<div className='bg-white h-full pb-4 border-solid w-[332px] max-mobile:hidden z-[11] border-e'>
 							<ChatHeader />
-							<Sessions />
+							<SessionList />
 						</div>
 						<div className='h-full w-[calc(100vw-332px)] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (
 								<Suspense>
-									<Chat />
+									<SessionView />
 								</Suspense>
 							) : (
 								<HeaderWrapper />

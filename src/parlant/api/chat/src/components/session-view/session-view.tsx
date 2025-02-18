@@ -3,10 +3,7 @@ import useFetch from '@/hooks/useFetch';
 import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
 import {deleteData, postData} from '@/utils/api';
-import {groupBy} from '@/utils/obj';
-import Message from '../message/message';
-import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
-import {getDateStr} from '@/utils/date';
+import {EventInterface, SessionInterface} from '@/utils/interfaces';
 import {Spacer} from '../ui/custom/spacer';
 import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
@@ -18,7 +15,7 @@ import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import CopyText from '../ui/custom/copy-text';
 import ErrorBoundary from '../error-boundary/error-boundary';
-import ProgressImage from '../progress-logo/progress-logo';
+import Messages from './messages/messages';
 
 const emptyPendingMessage: () => EventInterface = () => ({
 	kind: 'message',
@@ -32,18 +29,7 @@ const emptyPendingMessage: () => EventInterface = () => ({
 	},
 });
 
-const DateHeader = ({date, isFirst, bgColor}: {date: string | Date; isFirst: boolean; bgColor?: string}): ReactElement => {
-	return (
-		<div className={twMerge('text-center flex min-h-[30px] z-[1] bg-main h-[30px] pb-[4px] ps-[10px] mb-[60px] pt-[4px] mt-[76px] sticky -top-[1px]', isFirst && 'pt-[1px] !mt-0', bgColor)}>
-			<div className='[box-shadow:0_-0.6px_0px_0px_#EBECF0] h-full -translate-y-[-50%] flex-1 ' />
-			<div className='w-[136px] border-[0.6px] border-muted font-light text-[12px] bg-white text-[#656565] flex items-center justify-center rounded-[6px]'>{getDateStr(date)}</div>
-			<div className='[box-shadow:0_-0.6px_0px_0px_#EBECF0] h-full -translate-y-[-50%] flex-1' />
-		</div>
-	);
-};
-
-export default function Chat(): ReactElement {
-	const lastMessageRef = useRef<HTMLDivElement>(null);
+export default function SessionView(): ReactElement {
 	const submitButtonRef = useRef<HTMLButtonElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -52,8 +38,6 @@ export default function Chat(): ReactElement {
 	const [lastOffset, setLastOffset] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
-	const [showThinking, setShowThinking] = useState(false);
-	const [isFirstScroll, setIsFirstScroll] = useState(true);
 	const {openQuestionDialog, closeQuestionDialog} = useQuestionDialog();
 	const [useContentFiltering] = useState(true);
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
@@ -65,7 +49,7 @@ export default function Chat(): ReactElement {
 	const [customer] = useAtom(customerAtom);
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
-	const {data: lastMessages, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
+	const {data: lastEvents, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
 
 	useEffect(() => {
 		if (agents && agent?.id) {
@@ -142,56 +126,15 @@ export default function Chat(): ReactElement {
 		resendMessage(index - 1, sessionId, offset);
 	};
 
-	useEffect(() => {
-		lastMessageRef?.current?.scrollIntoView?.({behavior: isFirstScroll ? 'instant' : 'smooth'});
-		if (lastMessageRef?.current && isFirstScroll) setIsFirstScroll(false);
-	}, [messages, pendingMessage, isFirstScroll]);
-
-	useEffect(() => {
-		setIsFirstScroll(true);
+	const resetSession = () => {
 		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
 		resetChat();
 		if (session?.id !== NEW_SESSION_ID) refetch();
 		textareaRef?.current?.focus();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [session?.id]);
+	};
 
-	useEffect(() => {
-		if (session?.id === NEW_SESSION_ID) return;
-		const lastEvent = lastMessages?.at(-1);
-		if (!lastEvent) return;
-		const offset = lastEvent?.offset;
-		if (offset || offset === 0) setLastOffset(offset + 1);
-		const correlationsMap = groupBy(lastMessages || [], (item: EventInterface) => item?.correlation_id.split('::')[0]);
-		const newMessages = lastMessages?.filter((e) => e.kind === 'message') || [];
-		const withStatusMessages = newMessages.map((newMessage, i) => {
-			const data: EventInterface = {...newMessage};
-			const item = correlationsMap?.[newMessage.correlation_id.split('::')[0]]?.at(-1)?.data;
-			data.serverStatus = (item?.status || (newMessages[i + 1] ? 'ready' : null)) as ServerStatus;
-			if (data.serverStatus === 'error') data.error = item?.data?.exception;
-			return data;
-		});
-
-		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage);
-		setMessages((messages) => {
-			const last = messages.at(-1);
-			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
-				last.serverStatus = correlationsMap[last.correlation_id].at(-1)?.data?.status || last.serverStatus;
-				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
-			}
-			if (withStatusMessages && pendingMessage) setPendingMessage(emptyPendingMessage);
-			return [...messages, ...withStatusMessages] as EventInterface[];
-		});
-
-		const lastEventStatus = lastEvent?.data?.status;
-
-		setShowThinking(!!messages?.length && lastEventStatus === 'processing');
-		setShowTyping(lastEventStatus === 'typing');
-
-		refetch();
-
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [lastMessages]);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(resetSession, [session?.id]);
 
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
@@ -223,19 +166,12 @@ export default function Chat(): ReactElement {
 			.catch(() => toast.error('Something went wrong'));
 	};
 
-	const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+	const handleKeydownInMessageInput = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			submitButtonRef?.current?.click();
 		} else if (e.key === 'Enter' && e.shiftKey) e.preventDefault();
 	};
-
-	const isSameDay = (dateA: string | Date, dateB: string | Date): boolean => {
-		if (!dateA) return false;
-		return new Date(dateA).toLocaleDateString() === new Date(dateB).toLocaleDateString();
-	};
-
-	const visibleMessages = session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
 
 	const showLogs = (i: number) => (event: EventInterface) => {
 		event.index = i;
@@ -270,35 +206,21 @@ export default function Chat(): ReactElement {
 					</HeaderWrapper>
 					<div className={twMerge('h-[21px] bg-white border-e border-t-0 bg-main')}></div>
 					<div className={twMerge('flex flex-col items-center bg-white h-[calc(100%-70px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
-						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
-							{ErrorTemplate && <ErrorTemplate />}
-							{visibleMessages.map((event, i) => (
-								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-main' />}
-									<div ref={lastMessageRef} className='flex flex-col'>
-										<Message
-											isRegenerateHidden={!!isMissingAgent}
-											event={event}
-											isContinual={event.source === visibleMessages[i + 1]?.source}
-											regenerateMessageFn={regenerateMessageDialog(i)}
-											resendMessageFn={resendMessageDialog(i)}
-											showLogsForMessage={showLogsForMessage}
-											showLogs={showLogs(i)}
-										/>
-									</div>
-								</React.Fragment>
-							))}
-							{(showTyping || showThinking) && (
-								<div className='animate-fade-in flex mb-1 justify-between mt-[44.33px]'>
-									<Spacer />
-									<div className='flex items-center max-w-[1200px] flex-1'>
-										<ProgressImage phace={showThinking ? 'thinking' : 'typing'} />
-										<p className='font-medium text-[#A9AFB7] text-[11px] font-inter'>{showTyping ? 'Typing...' : 'Thinking...'}</p>
-									</div>
-									<Spacer />
-								</div>
-							)}
-						</div>
+						<Messages
+							ErrorTemplate={ErrorTemplate}
+							lastEvents={lastEvents}
+							setShowTyping={setShowTyping}
+							setLastOffset={setLastOffset}
+							refetch={refetch}
+							showTyping={showTyping}
+							isMissingAgent={isMissingAgent}
+							pendingMessage={pendingMessage}
+							regenerateMessageDialog={regenerateMessageDialog}
+							resendMessageDialog={resendMessageDialog}
+							setPendingMessage={setPendingMessage}
+							showLogs={showLogs}
+							showLogsForMessage={showLogsForMessage}
+						/>
 						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 							<Spacer />
 							<div className='group border flex-1 border-muted border-solid rounded-full flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
@@ -308,18 +230,12 @@ export default function Chat(): ReactElement {
 									ref={textareaRef}
 									placeholder='Message...'
 									value={message}
-									onKeyDown={onKeyDown}
+									onKeyDown={handleKeydownInMessageInput}
 									onChange={(e) => setMessage(e.target.value)}
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 								/>
-								<Button
-									variant='ghost'
-									data-testid='submit-button'
-									className='max-w-[60px] rounded-full hover:bg-white'
-									ref={submitButtonRef}
-									disabled={!message?.trim() || !agent?.id || showThinking || showTyping}
-									onClick={() => postMessage(message)}>
+								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 								</Button>
 							</div>

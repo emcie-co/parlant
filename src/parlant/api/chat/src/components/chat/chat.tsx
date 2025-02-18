@@ -269,13 +269,13 @@ export default function Chat(): ReactElement {
 							</div>
 						)}
 					</HeaderWrapper>
-					<div className={twMerge('h-[21px] bg-white border-e border-t-0 bg-main')}></div>
-					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white max-h-[calc(100%-70px-58px-21px)] h-[calc(100%-70px-58px-21px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
+					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>
+					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white max-h-[calc(100%-70px-58px-21px)] h-[calc(100%-70px-58px-21px)] mx-auto w-full flex-1 overflow-auto border-e')}>
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
 								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-main' />}
+									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
 									<div ref={lastMessageRef} className='flex flex-col'>
 										<Message
 											isRegenerateHidden={!!isMissingAgent}
@@ -314,13 +314,7 @@ export default function Chat(): ReactElement {
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 								/>
-								<Button
-									variant='ghost'
-									data-testid='submit-button'
-									className='max-w-[60px] rounded-full hover:bg-white'
-									ref={submitButtonRef}
-									disabled={!message?.trim() || !agent?.id || showThinking || showTyping}
-									onClick={() => postMessage(message)}>
+								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 								</Button>
 							</div>

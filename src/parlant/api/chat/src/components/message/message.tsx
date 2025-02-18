@@ -84,20 +84,21 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 							data-testid='message'
 							onClick={() => showLogs(event)}
 							className={twMerge(
-								isCustomer && 'text-black !rounded-br-none !rounded-tr-[22px] hover:bg-[#F5F6F8] cursor-pointer',
+								'bg-[#F6F6F6]',
+								isCustomer && 'text-black hover:bg-[#F5F6F8] cursor-pointer',
 								isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33] !border-[0.6px]',
-								!isCustomer && '!rounded-bl-none bg-transparent  rounded-tl-[22px] hover:bg-[#F5F6F8] cursor-pointer',
-								isContinual && '!rounded-br-[26px] !rounded-bl-[26px] !rounded-tl-[26px] !rounded-tr-[26px]',
+								!isCustomer && ' hover:bg-[#F5F6F8] cursor-pointer',
 								showLogsForMessage && showLogsForMessage.id === event.id && (isCustomer ? 'border-[#656565] !bg-white [box-shadow:4.5px_6px_0px_0px_#DBDCE0]' : 'border-[#656565] !bg-white [box-shadow:-4.5px_6px_0px_0px_#DBDCE0]'),
 								isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
-								'rounded-[26px] max-w-fit peer w-fit flex items-center relative border-[1.3px] border-muted border-solid'
+								'max-w-fit peer w-fit flex items-center relative',
+								isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
 							)}>
-							<div className={twMerge('markdown overflow-auto relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] ps-[32px] pe-[38px]', isOneLiner ? '!pb-[22px] !pt-[18px]' : 'pb-[24px] pt-[20px]')}>
+							<div className={twMerge('markdown overflow-auto relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 								<span ref={markdownRef}>
 									<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
 								</span>
 							</div>
-							<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pb-[16px] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? '!pb-[10px] ps-[12px]' : '')}>
+							<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}>
 								<div className={twJoin('flex items-center justify-end', isCustomer && 'w-[46px]')}>{isCustomer && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}</div>
 							</div>
 						</div>

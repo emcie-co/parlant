@@ -44,8 +44,8 @@ export default function Sessions({filterSessionVal}: {filterSessionVal: string})
 	}, [filterSessionVal, sessions]);
 
 	return (
-		<div className='flex flex-col items-center h-[calc(100%-70px)] border-e'>
-			<div data-testid='sessions' className='bg-white flex-1 justify-center w-[352px] overflow-auto'>
+		<div className='flex flex-col items-center h-[calc(100%-70px-58px)] border-e '>
+			<div data-testid='sessions' className='bg-white flex-1 justify-center w-[352px] overflow-auto rounded-es-[16px] rounded-ee-[16px]'>
 				{loading && !sessions?.length && <div>loading...</div>}
 				<VirtualScroll height='80px' className='flex flex-col-reverse'>
 					{filteredSessions.map((s, i) => (

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {AgentInterface, CustomerInterface} from '@/utils/interfaces';
 import React, {ReactNode} from 'react';
 import Tooltip from '../ui/custom/tooltip';
@@ -17,14 +18,14 @@ const colors = [
 	{agentName: '#419480', customerName: '#2D806C', background: '#87DAC61A'},
 ];
 
-const getAvatarColor = (agentId: string) => {
+export const getAvatarColor = (agentId: string) => {
 	const hash = [...agentId].reduce((acc, char) => acc + char.charCodeAt(0), 0);
 	return colors[hash % colors.length];
 };
 
 const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
 	const agentColor = getAvatarColor(agent.id);
-	// const customerBackground = customer && getAvatarColor(customer.id);
+	const customerColor = customer && getAvatarColor(customer.id);
 	const isAgentUnavailable = agent?.name === 'N/A';
 	const isCustomerUnavailable = customer?.name === 'N/A';
 	const agentFirstLetter = agent.name === '<guest>' ? 'G' : agent.name[0].toUpperCase();
@@ -46,7 +47,7 @@ const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
 				</div>
 				{customer && (
 					<div
-						style={{background: agentColor?.customerName, color: 'white'}}
+						style={{background: customerColor?.customerName, color: 'white'}}
 						aria-label={'customer ' + customer.name}
 						className={twMerge('absolute me-[3px] size-[16px] rounded-[3.75px] flex items-center justify-center text-white text-[12px] font-semibold bottom-[2px] right-[5px] z-10', isCustomerUnavailable && 'text-[8px] !bg-gray-300')}>
 						{isCustomerUnavailable ? 'N/A' : customerFirstLetter}

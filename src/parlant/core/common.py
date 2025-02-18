@@ -40,7 +40,6 @@ class DefaultBaseModel(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="forbid",
         validate_default=True,
         model_title_generator=_without_dto_suffix,
     )

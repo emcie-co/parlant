@@ -37,16 +37,20 @@ export default function Chatbot(): ReactElement {
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
-				<div data-testid='chatbot' className='main bg-main h-screen flex flex-col'>
-					<div className='hidden max-mobile:block'>
+				<div data-testid='chatbot' className='main bg-main h-screen flex flex-col rounded-[16px]'>
+					<div className='flex items-center bg-[#f4f5f9] pt-[16px]'>
+						<img src='/chat/parlant-bubble-app-logo.svg' alt='logo' aria-hidden height={25} width={30} className='ms-[24px] me-[6px] max-mobile:ms-0' />
+						<p className='text-[26.96px] font-bold'>Parlant</p>
+					</div>
+					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader />
 					</div>
-					<div className='flex justify-between flex-1 w-full overflow-auto flex-row'>
-						<div className='bg-white h-full pb-4 border-solid w-[332px] max-mobile:hidden z-[11] border-e'>
+					<div className='flex justify-between flex-1 gap-[14px] w-full overflow-auto flex-row p-[14px] bg-[#f4f5f9]'>
+						<div className='bg-white h-full pb-4 rounded-[16px] border-solid w-[332px] max-mobile:hidden z-[11] border-e'>
 							<ChatHeader />
 							<Sessions />
 						</div>
-						<div className='h-full w-[calc(100vw-332px)] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
+						<div className='h-full w-[calc(100vw-332px)] bg-white rounded-[16px] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (
 								<Suspense>
 									<Chat />

@@ -30,8 +30,8 @@ const ChatHeader = (): ReactNode => {
 	};
 
 	return (
-		<HeaderWrapper className='z-60 overflow-visible'>
-			<div className='w-[332px] border-b boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center justify-between bg-white'>
+		<HeaderWrapper className='z-60 overflow-visible rounded-[16px]'>
+			<div className='w-[332px] border-b rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center justify-between bg-white'>
 				<div className='flex items-center min-[751px]:hidden'>
 					<div>
 						<Sheet open={sheetOpen} onOpenChange={() => setSheetOpen(!sheetOpen)}>

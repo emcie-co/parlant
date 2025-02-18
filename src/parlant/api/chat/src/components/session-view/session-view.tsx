@@ -6,19 +6,18 @@ import {deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
 import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
-import {getDateStr} from '@/utils/date';
 import {Spacer} from '../ui/custom/spacer';
 import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {useQuestionDialog} from '@/hooks/useQuestionDialog';
-import {twJoin, twMerge} from 'tailwind-merge';
+import {twMerge} from 'tailwind-merge';
 import MessageLogs from '../message-logs/message-logs';
-import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
-import CopyText from '../ui/custom/copy-text';
+import {agentAtom, agentsAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ProgressImage from '../progress-logo/progress-logo';
+import DateHeader from './date-header/date-header';
+import SessoinViewHeader from './session-view-header/session-view-header';
 
 const emptyPendingMessage: () => EventInterface = () => ({
 	kind: 'message',
@@ -31,16 +30,6 @@ const emptyPendingMessage: () => EventInterface = () => ({
 		message: '',
 	},
 });
-
-const DateHeader = ({date, isFirst, bgColor}: {date: string | Date; isFirst: boolean; bgColor?: string}): ReactElement => {
-	return (
-		<div className={twMerge('text-center flex min-h-[30px] z-[1] bg-main h-[30px] pb-[4px] ps-[10px] mb-[60px] pt-[4px] mt-[76px] sticky -top-[1px]', isFirst && 'pt-[1px] !mt-0', bgColor)}>
-			<div className='[box-shadow:0_-0.6px_0px_0px_#EBECF0] h-full -translate-y-[-50%] flex-1 ' />
-			<div className='w-[136px] border-[0.6px] border-muted font-light text-[12px] bg-white text-[#656565] flex items-center justify-center rounded-[6px]'>{getDateStr(date)}</div>
-			<div className='[box-shadow:0_-0.6px_0px_0px_#EBECF0] h-full -translate-y-[-50%] flex-1' />
-		</div>
-	);
-};
 
 export default function SessionView(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -62,7 +51,6 @@ export default function SessionView(): ReactElement {
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
-	const [customer] = useAtom(customerAtom);
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
 	const {data: lastMessages, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
@@ -246,28 +234,7 @@ export default function SessionView(): ReactElement {
 		<>
 			<div className='flex items-center h-full w-full'>
 				<div className='h-full min-w-[50%] flex flex-col'>
-					<HeaderWrapper className={twJoin('border-e')}>
-						{session?.id && (
-							<div className='w-full flex items-center h-full'>
-								<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
-									<div>
-										<div>{agent?.name}</div>
-										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
-											<CopyText preText='Agent ID:' text={` ${agent?.id}`} textToCopy={agent?.id} />
-										</div>
-									</div>
-								</div>
-								<div className='h-full flex-1 flex items-center ps-[24px]'>
-									<div>
-										<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>
-										<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
-											<CopyText preText='Customer ID:' text={` ${customer?.id}`} textToCopy={customer?.id} />
-										</div>
-									</div>
-								</div>
-							</div>
-						)}
-					</HeaderWrapper>
+					<SessoinViewHeader />
 					<div className={twMerge('h-[21px] bg-white border-e border-t-0 bg-main')}></div>
 					<div className={twMerge('flex flex-col items-center bg-white h-[calc(100%-70px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>

@@ -47,7 +47,7 @@ class ReasoningMethod(Enum):
     ARQ = "ARQ"
 
 
-DEFAULT_REASONING_METHOD = ReasoningMethod.ARQ
+DEFAULT_REASONING_METHOD = ReasoningMethod.COT
 
 
 class ContextEvaluation(DefaultBaseModel):
@@ -73,14 +73,13 @@ class InstructionEvaluation(DefaultBaseModel):
 
 
 class MessageSchema(DefaultBaseModel):
-    response: str
-    last_message_of_customer: Optional[str]
-    produced_reply: Optional[bool] = True
-    produced_reply_rationale: Optional[str] = ""
-    guidelines: list[str]
+    last_message_of_customer: Optional[str] = ""
+    guidelines: Optional[list[str]] = []
     context_evaluation: Optional[ContextEvaluation] = None
     insights: Optional[list[str]] = []
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
+    reasoning: Optional[str] = "..."
+    response: str
 
 
 @dataclass
@@ -238,11 +237,61 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         self,
         shot: FluidMessageGeneratorShot,
     ) -> str:
+        expected_result_str = ""
+        if self.reasoning_method == ReasoningMethod.ARQ:
+            expected_result_str = f"{json.dumps(shot.expected_result.model_dump(mode='json', exclude={'reasoning'}, exclude_unset=True), indent=2)}"
+        elif self.reasoning_method == ReasoningMethod.COT:
+            expected_result_str = f"""{{
+  "reasoning": {json.dumps(shot.expected_result.reasoning)},
+  "response": {json.dumps(shot.expected_result.response)},
+}}"""
+        elif self.reasoning_method == ReasoningMethod.NONE:
+            expected_result_str = f"""{{
+  "response": {json.dumps(shot.expected_result.response)},
+}}"""
         return f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{expected_result_str}
 ```"""
+
+    def _get_message_generation_instructions(self) -> str:
+        response_generation_text = """- Suggest a response based on:
+    * Primary customer needs
+    * Applicable guidelines
+    * Gathered insights
+- Focus on addressing the core request first
+The response should have either:
+- All guidelines and insights are satisfied, or
+- Guidelines that were not fulfilled are justified by:
+    * Explicit prioritization decisions
+    * Data limitations
+    * Customer request conflicts"""
+        if self.reasoning_method == ReasoningMethod.NONE:
+            return response_generation_text
+        elif self.reasoning_method == ReasoningMethod.COT:
+            return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
+1. REASONING
+    - Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reason' field of your response. 
+2. RESPONSE GENERATION
+    {response_generation_text}
+"""
+        elif self.reasoning_method == ReasoningMethod.ARQ:
+            return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
+1. INSIGHT GATHERING
+    - Before generating a response, identify up to three key insights from:
+        * Explicit or implicit customer requests
+        * Relevant principles from this prompt
+        * Notable patterns or conclusions from the interaction
+    - Each insight should be actionable and directly relevant to crafting the response
+    - Only include absolutely necessary insights; fewer is better
+    - Document insights' sources for traceability
+
+2. RESPONSE GENERATION
+    {response_generation_text}
+"""
+        else:
+            return ""
 
     def _format_prompt(
         self,
@@ -288,40 +337,11 @@ Always abide by the following general principles (note these are not the "guidel
 7. OUTPUT FORMAT: In your generated reply to the customer, use markdown format when applicable.
 """
         )
-        builder.add_section("""
-Since the interaction with the customer is already ongoing, always produce a reply to the customer's last message.
-The only exception where you may not produce a reply is if the customer explicitly asked you not to respond to their message.
-In all other cases, even if the customer is indicating that the conversation is over, you must produce a reply.
-                """)
-
         builder.add_section(
             f"""
 MESSAGE GENERATION MECHANISM
 -----------------
-To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
-
-1. INSIGHT GATHERING
-    - Before starting generating a response, identify up to three key insights from:
-        * Explicit or implicit customer requests
-        * Relevant principles from this prompt
-        * Notable patterns or conclusions from the interaction
-    - Each insight should be actionable and directly relevant to crafting the response
-    - Only include absolutely necessary insights; fewer is better
-    - Document insights' sources for traceability
-
-2. RESPONSE GENERATION
-    - Suggest a response based on:
-        * Primary customer needs
-        * Applicable guidelines
-        * Gathered insights
-    - Focus on addressing the core request first
-    The response should have either:
-    - All guidelines and insights are satisfied, or
-    - Guidelines that were not fulfilled are justified by:
-        * Explicit prioritization decisions
-        * Data limitations
-        * Customer request conflicts
-
+{self._get_message_generation_instructions()}
 
 PRIORITIZING INSTRUCTIONS (GUIDELINES VS. INSIGHTS)
 -----------------
@@ -379,23 +399,6 @@ INTERACTION CONTEXT
         builder.add_interaction_history(interaction_history)
         builder.add_staged_events(staged_events)
 
-        if tool_insights.missing_data:
-            builder.add_section(f"""
-MISSING DATA FOR TOOL REQUIRED CALLS:
--------------------------------------
-The following is a description of missing data that has been deemed necessary
-in order to run tools. The tools would have run, if they only had this data available.
-You must inform the customer about this missing data: ###
-{json.dumps([{
-    "datum_name": d.parameter,
-    **({"description": d.description} if d.description else {}),
-    **({"significance": d.significance} if d.significance else {}),
-    **({"examples": d.examples} if d.examples else {}),
-} for d in tool_insights.missing_data])}
-###
-
-""")
-
         builder.add_section(
             f"""
 OUTPUT FORMAT
@@ -412,6 +415,21 @@ Produce a valid JSON object in the following format: ###
         return prompt
 
     def _get_output_format(
+        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
+    ) -> str:
+        if self.reasoning_method == ReasoningMethod.ARQ:
+            return self._get_ARQ_output_format(interaction_history, guidelines)
+        if self.reasoning_method == ReasoningMethod.COT:
+            return """{{
+  "reasoning": "<reasoning chain for this task>"
+  "response": <STR>,
+}}"""
+        if self.reasoning_method == ReasoningMethod.NONE:
+            return """{{
+  "response": <STR>,
+}}"""
+
+    def _get_ARQ_output_format(
         self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
     ) -> str:
         last_customer_message = next(
@@ -461,7 +479,7 @@ Produce a valid JSON object in the following format: ###
     "last_message_of_customer": "{last_customer_message}",
     "guidelines": [{guidelines_list_text}],
     "context_evaluation": {{
-        "most_recent_customer_inquiries_or_needs": "<fill out accordingly>",
+        "most_recent_customer_inquiries_or_needs": <str, fill out accordingly>,
         "parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs": "<fill out accordingly>",
         "topics_for_which_i_have_sufficient_information_and_can_therefore_help_with": "<fill out accordingly>",
         "what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have": "<fill out accordingly>",
@@ -498,7 +516,6 @@ Produce a valid JSON object in the following format: ###
 
 example_1_expected = MessageSchema(
     last_message_of_customer="Hi, I'd like to know the schedule for the next trains to Boston, please.",
-    produced_reply=True,
     guidelines=[
         "When the customer asks for train schedules, provide them accurately and concisely."
     ],

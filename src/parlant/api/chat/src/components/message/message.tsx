@@ -1,7 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import {ReactElement, Ref, useEffect, useRef, useState} from 'react';
 import {EventInterface} from '@/utils/interfaces';
-import {getTimeStr} from '@/utils/date';
 import styles from './message.module.scss';
 import {Spacer} from '../ui/custom/spacer';
 import {twJoin, twMerge} from 'tailwind-merge';
@@ -23,7 +22,6 @@ interface Props {
 	resendMessageFn?: (sessionId: string, text?: string) => void;
 	showLogs: (event: EventInterface) => void;
 	setIsEditing?: React.Dispatch<React.SetStateAction<boolean>>;
-	messageRef: Ref<HTMLDivElement>;
 }
 
 const statusIcon = {
@@ -37,7 +35,7 @@ const statusIcon = {
 	cancelled: <img src='icons/green-v.svg' title='canceled' data-testid='cancelled' height={11} width={11} className='ms-[4px]' alt='read' />,
 };
 
-const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsEditing, messageRef}: Props) => {
+const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsEditing}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
@@ -59,9 +57,9 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 	return (
 		<>
 			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
-				{!isCustomer && <div className='flex items-end me-[14px]'>{!isContinual ? <img src='parlant-bubble-muted.svg' alt='Parlant' height={36} width={36} /> : <div className='h-[36px] w-[36px]' />}</div>}
+				{/* {!isCustomer && <div className='flex items-end me-[14px]'>{!isContinual ? <img src='parlant-bubble-muted.svg' alt='Parlant' height={36} width={36} /> : <div className='h-[36px] w-[36px]' />}</div>} */}
 				{isCustomer && (
-					<div className={twMerge('self-stretch items-center px-[16px] flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
+					<div className={twMerge('self-stretch mt-[30px] items-center px-[16px] flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
 						<Tooltip value='Edit' side='left'>
 							<div data-testid='edit-button' role='button' onClick={() => setIsEditing?.(true)} className='group cursor-pointer'>
 								<img src='icons/edit-message.svg' alt='edit' className='block rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />
@@ -79,27 +77,29 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 						</div>
 						<div className='text-[14px] text-[#A9A9A9]'>{timeAgo(event.creation_utc)}</div>
 					</div>
-					<div
-						ref={ref}
-						tabIndex={0}
-						data-testid='message'
-						onClick={() => showLogs(event)}
-						className={twMerge(
-							isCustomer && 'text-black !rounded-br-none !rounded-tr-[22px] hover:bg-[#F5F6F8] cursor-pointer',
-							isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33] !border-[0.6px]',
-							!isCustomer && '!rounded-bl-none bg-transparent  rounded-tl-[22px] hover:bg-[#F5F6F8] cursor-pointer',
-							isContinual && '!rounded-br-[26px] !rounded-bl-[26px] !rounded-tl-[26px] !rounded-tr-[26px]',
-							showLogsForMessage && showLogsForMessage.id === event.id && (isCustomer ? 'border-[#656565] !bg-white [box-shadow:4.5px_6px_0px_0px_#DBDCE0]' : 'border-[#656565] !bg-white [box-shadow:-4.5px_6px_0px_0px_#DBDCE0]'),
-							isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
-							'rounded-[26px] max-w-fit peer w-fit flex items-center relative border-[1.3px] border-muted border-solid'
-						)}>
-						<div ref={messageRef} className={twMerge('markdown overflow-auto relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] ps-[32px] pe-[38px]', isOneLiner ? '!pb-[22px] !pt-[18px]' : 'pb-[24px] pt-[20px]')}>
-							<span ref={markdownRef}>
-								<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
-							</span>
-						</div>
-						<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pb-[16px] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? '!pb-[10px] ps-[12px]' : '')}>
-							<div className={twJoin('flex items-center justify-end', isCustomer && 'w-[46px]')}>{isCustomer && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}</div>
+					<div>
+						<div
+							ref={ref}
+							tabIndex={0}
+							data-testid='message'
+							onClick={() => showLogs(event)}
+							className={twMerge(
+								isCustomer && 'text-black !rounded-br-none !rounded-tr-[22px] hover:bg-[#F5F6F8] cursor-pointer',
+								isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33] !border-[0.6px]',
+								!isCustomer && '!rounded-bl-none bg-transparent  rounded-tl-[22px] hover:bg-[#F5F6F8] cursor-pointer',
+								isContinual && '!rounded-br-[26px] !rounded-bl-[26px] !rounded-tl-[26px] !rounded-tr-[26px]',
+								showLogsForMessage && showLogsForMessage.id === event.id && (isCustomer ? 'border-[#656565] !bg-white [box-shadow:4.5px_6px_0px_0px_#DBDCE0]' : 'border-[#656565] !bg-white [box-shadow:-4.5px_6px_0px_0px_#DBDCE0]'),
+								isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
+								'rounded-[26px] max-w-fit peer w-fit flex items-center relative border-[1.3px] border-muted border-solid'
+							)}>
+							<div className={twMerge('markdown overflow-auto relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] ps-[32px] pe-[38px]', isOneLiner ? '!pb-[22px] !pt-[18px]' : 'pb-[24px] pt-[20px]')}>
+								<span ref={markdownRef}>
+									<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
+								</span>
+							</div>
+							<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pb-[16px] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? '!pb-[10px] ps-[12px]' : '')}>
+								<div className={twJoin('flex items-center justify-end', isCustomer && 'w-[46px]')}>{isCustomer && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}</div>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -139,17 +139,9 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 
 export default function Message({event, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
-	const messageRef = useRef<HTMLDivElement>(null);
-	const editRef = useRef(null);
-
-	useEffect(() => {
-		console.log(messageRef?.current?.clientWidth);
-		console.log(2, messageRef?.current?.offsetLeft);
-	}, [messageRef?.current]);
-	const left = (messageRef?.current?.getBoundingClientRect().x || 0) - (messageRef?.current?.clientWidth || 0);
 
 	return (
-		<div>
+		<div className={twMerge(isEditing && '[direction:rtl] ')}>
 			<div
 				className={twMerge(
 					'group/main flex my-[12px] mx-0 mb-1 w-full justify-between animate-fade-in scrollbar',
@@ -157,9 +149,9 @@ export default function Message({event, isContinual, showLogs, showLogsForMessag
 				)}>
 				<Spacer />
 				{isEditing ? (
-					<MessageEditing messageRef={editRef} resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
+					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
 				) : (
-					<MessageBubble messageRef={messageRef} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
+					<MessageBubble setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
 				)}
 				<Spacer />
 			</div>

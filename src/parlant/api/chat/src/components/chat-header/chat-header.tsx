@@ -54,9 +54,14 @@ const ChatHeader = (): ReactNode => {
 				</div>
 				<div className='group me-[24px]'>
 					<Tooltip value='New Session' side='right'>
-						<div>
-							<img onKeyDown={spaceClick} onClick={createNewSession} tabIndex={1} role='button' src='icons/add.svg' alt='add session' height={28} width={28} className='cursor-pointer group-hover:hidden' />
-							<img onKeyDown={spaceClick} onClick={createNewSession} tabIndex={1} role='button' src='icons/add-filled.svg' alt='add session' height={28} width={28} className='cursor-pointer hidden group-hover:block' />
+						<div
+							tabIndex={1}
+							role='button'
+							onKeyDown={spaceClick}
+							onClick={createNewSession}
+							className='hover:bg-[#F3F5F9] cursor-pointer py-[9px] ps-[12px] rounded-[10px] border border-transparent hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'>
+							<img src='icons/new-session.svg' alt='add session' height={20} width={20} className='cursor-pointer' />
+							<div className='font-medium'>New</div>
 						</div>
 					</Tooltip>
 				</div>

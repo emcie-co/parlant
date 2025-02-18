@@ -93,7 +93,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 								'max-w-fit peer w-fit flex items-center relative',
 								isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
 							)}>
-							<div className={twMerge('markdown overflow-auto relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
+							<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 								<span ref={markdownRef}>
 									<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
 								</span>

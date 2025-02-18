@@ -51,7 +51,7 @@ export default function Chatbot(): ReactElement {
 							<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 							<Sessions filterSessionVal={filterSessionVal} />
 						</div>
-						<div className='h-full w-[calc(100vw-332px)] bg-white rounded-[16px] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
+						<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (
 								<Suspense>
 									<Chat />

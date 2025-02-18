@@ -245,7 +245,7 @@ export default function Chat(): ReactElement {
 	return (
 		<>
 			<div className='flex items-center h-full w-full bg-[#f5f5f9] gap-[14px]'>
-				<div className='h-full min-w-[50%] flex flex-col'>
+				<div className='h-full min-w-[calc(50%-7px)] flex flex-col'>
 					<div className='h-[58px] bg-[#f5f5f9]'></div>
 					<HeaderWrapper className={twJoin('border-e')}>
 						{session?.id && (
@@ -323,7 +323,7 @@ export default function Chat(): ReactElement {
 					</div>
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
-					<div className='flex h-full min-w-[50%]'>
+					<div className='flex h-full min-w-[calc(50%-7px)]'>
 						<MessageLogs
 							event={showLogsForMessage}
 							regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}

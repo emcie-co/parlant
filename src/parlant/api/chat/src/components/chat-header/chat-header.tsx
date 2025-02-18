@@ -31,8 +31,8 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 	};
 
 	return (
-		<HeaderWrapper className='z-60 overflow-visible rounded-[16px]'>
-			<div className='w-[352px] border-b rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center max-mobile:justify-between bg-white'>
+		<HeaderWrapper className='z-60 overflow-visible rounded-s-[16px] '>
+			<div className='w-[352px] rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center max-mobile:justify-between bg-white'>
 				<div className='flex items-center min-[751px]:hidden'>
 					<div>
 						<Sheet open={sheetOpen} onOpenChange={() => setSheetOpen(!sheetOpen)}>
@@ -44,7 +44,7 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 									<SheetTitle className='text-center'></SheetTitle>
 									<SheetDescription />
 								</SheetHeader>
-								<Sessions />
+								<Sessions filterSessionVal='' />
 							</SheetContent>
 						</Sheet>
 					</div>

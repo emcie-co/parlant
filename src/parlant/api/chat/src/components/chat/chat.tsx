@@ -152,7 +152,7 @@ export default function Chat(): ReactElement {
 		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
 		resetChat();
 		if (session?.id !== NEW_SESSION_ID) refetch();
-		textareaRef?.current?.focus();
+		// textareaRef?.current?.focus();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [session?.id]);
 
@@ -244,8 +244,9 @@ export default function Chat(): ReactElement {
 
 	return (
 		<>
-			<div className='flex items-center h-full w-full'>
+			<div className='flex items-center h-full w-full bg-[#f5f5f9] gap-[14px]'>
 				<div className='h-full min-w-[50%] flex flex-col'>
+					<div className='h-[58px] bg-[#f5f5f9]'></div>
 					<HeaderWrapper className={twJoin('border-e')}>
 						{session?.id && (
 							<div className='w-full flex items-center h-full'>
@@ -269,7 +270,7 @@ export default function Chat(): ReactElement {
 						)}
 					</HeaderWrapper>
 					<div className={twMerge('h-[21px] bg-white border-e border-t-0 bg-main')}></div>
-					<div className={twMerge('flex flex-col items-center bg-white h-[calc(100%-70px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
+					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white max-h-[calc(100%-70px-58px-21px)] h-[calc(100%-70px-58px-21px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
@@ -301,7 +302,7 @@ export default function Chat(): ReactElement {
 						</div>
 						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 							<Spacer />
-							<div className='group border flex-1 border-muted border-solid rounded-full flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
+							<div className='group border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
 								<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
 								<Textarea
 									role='textbox'

@@ -180,9 +180,9 @@ export default function Session({session, isSelected, refetch, editingTitle, set
 				(disabled ? ' pointer-events-none' : '') +
 				(isDeleting ? 'opacity-[33%]' : '')
 			}>
-			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[202px] ms-[16px] h-[39px]'>
+			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[202px] ms-[16px] h-[48px]'>
 				{editingTitle !== session.id && (
-					<div className='overflow-hidden overflow-ellipsis flex items-center'>
+					<div className='overflow-visible overflow-ellipsis flex items-center'>
 						<div>
 							<AgentAvatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}} />
 						</div>

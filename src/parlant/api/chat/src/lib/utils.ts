@@ -62,3 +62,8 @@ export const timeAgo = (date: Date): string => {
 	if (years === 1) return 'last year';
 	return `${years} years ago`;
 };
+
+export const isSameDay = (dateA: string | Date, dateB: string | Date): boolean => {
+	if (!dateA) return false;
+	return new Date(dateA).toLocaleDateString() === new Date(dateB).toLocaleDateString();
+};

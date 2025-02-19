@@ -54,6 +54,9 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 	const serverStatus = event.serverStatus;
 	const isGuest = customer?.name === '<guest>';
 	const customerName = isGuest ? 'G' : customer?.name?.[0]?.toUpperCase();
+	const isViewingCurrentMessage = showLogsForMessage && showLogsForMessage.id === event.id;
+	const colorPallete = getAvatarColor((isCustomer ? customer?.id : agent?.id) || '');
+
 	return (
 		<>
 			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
@@ -70,7 +73,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 				<div>
 					<div className={twJoin('flex justify-between items-center mb-[12px]', isCustomer && 'flex-row-reverse')}>
 						<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
-							<div className='size-[26px] flex text-white rounded-[6.5px] items-center justify-center font-bold' style={{background: getAvatarColor(isCustomer ? customer?.id : agent?.id)?.agentName}}>
+							<div className='size-[26px] flex text-white rounded-[6.5px] items-center justify-center font-bold' style={{background: colorPallete?.agentName}}>
 								{isCustomer ? customerName?.[0] : agent?.name?.[0]}
 							</div>
 							<div className='font-medium text-[14px] text-[#282828]'>{isCustomer ? customer?.name : agent?.name}</div>
@@ -83,12 +86,15 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 							tabIndex={0}
 							data-testid='message'
 							onClick={() => showLogs(event)}
+							style={{
+								background: isViewingCurrentMessage ? colorPallete?.background : '',
+								borderColor: isViewingCurrentMessage ? colorPallete?.agentName : '',
+							}}
 							className={twMerge(
-								'bg-[#F6F6F6]',
+								'bg-[#F6F6F6] border-[2px] border-transparent',
 								isCustomer && 'text-black hover:bg-[#F5F6F8] cursor-pointer',
-								isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33] !border-[0.6px]',
+								isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33]',
 								!isCustomer && ' hover:bg-[#F5F6F8] cursor-pointer',
-								showLogsForMessage && showLogsForMessage.id === event.id && (isCustomer ? 'border-[#656565] !bg-white [box-shadow:4.5px_6px_0px_0px_#DBDCE0]' : 'border-[#656565] !bg-white [box-shadow:-4.5px_6px_0px_0px_#DBDCE0]'),
 								isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
 								'max-w-fit peer w-fit flex items-center relative',
 								isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'

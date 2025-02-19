@@ -17,6 +17,7 @@ interface Props {
 	event: EventInterface;
 	isContinual: boolean;
 	isRegenerateHidden?: boolean;
+	isFirstMessageInDate?: boolean;
 	showLogsForMessage?: EventInterface | null;
 	regenerateMessageFn?: (sessionId: string) => void;
 	resendMessageFn?: (sessionId: string, text?: string) => void;
@@ -35,7 +36,7 @@ const statusIcon = {
 	cancelled: <img src='icons/green-v.svg' title='canceled' data-testid='cancelled' height={11} width={11} className='ms-[4px]' alt='read' />,
 };
 
-const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsEditing}: Props) => {
+const MessageBubble = ({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, setIsEditing}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
@@ -71,7 +72,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 					</div>
 				)}
 				<div>
-					<div className={twJoin('flex justify-between items-center mb-[12px]', isCustomer && 'flex-row-reverse')}>
+					<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 						<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
 							<div className='size-[26px] flex text-white rounded-[6.5px] items-center justify-center font-bold' style={{background: colorPallete?.agentName}}>
 								{isCustomer ? customerName?.[0] : agent?.name?.[0]}
@@ -144,7 +145,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	);
 };
 
-export default function Message({event, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
+export default function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
 
 	return (
@@ -158,7 +159,7 @@ export default function Message({event, isContinual, showLogs, showLogsForMessag
 				{isEditing ? (
 					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
 				) : (
-					<MessageBubble setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
+					<MessageBubble isFirstMessageInDate={isFirstMessageInDate} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
 				)}
 				<Spacer />
 			</div>

@@ -237,6 +237,27 @@ export default function SessionView(): ReactElement {
 		setShowLogsForMessage(event.id === showLogsForMessage?.id ? null : event);
 	};
 
+	const MessageWithDate = ({event, index}: {event: EventInterface; index: number}) => {
+		const isFirstMessageInDate = !isSameDay(messages[index - 1]?.creation_utc, event.creation_utc);
+		return (
+			<>
+				{isFirstMessageInDate && <DateHeader date={event.creation_utc} isFirst={!index} bgColor='bg-white' />}
+				<div ref={lastMessageRef} className='flex flex-col'>
+					<Message
+						isFirstMessageInDate={isFirstMessageInDate}
+						isRegenerateHidden={!!isMissingAgent}
+						event={event}
+						isContinual={event.source === visibleMessages[index + 1]?.source}
+						regenerateMessageFn={regenerateMessageDialog(index)}
+						resendMessageFn={resendMessageDialog(index)}
+						showLogsForMessage={showLogsForMessage}
+						showLogs={showLogs(index)}
+					/>
+				</div>
+			</>
+		);
+	};
+
 	return (
 		<>
 			<div className='flex items-center h-full w-full bg-[#f5f5f9] gap-[14px]'>
@@ -248,20 +269,7 @@ export default function SessionView(): ReactElement {
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
-								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-									<div ref={lastMessageRef} className='flex flex-col'>
-										<Message
-											isRegenerateHidden={!!isMissingAgent}
-											event={event}
-											isContinual={event.source === visibleMessages[i + 1]?.source}
-											regenerateMessageFn={regenerateMessageDialog(i)}
-											resendMessageFn={resendMessageDialog(i)}
-											showLogsForMessage={showLogsForMessage}
-											showLogs={showLogs(i)}
-										/>
-									</div>
-								</React.Fragment>
+								<MessageWithDate key={i} event={event} index={i} />
 							))}
 							{(showTyping || showThinking) && (
 								<div className='animate-fade-in flex mb-1 justify-between mt-[44.33px]'>

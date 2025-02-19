@@ -75,7 +75,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 							</div>
 							<div className='font-medium text-[14px] text-[#282828]'>{isCustomer ? customer?.name : agent?.name}</div>
 						</div>
-						<div className='text-[14px] text-[#A9A9A9]'>{timeAgo(event.creation_utc)}</div>
+						<div className='text-[14px] text-[#A9A9A9]'>{event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc)}</div>
 					</div>
 					<div>
 						<div

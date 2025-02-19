@@ -153,8 +153,16 @@ export default function SessionView(): ReactElement {
 				last.serverStatus = correlationsMap[last.correlation_id].at(-1)?.data?.status || last.serverStatus;
 				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
 			}
+			if (!withStatusMessages?.length) return [...messages];
 			if (withStatusMessages && pendingMessage) setPendingMessage(emptyPendingMessage);
-			return [...messages, ...withStatusMessages] as EventInterface[];
+
+			const newVals: EventInterface[] = [];
+			for (const messageArray of [messages, withStatusMessages]) {
+				for (const message of messageArray) {
+					newVals[message.offset] = message;
+				}
+			}
+			return newVals.filter((message) => message);
 		});
 
 		const lastEventStatus = lastEvent?.data?.status;
@@ -215,11 +223,11 @@ export default function SessionView(): ReactElement {
 			.catch(() => toast.error('Something went wrong'));
 	};
 
-	const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+	const handleTextareaKeydown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			submitButtonRef?.current?.click();
-		} else if (e.key === 'Enter' && e.shiftKey) e.preventDefault();
+		}
 	};
 
 	const visibleMessages = session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
@@ -275,7 +283,7 @@ export default function SessionView(): ReactElement {
 									ref={textareaRef}
 									placeholder='Message...'
 									value={message}
-									onKeyDown={onKeyDown}
+									onKeyDown={handleTextareaKeydown}
 									onChange={(e) => setMessage(e.target.value)}
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'

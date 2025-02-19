@@ -168,7 +168,7 @@ const { trace } = await client.sessions.inspectEvent(
 ```
 
 ## 👋 Contributing
-We use the Linux-standard Developer Certificate of Origin ([DCO.md](DCO.md)), so that, by contributing, you confirm that you have the rights to submit your contribution under the Apache 2.0 license (i.e., the code you're contributing is truly yours to share with the project).
+We use the Linux-standard Developer Certificate of Origin ([DCO.md](DCO.md)), so that, by contributing, you confirm that you have the rights to submit your contribution under the Apache 2.0 license (i.e., that the code you're contributing is truly yours to share with the project).
 
 Please consult [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 

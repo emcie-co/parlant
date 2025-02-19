@@ -47,7 +47,7 @@ class ReasoningMethod(Enum):
     ARQ = "ARQ"
 
 
-DEFAULT_REASONING_METHOD = ReasoningMethod.COT
+DEFAULT_REASONING_METHOD = ReasoningMethod.NONE
 
 
 class ContextEvaluation(DefaultBaseModel):

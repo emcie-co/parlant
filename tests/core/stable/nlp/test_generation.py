@@ -57,6 +57,7 @@ async def test_that_fallback_generation_uses_the_first_working_generator(
     mock_first_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_first_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
+        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -95,6 +96,7 @@ async def test_that_fallback_generation_falls_back_to_the_next_generator_when_en
     mock_second_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_second_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
+        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -150,6 +152,7 @@ async def test_that_retry_succeeds_on_first_attempt(
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
+        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -179,6 +182,7 @@ async def test_that_retry_succeeds_after_failures(
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     success_result = SchematicGenerationResult(
         content=DummySchema(result="Success"),
+        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -216,6 +220,7 @@ async def test_that_retry_handles_multiple_exception_types(container: Container)
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     success_result = SchematicGenerationResult(
         content=DummySchema(result="Success"),
+        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -295,15 +300,18 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
             self.last_prompt: str | None = None
 
         @override
-        async def id(self) -> str:
+        @property
+        def id(self) -> str:
             return "mock-nlp-service"
 
         @override
-        async def max_tokens(self) -> int:
+        @property
+        def max_tokens(self) -> int:
             return 1000
 
         @override
-        async def tokenizer(self) -> EstimatingTokenizer:
+        @property
+        def tokenizer(self) -> EstimatingTokenizer:
             return ZeroEstimatingTokenizer()
 
         def _build_agent_identity(self, section: Section) -> Section:
@@ -327,12 +335,11 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
                     editor_func=self._build_agent_identity,
                 )
 
-                prompt_str = prompt.build()
-            else:
-                prompt_str = prompt
+                prompt = prompt.build()
 
             return SchematicGenerationResult(
-                content=DummySchema(result=prompt_str),
+                content=DummySchema(result=prompt),
+                prompt=prompt,
                 info=GenerationInfo(
                     schema_name="DummySchema",
                     model="mock-model",

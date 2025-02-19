@@ -85,7 +85,7 @@ class PromptBuilder:
 
     def edit_section(
         self,
-        name: str,
+        name: str | BuiltInSection,
         editor_func: Callable[[Section], Section],
     ) -> PromptBuilder:
         if name in self.sections:
@@ -94,7 +94,7 @@ class PromptBuilder:
 
     def section_status(self, name: str | BuiltInSection) -> SectionStatus:
         if name in self.sections and self.sections[name].status is not None:
-            return self.sections[name].status
+            return cast(SectionStatus, self.sections[name].status)
         else:
             return SectionStatus.NONE
 

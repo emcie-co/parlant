@@ -19,6 +19,7 @@ from typing import Any, Generic, Mapping, Optional, TypeVar, cast, get_args
 from typing_extensions import override
 
 from parlant.core.common import DefaultBaseModel
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -43,6 +44,7 @@ class GenerationInfo:
 @dataclass(frozen=True)
 class SchematicGenerationResult(Generic[T]):
     content: T
+    prompt: str
     info: GenerationInfo
 
 
@@ -56,7 +58,7 @@ class SchematicGenerator(ABC, Generic[T]):
     @abstractmethod
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]: ...
 
@@ -87,7 +89,7 @@ class FallbackSchematicGenerator(SchematicGenerator[T]):
     @override
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         last_exception: Exception

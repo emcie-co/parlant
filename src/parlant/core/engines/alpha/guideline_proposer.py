@@ -137,7 +137,7 @@ class GuidelineProposer:
                 total_duration=0.0, batch_count=0, batch_generations=[], batches=[]
             )
 
-        guidelines_dict = {g.id: g for i, g in enumerate(guidelines, start=1)}
+        guidelines_dict = {g.id: g for g in guidelines}
         t_start = time.time()
         batches = self._create_guideline_batches(
             guidelines_dict,
@@ -233,7 +233,7 @@ class GuidelineProposer:
         terms: Sequence[Term],
         guidelines_dict: dict[GuidelineId, Guideline],
     ) -> tuple[GenerationInfo, list[ConditionApplicabilityEvaluation]]:
-        prompt = self._format_prompt(
+        prompt = self._build_prompt(
             agent,
             customer,
             context_variables=context_variables,
@@ -245,12 +245,12 @@ class GuidelineProposer:
         )
 
         with self._logger.operation(f"Batch: {len(guidelines_dict)} guidelines"):
-            self._logger.debug(f"Prompt:\n{prompt}")
-
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
+
+        self._logger.debug(f"Prompt:\n{inference.prompt}")
 
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
@@ -297,6 +297,11 @@ class GuidelineProposer:
     async def shots(self) -> Sequence[GuidelinePropositionShot]:
         return await shot_collection.list()
 
+    def _format_shots(self, shots: Sequence[GuidelinePropositionShot]) -> str:
+        return "\n".join(
+            f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
+        )
+
     def _format_shot(self, shot: GuidelinePropositionShot) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
@@ -341,7 +346,7 @@ class GuidelineProposer:
 
         return formatted_shot
 
-    def _format_prompt(
+    def _build_prompt(
         self,
         agent: Agent,
         customer: Customer,
@@ -351,7 +356,7 @@ class GuidelineProposer:
         terms: Sequence[Term],
         guidelines: dict[GuidelineId, Guideline],
         shots: Sequence[GuidelinePropositionShot],
-    ) -> str:
+    ) -> PromptBuilder:
         result_structure = [
             {
                 "guideline_id": g.id,
@@ -371,7 +376,7 @@ class GuidelineProposer:
                 "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
                 "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
             }
-            for i, g in guidelines.items()
+            for g in guidelines.values()
         ]
         guidelines_text = "\n".join(
             f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
@@ -381,7 +386,8 @@ class GuidelineProposer:
         builder = PromptBuilder()
 
         builder.add_section(
-            f"""
+            name="guideline-proposer-general-instructions",
+            template="""
 GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
@@ -432,21 +438,20 @@ Only re-apply these if the condition ceased to be true earlier in the conversati
 IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, AND the unfulfilled portions aren't functionallly important but more "cosmetic" in nature (e.g. like saying thanks or anything that doesn't influence the direction of, or is important to the interaction) then output "fully" for `guideline_previously_applied`, and treat the guideline as though it has been fully executed.
 In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is marked as continuous.
 
-"""  # noqa
+""",
+            props={},
         )
         builder.add_section(
-            """
+            name="guideline-proposer-examples-of-condition-evaluations",
+            template="""
 Examples of Condition Evaluations:
 -------------------
-"""
-            + "".join(
-                f"""
-Example #{i}: ###
-{self._format_shot(shot)}
-###
-"""
-                for i, shot in enumerate(shots, start=1)
-            )
+{formatted_shots}
+""",
+            props={
+                "formatted_shots": self._format_shots(shots),
+                "shots": shots,
+            },
         )
         builder.add_agent_identity(agent)
         builder.add_context_variables(context_variables)
@@ -455,16 +460,19 @@ Example #{i}: ###
         builder.add_staged_events(staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
-            content=f"""
+            template="""
 - Guidelines list: ###
 {guidelines_text}
 ###
 """,
+            props={"guidelines_text": guidelines_text},
             status=SectionStatus.ACTIVE,
         )
 
-        builder.add_section(f"""
-IMPORTANT: Please note there are exactly {len(guidelines)} guidelines in the list for you to check.
+        builder.add_section(
+            name="guideline-proposer-expected-output",
+            template="""
+IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 
 Expected Output
 ---------------------------
@@ -473,12 +481,17 @@ Expected Output
     ```json
     {{
         "checks":
-        {json.dumps(result_structure)}
+        {result_structure_text}
     }}
-    ```""")
+    ```""",
+            props={
+                "result_structure_text": json.dumps(result_structure),
+                "result_structure": result_structure,
+                "guidelines_len": len(guidelines),
+            },
+        )
 
-        prompt = builder.build()
-        return prompt
+        return builder
 
 
 def _make_event(e_id: str, source: EventSource, message: str) -> Event:

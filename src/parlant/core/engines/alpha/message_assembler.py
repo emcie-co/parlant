@@ -189,7 +189,7 @@ class MessageAssembler(MessageEventComposer):
 
         fragments = await self._fragment_store.list_fragments()
 
-        prompt = self._format_prompt(
+        prompt = self._build_prompt(
             agent=agent,
             context_variables=context_variables,
             customer=customer,
@@ -340,6 +340,19 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
 {guideline_list}
 """
 
+    def _format_shots(
+        self,
+        shots: Sequence[MessageAssemblerShot],
+    ) -> str:
+        return "\n".join(
+            f"""
+Example {i} - {shot.description}: ###
+{self._format_shot(shot)} 
+###
+"""
+            for i, shot in enumerate(shots, start=1)
+        )
+
     def _format_shot(
         self,
         shot: MessageAssemblerShot,
@@ -350,7 +363,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ```"""
 
-    def _format_prompt(
+    def _build_prompt(
         self,
         agent: Agent,
         customer: Customer,
@@ -363,13 +376,14 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         tool_insights: ToolInsights,
         fragments: Sequence[Fragment],
         shots: Sequence[MessageAssemblerShot],
-    ) -> str:
+    ) -> PromptBuilder:
         can_suggest_fragments = agent.composition_mode == "fluid_assembly"
 
         builder = PromptBuilder()
 
         builder.add_section(
-            """
+            name="message-assembler-general-instructions",
+            template="""
 GENERAL INSTRUCTIONS
 -----------------
 You are an AI agent who is part of a system that interacts with a customer, also referred to as 'the user'. The current state of this interaction will be provided to you later in this message.
@@ -377,12 +391,14 @@ You role is to generate a reply message to the current (latest) state of the int
 
 Later in this prompt, you'll be provided with behavioral guidelines and other contextual information you must take into account when generating your response.
 
-"""
+""",
+            props={},
         )
 
         builder.add_agent_identity(agent)
         builder.add_section(
-            """
+            name="message-assembler-task-description",
+            template="""
 TASK DESCRIPTION:
 -----------------
 Continue the provided interaction in a natural and human-like manner.
@@ -395,13 +411,15 @@ Always abide by the following general principles (note these are not the "guidel
 5. REITERATE INFORMATION FROM PREVIOUS MESSAGES IF NECESSARY: If you previously suggested a solution or shared information during the interaction, you may repeat it when relevant. Your earlier response may have been based on information that is no longer available to you, so it’s important to trust that it was informed by the context at the time.
 6. MAINTAIN GENERATION SECRECY: Never reveal details about the process you followed to produce your response. Do not explicitly mention the tools, context variables, guidelines, glossary, or any other internal information. Present your replies as though all relevant knowledge is inherent to you, not derived from external instructions.
 7. OUTPUT FORMAT: In your generated reply to the customer, use markdown format when applicable.
-"""
+""",
+            props={},
         )
         if not interaction_history or all(
             [event.kind != "message" for event in interaction_history]
         ):
             builder.add_section(
-                """
+                name="message-assembler-initial-message-instructions",
+                template="""
 The interaction with the customer has just began, and no messages were sent by either party.
 If told so by a guideline or some other contextual condition, send the first message. Otherwise, do not produce a reply.
 If you decide not to emit a message, output the following:
@@ -415,27 +433,33 @@ If you decide not to emit a message, output the following:
     "revisions": []
 }}
 Otherwise, follow the rest of this prompt to choose the content of your response.
-        """
+        """,
+                props={},
             )
 
         else:
-            builder.add_section("""
+            builder.add_section(
+                name="message-assembler-ongoing-interaction-instructions",
+                template="""
 Since the interaction with the customer is already ongoing, always produce a reply to the customer's last message.
 The only exception where you may not produce a reply is if the customer explicitly asked you not to respond to their message.
 In all other cases, even if the customer is indicating that the conversation is over, you must produce a reply.
-                """)
+                """,
+                props={},
+            )
 
         if can_suggest_fragments:
-            fragment_instruction = """\
-Prefer to use fragments from the bank in generating the revision's content. \
-If no viable fragments exist in the bank, you may suggest new fragments. \
-For suggested fragments, use the special ID "<auto>". \
+            fragment_instruction = """
+Prefer to use fragments from the bank in generating the revision's content.
+If no viable fragments exist in the bank, you may suggest new fragments.
+For suggested fragments, use the special ID "<auto>".
 """
         else:
             fragment_instruction = "You can ONLY USE FRAGMENTS FROM THE FRAGMENT BANK in generating the revision's content."
 
         builder.add_section(
-            f"""
+            name="message-assembler-revision-mechanism",
+            template="""
 REVISION MECHANISM
 -----------------
 To craft an optimal response, you must produce incremental revisions of your reply, ensuring alignment with all provided guidelines based on the latest interaction state.
@@ -488,32 +512,38 @@ For instance, if a guideline explicitly prohibits a specific action (e.g., "neve
 
 In cases of conflict, prioritize the business's values and ensure your decisions align with their overarching goals.
 
-"""  # noqa
+""",
+            props={"fragment_instruction": fragment_instruction},
         )
         builder.add_section(
-            """
+            name="message-assembler-examples",
+            template="""
 EXAMPLES
 -----------------
-"""
-            + "\n".join(
-                f"""
-Example {i} - {shot.description}: ###
-{self._format_shot(shot)}
-###
-
-"""
-                for i, shot in enumerate(shots, start=1)
-            )
+{formatted_shots}
+""",
+            props={
+                "formatted_shots": self._format_shots(shots),
+                "shots": shots,
+            },
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
-        builder.add_section(self._get_fragment_bank_text(fragments))
         builder.add_section(
-            self._get_guideline_propositions_text(
+            name="message-assembler-fragment-bank",
+            template=self._get_fragment_bank_text(fragments),
+            props={"fragments": fragments},
+        )
+        builder.add_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=self._get_guideline_propositions_text(
                 ordinary_guideline_propositions,
                 tool_enabled_guideline_propositions,
             ),
-            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            props={
+                "ordinary_guideline_propositions": ordinary_guideline_propositions,
+                "tool_enabled_guideline_propositions": tool_enabled_guideline_propositions,
+            },
             status=SectionStatus.ACTIVE
             if ordinary_guideline_propositions or tool_enabled_guideline_propositions
             else SectionStatus.PASSIVE,
@@ -522,31 +552,57 @@ Example {i} - {shot.description}: ###
         builder.add_staged_events(staged_events)
 
         if tool_insights.missing_data:
-            builder.add_section(f"""
+            builder.add_section(
+                name="message-assembler-missing-data-for-tools",
+                template="""
 MISSING DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
 in order to run tools. The tools would have run, if they only had this data available.
 You must inform the customer about this missing data: ###
-{json.dumps([{
-    "datum_name": d.parameter,
-    **({"description": d.description} if d.description else {}),
-    **({"significance": d.significance} if d.significance else {}),
-    **({"examples": d.examples} if d.examples else {}),
-} for d in tool_insights.missing_data])}
+{formatted_missing_data}
 ###
-
-""")
+""",
+                props={
+                    "formatted_missing_data": json.dumps(
+                        [
+                            {
+                                "datum_name": d.parameter,
+                                **({"description": d.description} if d.description else {}),
+                                **({"significance": d.significance} if d.significance else {}),
+                                **({"examples": d.examples} if d.examples else {}),
+                            }
+                            for d in tool_insights.missing_data
+                        ]
+                    ),
+                    "missing_data": tool_insights.missing_data,
+                },
+            )
 
         builder.add_section(
-            f"""
+            name="message-assembler-output-format",
+            template="""
 Produce a valid JSON object in the following format: ###
 
-{self._get_output_format(interaction_history, list(chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)), can_suggest_fragments)}"""
+{formatted_output_format}
+""",
+            props={
+                "formatted_output_format": self._get_output_format(
+                    interaction_history,
+                    list(
+                        chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)
+                    ),
+                    can_suggest_fragments,
+                ),
+                "interaction_history": interaction_history,
+                "guidelines": list(
+                    chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)
+                ),
+                "can_suggest_fragments": can_suggest_fragments,
+            },
         )
 
-        prompt = builder.build()
-        return prompt
+        return builder
 
     def _get_output_format(
         self,
@@ -653,7 +709,7 @@ Produce a valid JSON object in the following format: ###
 
     async def _generate_response_message(
         self,
-        prompt: str,
+        prompt: PromptBuilder,
         fragments: Sequence[Fragment],
         composition_mode: CompositionMode,
         temperature: float,

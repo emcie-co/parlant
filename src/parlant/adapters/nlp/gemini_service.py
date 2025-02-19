@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from vertexai.preview import tokenization  # type: ignore
 
 from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -92,9 +93,12 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
     @override
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
         t_start = time.time()
@@ -137,6 +141,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
             return SchematicGenerationResult(
                 content=model_content,
+                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,

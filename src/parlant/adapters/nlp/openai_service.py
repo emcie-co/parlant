@@ -34,6 +34,7 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.loggers import Logger
 from parlant.core.nlp.policies import policy, retry
@@ -125,9 +126,12 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
 
     async def _do_generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
         openai_api_arguments = {k: v for k, v in hints.items() if k in self.supported_openai_params}
 
         if hints.get("strict", False):
@@ -156,6 +160,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
 
             return SchematicGenerationResult[T](
                 content=parsed_object,
+                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,
@@ -205,6 +210,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
 
                 return SchematicGenerationResult(
                     content=content,
+                    prompt=prompt,
                     info=GenerationInfo(
                         schema_name=self.schema.__name__,
                         model=self.id,

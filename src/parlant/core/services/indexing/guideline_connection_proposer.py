@@ -107,16 +107,17 @@ class GuidelineConnectionProposer:
             )
             return list(propositions)
 
-    async def _format_connection_propositions(
+    async def _build_prompt(
         self,
         agent: Agent,
         evaluated_guideline: GuidelineContent,
         comparison_set: dict[int, GuidelineContent],
-    ) -> str:
+    ) -> PromptBuilder:
         builder = PromptBuilder()
         builder.add_agent_identity(agent)
         builder.add_section(
-            f"""
+            name="guideline-connection-proposer-general-instructions",
+            template="""
 GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines."
@@ -513,7 +514,12 @@ Expected Output:
 
 ADDITIONAL INFORMATION
 -----------------
-"""  # noqa
+""",
+            props={
+                "agent": agent,
+                "evaluated_guideline": evaluated_guideline,
+                "comparison_set": comparison_set,
+            },
         )
 
         # Find and add glossary to prompt
@@ -529,7 +535,8 @@ ADDITIONAL INFORMATION
 
         builder.add_glossary(terms)
         builder.add_section(
-            f"""
+            name="guideline-connection-proposer-guidelines-to-analyze",
+            template="""
 The guidelines you should analyze for connections are:
 Test guideline: ###
 {test_guideline}
@@ -537,7 +544,11 @@ Test guideline: ###
 
 Causation candidates: ###
 {causation_candidates}
-###"""
+###""",
+            props={
+                "test_guideline": test_guideline,
+                "causation_candidates": causation_candidates,
+            },
         )
 
         output_propositions_format = "\n".join(
@@ -571,7 +582,8 @@ Causation candidates: ###
         )
 
         builder.add_section(
-            f"""
+            name="guideline-connection-proposer-output-format",
+            template="""
 OUTPUT FORMAT
 -----------------
 Please output JSON structured in the following format, which includes two entries for each causation candidate - once with it as the source and once with it as the target:
@@ -582,9 +594,15 @@ Please output JSON structured in the following format, which includes two entrie
     ]
 }}
 ```
-            """
+""",
+            props={
+                "output_propositions_format": output_propositions_format,
+                "comparison_set": comparison_set,
+                "evaluated_guideline": evaluated_guideline,
+            },
         )
-        return builder.build()
+
+        return builder
 
     async def _generate_propositions(
         self,
@@ -595,7 +613,7 @@ Please output JSON structured in the following format, which includes two entrie
     ) -> list[GuidelineConnectionProposition]:
         guidelines_dict = {i: g for i, g in enumerate(guidelines_to_compare, start=1)}
         guidelines_dict[0] = guideline_to_test
-        prompt = await self._format_connection_propositions(
+        prompt = await self._build_prompt(
             agent,
             guideline_to_test,
             {k: v for k, v in guidelines_dict.items() if k != 0},

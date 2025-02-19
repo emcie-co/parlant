@@ -51,6 +51,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineStore
@@ -448,13 +449,20 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         content = schema_type.model_validate(doc["content"])
         info = deserialize_generation_info(doc["info"])
 
-        return SchematicGenerationResult[TBaseModel](content=content, info=info)
+        return SchematicGenerationResult[TBaseModel](
+            content=content,
+            prompt="",
+            info=info,
+        )
 
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[TBaseModel]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
         if self.use_cache is False:
             return await self._base_generator.generate(prompt, hints)
 

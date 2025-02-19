@@ -237,7 +237,7 @@ class ToolCaller:
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
     ) -> tuple[GenerationInfo, list[ToolCall], list[MissingToolData]]:
-        inference_prompt = self._format_tool_call_inference_prompt(
+        inference_prompt = self._build_tool_call_inference_prompt(
             agent,
             context_variables,
             interaction_history,
@@ -350,6 +350,19 @@ Please be tolerant of possible typos by the user with regards to these terms,and
     async def shots(self) -> Sequence[ToolCallerInferenceShot]:
         return await shot_collection.list()
 
+    def _format_shots(
+        self,
+        shots: Sequence[ToolCallerInferenceShot],
+    ) -> str:
+        return "\n".join(
+            f"""
+Example #{i}: ###
+{self._format_shot(shot)}
+###
+"""
+            for i, shot in enumerate(shots, start=1)
+        )
+
     def _format_shot(
         self,
         shot: ToolCallerInferenceShot,
@@ -363,7 +376,7 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ```"""
 
-    def _format_tool_call_inference_prompt(
+    def _build_tool_call_inference_prompt(
         self,
         agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
@@ -374,14 +387,14 @@ Please be tolerant of possible typos by the user with regards to these terms,and
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
         shots: Sequence[ToolCallerInferenceShot],
-    ) -> str:
+    ) -> PromptBuilder:
         staged_calls = self._get_staged_calls(staged_events)
 
         builder = PromptBuilder()
 
         builder.add_section(
-            """
-
+            name="tool-caller-general-instructions",
+            template="""
 GENERAL INSTRUCTIONS
 -----------------
 You are part of a system of AI agents which interact with a customer on the behalf of a business.
@@ -394,12 +407,13 @@ Consequently, some tool calls may have already been initiated and executed follo
 Any such completed tool call will be detailed later in this prompt along with its result.
 These calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.
 
-
-"""
+""",
+            props={},
         )
         builder.add_agent_identity(agent)
         builder.add_section(
-            f"""
+            name="tool-caller-task-description",
+            template="""
 -----------------
 TASK DESCRIPTION
 -----------------
@@ -449,47 +463,54 @@ The exact format of your output will be provided to you at the end of this promp
 The following examples show correct outputs for various hypothetical situations.
 Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
 
-"""  # noqa
+""",
+            props={},
         )
         builder.add_section(
-            """
+            name="tool-caller-examples",
+            template="""
 EXAMPLES
 -----------------
-"""
-            + "\n".join(
-                f"""
-Example #{i}: ###
-{self._format_shot(shot)}
-###
-"""
-                for i, shot in enumerate(shots, start=1)
-            )
+{formatted_shots}
+""",
+            props={"formatted_shots": self._format_shots(shots), "shots": shots},
         )
         builder.add_context_variables(context_variables)
         if terms:
             builder.add_section(
                 name=BuiltInSection.GLOSSARY,
-                content=self._get_glossary_text(terms),
+                template=self._get_glossary_text(terms),
+                props={"terms": terms},
                 status=SectionStatus.ACTIVE,
             )
         builder.add_interaction_history(interaction_event_list)
 
         builder.add_section(
-            self._add_guideline_propositions_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=self._add_guideline_propositions_section(
                 ordinary_guideline_propositions,
                 (batch[0], batch[2]),
             ),
-            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            props={
+                "ordinary_guideline_propositions": ordinary_guideline_propositions,
+                "tool_id_propositions": (batch[0], batch[2]),
+            },
         )
         builder.add_section(
-            self._add_tool_definitions_section(
+            name="tool-caller-tool-definitions",
+            template=self._add_tool_definitions_section(
                 candidate_tool=(batch[0], batch[1]),
                 reference_tools=reference_tools,
-            )
+            ),
+            props={
+                "candidate_tool": (batch[0], batch[1]),
+                "reference_tools": reference_tools,
+            },
         )
         if staged_calls:
             builder.add_section(
-                f"""
+                name="tool-caller-staged-tool-calls",
+                template="""
 STAGED TOOL CALLS
 -----------------
 The following is a list of tool calls staged after the interaction’s latest state. Use this information to avoid redundant calls and to guide your response.
@@ -500,20 +521,23 @@ You may still choose to re-run the tool call, but only if there is a specific re
 The staged tool calls are:
 {staged_calls}
 ###
-"""
+""",
+                props={"staged_calls": staged_calls},
             )
         else:
             builder.add_section(
-                """
+                name="tool-caller-empty-staged-tool-calls",
+                template="""
 STAGED TOOL CALLS
 -----------------
 There are no staged tool calls at this time.
-###
-"""
+""",
+                props={},
             )
 
         builder.add_section(
-            f"""
+            name="tool-caller-output-format",
+            template="""
 OUTPUT FORMAT
 -----------------
 Given the tool, your output should adhere to the following format:
@@ -522,7 +546,7 @@ Given the tool, your output should adhere to the following format:
     "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
     "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
-    "name": "{batch[0].service_name}:{batch[0].tool_name}",
+    "name": "{service_name}:{tool_name}",
     "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
     "tool_calls_for_candidate_tool": [
         {{
@@ -543,12 +567,14 @@ Given the tool, your output should adhere to the following format:
 ```
 
 However, note that you may choose to have multiple entries in 'tool_calls_for_candidate_tool' if you wish to call the candidate tool multiple times with different arguments.
-###
-        """
+""",
+            props={
+                "service_name": batch[0].service_name,
+                "tool_name": batch[0].tool_name,
+            },
         )
 
-        prompt = builder.build()
-        return prompt
+        return builder
 
     def _add_tool_definitions_section(
         self,
@@ -681,7 +707,7 @@ Guidelines:
 
     async def _run_inference(
         self,
-        prompt: str,
+        prompt: PromptBuilder,
     ) -> tuple[GenerationInfo, Sequence[ToolCallEvaluation]]:
         self._logger.debug(f"Inference::Prompt:\n{prompt}")
 

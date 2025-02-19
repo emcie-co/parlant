@@ -146,7 +146,6 @@ export default function SessionView(): ReactElement {
 		});
 
 		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage);
-
 		setMessages((messages) => {
 			const last = messages.at(-1);
 			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
@@ -154,7 +153,14 @@ export default function SessionView(): ReactElement {
 				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
 			}
 			if (withStatusMessages && pendingMessage) setPendingMessage(emptyPendingMessage);
-			return [...messages, ...withStatusMessages] as EventInterface[];
+
+			const newVals: EventInterface[] = [];
+			for (const messageArray of [messages, withStatusMessages]) {
+				for (const message of messageArray) {
+					newVals[message.offset] = message;
+				}
+			}
+			return newVals.filter((message) => message);
 		});
 
 		const lastEventStatus = lastEvent?.data?.status;

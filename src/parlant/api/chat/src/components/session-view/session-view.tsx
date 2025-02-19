@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, {ReactElement, useEffect, useRef, useState} from 'react';
 import useFetch from '@/hooks/useFetch';
 import {Textarea} from '../ui/textarea';
@@ -6,7 +7,6 @@ import {deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
 import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
-import {getDateStr} from '@/utils/date';
 import {Spacer} from '../ui/custom/spacer';
 import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
@@ -14,11 +14,12 @@ import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
 import MessageLogs from '../message-logs/message-logs';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, customerAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ProgressImage from '../progress-logo/progress-logo';
-import SessoinViewHeader from './session-view-header/session-view-header';
 import DateHeader from './date-header/date-header';
+import SessoinViewHeader from './session-view-header/session-view-header';
+import {isSameDay} from '@/lib/utils';
 
 const emptyPendingMessage: () => EventInterface = () => ({
 	kind: 'message',
@@ -52,16 +53,9 @@ export default function SessionView(): ReactElement {
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
-	const [customer] = useAtom(customerAtom);
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
-	const {data: lastMessages, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
-
-	useEffect(() => {
-		if (agents && agent?.id) {
-			setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
-		}
-	}, [agents, agent?.id]);
+	const {data: lastEvents, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
 
 	const resetChat = () => {
 		setMessage('');
@@ -132,28 +126,17 @@ export default function SessionView(): ReactElement {
 		resendMessage(index - 1, sessionId, offset);
 	};
 
-	useEffect(() => {
-		lastMessageRef?.current?.scrollIntoView?.({behavior: isFirstScroll ? 'instant' : 'smooth'});
-		if (lastMessageRef?.current && isFirstScroll) setIsFirstScroll(false);
-	}, [messages, pendingMessage, isFirstScroll]);
-
-	useEffect(() => {
-		setIsFirstScroll(true);
-		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
-		resetChat();
-		if (session?.id !== NEW_SESSION_ID) refetch();
-		// textareaRef?.current?.focus();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [session?.id]);
-
-	useEffect(() => {
+	const formatMessagesFromEvents = () => {
 		if (session?.id === NEW_SESSION_ID) return;
-		const lastEvent = lastMessages?.at(-1);
+		const lastEvent = lastEvents?.at(-1);
 		if (!lastEvent) return;
+
 		const offset = lastEvent?.offset;
 		if (offset || offset === 0) setLastOffset(offset + 1);
-		const correlationsMap = groupBy(lastMessages || [], (item: EventInterface) => item?.correlation_id.split('::')[0]);
-		const newMessages = lastMessages?.filter((e) => e.kind === 'message') || [];
+
+		const correlationsMap = groupBy(lastEvents || [], (item: EventInterface) => item?.correlation_id.split('::')[0]);
+
+		const newMessages = lastEvents?.filter((e) => e.kind === 'message') || [];
 		const withStatusMessages = newMessages.map((newMessage, i) => {
 			const data: EventInterface = {...newMessage};
 			const item = correlationsMap?.[newMessage.correlation_id.split('::')[0]]?.at(-1)?.data;
@@ -163,6 +146,7 @@ export default function SessionView(): ReactElement {
 		});
 
 		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage);
+
 		setMessages((messages) => {
 			const last = messages.at(-1);
 			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
@@ -179,9 +163,27 @@ export default function SessionView(): ReactElement {
 		setShowTyping(lastEventStatus === 'typing');
 
 		refetch();
+	};
 
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [lastMessages]);
+	const scrollToLastMessage = () => {
+		lastMessageRef?.current?.scrollIntoView?.({behavior: isFirstScroll ? 'instant' : 'smooth'});
+		if (lastMessageRef?.current && isFirstScroll) setIsFirstScroll(false);
+	};
+
+	const resetSession = () => {
+		setIsFirstScroll(true);
+		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
+		resetChat();
+		if (session?.id !== NEW_SESSION_ID) refetch();
+		textareaRef?.current?.focus();
+	};
+
+	useEffect(formatMessagesFromEvents, [lastEvents]);
+	useEffect(scrollToLastMessage, [messages, pendingMessage, isFirstScroll]);
+	useEffect(resetSession, [session?.id]);
+	useEffect(() => {
+		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
+	}, [agents, agent?.id]);
 
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
@@ -218,11 +220,6 @@ export default function SessionView(): ReactElement {
 			e.preventDefault();
 			submitButtonRef?.current?.click();
 		} else if (e.key === 'Enter' && e.shiftKey) e.preventDefault();
-	};
-
-	const isSameDay = (dateA: string | Date, dateB: string | Date): boolean => {
-		if (!dateA) return false;
-		return new Date(dateA).toLocaleDateString() === new Date(dateB).toLocaleDateString();
 	};
 
 	const visibleMessages = session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;

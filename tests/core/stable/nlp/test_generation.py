@@ -13,12 +13,19 @@
 # limitations under the License.
 
 from typing import Any, Mapping, cast
+from typing_extensions import override
 from lagom import Container
 from unittest.mock import AsyncMock
 
 from pytest import raises
 
 from parlant.core.common import DefaultBaseModel
+from parlant.core.engines.alpha.prompt_builder import (
+    BuiltInSection,
+    PromptBuilder,
+    Section,
+    SectionStatus,
+)
 from parlant.core.loggers import Logger
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
@@ -29,6 +36,7 @@ from parlant.core.nlp.generation import (
     UsageInfo,
 )
 from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 
 
 class DummySchema(DefaultBaseModel):
@@ -279,3 +287,69 @@ async def test_that_stacked_retry_decorators_exceed_max_attempts(container: Cont
 
     assert mock_embedder.await_count == 5
     assert str(exc_info.value) == "Fifth failure"
+
+
+async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
+    class MockNLPService(SchematicGenerator[DummySchema]):
+        def __init__(self) -> None:
+            self.last_prompt: str | None = None
+
+        @override
+        async def id(self) -> str:
+            return "mock-nlp-service"
+
+        @override
+        async def max_tokens(self) -> int:
+            return 1000
+
+        @override
+        async def tokenizer(self) -> EstimatingTokenizer:
+            return ZeroEstimatingTokenizer()
+
+        def _build_agent_identity(self, section: Section) -> Section:
+            new_section = Section(
+                template="You are NOT {name}",
+                props=section.props,
+                status=section.status,
+            )
+
+            return new_section
+
+        @override
+        async def generate(
+            self,
+            prompt: str | PromptBuilder,
+            hints: Mapping[str, Any] = {},
+        ) -> SchematicGenerationResult[DummySchema]:
+            if isinstance(prompt, PromptBuilder):
+                prompt.edit_section(
+                    name=BuiltInSection.AGENT_IDENTITY,
+                    editor_func=self._build_agent_identity,
+                )
+
+                prompt_str = prompt.build()
+            else:
+                prompt_str = prompt
+
+            return SchematicGenerationResult(
+                content=DummySchema(result=prompt_str),
+                info=GenerationInfo(
+                    schema_name="DummySchema",
+                    model="mock-model",
+                    duration=1,
+                    usage=UsageInfo(input_tokens=1, output_tokens=1),
+                ),
+            )
+
+    mock_service = MockNLPService()
+    builder = PromptBuilder()
+
+    builder.add_section(
+        name=BuiltInSection.AGENT_IDENTITY,
+        template="You are {name}",
+        props={"name": "Bob"},
+        status=SectionStatus.ACTIVE,
+    )
+
+    result = await mock_service.generate(builder.build())
+    assert result.content.result == "You are Bob"

@@ -13,12 +13,12 @@
 # limitations under the License.
 
 from __future__ import annotations
+from dataclasses import dataclass
 from enum import Enum, auto
 import json
-from typing import Any, Optional, Sequence, cast
+from typing import Any, Callable, Optional, Sequence, cast
 
 from parlant.core.agents import Agent
-from parlant.core.common import generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.sessions import Event, EventSource, MessageEventData, ToolEventData
 from parlant.core.glossary import Term
@@ -49,42 +49,52 @@ class SectionStatus(Enum):
     """The section is not included in the prompt in any fashion"""
 
 
+@dataclass(frozen=True)
+class Section:
+    template: str
+    props: dict[str, Any]
+    status: Optional[SectionStatus]
+
+
 class PromptBuilder:
     def __init__(self) -> None:
-        self._sections: dict[str | BuiltInSection, dict[str, Any]] = {}
+        self.sections: dict[str | BuiltInSection, Section] = {}
 
     def build(self) -> str:
-        section_contents = [s["content"] for s in self._sections.values()]
+        section_contents = [s.template.format(**s.props) for s in self.sections.values()]
         prompt = "\n\n".join(section_contents)
         return prompt
 
     def add_section(
         self,
-        content: str,
-        name: str | BuiltInSection | None = None,
-        title: Optional[str] = None,
+        name: str | BuiltInSection,
+        template: str,
+        props: dict[str, Any] = {},
         status: Optional[SectionStatus] = None,
     ) -> PromptBuilder:
-        while not name:
-            candidate = generate_id()
-
-            if candidate not in self._sections:
-                name = candidate
-
-        if name in self._sections:
+        if name in self.sections:
             raise ValueError(f"Section '{name}' was already added")
 
-        self._sections[name] = {
-            "content": content.strip(),
-            "title": title,
-            "status": status,
-        }
+        self.sections[name] = Section(
+            template=template,
+            props=props,
+            status=status,
+        )
 
         return self
 
+    def edit_section(
+        self,
+        name: str,
+        editor_func: Callable[[Section], Section],
+    ) -> PromptBuilder:
+        if name in self.sections:
+            self.sections[name] = editor_func(self.sections[name])
+        return self
+
     def section_status(self, name: str | BuiltInSection) -> SectionStatus:
-        if section := self._sections.get(name):
-            return cast(SectionStatus, section["status"])
+        if name in self.sections and self.sections[name].status is not None:
+            return self.sections[name].status
         else:
             return SectionStatus.NONE
 
@@ -146,13 +156,17 @@ class PromptBuilder:
         if agent.description:
             self.add_section(
                 name=BuiltInSection.AGENT_IDENTITY,
-                content=f"""
-You are an AI agent named {agent.name}.
+                template="""
+You are an AI agent named {agent_name}.
 
 The following is a description of your background and personality: ###
-{agent.description}
+{agent_description}
 ###
 """,
+                props={
+                    "agent_name": agent.name,
+                    "agent_description": agent.description,
+                },
                 status=SectionStatus.ACTIVE,
             )
 
@@ -167,18 +181,19 @@ The following is a description of your background and personality: ###
 
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
-                content=f"""
+                template="""
 The following is a list of events describing a back-and-forth
 interaction between you and a user: ###
 {interaction_events}
 ###
 """,
+                props={"interaction_events": interaction_events},
                 status=SectionStatus.ACTIVE,
             )
         else:
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
-                content="""
+                template="""
 Your interaction with the user has just began, and no events have been recorded yet.
 Proceed with your task accordingly.
 """,
@@ -196,11 +211,12 @@ Proceed with your task accordingly.
 
             self.add_section(
                 name=BuiltInSection.CONTEXT_VARIABLES,
-                content=f"""
+                template="""
 The following is information that you're given about the user and context of the interaction: ###
 {context_values}
 ###
 """,
+                props={"context_values": context_values},
                 status=SectionStatus.ACTIVE,
             )
 
@@ -215,7 +231,7 @@ The following is information that you're given about the user and context of the
 
             self.add_section(
                 name=BuiltInSection.GLOSSARY,
-                content=f"""
+                template="""
 The following is a glossary of the business.
 Understanding these terms, as they apply to the business, is critical for your task.
 When encountering any of these terms, prioritize the interpretation provided here over any definitions you may already know.
@@ -224,6 +240,7 @@ and let the user know if/when you assume they meant a term by their typo: ###
 {terms_string}
 ###
 """,  # noqa
+                props={"terms_string": terms_string},
                 status=SectionStatus.ACTIVE,
             )
 
@@ -238,13 +255,14 @@ and let the user know if/when you assume they meant a term by their typo: ###
 
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,
-                content=f"""
+                template="""
 Here are the most recent staged events for your reference.
 They represent interactions with external tools that perform actions or provide information.
 Prioritize their data over any other sources and use their details to complete your task: ###
 {staged_events_as_dict}
 ###
 """,
+                props={"staged_events_as_dict": staged_events_as_dict},
                 status=SectionStatus.ACTIVE,
             )
 

@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import {ReactElement, Ref, useEffect, useRef, useState} from 'react';
+import {memo, ReactElement, Ref, useEffect, useRef, useState} from 'react';
 import {EventInterface} from '@/utils/interfaces';
 import styles from './message.module.scss';
 import {Spacer} from '../ui/custom/spacer';
@@ -61,16 +61,6 @@ const MessageBubble = ({event, isFirstMessageInDate, isContinual, showLogs, show
 	return (
 		<>
 			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
-				{/* {!isCustomer && <div className='flex items-end me-[14px]'>{!isContinual ? <img src='parlant-bubble-muted.svg' alt='Parlant' height={36} width={36} /> : <div className='h-[36px] w-[36px]' />}</div>} */}
-				{isCustomer && (
-					<div className={twMerge('self-stretch mt-[30px] items-center px-[16px] flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
-						<Tooltip value='Edit' side='left'>
-							<div data-testid='edit-button' role='button' onClick={() => setIsEditing?.(true)} className='group cursor-pointer'>
-								<img src='icons/edit-message.svg' alt='edit' className='block rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />
-							</div>
-						</Tooltip>
-					</div>
-				)}
 				<div>
 					<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 						<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
@@ -81,32 +71,43 @@ const MessageBubble = ({event, isFirstMessageInDate, isContinual, showLogs, show
 						</div>
 						<div className='text-[14px] text-[#A9A9A9]'>{event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc)}</div>
 					</div>
-					<div>
-						<div
-							ref={ref}
-							tabIndex={0}
-							data-testid='message'
-							onClick={() => showLogs(event)}
-							style={{
-								background: isViewingCurrentMessage ? colorPallete?.background : '',
-								borderColor: isViewingCurrentMessage ? colorPallete?.agentName : '',
-							}}
-							className={twMerge(
-								'bg-[#F6F6F6] border-[2px] border-transparent',
-								isCustomer && 'text-black hover:bg-[#F5F6F8] cursor-pointer',
-								isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33]',
-								!isCustomer && ' hover:bg-[#F5F6F8] cursor-pointer',
-								isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
-								'max-w-fit peer w-fit flex items-center relative',
-								isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
-							)}>
-							<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
-								<span ref={markdownRef}>
-									<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
-								</span>
+					<div className='flex items-center'>
+						{isCustomer && (
+							<div className={twMerge('self-stretch items-center px-[16px] flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
+								<Tooltip value='Edit' side='left'>
+									<div data-testid='edit-button' role='button' onClick={() => setIsEditing?.(true)} className='group cursor-pointer'>
+										<img src='icons/edit-message.svg' alt='edit' className='block rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />
+									</div>
+								</Tooltip>
 							</div>
-							<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}>
-								<div className={twJoin('flex items-center justify-end', isCustomer && 'w-[46px]')}>{isCustomer && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}</div>
+						)}
+						<div>
+							<div
+								ref={ref}
+								tabIndex={0}
+								data-testid='message'
+								onClick={() => showLogs(event)}
+								style={{
+									background: isViewingCurrentMessage ? colorPallete?.background : '',
+									borderColor: isViewingCurrentMessage ? colorPallete?.agentName : '',
+								}}
+								className={twMerge(
+									'bg-[#F6F6F6] border-[2px] border-transparent',
+									isCustomer && 'text-black hover:bg-[#F5F6F8] cursor-pointer',
+									isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33]',
+									!isCustomer && ' hover:bg-[#F5F6F8] cursor-pointer',
+									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
+									'max-w-fit peer w-fit flex items-center relative',
+									isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
+								)}>
+								<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
+									<span ref={markdownRef}>
+										<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
+									</span>
+								</div>
+								<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}>
+									<div className={twJoin('flex items-center justify-end', isCustomer && 'w-[46px]')}>{isCustomer && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}</div>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -132,7 +133,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 
 	return (
 		<div ref={ref} className='w-full p-[16px] ps-[6px] pe-[6px] rounded-[16px] rounded-br-none border origin-bottom bg-[#f5f6f8] ' style={{transformOrigin: 'bottom'}}>
-			<Textarea ref={textArea} className='resize-none h-[120px] pe-[108px] !ring-0 !ring-offset-0 border-none ps-[22px] bg-[#f5f6f8]' onChange={(e) => setTextValue(e.target.value)} defaultValue={textValue} />
+			<Textarea ref={textArea} className='[direction:ltr] resize-none h-[120px] pe-[108px] !ring-0 !ring-offset-0 border-none ps-[22px] bg-[#f5f6f8]' onChange={(e) => setTextValue(e.target.value)} defaultValue={textValue} />
 			<div className='pt-[10px] flex justify-end gap-[10px] pe-[12px]'>
 				<Button variant='ghost' onClick={() => setIsEditing?.(false)} className='rounded-[10px] hover:bg-white'>
 					Cancel
@@ -145,7 +146,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	);
 };
 
-export default function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
+function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
 
 	return (
@@ -166,3 +167,9 @@ export default function Message({event, isFirstMessageInDate, isContinual, showL
 		</div>
 	);
 }
+
+export default memo(Message, (prevProps, nextProps) => {
+	const prevIsShown = prevProps.showLogsForMessage?.id === prevProps.event.id;
+	const nextIsShown = nextProps.showLogsForMessage?.id === nextProps.event.id;
+	return prevIsShown === nextIsShown;
+});

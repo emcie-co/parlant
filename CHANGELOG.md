@@ -6,6 +6,12 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [1.6.4] - 2025-02-20
+
+### Fixed
+
+- Upgrade to Gemini 2.0 Flash
+
 ## [1.6.3] - 2025-02-18
 
 ### Fixed

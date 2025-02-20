@@ -92,12 +92,17 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
+        config = {
+            "response_mime_type": "application/json",
+            "response_schema": self.schema.model_json_schema(),
+            **gemini_api_arguments,
+        }
 
         t_start = time.time()
         response = await self._client.aio.models.generate_content(
             model=self.model_name,
             contents=prompt,
-            config=gemini_api_arguments,
+            config=config,
         )
         t_end = time.time()
 

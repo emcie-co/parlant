@@ -49,22 +49,22 @@ class ContextEvaluation(DefaultBaseModel):
     what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have: Optional[
         str
     ] = None
-    was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs: bool = (
-        False
-    )
-    should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs: bool = False
+    was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs: Optional[
+        bool
+    ] = None
+    should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs: Optional[bool] = None
 
 
 class Revision(DefaultBaseModel):
     revision_number: int
     content: str
-    instructions_followed: Optional[list[str]] = []
-    instructions_broken: Optional[list[str]] = []
-    is_repeat_message: Optional[bool] = False
-    followed_all_instructions: Optional[bool] = False
-    instructions_broken_due_to_missing_data: Optional[bool] = False
+    instructions_followed: Optional[list[str]] = None
+    instructions_broken: Optional[list[str]] = None
+    is_repeat_message: Optional[bool] = None
+    followed_all_instructions: Optional[bool] = None
+    instructions_broken_due_to_missing_data: Optional[bool] = None
     missing_data_rationale: Optional[str] = None
-    instructions_broken_only_due_to_prioritization: Optional[bool] = False
+    instructions_broken_only_due_to_prioritization: Optional[bool] = None
     prioritization_rationale: Optional[str] = None
 
 
@@ -82,11 +82,11 @@ class MessageGenerationError(Exception):
 
 class MessageEventSchema(DefaultBaseModel):
     last_message_of_customer: Optional[str]
-    produced_reply: Optional[bool] = True
-    produced_reply_rationale: Optional[str] = ""
+    produced_reply: Optional[bool] = None
+    produced_reply_rationale: Optional[str] = None
     guidelines: list[str]
     context_evaluation: Optional[ContextEvaluation] = None
-    insights: Optional[list[str]] = []
+    insights: Optional[list[str]] = None
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
     revisions: list[Revision]
 
@@ -527,7 +527,7 @@ Produce a valid JSON object in the following format: ###
             f"[MessageEventGenerator][Completion]\n{message_event_response.content.model_dump_json(indent=2)}"
         )
 
-        if not message_event_response.content.produced_reply:
+        if message_event_response.content.produced_reply is False:
             self._logger.debug("[MessageEventGenerator] Produced no reply")
             return message_event_response.info, None
 

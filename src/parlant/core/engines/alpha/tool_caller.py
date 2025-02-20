@@ -66,14 +66,16 @@ class ToolCallEvaluation(DefaultBaseModel):
     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected: bool
     potentially_better_rejected_tool_name: Optional[str] = None
     potentially_better_rejected_tool_rationale: Optional[str] = None
-    the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool: bool = False
+    the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool: Optional[
+        bool
+    ] = None
     should_run: bool
 
 
 class ToolCallInferenceSchema(DefaultBaseModel):
     last_customer_message: Optional[str] = None
     most_recent_customer_inquiry_or_need: Optional[str] = None
-    most_recent_customer_inquiry_or_need_was_already_resolved: Optional[bool] = False
+    most_recent_customer_inquiry_or_need_was_already_resolved: Optional[bool] = None
     name: str
     subtleties_to_be_aware_of: str
     tool_calls_for_candidate_tool: list[ToolCallEvaluation]

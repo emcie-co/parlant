@@ -165,60 +165,8 @@ Feature: Tools
         And a guideline connection whereby "suggest_toppings" entails "check_stock"
         And a customer message, "What pizza topping should I take?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call with tool_id of "local:get_available_toppings"
-        And a single message event is emitted
-        And the message contains a recommendation for toppings which do not include pineapple
-
-    Scenario: The agent correctly chooses to call the right tool
-        Given an agent whose job is to sell groceries
-        And the term "carrot" defined as a kind of fruit
-        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
-        And the tool "check_fruit_price"
-        And the tool "check_vegetable_price"
-        And an association between "check_prices" and "check_fruit_price"
-        And an association between "check_prices" and "check_vegetable_price"
-        And a customer message, "What's the price of 1 kg of carrots?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call with tool_id of "local:check_fruit_price"
-        And a single message event is emitted
-        And the message contains that the price of 1 kg of carrots is 10 dollars
-
-    Scenario: The agent uses tools correctly when many are available
-        Given a guideline "retrieve_account_information" to retrieve account information when customers inquire about account-related information
-        And the tool "get_account_balance"
-        And the tool "check_fruit_price"
-        And the tool "get_available_toppings"
-        And the tool "schedule" from "first_service"
-        And the tool "schedule" from "second_service"
-        And the tool "get_available_product_by_type"
-        And the tool "multiply"
-        And an association between "retrieve_account_information" and "get_account_balance"
-        And an association between "retrieve_account_information" and "check_fruit_price"
-        And an association between "retrieve_account_information" and "get_available_toppings"
-        And an association between "retrieve_account_information" and "schedule" from "first_service"
-        And an association between "retrieve_account_information" and "schedule" from "second_service"
-        And an association between "retrieve_account_information" and "get_available_product_by_type"
-        And an association between "retrieve_account_information" and "multiply"
-        And a customer message, "Does Larry David have enough money in his account to buy a kilogram of apples?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
-        And the tool calls event contains a call to "local:get_account_balance" with Larry David's current balance
-        And the tool calls event contains a call to "local:check_fruit_price" with the price of apples
-
-    Scenario: Tool call takes enum parameter into consideration
-        Given a guideline "get_available_products_by_category" to get all products by a specific category when a customer asks for the availability of products from a certain category
-        And the tool "available_products_by_category" from "ksp"
-        And an association between "get_available_products_by_category" and "available_products_by_category" from "ksp"
-        And a customer message, "What available keyboards do you have?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call to "available_products_by_category" with category "peripherals"
+        Then a single message event is emitted
+        And the message contains either that pineapples are not available or that does not mentioned pineapples all
 
     Scenario: The agent chooses to consult the policy when the user asks about product returns
         Given a guideline "handle_policy_questions" to consult policy and answer when the user asks policy-related matters

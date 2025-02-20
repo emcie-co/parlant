@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from enum import Enum
 from itertools import chain
 import json
 import traceback
@@ -39,15 +38,10 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.logging import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
-
-
-class ReasoningMethod(Enum):
-    NONE = "None"
-    COT = "CoT"
-    ARQ = "ARQ"
-
-
-DEFAULT_REASONING_METHOD = ReasoningMethod.NONE
+from parlant.core.engines.alpha.reasoning_method import (
+    ReasoningMethod,
+    MESSGE_GENERATOR_REASONING_METHOD,
+)
 
 
 class ContextEvaluation(DefaultBaseModel):
@@ -97,11 +91,9 @@ class FluidMessageGenerator(MessageEventComposer):
         self._logger = logger
         self._correlator = correlator
         self._schematic_generator = schematic_generator
-        self.reasoning_method = DEFAULT_REASONING_METHOD  # TODO change to something smarter
+        self._reasoning_method = MESSGE_GENERATOR_REASONING_METHOD
 
     async def shots(self) -> Sequence[FluidMessageGeneratorShot]:
-        # TODO add ifs based on mode
-
         return await shot_collection.list()
 
     async def generate_events(
@@ -238,14 +230,14 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         shot: FluidMessageGeneratorShot,
     ) -> str:
         expected_result_str = ""
-        if self.reasoning_method == ReasoningMethod.ARQ:
+        if self._reasoning_method == ReasoningMethod.ARQ:
             expected_result_str = f"{json.dumps(shot.expected_result.model_dump(mode='json', exclude={'reasoning'}, exclude_unset=True), indent=2)}"
-        elif self.reasoning_method == ReasoningMethod.COT:
+        elif self._reasoning_method == ReasoningMethod.COT:
             expected_result_str = f"""{{
   "reasoning": {json.dumps(shot.expected_result.reasoning)},
   "response": {json.dumps(shot.expected_result.response)},
 }}"""
-        elif self.reasoning_method == ReasoningMethod.NONE:
+        elif self._reasoning_method == ReasoningMethod.NONE:
             expected_result_str = f"""{{
   "response": {json.dumps(shot.expected_result.response)},
 }}"""
@@ -267,16 +259,16 @@ The response should have either:
     * Explicit prioritization decisions
     * Data limitations
     * Customer request conflicts"""
-        if self.reasoning_method == ReasoningMethod.NONE:
+        if self._reasoning_method == ReasoningMethod.NONE:
             return response_generation_text
-        elif self.reasoning_method == ReasoningMethod.COT:
+        elif self._reasoning_method == ReasoningMethod.COT:
             return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
 1. REASONING
-    - Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reason' field of your response. 
+    - Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reasoning' field of your response. 
 2. RESPONSE GENERATION
     {response_generation_text}
 """
-        elif self.reasoning_method == ReasoningMethod.ARQ:
+        elif self._reasoning_method == ReasoningMethod.ARQ:
             return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
 1. INSIGHT GATHERING
     - Before generating a response, identify up to three key insights from:
@@ -417,14 +409,14 @@ Produce a valid JSON object in the following format: ###
     def _get_output_format(
         self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
     ) -> str:
-        if self.reasoning_method == ReasoningMethod.ARQ:
+        if self._reasoning_method == ReasoningMethod.ARQ:
             return self._get_ARQ_output_format(interaction_history, guidelines)
-        if self.reasoning_method == ReasoningMethod.COT:
+        if self._reasoning_method == ReasoningMethod.COT:
             return """{{
   "reasoning": "<reasoning chain for this task>"
   "response": <STR>,
 }}"""
-        if self.reasoning_method == ReasoningMethod.NONE:
+        if self._reasoning_method == ReasoningMethod.NONE:
             return """{{
   "response": <STR>,
 }}"""
@@ -510,6 +502,8 @@ Produce a valid JSON object in the following format: ###
         self._logger.debug(
             f"[MessageEventComposer][Fluid][Completion]\n{message_event_response.content.model_dump_json(indent=2)}"
         )
+        with open("message generator response.txt", "w") as f:
+            f.write(message_event_response.content.model_dump_json(indent=2, exclude_unset=True))
 
         return message_event_response.info, str(message_event_response.content.response)
 

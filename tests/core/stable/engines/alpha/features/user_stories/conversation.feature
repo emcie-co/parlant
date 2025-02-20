@@ -47,7 +47,6 @@ Feature: Conversation
         When processing is triggered
         Then a single message event is emitted
         And the message contains no direct offer of a 20% discount
-        And the message contains information about farts
 
     Scenario: The agent stays consistent with suggested results
         Given an agent

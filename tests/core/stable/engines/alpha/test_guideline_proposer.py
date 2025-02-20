@@ -927,3 +927,306 @@ def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_a_few_
         conversation_guideline_names,
         [],
     )
+
+
+def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_one_action_occured(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        (
+            "customer",
+            "Hi there! I was wondering - what's the life expectancy of owls?",
+        ),
+        (
+            "ai_agent",
+            "Great Question! Owls can live 5 to 30 years in the wild, and even longer in captivity.",
+        ),
+        ("customer", "That's shorter than I expected, thank you!"),
+    ]
+
+    conversation_guideline_names: list[str] = ["many_actions"]
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        [],
+    )
+
+
+def test_that_irrelevant_guidelines_are_not_proposed_parametrized_2(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        ("customer", "Could you add some pretzels to my order?"),
+        ("ai_agent", "Pretzels have been added to your order. Anything else?"),
+        ("customer", "Do you have Coke? I'd like one, please."),
+        ("ai_agent", "Coke has been added to your order."),
+        ("customer", "Great, where are you located at?"),
+    ]
+    conversation_guideline_names: list[str] = ["check_drinks_in_stock"]
+    base_test_that_correct_guidelines_are_proposed(
+        context, agent, customer, conversation_context, conversation_guideline_names, []
+    )
+
+
+def test_that_many_guidelines_are_classified_correctly(  # a stress test
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        ("customer", "Hey, do you sell skateboards?"),
+        (
+            "ai_agent",
+            "Yes, we do! We have a variety of skateboards for all skill levels. Are you looking for something specific?",
+        ),
+        ("customer", "I'm looking for a skateboard for a beginner. What do you recommend?"),
+        (
+            "ai_agent",
+            "For beginners, I recommend our complete skateboards with a sturdy deck and softer wheels for easier control. Would you like to see some options?",
+        ),
+        ("customer", "That sounds perfect. Can you show me a few?"),
+        (
+            "ai_agent",
+            "Sure! We have a few options: the 'Smooth Ride' model, the 'City Cruiser,' and the 'Basic Starter.' Which one would you like to know more about?",
+        ),
+        ("customer", "I like the 'City Cruiser.' What color options do you have?"),
+        ("ai_agent", "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?"),
+        ("customer", "I'll go with the blue one."),
+        (
+            "ai_agent",
+            "Great choice! I'll add the blue 'City Cruiser' to your cart. Would you like to add any accessories like a helmet or grip tape?",
+        ),
+        ("customer", "Yes, I'll take a helmet. What do you have in stock?"),
+        (
+            "ai_agent",
+            "We have helmets in small, medium, and large sizes, all available in black and gray. What size do you need?",
+        ),
+        ("customer", "I need a medium. I'll take one in black."),
+        (
+            "ai_agent",
+            "Got it! Your blue 'City Cruiser' skateboard and black medium helmet are ready for checkout. How would you like to pay?",
+        ),
+        ("customer", "I'll pay with a credit card, thank you very much!"),
+        (
+            "ai_agent",
+            "Thank you for your order! Your skateboard and helmet will be shipped shortly. Enjoy your ride!",
+        ),
+        ("customer", "That's great! Thanks!"),
+    ]
+
+    exceptions = [
+        "credit_payment1",
+        "credit_payment2",
+        "cow_response",
+        "thankful_customer",
+        "payment_process",
+    ]
+
+    conversation_guideline_names: list[str] = [
+        guideline_name
+        for guideline_name in GUIDELINES_DICT.keys()
+        if guideline_name not in exceptions
+    ]
+    relevant_guideline_names = ["announce_shipment", "second_thanks"]
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_relevant_guidelines_are_proposed_parametrized_1(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        ("customer", "I'd like to order a pizza, please."),
+        ("ai_agent", "No problem. What would you like to have?"),
+        ("customer", "I'd like a large pizza. What toppings do you have?"),
+        ("ai_agent", "Today, we have pepperoni, tomatoes, and olives available."),
+        ("customer", "I'll take pepperoni, thanks."),
+        (
+            "ai_agent",
+            "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
+        ),
+        ("customer", "Sure. What types of drinks do you have?"),
+        ("ai_agent", "We have Sprite, Coke, and Fanta."),
+        ("customer", "I'll take two Sprites, please."),
+        ("ai_agent", "Anything else?"),
+        ("customer", "No, that's all. I want to pay."),
+        ("ai_agent", "No problem! We accept only cash."),
+        ("customer", "Sure, I'll pay the delivery guy."),
+        ("ai_agent", "Unfortunately, we accept payments only at our location."),
+        ("customer", "So what should I do now?"),
+    ]
+    conversation_guideline_names: list[str] = [
+        "check_toppings_in_stock",
+        "check_drinks_in_stock",
+        "payment_process",
+        "address_location",
+    ]
+    relevant_guideline_names: list[str] = [
+        "address_location",
+    ]
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_guideline_that_needs_to_be_reapplied_is_proposed(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        (
+            "ai_agent",
+            "Hi! Welcome to PizzaBot, your virtual pizza assistant. How can I help you today?",
+        ),
+        ("customer", "Hi, I’d like to order a pizza."),
+        ("ai_agent", "Great choice! What size would you like—small, medium, or large?"),
+        ("customer", "I’ll take a large pizza."),
+        (
+            "ai_agent",
+            "Got it! And what type of crust would you like? We have classic, thin, stuffed, or gluten-free.",
+        ),
+        ("customer", "Let’s go with stuffed crust."),
+        (
+            "ai_agent",
+            "Yum! Now for the toppings. Would you like a classic like pepperoni or something custom?",
+        ),
+        ("customer", "Can I do half pepperoni and half veggie?"),
+        (
+            "ai_agent",
+            "Absolutely! Your pizza will have half pepperoni and half veggie. For the veggie side, would you like a mix of mushrooms, onions, bell peppers, and olives?",
+        ),
+        ("customer", "Yes, that sounds perfect."),
+        ("ai_agent", "Great! Would you like any extra cheese or dipping sauces?"),
+        ("customer", "Extra cheese for sure, and ranch dipping sauce, please."),
+        (
+            "ai_agent",
+            "Got it. A large, stuffed crust pizza with half pepperoni, half veggie, extra cheese, and ranch dipping sauce. Anything else?",
+        ),
+        ("customer", "Nope, that’s all. How long will it take?"),
+        (
+            "ai_agent",
+            "Your pizza will be ready in about 25 minutes. Would you like delivery or pickup?",
+        ),
+        ("customer", "Delivery please?"),
+        ("ai_agent", "Great, the total would be 10$, would you like to pay by credit or cash?"),
+        ("customer", "Actually hold up, could you add another large pizza to the order?"),
+    ]
+
+    conversation_guideline_names: list[str] = ["large_pizza_crust"]
+    relevant_guideline_names = conversation_guideline_names
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=[],
+    )
+
+
+def test_that_guidelines_based_on_context_variables_arent_proposed_repetitively(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        (
+            "ai_agent",
+            "Hi! Welcome to PizzaBot, your virtual pizza assistant. We have a special summer deal - two large pizzas for the price of one! How can I help you today?",
+        ),
+        ("customer", "Hi, I’d like to order a pizza."),
+        ("ai_agent", "Great choice! What size would you like—small, medium, or large?"),
+        ("customer", "I’ll take a large pizza."),
+        (
+            "ai_agent",
+            "Got it! And what type of crust would you like? We have classic, thin, stuffed, or gluten-free.",
+        ),
+        ("customer", "Let’s go with stuffed crust."),
+        (
+            "ai_agent",
+            "Yum! Now for the toppings. Would you like a classic like pepperoni or something custom?",
+        ),
+        ("customer", "Can I do half pepperoni and half veggie?"),
+        (
+            "ai_agent",
+            "Absolutely! Your pizza will have half pepperoni and half veggie. For the veggie side, would you like a mix of mushrooms, onions, bell peppers, and olives?",
+        ),
+        ("customer", "Yes, that sounds perfect."),
+        ("ai_agent", "Great! Would you like any extra cheese or dipping sauces?"),
+        ("customer", "Extra cheese for sure, and ranch dipping sauce, please."),
+        (
+            "ai_agent",
+            "Got it. A large, stuffed crust pizza with half pepperoni, half veggie, extra cheese, and ranch dipping sauce. Anything else?",
+        ),
+        ("customer", "Nope, that’s all. How long will it take?"),
+        (
+            "ai_agent",
+            "Your pizza will be ready in about 25 minutes. Would you like delivery or pickup?",
+        ),
+        ("customer", "Delivery please?"),
+        ("ai_agent", "Great, the total would be 10$, would you like to pay by credit or cash?"),
+        ("customer", "Actually hold up, could you add another large pizza to the order?"),
+    ]
+    context_variables = [
+        create_context_variable(
+            name="season",
+            data={"season": "Summer"},
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = ["summer_sale"]
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        [],
+        context_variables=context_variables,
+    )
+
+
+def test_that_guidelines_are_not_considered_done_when_they_strictly_arent(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[str, str]] = [
+        ("ai_agent", "Hey there, how can I help you?"),
+        ("customer", "I'd like to pay my credit card bill"),
+        ("ai_agent", "Sure thing. For which card, and how much would you like to pay right now?"),
+        ("customer", "For my amex please"),
+    ]
+
+    conversation_guideline_names: list[str] = ["pay_cc_bill"]
+
+    base_test_that_correct_guidelines_are_proposed(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        ["pay_cc_bill"],
+    )

@@ -38,17 +38,26 @@ from parlant.core.emissions import EmittedEvent
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.logging import Logger
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.engines.alpha.reasoning_method import (
+    ReasoningMethod,
+    GUIDELINE_PROPOSER_REASONING_METHOD,
+)
 
 
 class GuidelinePropositionSchema(DefaultBaseModel):
     guideline_id: str
-    condition: str
+    reasoning: Optional[str] = "..."
+    condition: Optional[str] = ""
     action: Optional[str] = ""
-    condition_application_rationale: str
-    condition_applies: bool
+    condition_application_rationale: Optional[str] = ""
+    condition_applies: Optional[bool] = False
     guideline_is_continuous: Optional[bool] = False
-    capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls: bool = True
-    guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information: str = ""
+    capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls: Optional[
+        bool
+    ] = True
+    guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information: Optional[
+        str
+    ] = ""
     guideline_previously_applied_rationale: Optional[dict[str, str]] = {}
     guideline_previously_applied: Optional[str] = "no"
     is_missing_part_cosmetic_or_functional: Optional[Literal["cosmetic", "functional"]] = None
@@ -70,14 +79,14 @@ class GuidelinePropositionShot(Shot):
 @dataclass(frozen=True)
 class ConditionApplicabilityEvaluation:
     guideline_id: GuidelineId
-    condition: str
-    action: str
-    score: int
-    condition_application_rationale: str
-    guideline_previously_applied_rationale: str
-    guideline_previously_applied: str
-    guideline_is_continuous: bool
-    guideline_should_reapply: bool
+    condition: Optional[str] = ""
+    action: Optional[str] = ""
+    condition_application_rationale: Optional[str] = ""
+    guideline_previously_applied_rationale: Optional[str] = ""
+    guideline_previously_applied: Optional[str] = "no"
+    guideline_is_continuous: Optional[bool] = False
+    guideline_should_reapply: Optional[bool] = False
+    score: int = 1
 
 
 @dataclass(frozen=True)
@@ -100,6 +109,7 @@ class GuidelineProposer:
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
+        self._reasoning_method = GUIDELINE_PROPOSER_REASONING_METHOD
 
     async def propose_guidelines(
         self,
@@ -242,6 +252,9 @@ class GuidelineProposer:
                 f"[GuidelineProposer][Completion]\n{inference.content.model_dump_json(indent=2)}"
             )
 
+        with open("guideline proposer response.txt", "w") as f:
+            f.write(inference.content.model_dump_json(indent=2))
+
         propositions = []
 
         for proposition in inference.content.checks:
@@ -318,15 +331,82 @@ class GuidelineProposer:
 {formatted_guidelines}
 
 """
-
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            examples_text = json.dumps(
+                shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2
+            )
+        elif self._reasoning_method == ReasoningMethod.COT:
+            examples_text = json.dumps(
+                [
+                    {
+                        "guideline_id": g.guideline_id,
+                        "reasoning": g.reasoning,
+                        "applies_score": g.applies_score,
+                    }
+                    for g in shot.expected_result.checks
+                ],
+                indent=2,
+            )
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            examples_text = json.dumps(
+                [
+                    {
+                        "guideline_id": g.guideline_id,
+                        "applies_score": g.applies_score,
+                    }
+                    for g in shot.expected_result.checks
+                ],
+                indent=2,
+            )
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{examples_text}
 ```
 """
-
         return formatted_shot
+
+    def _get_result_structure(self, guidelines: dict[GuidelineId, Guideline]):
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            return [
+                {
+                    "guideline_id": g.id,
+                    "condition": g.content.condition,
+                    "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
+                    "condition_applies": "<BOOL>",
+                    "action": g.content.action,
+                    "guideline_is_continuous": "<BOOL: Optional, only necessary if guideline_previously_applied is true. Specifies whether the action is taken one-time, or is continuous>",
+                    "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": True,
+                    "guideline_previously_applied_rationale": {
+                        "<action_segment_1>": "<explanation of whether this action segment was already applied; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
+                        "<action_segment_N>": "<explanation...>",
+                    },
+                    "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "<if the guideline DID previously apply, explain here whether or not it needs to re-apply due to it being applicable to new context or information>",
+                    "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was previously preformed>",
+                    "is_missing_part_cosmetic_or_functional": "<str: only included if guideline_previously_applied is 'partially'. Value is either 'cosmetic' or 'functional' depending on the nature of the missing segment.",
+                    "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
+                    "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
+                }
+                for g in guidelines.values()
+            ]
+        elif self._reasoning_method == ReasoningMethod.COT:
+            return [
+                {
+                    "guideline_id": g.id,
+                    "reasoning": "<Reasoning chain for this task>",
+                    "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
+                }
+                for i, g in guidelines.items()
+            ]
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            return [
+                {
+                    "guideline_id": g.id,
+                    "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
+                }
+                for i, g in guidelines.items()
+            ]
+        return []
 
     def _format_prompt(
         self,
@@ -339,27 +419,8 @@ class GuidelineProposer:
         guidelines: dict[GuidelineId, Guideline],
         shots: Sequence[GuidelinePropositionShot],
     ) -> str:
-        result_structure = [
-            {
-                "guideline_id": g.id,
-                "condition": g.content.condition,
-                "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
-                "condition_applies": "<BOOL>",
-                "action": g.content.action,
-                "guideline_is_continuous": "<BOOL: Optional, only necessary if guideline_previously_applied is true. Specifies whether the action is taken one-time, or is continuous>",
-                "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": True,
-                "guideline_previously_applied_rationale": {
-                    "<action_segment_1>": "<explanation of whether this action segment was already applied; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
-                    "<action_segment_N>": "<explanation...>",
-                },
-                "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "<if the guideline DID previously apply, explain here whether or not it needs to re-apply due to it being applicable to new context or information>",
-                "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depanding on whether and to what degree the action was previously preformed>",
-                "is_missing_part_cosmetic_or_functional": "<str: only included if guideline_previously_applied is 'partially'. Value is either 'cosmetic' or 'functional' depending on the nature of the missing segment.",
-                "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
-                "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
-            }
-            for i, g in guidelines.items()
-        ]
+        result_structure = self._get_result_structure(guidelines)
+
         guidelines_text = "\n".join(
             f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
             for i, g in guidelines.items()
@@ -368,7 +429,7 @@ class GuidelineProposer:
         builder = PromptBuilder()
 
         builder.add_section(
-            f"""
+            """
 GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
@@ -397,17 +458,25 @@ c. Check for Prior Action: Determine whether the condition has already been addr
 d. Guideline Application: A guideline should be applied only if:
     (1) Its condition is currently met and its action has not been performed yet, or
     (2) The interaction warrants re-application of its action (e.g., when a recurring condition becomes true again after previously being fulfilled).
-
+"""
+        )
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            builder.add_section("""
 For each provided guideline, return:
     (1) Whether its condition is fulfilled.
     (2) Whether its action needs to be applied at this time. See the following section for more details.
-
-
+""")
+        elif self._reasoning_method == ReasoningMethod.COT:
+            builder.add_section("""
+Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reasoning' field of your response. 
+                                """)
+        builder.add_section(
+            """
 Insights Regarding Guideline re-activation
 -------------------
 A condition typically no longer applies if its corresponding action has already been executed.
 However, there are exceptions where re-application is warranted, such as when the condition is re-applied again. For example, a guideline with the condition "the customer is asking a question" should be applied again whenever the customer asks a question.
-Additionally, actions that involve continuous behavior (e.g., "do not ask the user for their age", or guidelines involving the language the agent should use) should be re-applied whenever their condition is met, even if their action was already taken. Mark these guidelines "guideline_is_continuous" in your output.
+Additionally, actions that involve continuous behavior (e.g., "do not ask the user for their age", or guidelines involving the language the agent should use) should be re-applied whenever their condition is met, even if their action was already taken.
 If a guideline's condition has multiple requirements, mark it as continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and help them with their order" should be marked as continuous, since 'helping them with their order' is continuous.
 Actions that forbid certain behaviors are generally considered continuous, as they must be upheld across multiple messages to ensure consistent adherence.
 
@@ -416,7 +485,7 @@ IMPORTANT: guidelines that only require you to say a specific thing are generall
 Conversely, actions dictating one-time behavior (e.g., "send the user our address") should be re-applied more conservatively.
 Only re-apply these if the condition ceased to be true earlier in the conversation before being fulfilled again in the current context.
 
-IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, output "fully" for guideline_previously_applied, and treat the guideline as though it has been fully executed.
+IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, treat the guideline as though it has been fully executed.
 In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is marked as continuous.
 
 """  # noqa
@@ -465,6 +534,9 @@ Expected Output
     ```""")
 
         prompt = builder.build()
+        with open("guideline proposer prompt.txt", "w") as f:
+            f.write(prompt)
+
         return prompt
 
 

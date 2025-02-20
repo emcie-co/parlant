@@ -13,7 +13,7 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains Sprite and Coca Cola as available drinks
-        
+
     Scenario: Single tool get_available_toppings is being called once
         Given the guideline called "check_toppings_in_stock"
         And the tool "get_available_toppings"
@@ -23,13 +23,13 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains Mushrooms and Olives as available toppings
-        
+
     Scenario: Single tool is being called multiple times
         Given a guideline "sell_pizza" to sell pizza when interacting with customers
         And a guideline "check_stock" to check if toppings or drinks are available in stock when a client asks for toppings or drinks
         And the tool "get_available_product_by_type"
         And an association between "check_stock" and "get_available_product_by_type"
-        And a customer message, "Hey, Can I order large pepperoni pizza with Sprite?"
+        And a customer message, "Hey, Can I order a large pizza with pepperoni and Sprite on the side?"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 2 tool call(s)
@@ -174,7 +174,7 @@ Feature: Tools
     Scenario: The agent correctly chooses to call the right tool
         Given an agent whose job is to sell groceries
         And the term "carrot" defined as a kind of fruit
-        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price 
+        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
         And the tool "check_fruit_price"
         And the tool "check_vegetable_price"
         And an association between "check_prices" and "check_fruit_price"
@@ -233,3 +233,78 @@ Feature: Tools
         And the tool calls event contains a call to "local:consult_policy" regarding return policies
         And a single message event is emitted
         And the message contains that the return policy allows returns within 4 days and 4 hours from the time of purchase
+
+    Scenario: Tool called again by context after customer response
+        Given an empty session
+        And a guideline "retrieve_account_information" to retrieve account information when customers inquire about account-related information
+        And the tool "get_account_balance"
+        And an association between "retrieve_account_information" and "get_account_balance"
+        And a customer message, "What is the balance of Larry David's account?"
+        And a tool event with data, { "tool_calls": [{ "tool_id": "local:get_account_balance", "arguments": { "account_name": "Larry David"}, "result": { "data": 451000000, "metadata": {} }}]}
+        And an agent message, "Larry David currently has 451 million dollars."
+        And a customer message, "And what about now?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "get_account_balance" with Larry David's current balance
+
+    Scenario: Tool caller does not over-optimistically assume an argument's value
+        Given a customer with the name "Vax"
+        And an empty session with "Vax"
+        And a context variable "Current Date" set to "January 17th, 2025" for "Vax"
+        And a guideline "pay_cc_bill_guideline" to help a customer make the payment when they want to pay their credit card bill
+        And the tool "pay_cc_bill"
+        And an association between "pay_cc_bill_guideline" and "pay_cc_bill"
+        And a customer message, "Let's please pay my credit card bill"
+        When processing is triggered
+        Then no tool calls event is emitted
+
+    Scenario: Tool caller correctly infers an argument's value (1)
+        Given a customer with the name "Vax"
+        And an empty session with "Vax"
+        And a context variable "Current Date" set to "January 17th, 2025" for "Vax"
+        And a guideline "pay_cc_bill_guideline" to help a customer make the payment when they want to pay their credit card bill
+        And the tool "pay_cc_bill"
+        And an association between "pay_cc_bill_guideline" and "pay_cc_bill"
+        And a customer message, "Let's please pay my credit card bill immediately"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "pay_cc_bill" with date 17-01-2025
+
+    Scenario: Tool caller correctly infers an argument's value (2)
+        Given a customer with the name "Vax"
+        And an empty session with "Vax"
+        And a context variable "Current Date" set to "January 17th, 2025" for "Vax"
+        And a guideline "pay_cc_bill_guideline" to help a customer make the payment when they want to pay their credit card bill
+        And the tool "pay_cc_bill"
+        And an association between "pay_cc_bill_guideline" and "pay_cc_bill"
+        And a customer message, "Let's please pay my credit card bill. Payment date is tomorrow."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "pay_cc_bill" with date 18-01-2025
+
+    Scenario: Guideline proposer and tool caller understand that a Q&A tool needs to be called multiple times to answer different questions
+        Given an empty session
+        And a guideline "answer_questions" to look up the answer and, if found, when the customer has a question related to the bank's services
+        And the tool "find_answer"
+        And an association between "answer_questions" and "find_answer"
+        And a customer message, "How do I pay my credit card bill?"
+        And an agent message, "You can just tell me the last 4 digits of the desired card and I'll help you with that."
+        And a customer message, "Thank you! And I imagine this applies also if my card is currently lost, right?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "find_answer" with an inquiry about a situation in which a card is lost
+
+    Scenario: Message generator understands and communicates that required information is missing
+        Given an empty session
+        And a guideline "pay_cc_bill_guideline" to help a customer make the payment when they want to pay their credit card bill
+        And the tool "pay_cc_bill"
+        And an association between "pay_cc_bill_guideline" and "pay_cc_bill"
+        And a customer message, "Let's please pay my credit card bill."
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message mentions that a date is missing

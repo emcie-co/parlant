@@ -363,6 +363,29 @@ def given_a_tool(
             },
             "required": ["payment_date"],
         },
+        "get_products_by_type": {
+            "name": "get_products_by_type",
+            "description": "Get all products that match the specified product type ",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "product_type": {
+                    "type": "string",
+                    "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
+                }
+            },
+            "required": ["product_type"],
+        },
+        "get_bookings": {
+            "name": "get_bookings",
+            "description": "Gets all flight bookings for a customer",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "customer_id": {
+                    "type": "string",
+                }
+            },
+            "required": ["customer_id"],
+        },
     }
 
     tool = context.sync_await(create_tool(**tools[tool_name]))

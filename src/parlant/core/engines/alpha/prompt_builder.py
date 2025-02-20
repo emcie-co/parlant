@@ -239,9 +239,9 @@ and let the user know if/when you assume they meant a term by their typo: ###
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,
                 content=f"""
-Here are some recently emitted events for your consideration.
-These events represent calls to external tools that perform real-world actions or provide useful information.
-Use the details they offer to assist in your task: ###
+Here are the most recent staged events for your reference.
+They represent interactions with external tools that perform actions or provide information.
+Prioritize their data over any other sources and use their details to complete your task: ###
 {staged_events_as_dict}
 ###
 """,

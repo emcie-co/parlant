@@ -30,8 +30,9 @@ from typing import (
     Sequence,
     TypeAlias,
     Union,
+    get_args,
 )
-from typing_extensions import override, TypedDict, NotRequired
+from typing_extensions import override, TypedDict
 
 from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId
 
@@ -46,10 +47,11 @@ ToolParameterType = Literal[
 EnumValueType = Union[str, int]
 
 
-class ToolParameter(TypedDict):
+class ToolParameterDescriptor(TypedDict, total=False):
     type: ToolParameterType
-    description: NotRequired[str]
-    enum: NotRequired[list[EnumValueType]]
+    enum: list[EnumValueType]
+    description: str
+    examples: list[str]
 
 
 # These two aliases are redefined here to avoid a circular reference.
@@ -104,11 +106,34 @@ class ToolResult:
 
 
 @dataclass(frozen=True)
+class ToolParameterOptions:
+    hidden: bool = field(default=False)
+    """If true, this parameter is not exposed in tool insights and message generation;
+    meaning, agents would not be able to inform customers when it is missing and required."""
+
+    source: Literal["any", "context", "customer"] = field(default="any")
+    """Describes what is the expected source for the argument. This can help agents understand
+    whether to ask for it directly from the customer, or to seek it elsewhere in the context."""
+
+    description: Optional[str] = field(default=None)
+    """A description of this parameter which should help agents understand how to extract arguments properly."""
+
+    significance: Optional[str] = field(default=None)
+    """A description of the significance of this parameter for the tool call — why is it needed?"""
+
+    examples: list[Any] = field(default_factory=list)
+    """Examples of arguments which should help agents understand how to extract arguments properly."""
+
+    adapter: Optional[Callable[[Any], Awaitable[Any]]] = field(default=None)
+    """A custom adapter function to convert the inferred value to a type."""
+
+
+@dataclass(frozen=True)
 class Tool:
     name: str
     creation_utc: datetime
     description: str
-    parameters: dict[str, ToolParameter]
+    parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]
     required: list[str]
     consequential: bool
 
@@ -186,7 +211,7 @@ class _LocalTool:
     creation_utc: datetime
     module_path: str
     description: str
-    parameters: dict[str, ToolParameter]
+    parameters: dict[str, ToolParameterDescriptor]
     required: list[str]
     consequential: bool
 
@@ -202,7 +227,10 @@ class LocalToolService(ToolService):
             creation_utc=local_tool.creation_utc,
             name=local_tool.name,
             description=local_tool.description,
-            parameters=local_tool.parameters,
+            parameters={
+                name: (descriptor, ToolParameterOptions())
+                for name, descriptor in local_tool.parameters.items()
+            },
             required=local_tool.required,
             consequential=local_tool.consequential,
         )
@@ -212,7 +240,7 @@ class LocalToolService(ToolService):
         name: str,
         module_path: str,
         description: str,
-        parameters: Mapping[str, ToolParameter],
+        parameters: Mapping[str, ToolParameterDescriptor],
         required: Sequence[str],
         consequential: bool = False,
     ) -> Tool:
@@ -307,7 +335,7 @@ def validate_tool_arguments(
     }
 
     for param_name, arg_value in arguments.items():
-        param_def = tool.parameters[param_name]
+        param_def, _ = tool.parameters[param_name]
         param_type = param_def["type"]
 
         if param_type == "enum":
@@ -343,6 +371,8 @@ def normalize_tool_arguments(
 
 
 def normalize_tool_argument(parameter_type: Any, argument: Any) -> Any:
+    if getattr(parameter_type, "__name__", None) == "Annotated":
+        parameter_type = get_args(parameter_type)[0]
     if inspect.isclass(parameter_type) and issubclass(parameter_type, enum.Enum):
         return parameter_type(argument)
     return argument

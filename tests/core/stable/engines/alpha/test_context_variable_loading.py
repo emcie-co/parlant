@@ -21,7 +21,7 @@ from parlant.core.agents import AgentId
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Session
 from parlant.core.context_variables import ContextVariableStore
-from parlant.core.engines.alpha.engine import fresh_value
+from parlant.core.engines.alpha.engine import load_fresh_context_variable_value
 from parlant.core.tools import LocalToolService, ToolId
 
 from tests.core.common.utils import ContextOfTest
@@ -91,12 +91,12 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
         data=current_data,
     )
 
-    await fresh_value(
+    await load_fresh_context_variable_value(
         context_variable_store=context_variable_store,
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_id=context_variable.id,
+        variable=context_variable,
         key=test_key,
         current_time=current_time,
     )
@@ -159,12 +159,12 @@ async def test_that_value_refreshes_when_freshness_rules_are_met(
         data=current_data,
     )
 
-    value = await fresh_value(
+    value = await load_fresh_context_variable_value(
         context_variable_store=context_variable_store,
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_id=context_variable.id,
+        variable=context_variable,
         key=test_key,
         current_time=current_time,
     )
@@ -195,12 +195,12 @@ async def test_that_value_is_created_when_need_to_be_freshed(
         tool_id=tool_id,
     )
 
-    created_value = await fresh_value(
+    created_value = await load_fresh_context_variable_value(
         context_variable_store=context_variable_store,
         service_registery=service_registry,
         agent_id=agent_id,
         session=new_session,
-        variable_id=context_variable.id,
+        variable=context_variable,
         key=test_key,
         current_time=current_time,
     )

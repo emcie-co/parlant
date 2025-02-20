@@ -76,7 +76,7 @@ CustomerIdPath: TypeAlias = Annotated[
 CustomerCreationUTCField: TypeAlias = Annotated[
     datetime,
     Field(
-        description="UTC timestamp of when the agent was created",
+        description="UTC timestamp of when the customer was created",
         examples=[dateutil.parser.parse("2024-03-24T12:00:00Z")],
     ),
 ]

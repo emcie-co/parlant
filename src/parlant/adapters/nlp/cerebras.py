@@ -71,12 +71,22 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         response = await self._client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
-            response_format={"type": "json_object"},
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": self.schema.__name__,
+                        "description": "Produces the required JSON object",
+                        "parameters": self.schema.model_json_schema(),
+                    },
+                }
+            ],
+            tool_choice="required",
             **cerebras_api_arguments,
         )
         t_end = time.time()
 
-        raw_content = response.choices[0].message.content or "{}"  # type: ignore
+        raw_content = response.choices[0].message.tool_calls[0].function.arguments or "{}"  # type: ignore
 
         try:
             json_content = normalize_json_output(raw_content)

@@ -141,6 +141,3 @@ class LifecycleHooks:
                 case LifecycleHookResult.BAIL:
                     return False
         return True
-
-
-lifecycle_hooks = LifecycleHooks()

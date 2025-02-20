@@ -1,34 +1,38 @@
 #root {
-  height: 100vh;
-  margin: auto;
-  font-family: Ubuntu Sans;
+	height: 100vh;
+	margin: auto;
+	font-family: Ubuntu Sans;
 }
 
 .fixed-scroll {
-  overflow: scroll;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.5) transparent;
+	overflow: scroll;
+	scrollbar-width: thin;
+	scrollbar-color: #ebecf0 transparent;
+}
+
+.fixed-scroll:hover {
+	scrollbar-color: #cdcdcd transparent;
 }
 
 .fixed-scroll::-webkit-scrollbar {
-  width: 10px;
+	width: 10px;
 }
 
 .fixed-scroll::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.5);
-  border-radius: 10px;
+	background-color: rgba(0, 0, 0, 0.5);
+	border-radius: 10px;
 }
 
 .fixed-scroll::-webkit-scrollbar-track {
-  background: transparent;
+	background: transparent;
 }
 
 .markdown * {
-  font-size: revert;
-  font-weight: revert;
-  padding: revert;
-  margin: revert;
-  list-style-type: revert;
-  color: revert;
-  text-decoration: revert;
+	font-size: revert;
+	font-weight: revert;
+	padding: revert;
+	margin: revert;
+	list-style-type: revert;
+	color: revert;
+	text-decoration: revert;
 }

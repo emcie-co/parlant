@@ -67,7 +67,7 @@ async def test_that_an_agent_can_be_created_without_max_engine_iterations(
     agent = response.json()
 
     assert agent["name"] == "test-agent"
-    assert agent["max_engine_iterations"] == 3
+    assert agent["max_engine_iterations"] == 1
 
 
 async def test_that_an_agent_can_be_created_with_max_engine_iterations(
@@ -141,40 +141,47 @@ async def test_that_an_agent_can_be_read(
 
     assert agent_dto["name"] == "test-agent"
     assert agent_dto["description"] is None
+    assert agent_dto["composition_mode"] == "fluid"
 
 
 @mark.parametrize(
-    "patch_request",
-    (
-        {"name": "New Name"},
-        {"description": None},
-        {"description": "You are a test agent"},
-        {"description": "You are a test agent", "max_engine_iterations": 1},
-        {"max_engine_iterations": 1},
-    ),
+    "update_payload, expected_name, expected_description, expected_iterations, expected_composition",
+    [
+        ({"name": "New Name"}, "New Name", None, 1, "fluid"),
+        ({"description": None}, "test-agent", None, 1, "fluid"),
+        ({"description": "You are a test agent"}, "test-agent", "You are a test agent", 1, "fluid"),
+        (
+            {"description": "Changed desc", "max_engine_iterations": 2},
+            "test-agent",
+            "Changed desc",
+            2,
+            "fluid",
+        ),
+        ({"max_engine_iterations": 5}, "test-agent", None, 5, "fluid"),
+        ({"composition_mode": "strict_assembly"}, "test-agent", None, 1, "strict_assembly"),
+    ],
 )
-async def test_that_agent_can_be_updated(
+async def test_that_an_agent_can_be_updated(
     async_client: httpx.AsyncClient,
     container: Container,
-    patch_request: dict[str, Any],
+    update_payload: dict[str, Any],
+    expected_name: str,
+    expected_description: str | None,
+    expected_iterations: int,
+    expected_composition: str,
 ) -> None:
     agent_store = container[AgentStore]
     agent = await agent_store.create_agent("test-agent")
 
-    agent_dto = (
-        (
-            await async_client.patch(
-                f"/agents/{agent.id}",
-                json=patch_request,
-            )
-        )
-        .raise_for_status()
-        .json()
-    )
+    response = await async_client.patch(f"/agents/{agent.id}", json=update_payload)
+    response.raise_for_status()
+    updated_agent = response.json()
 
-    assert agent_dto["name"] == patch_request.get("name", "test-agent")
-    assert agent_dto["description"] == patch_request.get("description")
-    assert agent_dto["max_engine_iterations"] == patch_request.get("max_engine_iterations", 3)
+    assert updated_agent["name"] == update_payload.get("name", "test-agent")
+    assert updated_agent["name"] == expected_name
+    assert updated_agent["description"] == expected_description
+    assert updated_agent["max_engine_iterations"] == expected_iterations
+    assert updated_agent["composition_mode"] == expected_composition
 
 
 async def test_that_an_agent_can_be_deleted(

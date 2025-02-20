@@ -25,6 +25,7 @@ from typing_extensions import Literal
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
+from parlant.core.logging import Logger
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.services.tools.openapi import OpenAPIClient
@@ -105,6 +106,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self,
         database: DocumentDatabase,
         event_emitter_factory: EventEmitterFactory,
+        logger: Logger,
         correlator: ContextualCorrelator,
         nlp_services: Mapping[str, NLPService],
     ):
@@ -112,6 +114,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
 
         self._event_emitter_factory = event_emitter_factory
+        self._logger = logger
         self._correlator = correlator
         self._nlp_services = nlp_services
 
@@ -208,6 +211,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
             return PluginClient(
                 url=document["url"],
                 event_emitter_factory=self._event_emitter_factory,
+                logger=self._logger,
                 correlator=self._correlator,
             )
         else:
@@ -237,6 +241,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 service = PluginClient(
                     url=url,
                     event_emitter_factory=self._event_emitter_factory,
+                    logger=self._logger,
                     correlator=self._correlator,
                 )
 

@@ -230,6 +230,32 @@ def then_message_events_are_emitted(
     assert message_count == count, f"Expected {count} message events, but found {message_count}"
 
 
+@step(then, parsers.parse('the message contains the text "{something}"'))
+def then_the_message_contains_the_text(
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert (
+        something.lower() in message.lower()
+    ), f"message: '{message}', expected to contain the text: '{something}'"
+
+
+@step(then, parsers.parse('the message doesn\'t contain the text "{something}"'))
+def then_the_message_does_not_contain_the_text(
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert (
+        something.lower() not in message.lower()
+    ), f"message: '{message}', expected to NOT contain the text: '{something}'"
+
+
 @step(then, parsers.parse("the message contains {something}"))
 def then_the_message_contains(
     context: ContextOfTest,

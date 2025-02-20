@@ -1,7 +1,6 @@
-
 <div align="center">
 <img alt="Parlant Logo" src="https://github.com/emcie-co/parlant/blob/e0fefba25efd1b956ead881964025baae5dc4119/banner.png" />
-  <h2>Parlant: The Behavior Guidance Framework for Customer-Facing Agents</h2>
+  <h2>Parlant: Control Your LLMs in Customer-Facing Use Cases</h2>
   <p>
     <a href="https://www.parlant.io/" target="_blank">Website</a> —
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> —
@@ -20,7 +19,7 @@
   </p>
 </div>
 
-**IMPORTANT NOTE:** Parlant is in active development by a team of (currently) 12 contributors (developers, researchers, and QA) from leading instutions, such as Microsoft, Check Point, and Dynamic Yield. We're looking for more contributors to help get customer-facing agents under control! Please consider joining our Discord server and participating in our development.
+**IMPORTANT NOTE:** Parlant is in active development by a team of (currently) 12 contributors (developers, researchers, and QA) from leading institutions, such as Microsoft, Check Point, and Dynamic Yield. We're looking for more contributors to help get customer-facing agents under control! Please consider joining our Discord server and participating in our development.
 
 ## ✨ Take Control of AI Agent Decisions
 **Parlant is a framework that transforms how AI agents make decisions in customer-facing scenarios.**
@@ -61,7 +60,7 @@ Parlant is the right tool for the job if you're building an LLM-based chat agent
 1. 📈 You're expected to maintain a **growing set of behavioral guidelines**, and you need to maintain them coherently and with version-tracking
 1. 💬 Conversational UX and user-engagmeent is an important concern for your use case, and you want to easily **control the flow and tone of conversations**
 
-## ⭐ Help Us Pick Up Pace!
+## ⭐ Star Us: Your Support Goes a Long Way!
 [![Star History Chart](https://api.star-history.com/svg?repos=emcie-co/parlant&type=Date)](https://star-history.com/#emcie-co/parlant&Date)
 
 ## 🤔 What Makes Parlant Different?
@@ -175,3 +174,79 @@ Please consult [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 Can't wait to get involved? Join us on [Discord](https://discord.gg/duxWqxKk6J) and let's discuss how you can help shape Parlant. We're excited to work with contributors directly while we set up our formal processes!
 
 Otherwise, feel free to start a discussion or open an issue here on GitHub—freestyle 😎.
+
+## 🚀 DSPy Integration (Feature Branch)
+
+This fork adds powerful DSPy integration to enhance Parlant's guideline optimization and classification capabilities. The integration is being developed in phases to ensure robust and maintainable code.
+
+### Key Features
+
+- **Smart Guideline Classification**: Uses LLMs to automatically determine which guidelines should be activated based on conversation context
+- **Enhanced Response Optimization**: Leverages DSPy's COPRO optimizer for better response quality
+- **Multi-Model Support**: Works with both OpenAI models and local Llama models via Ollama
+- **Comprehensive Testing**: Includes unit tests and performance benchmarks
+
+### Getting Started with DSPy Features
+
+1. **Installation**
+```bash
+# Clone this fork
+git clone https://github.com/jmanhype/parlant.git
+cd parlant
+
+# Install dependencies
+pip install -e .
+```
+
+2. **Configuration**
+```bash
+# Set up environment variables
+export OPENAI_API_KEY="your-key-here"  # For OpenAI models
+# OR
+export OLLAMA_HOST="http://localhost:11434"  # For local Llama models
+```
+
+3. **Basic Usage**
+```python
+from parlant.dspy_integration.guideline_classifier import GuidelineClassifier
+from parlant.dspy_integration.guideline_optimizer import BatchOptimizedGuidelineManager
+
+# Initialize classifier
+classifier = GuidelineClassifier()
+
+# Classify guidelines
+result = classifier(
+    conversation="User: I need help with my account",
+    guidelines=["Account support", "Technical issues"]
+)
+
+# Initialize optimizer
+optimizer = BatchOptimizedGuidelineManager()
+
+# Optimize responses
+optimized = await optimizer.optimize_guidelines(guidelines)
+```
+
+### Integration Roadmap
+
+This fork follows a 5-phase integration plan:
+
+1. **Phase 1** ✅ Basic DSPy Integration (Current)
+2. **Phase 2** 🔄 Engine Integration
+3. **Phase 3** 📋 Server Integration
+4. **Phase 4** 📊 Storage & Metrics
+5. **Phase 5** 🧪 Testing & Documentation
+
+See [ROADMAP.md](ROADMAP.md) for detailed implementation plans.
+
+### Differences from Main Repository
+
+This fork enhances Parlant with:
+- DSPy-powered guideline classification
+- Improved response optimization using COPRO
+- Support for both cloud and local LLMs
+- Enhanced metrics and performance tracking
+
+### Contributing
+
+We welcome contributions! Check out our [ROADMAP.md](ROADMAP.md) to see where you can help.

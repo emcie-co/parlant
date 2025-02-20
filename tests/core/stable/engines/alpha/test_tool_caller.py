@@ -149,7 +149,7 @@ async def test_that_a_tool_from_a_local_service_gets_called_with_an_enum_paramet
     }
 
     inference_tool_calls_result = await tool_caller.infer_tool_calls(
-        agents=[agent],
+        agent=agent,
         context_variables=[],
         interaction_history=interaction_history,
         terms=[],
@@ -222,7 +222,7 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_parameter(
         )
 
         inference_tool_calls_result = await tool_caller.infer_tool_calls(
-            agents=[agent],
+            agent=agent,
             context_variables=[],
             interaction_history=interaction_history,
             terms=[],

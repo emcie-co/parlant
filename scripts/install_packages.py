@@ -25,7 +25,7 @@ def install_package(package: Package) -> None:
 
     print(f"Installing {package.path}...")
 
-    status, output = subprocess.getstatusoutput(f"poetry -C {package.path} install")
+    status, output = subprocess.getstatusoutput(f"poetry -C {package.path} install --all-extras")
 
     if status != 0:
         print(output, file=sys.stderr)

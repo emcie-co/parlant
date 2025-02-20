@@ -340,7 +340,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
                 return []
 
             self._logger.debug(
-                f"Similar documents found: {json.dumps(docs['metadatas'][0], indent=2)}"
+                f"Similar documents found\n{json.dumps(docs['metadatas'][0], indent=2)}"
             )
 
             assert docs["distances"]

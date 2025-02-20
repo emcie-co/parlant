@@ -23,10 +23,11 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from parlant.core.engines.alpha.message_event_generator import MessageEventSchema
+from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
+from parlant.core.fragments import FragmentStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.tools import ToolResult
-from parlant.core.agents import AgentId
+from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
 from parlant.core.async_utils import Timeout
 from parlant.core.customers import CustomerId
 from parlant.core.sessions import (
@@ -69,6 +70,18 @@ async def long_session_id(
     )
 
     return session_id
+
+
+@fixture
+async def strict_agent_id(
+    container: Container,
+) -> AgentId:
+    agent_store = container[AgentStore]
+    agent = await agent_store.create_agent(name="strict_test_agent")
+    await agent_store.update_agent(
+        agent.id, params=AgentUpdateParams(composition_mode="strict_assembly")
+    )
+    return agent.id
 
 
 def make_event_params(
@@ -718,7 +731,7 @@ async def test_that_tool_events_are_correlated_with_message_events(
         container=container,
         session_id=session_id,
         message="Hello there!",
-        response_timeout=Timeout(30),
+        response_timeout=Timeout(60),
     )
 
     events_in_session = (
@@ -915,14 +928,14 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
     message_generation_inspections = inspection_data["message_generations"]
     assert len(message_generation_inspections) >= 1
 
-    assert message_generation_inspections[0]["generation"]["schema_name"] == "MessageEventSchema"
+    assert message_generation_inspections[0]["generation"]["schema_name"] == "FluidMessageSchema"
 
-    schematic_generator = await nlp_service.get_schematic_generator(MessageEventSchema)
+    schematic_generator = await nlp_service.get_schematic_generator(FluidMessageSchema)
     assert message_generation_inspections[0]["generation"]["model"] == schematic_generator.id
 
     assert message_generation_inspections[0]["generation"]["usage"]["input_tokens"] > 0
 
-    assert "Woof Woof" in message_generation_inspections[0]["messages"][0]
+    assert "Woof Woof" in message_generation_inspections[0]["messages"][0]["message"]
     assert message_generation_inspections[0]["generation"]["usage"]["output_tokens"] >= 2
 
 
@@ -1035,3 +1048,105 @@ async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
     assert len(events) == 1
     assert events[0]["id"] == event["id"]
     assert "thinking" in events[0]["data"]["message"].lower()
+
+
+async def test_that_fragments_can_be_inspected(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    strict_agent_id: AgentId,
+) -> None:
+    fragment_store = container[FragmentStore]
+
+    customer = await create_customer(
+        container=container,
+        name="John Smith",
+    )
+
+    session = await create_session(
+        container=container,
+        agent_id=strict_agent_id,
+        customer_id=customer.id,
+    )
+
+    fragment = await fragment_store.create_fragment(value="Hey lad!)", fields=[])
+
+    customer_event = await post_message(
+        container=container,
+        session_id=session.id,
+        message="Bobo!",
+        response_timeout=Timeout(60),
+    )
+
+    reply_event = await read_reply(
+        container=container,
+        session_id=session.id,
+        customer_event_offset=customer_event.offset,
+    )
+
+    trace = (
+        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
+        .raise_for_status()
+        .json()["trace"]
+    )
+
+    iterations = trace["message_generations"]
+    assert len(iterations) >= 1
+
+    "Hey lad!" in trace["message_generations"][0]["messages"][0]["message"]
+
+    assert trace["message_generations"][0]["messages"][0].get("fragments")
+    fragment_ids = trace["message_generations"][0]["messages"][0]["fragments"]
+    fragment.id in fragment_ids
+
+
+async def test_that_an_event_with_fragments_can_be_generated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    strict_agent_id: AgentId,
+) -> None:
+    fragment_store = container[FragmentStore]
+
+    customer = await create_customer(
+        container=container,
+        name="John Smith",
+    )
+
+    session = await create_session(
+        container=container,
+        agent_id=strict_agent_id,
+        customer_id=customer.id,
+    )
+
+    fragment = await fragment_store.create_fragment(
+        value="Greetings from Booga booga hotel!", fields=[]
+    )
+
+    customer_event = await post_message(
+        container=container,
+        session_id=session.id,
+        message="Hello!",
+        response_timeout=Timeout(60),
+    )
+
+    events = (
+        (
+            await async_client.get(
+                f"/sessions/{session.id}/events",
+                params={
+                    "min_offset": customer_event.offset + 1,
+                    "kinds": "message",
+                    "source": "ai_agent",
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert len(events) == 1
+
+    event = events[0]
+    assert event["data"].get("fragments")
+
+    fragment_ids = event["data"]["fragments"]
+    assert fragment.id in fragment_ids

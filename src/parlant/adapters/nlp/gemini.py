@@ -23,7 +23,6 @@ from pydantic import ValidationError
 from vertexai.preview import tokenization  # type: ignore
 
 from parlant.adapters.nlp.common import normalize_json_output
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -40,7 +39,7 @@ from parlant.core.nlp.generation import (
 from parlant.core.logging import Logger
 
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))  # type: ignore
 
 
 class GoogleEstimatingTokenizer(EstimatingTokenizer):
@@ -64,7 +63,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         self.model_name = model_name
         self._logger = logger
 
-        self._model = genai.GenerativeModel(model_name)
+        self._model = genai.GenerativeModel(model_name)  # type: ignore
 
         self._tokenizer = GoogleEstimatingTokenizer(model_name=self.model_name)
 
@@ -101,7 +100,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         t_start = time.time()
         response = await self._model.generate_content_async(
             contents=prompt,
-            generation_config=gemini_api_arguments,
+            generation_config=gemini_api_arguments,  # type: ignore
         )
         t_end = time.time()
 
@@ -145,6 +144,19 @@ class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(
             model_name="gemini-1.5-flash",
+            logger=logger,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
+class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.0-flash",
             logger=logger,
         )
 
@@ -204,7 +216,7 @@ class GoogleEmbedder(Embedder):
     ) -> EmbeddingResult:
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
-        response = await genai.embed_content_async(
+        response = await genai.embed_content_async(  # type: ignore
             model=self.model_name,
             content=texts,
             **gemini_api_arguments,
@@ -238,13 +250,11 @@ class GeminiService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        if t == ToolCallInferenceSchema:
-            return FallbackSchematicGenerator(
-                Gemini_1_5_Flash[t](self._logger),  # type: ignore
-                Gemini_1_5_Pro[t](self._logger),  # type: ignore
-                logger=self._logger,
-            )
-        return Gemini_1_5_Pro[t](self._logger)  # type: ignore
+        return FallbackSchematicGenerator[t](  # type: ignore
+            Gemini_2_0_Flash[t](self._logger),  # type: ignore
+            Gemini_1_5_Pro[t](self._logger),  # type: ignore
+            logger=self._logger,
+        )
 
     @override
     async def get_embedder(self) -> Embedder:

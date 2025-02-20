@@ -23,6 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
+    "fragments",
     "sessions",
     "terms",
     "tools",
@@ -34,6 +35,8 @@ scenarios(
     *(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
+            "fluid_assembly",
+            "strict_assembly",
             "conversation",
             "errors",
             "guideline_connections",

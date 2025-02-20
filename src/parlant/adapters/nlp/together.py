@@ -30,7 +30,7 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
-from parlant.core.engines.alpha.message_event_generator import MessageEventSchema
+from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
@@ -279,7 +279,7 @@ class TogetherService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> TogetherAISchematicGenerator[T]:
-        if t == MessageEventSchema:
+        if t == FluidMessageSchema:
             return Llama3_1_405B[t](self._logger)  # type: ignore
         elif t == ToolCallInferenceSchema:
             return FallbackSchematicGenerator(

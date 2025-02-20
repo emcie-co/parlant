@@ -38,6 +38,7 @@ from parlant.core.sessions import (
     EventKind,
     MessageEventData,
     MessageGenerationInspection,
+    Participant,
     PreparationIteration,
     SessionId,
     SessionListener,
@@ -45,6 +46,7 @@ from parlant.core.sessions import (
     SessionUpdateParams,
     ToolEventData,
 )
+from parlant.core.fragments import FragmentId
 
 API_GROUP = "sessions"
 
@@ -637,13 +639,109 @@ MessageGenerationInspectionMessagesField: TypeAlias = Annotated[
     ),
 ]
 
+ParticipantIdDTO = AgentId | CustomerId | None
+
+ParticipantDisplayNameField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Name to display for the participant",
+        examples=["John Doe", "Alice"],
+    ),
+]
+
+
+participant_example = {
+    "id": "cust_123xy",
+    "display_name": "John Doe",
+}
+
+
+class ParticipantDTO(DefaultBaseModel):
+    """
+    Represents the participant information in a message event.
+    """
+
+    id: ParticipantIdDTO = None
+    display_name: ParticipantDisplayNameField
+
+
+MessageEventDataMessageField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Text content of the message",
+        examples=["Hello, I need help with my order"],
+    ),
+]
+
+MessageEventDataFlaggedField: TypeAlias = Annotated[
+    Optional[bool],
+    Field(
+        description="Indicates whether the message was flagged by moderation",
+        examples=[True, False, None],
+    ),
+]
+
+MessageEventDataTagsField: TypeAlias = Annotated[
+    Optional[Sequence[str]],
+    Field(
+        description="Sequence of tags providing additional context about the message",
+        examples=[["greeting", "urgent"], ["support-request"]],
+    ),
+]
+
+MessageEventDataFragmentsField: TypeAlias = Annotated[
+    Optional[Sequence[FragmentId]],
+    Field(
+        description="List of associated fragment references, if any",
+        examples=[["frag_123xyz", "frag_789abc"]],
+    ),
+]
+
+message_event_data_example = {
+    "message": "Hello, I need help with my order",
+    "participant": participant_example,
+    "flagged": False,
+    "tags": ["greeting", "help-request"],
+    "fragments": ["frag_123xyz", "frag_789abc"],
+}
+
+
+class MessageEventDataDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": message_event_data_example},
+):
+    """
+    DTO for data carried by a 'message' event.
+    """
+
+    message: MessageEventDataMessageField
+    participant: ParticipantDTO
+    flagged: MessageEventDataFlaggedField = None
+    tags: MessageEventDataTagsField = None
+    fragments: MessageEventDataFragmentsField = None
+
 
 message_generation_inspection_example = {
-    "generation": generation_info_example,
+    "generation": {
+        "schema_name": "customer_response_v2",
+        "model": "gpt-4-turbo",
+        "duration": 2.5,
+        "usage": {
+            "input_tokens": 256,
+            "output_tokens": 128,
+            "extra": {"prompt_tokens": 200, "completion_tokens": 128},
+        },
+    },
     "messages": [
-        "Your current balance is $5,000.50 USD.",
-        None,  # Rejected alternative
-        "According to your account, you have $5,000.50 USD available.",
+        message_event_data_example,
+        None,
+        {
+            "message": "Based on your request, I can confirm that your order is being processed.",
+            "participant": participant_example,
+            "flagged": False,
+            "tags": ["order-status"],
+            "fragments": ["frag_987abc"],
+        },
     ],
 }
 
@@ -655,7 +753,7 @@ class MessageGenerationInspectionDTO(
     """Inspection data for message generation."""
 
     generation: GenerationInfoDTO
-    messages: MessageGenerationInspectionMessagesField
+    messages: Sequence[Optional[MessageEventDataDTO]]
 
 
 GuidelinePropositionInspectionTotalDurationField: TypeAlias = Annotated[
@@ -857,12 +955,41 @@ def generation_info_to_dto(gi: GenerationInfo) -> GenerationInfoDTO:
     )
 
 
+def participant_to_dto(participant: Participant) -> ParticipantDTO:
+    return ParticipantDTO(
+        id=participant["id"],
+        display_name=participant["display_name"],
+    )
+
+
+def message_event_data_to_dto(message: MessageEventData) -> MessageEventDataDTO:
+    dto = MessageEventDataDTO(
+        message=message["message"],
+        participant=participant_to_dto(
+            message["participant"],
+        ),
+    )
+
+    if "flagged" in message:
+        dto.flagged = message["flagged"]
+
+    if "tags" in message:
+        dto.tags = message["tags"]
+
+    if "fragments" in message:
+        dto.fragments = list(message["fragments"])
+
+    return dto
+
+
 def message_generation_inspection_to_dto(
     m: MessageGenerationInspection,
 ) -> MessageGenerationInspectionDTO:
     return MessageGenerationInspectionDTO(
         generation=generation_info_to_dto(m.generation),
-        messages=list(m.messages),
+        messages=[
+            message_event_data_to_dto(message) for message in m.messages if message is not None
+        ],
     )
 
 

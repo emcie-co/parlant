@@ -23,6 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
+    "fragments",
     "sessions",
     "terms",
     "tools",

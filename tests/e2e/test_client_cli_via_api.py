@@ -2072,3 +2072,90 @@ async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
 
         updated_tag = await context.api.read_tag(tag_id)
         assert updated_tag["name"] == new_name
+
+
+async def test_that_fragments_can_be_initialized(context: ContextOfTest) -> None:
+    with run_server(context):
+        while not is_server_responsive(SERVER_PORT):
+            await asyncio.sleep(0.05)
+
+        tmp_file = tempfile.NamedTemporaryFile(delete=False)
+        tmp_file_path = tmp_file.name
+        tmp_file.close()
+
+        assert (
+            await run_cli_and_get_exit_status(
+                "fragment",
+                "init",
+                tmp_file_path,
+            )
+            == os.EX_OK
+        )
+
+        with open(tmp_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        assert len(data.get("fragments", [])) > 0
+        assert all("value" in f for f in data["fragments"])
+
+        os.remove(tmp_file_path)
+
+
+async def test_that_fragments_can_be_loaded(context: ContextOfTest) -> None:
+    with run_server(context):
+        while not is_server_responsive(SERVER_PORT):
+            await asyncio.sleep(0.05)
+
+        test_fragments = {
+            "fragments": [
+                {
+                    "value": "Hello, {username}!",
+                    "fields": [
+                        {
+                            "name": "username",
+                            "description": "The user's name",
+                            "examples": ["Alice", "Bob"],
+                        }
+                    ],
+                    "tags": ["testTag1", "testTag2"],
+                },
+                {
+                    "value": "Your balance is {balance}.",
+                    "fields": [
+                        {
+                            "name": "balance",
+                            "description": "Account balance",
+                            "examples": ["1000", "2000"],
+                        }
+                    ],
+                    "tags": [],
+                },
+                {
+                    "value": "You are welcome (:",
+                },
+            ]
+        }
+
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
+        tmp_file_path = tmp_file.name
+        json.dump(test_fragments, tmp_file, indent=2)
+        tmp_file.close()
+
+        assert (
+            await run_cli_and_get_exit_status(
+                "fragment",
+                "load",
+                tmp_file_path,
+            )
+            == os.EX_OK
+        )
+
+        fragments_in_system = await context.api.list_fragments()
+        assert len(fragments_in_system) == 3
+
+        first = fragments_in_system[0]
+        assert first["value"] == "Hello, {username}!"
+        assert "tags" in first
+        assert "fields" in first
+
+        os.remove(tmp_file_path)

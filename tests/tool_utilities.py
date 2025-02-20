@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import enum
+from enum import Enum
+import json
 from typing import Optional
 
 from parlant.core.tools import ToolResult
@@ -37,6 +39,16 @@ class Categories(enum.Enum):
     LIGHTING = "Lighting"
     NETWORKING = "Networking"
     LAPTOP = "Laptop"
+
+
+class ElectronicProductType(Enum):
+    MONITOR = "Monitor"
+    KEYBOARD = "Keyboard"
+    MOUSE = "Mouse"
+    HEADSET = "Headset"
+    AUDIO = "Audio"
+    LAPTOP = "Laptop"
+    OTHER = "Other"
 
 
 def get_available_drinks() -> ToolResult:
@@ -176,3 +188,32 @@ def try_unlock_card(last_6_digits: Optional[str] = None) -> ToolResult:
 def pay_cc_bill(payment_date: str) -> ToolResult:
     _ = payment_date
     return ToolResult({"result": "success"})
+
+
+async def get_electronic_products_by_type(
+    product_type: ElectronicProductType,
+) -> ToolResult:
+    """Get all products that match the specified product type"""
+    with open("tests/data/get_products_by_type_data.json", "r") as f:
+        database = json.load(f)
+    products = [item for item in database if item["type"] == product_type.value]
+    return ToolResult({"available_products": products})
+
+
+def get_bookings(customer_id: str) -> ToolResult:
+    if customer_id == "J2T3F00":
+        return ToolResult(
+            {
+                "bookings": """| Booking ID | Start Date  | End Date    | From         | To           |
+|------------|-------------|-------------|--------------|--------------|
+| PUDW600P   | 2025-07-04  | 2025-07-10  | Los Angeles  | Denver       |
+| CLPAJIHO   | 2025-07-01  | 2025-07-10  | Los Angeles  | Miami        |
+| 47U0BZFO   | 2025-07-05  | 2025-07-15  | Houston      | Miami        |
+| NOK9EHX0   | 2025-08-19  | 2025-08-22  | Phoenix      | Denver       |
+| XRT125KL   | 2025-03-15  | 2025-03-20  | Seattle      | Chicago      |
+| LMN789PQ   | 2025-04-01  | 2025-04-05  | Boston       | San Francisco|
+| WYZ456AB   | 2025-06-22  | 2025-06-30  | Atlanta      | Las Vegas    |"""
+            }
+        )
+    else:
+        return ToolResult({"bookings": "No bookings found"})

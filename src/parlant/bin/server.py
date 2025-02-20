@@ -30,11 +30,14 @@ from pathlib import Path
 import sys
 import uvicorn
 
+from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.chroma import ChromaDatabase
-from parlant.core.engines.alpha import hooks
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
-from parlant.core.engines.alpha import message_event_generator
+from parlant.core.engines.alpha import fluid_message_generator
+from parlant.core.engines.alpha.hooks import LifecycleHooks
+from parlant.core.engines.alpha.message_assembler import AssembledMessageSchema
+from parlant.core.fragments import FragmentDocumentStore, FragmentStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
@@ -86,10 +89,10 @@ from parlant.core.engines.alpha.guideline_proposer import (
     GuidelinePropositionShot,
     GuidelinePropositionsSchema,
 )
-from parlant.core.engines.alpha.message_event_generator import (
-    MessageEventGenerator,
-    MessageEventGeneratorShot,
-    MessageEventSchema,
+from parlant.core.engines.alpha.fluid_message_generator import (
+    FluidMessageGenerator,
+    FluidMessageGeneratorShot,
+    FluidMessageSchema,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
@@ -105,7 +108,7 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
     GuidelineConnectionPropositionsSchema,
 )
-from parlant.core.logging import CompositeLogger, FileLogger, ZMQLogger, LogLevel, Logger
+from parlant.core.logging import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.version import VERSION
 
@@ -127,7 +130,6 @@ sys.path.append(".")
 
 CORRELATOR = ContextualCorrelator()
 
-PARLANT_LOG_PORT = int(os.environ.get("PARLANT_LOG_PORT", "8799"))
 LOGGER = FileLogger(PARLANT_HOME_DIR / "parlant.log", CORRELATOR, LogLevel.INFO)
 
 BACKGROUND_TASK_SERVICE = BackgroundTaskService(LOGGER)
@@ -226,7 +228,7 @@ async def get_module_list_from_config() -> list[str]:
 async def load_modules(
     container: Container,
     modules: Iterable[str],
-) -> AsyncIterator[None]:
+) -> AsyncIterator[Container]:
     imported_modules = []
 
     for module_path in modules:
@@ -239,10 +241,12 @@ async def load_modules(
 
     for m in imported_modules:
         LOGGER.info(f"Initializing module '{m.__name__}'")
-        await m.initialize_module(container)
+
+        if new_container := await m.initialize_module(container):
+            container = new_container
 
     try:
-        yield
+        yield container
     finally:
         for m in reversed(imported_modules):
             LOGGER.info(f"Shutting down module '{m.__name__}'")
@@ -253,13 +257,15 @@ async def load_modules(
 async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterator[Container]:
     c = Container()
 
+    c[BackgroundTaskService] = await EXIT_STACK.enter_async_context(BACKGROUND_TASK_SERVICE)
+
     c[ContextualCorrelator] = CORRELATOR
+
+    c[WebSocketLogger] = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[Logger] = CompositeLogger(
         [
             LOGGER,
-            await EXIT_STACK.enter_async_context(
-                ZMQLogger(CORRELATOR, LogLevel.INFO, port=PARLANT_LOG_PORT)
-            ),
+            c[WebSocketLogger],
         ]
     )
     c[Logger].set_level(
@@ -271,6 +277,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
             "critical": LogLevel.CRITICAL,
         }[log_level],
     )
+    await c[BackgroundTaskService].start(c[WebSocketLogger].start(), tag="websocket-logger")
 
     agents_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "agents.json")
@@ -289,6 +296,9 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
             LOGGER,
             PARLANT_HOME_DIR / "sessions.json",
         )
+    )
+    fragments_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "fragments.json")
     )
     guidelines_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guidelines.json")
@@ -312,6 +322,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     )
     c[TagStore] = await EXIT_STACK.enter_async_context(TagDocumentStore(tags_db))
     c[CustomerStore] = await EXIT_STACK.enter_async_context(CustomerDocumentStore(customers_db))
+    c[FragmentStore] = await EXIT_STACK.enter_async_context(FragmentDocumentStore(fragments_db))
     c[GuidelineStore] = await EXIT_STACK.enter_async_context(GuidelineDocumentStore(guidelines_db))
     c[GuidelineToolAssociationStore] = await EXIT_STACK.enter_async_context(
         GuidelineToolAssociationDocumentStore(guideline_tool_associations_db)
@@ -329,8 +340,6 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
 
     c[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
-    c[BackgroundTaskService] = await EXIT_STACK.enter_async_context(BACKGROUND_TASK_SERVICE)
-
     nlp_service_initializer: dict[str, Callable[[], NLPService]] = {
         "anthropic": load_anthropic,
         "aws": load_aws,
@@ -346,6 +355,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
         ServiceDocumentRegistry(
             database=services_db,
             event_emitter_factory=c[EventEmitterFactory],
+            logger=c[Logger],
             correlator=c[ContextualCorrelator],
             nlp_services={nlp_service_name: nlp_service_initializer[nlp_service_name]()},
         )
@@ -369,8 +379,11 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
     c[SchematicGenerator[GuidelinePropositionsSchema]] = await nlp_service.get_schematic_generator(
         GuidelinePropositionsSchema
     )
-    c[SchematicGenerator[MessageEventSchema]] = await nlp_service.get_schematic_generator(
-        MessageEventSchema
+    c[SchematicGenerator[FluidMessageSchema]] = await nlp_service.get_schematic_generator(
+        FluidMessageSchema
+    )
+    c[SchematicGenerator[AssembledMessageSchema]] = await nlp_service.get_schematic_generator(
+        AssembledMessageSchema
     )
     c[SchematicGenerator[ToolCallInferenceSchema]] = await nlp_service.get_schematic_generator(
         ToolCallInferenceSchema
@@ -387,9 +400,9 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
 
     c[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
     c[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
-    c[ShotCollection[MessageEventGeneratorShot]] = message_event_generator.shot_collection
+    c[ShotCollection[FluidMessageGeneratorShot]] = fluid_message_generator.shot_collection
 
-    c[hooks.LifecycleHooks] = hooks.lifecycle_hooks
+    c[LifecycleHooks] = LifecycleHooks()
 
     c[GuidelineProposer] = GuidelineProposer(
         c[Logger],
@@ -418,10 +431,10 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
         c[CoherenceChecker],
     )
 
-    c[MessageEventGenerator] = MessageEventGenerator(
+    c[FluidMessageGenerator] = FluidMessageGenerator(
         c[Logger],
         c[ContextualCorrelator],
-        c[SchematicGenerator[MessageEventSchema]],
+        c[SchematicGenerator[FluidMessageSchema]],
     )
 
     c[ToolEventGenerator] = ToolEventGenerator(
@@ -431,7 +444,7 @@ async def setup_container(nlp_service_name: str, log_level: str) -> AsyncIterato
         c[SchematicGenerator[ToolCallInferenceSchema]],
     )
 
-    c[Engine] = AlphaEngine
+    c[Engine] = Singleton(AlphaEngine)
 
     c[Application] = Application(c)
 
@@ -454,22 +467,29 @@ async def load_app(params: CLIParams) -> AsyncIterator[ASGIApplication]:
 
     EXIT_STACK = AsyncExitStack()
 
-    async with setup_container(params.nlp_service, params.log_level) as container, EXIT_STACK:
+    async with (
+        setup_container(params.nlp_service, params.log_level) as base_container,
+        EXIT_STACK,
+    ):
         modules = set(await get_module_list_from_config() + params.modules)
 
         if modules:
-            await EXIT_STACK.enter_async_context(load_modules(container, modules))
+            # Allow modules to return a different container
+            actual_container = await EXIT_STACK.enter_async_context(
+                load_modules(base_container, modules),
+            )
         else:
+            actual_container = base_container
             LOGGER.info("No external modules selected")
 
         await recover_server_tasks(
-            evaluation_store=container[EvaluationStore],
-            evaluator=container[BehavioralChangeEvaluator],
+            evaluation_store=actual_container[EvaluationStore],
+            evaluator=actual_container[BehavioralChangeEvaluator],
         )
 
-        await create_agent_if_absent(container[AgentStore])
+        await create_agent_if_absent(actual_container[AgentStore])
 
-        yield await create_api_app(container)
+        yield await create_api_app(actual_container)
 
 
 async def serve_app(
@@ -640,11 +660,13 @@ def main() -> None:
             print(f"Parlant v{VERSION}")
             sys.exit(0)
 
-        if sum([openai, aws, azure, gemini, anthropic, cerebras, together]) > 2:
+        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together]) > 2:
             print("error: only one NLP service profile can be selected")
             sys.exit(1)
 
-        non_default_service_selected = any((aws, azure, gemini, anthropic, cerebras, together))
+        non_default_service_selected = any(
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together)
+        )
 
         if not non_default_service_selected:
             nlp_service = "openai"

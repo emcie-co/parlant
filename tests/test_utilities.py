@@ -176,7 +176,7 @@ Example #2: ###
 
 
 async def create_agent(container: Container, name: str) -> Agent:
-    return await container[AgentStore].create_agent(name="test-agent")
+    return await container[AgentStore].create_agent(name="test-agent", max_engine_iterations=2)
 
 
 async def create_customer(container: Container, name: str) -> Customer:

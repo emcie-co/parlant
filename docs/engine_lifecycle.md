@@ -73,7 +73,7 @@ The ToolCaller receives a list of tools—all of the tools that are associated w
 ```mermaid
 graph LR
     Engine -->|Contextually Active Tools| TC(ToolCaller)
-    TC --> Infer[Infer Needed Tool Calls] --> Batch[Bath Tool Call Evaluation Requests] --> Run[Run Batches in Parallel] --> MergeResults -->|"list[ToolCall]"| TC
+    TC --> Infer[Infer Needed Tool Calls] --> Batch[Batch Tool Call Evaluation Requests] --> Run[Run Batches in Parallel] --> MergeResults -->|"list[ToolCall]"| TC
     TC -->|"list[ToolCall]"| RunTools[Run Tool Calls] -.->|Results| TC
     TC -.->|"list[ToolCallResult]"| Engine
 ```

@@ -3,7 +3,24 @@
 All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
-TBD
+- Allow returning a new (modified) container in modules
+- Improved tool parameter flexibility: custom types, Pydantic models, and annotated ToolParameterOptions
+- Added Tool Insights
+- Lowered likelihood of the agent hallucinating facts in fluid mode
+- Lowered likelihood of the agent offering services that were not specifically mentioned by the business
+- Made the agent slightly more polite, following user feedback
+- Allow only specifying guideline condition or action when updating guideline from CLI
+- Add WebSocket logger feature for streaming logs in real time
+- Add a log viewer to the sandbox UI
+- Add API and CLI to Fragments
+- Changed message inspection to return message event data for displaying more information, such as fragments in the inspection
+- Rename Slot (in Fragment) with FragmentField
+
+
+## [1.6.2] - 2025-01-29
+
+### Fixed
+- Fix loading DeepSeek service during server boot
 
 
 ## [1.6.1] - 2025-01-20
@@ -42,7 +59,6 @@ TBD
 - Fix wrong import of RateLimitError
 - Fix PluginServer validation for optional tool arguments when they're passed None
 - Fix utterances sometimes not producing a message
-
 
 ## [1.5.1] - 2025-01-05
 

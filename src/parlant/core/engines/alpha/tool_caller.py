@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from itertools import chain
 import json
 import time
@@ -22,7 +22,7 @@ from typing import Any, Mapping, NewType, Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tools import Tool, ToolContext
+from parlant.core.tools import Tool, ToolContext, ToolParameterDescriptor, ToolParameterOptions
 from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable, generate_id, DefaultBaseModel
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -40,18 +40,13 @@ ToolCallId = NewType("ToolCallId", str)
 ToolResultId = NewType("ToolResultId", str)
 
 
-@dataclass(frozen=True)
-class ToolEventGenerationsResult:
-    generations: Sequence[GenerationInfo]
-    events: Sequence[Optional[EmittedEvent]]
-
-
 class ArgumentEvaluation(DefaultBaseModel):
     evaluate_is_it_provided_in_the_context: str
     evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why: str
     evaluate_was_it_already_provided_and_should_it_be_provided_again: str
     evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided: str
     is_optional: bool
+    has_default: bool = False
     is_missing: bool
     value: Optional[Any]
 
@@ -104,11 +99,25 @@ class ToolCallResult:
 
 
 @dataclass(frozen=True)
+class MissingToolData:
+    parameter: str
+    significance: Optional[str] = field(default=None)
+    description: Optional[str] = field(default=None)
+    examples: Optional[Sequence[str]] = field(default=None)
+
+
+@dataclass(frozen=True)
+class ToolInsights:
+    missing_data: Sequence[MissingToolData] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class InferenceToolCallsResult:
     total_duration: float
     batch_count: int
     batch_generations: Sequence[GenerationInfo]
     batches: Sequence[Sequence[ToolCall]]
+    insights: ToolInsights
 
 
 class ToolCaller:
@@ -124,7 +133,7 @@ class ToolCaller:
 
     async def infer_tool_calls(
         self,
-        agents: Sequence[Agent],
+        agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
@@ -138,6 +147,7 @@ class ToolCaller:
                 batch_count=0,
                 batch_generations=[],
                 batches=[],
+                insights=ToolInsights(),
             )
 
         batches: dict[tuple[ToolId, Tool], list[GuidelineProposition]] = defaultdict(list)
@@ -159,7 +169,7 @@ class ToolCaller:
         with self._logger.operation(f"[ToolCaller] Tool evaluation ({len(batches)} batches)"):
             batch_tasks = [
                 self._infer_calls_for_single_tool(
-                    agents=agents,
+                    agent=agent,
                     context_variables=context_variables,
                     interaction_history=interaction_history,
                     terms=terms,
@@ -176,34 +186,28 @@ class ToolCaller:
             ]
 
             batch_results = list(await async_utils.safe_gather(*batch_tasks))
-            batch_generations = [generation for generation, _ in batch_results]
-            tool_call_batches = [tool_calls for _, tool_calls in batch_results]
+            batch_generations = [generation for generation, _, _ in batch_results]
+            tool_call_batches = [tool_calls for _, tool_calls, _ in batch_results]
 
         t_end = time.time()
 
-        activated_tool_calls = [
-            {
-                "id": t.id,
-                "tool_id": t.tool_id,
-                "arguments": t.arguments,
-            }
-            for t in chain.from_iterable(tool_call_batches)
-        ]
+        total_missing_data: list[MissingToolData] = []
 
-        self._logger.debug(
-            f"[ToolCaller][Activated] {json.dumps(activated_tool_calls, indent=2 if activated_tool_calls else 'No tool calls were activated.')}"
-        )
+        for _, _, missing_data_for_single_tool in batch_results:
+            for missing_data_for_single_call in missing_data_for_single_tool:
+                total_missing_data.append(missing_data_for_single_call)
 
         return InferenceToolCallsResult(
             total_duration=t_end - t_start,
             batch_count=len(batches),
             batch_generations=batch_generations,
             batches=tool_call_batches,
+            insights=ToolInsights(missing_data=total_missing_data),
         )
 
     async def _infer_calls_for_single_tool(
         self,
-        agents: Sequence[Agent],
+        agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
@@ -211,9 +215,9 @@ class ToolCaller:
         candidate_descriptor: tuple[ToolId, Tool, list[GuidelineProposition]],
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
-    ) -> tuple[GenerationInfo, list[ToolCall]]:
+    ) -> tuple[GenerationInfo, list[ToolCall], list[MissingToolData]]:
         inference_prompt = self._format_tool_call_inference_prompt(
-            agents,
+            agent,
             context_variables,
             interaction_history,
             terms,
@@ -224,34 +228,68 @@ class ToolCaller:
             await self.shots(),
         )
 
-        tool_id, _, _ = candidate_descriptor
+        tool_id, tool, _ = candidate_descriptor
 
         with self._logger.operation(f"[ToolCaller] Evaluating '{tool_id}'"):
             generation_info, inference_output = await self._run_inference(inference_prompt)
 
-        return generation_info, [
-            ToolCall(
-                id=ToolCallId(generate_id()),
-                tool_id=tool_id,
-                arguments={
-                    name: evaluation.value for name, evaluation in tc.argument_evaluations.items()
-                }
-                if tc.argument_evaluations
-                else {},
-            )
-            for tc in inference_output
-            if tc.should_run
-            and tc.applicability_score >= 6
-            and (
+        tool_calls = []
+        missing_data = []
+
+        for tc in inference_output:
+            if tc.applicability_score >= 6 and (
                 not tc.a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected
                 or tc.the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool
-            )
-            and all(
-                not evaluation.is_missing
-                for argument, evaluation in (tc.argument_evaluations or {}).items()
-                if argument in candidate_descriptor[1].required
-            )
-        ]
+            ):
+                if tc.should_run and all(
+                    not evaluation.is_missing
+                    for argument, evaluation in (tc.argument_evaluations or {}).items()
+                    if argument in candidate_descriptor[1].required
+                ):
+                    self._logger.debug(
+                        f"[ToolCaller][Completion][Activated]\n{tc.model_dump_json(indent=2)}"
+                    )
+
+                    tool_calls.append(
+                        ToolCall(
+                            id=ToolCallId(generate_id()),
+                            tool_id=tool_id,
+                            arguments={
+                                name: evaluation.value
+                                for name, evaluation in tc.argument_evaluations.items()
+                            }
+                            if tc.argument_evaluations
+                            else {},
+                        )
+                    )
+                elif tc.applicability_score >= 8:
+                    for argument, evaluation in (tc.argument_evaluations or {}).items():
+                        if argument not in tool.parameters:
+                            self._logger.error(
+                                f"[ToolCaller][Completion] Argument {argument} not found in tool parameters"
+                            )
+                            continue
+
+                        _, tool_options = tool.parameters[argument]
+
+                        if (
+                            evaluation.is_missing
+                            and not evaluation.is_optional
+                            and not tool_options.hidden
+                        ):
+                            missing_data.append(
+                                MissingToolData(
+                                    parameter=argument,
+                                    significance=tool_options.significance,
+                                )
+                            )
+
+            else:
+                self._logger.debug(
+                    f"[ToolCaller][Completion][Skipped]\n{tc.model_dump_json(indent=2)}"
+                )
+
+        return generation_info, tool_calls, missing_data
 
     async def execute_tool_calls(
         self,
@@ -305,7 +343,7 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 
     def _format_tool_call_inference_prompt(
         self,
-        agents: Sequence[Agent],
+        agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_event_list: Sequence[Event],
         terms: Sequence[Term],
@@ -315,8 +353,6 @@ Please be tolerant of possible typos by the user with regards to these terms,and
         staged_events: Sequence[EmittedEvent],
         shots: Sequence[ToolCallerInferenceShot],
     ) -> str:
-        assert len(agents) == 1
-
         staged_calls = self._get_staged_calls(staged_events)
 
         builder = PromptBuilder()
@@ -339,7 +375,7 @@ These calls do not require to be re-run at this time, unless you identify a vali
 
 """
         )
-        builder.add_agent_identity(agents[0])
+        builder.add_agent_identity(agent)
         builder.add_section(
             f"""
 -----------------
@@ -493,17 +529,51 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         return prompt
 
     def _add_tool_definitions_section(
-        self, candidate_tool: tuple[ToolId, Tool], reference_tools: Sequence[tuple[ToolId, Tool]]
+        self,
+        candidate_tool: tuple[ToolId, Tool],
+        reference_tools: Sequence[tuple[ToolId, Tool]],
     ) -> str:
+        def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
+            descriptor, options = spec
+
+            result: dict[str, Any] = {"type": descriptor["type"]}
+
+            if enum := descriptor.get("enum"):
+                result["enum"] = enum
+
+            if options.description:
+                result["description"] = options.description
+            elif description := descriptor.get("description"):
+                result["description"] = description
+
+            if examples := descriptor.get("examples"):
+                result["examples"] = examples
+
+            match options.source:
+                case "any":
+                    result["source"] = "This argument can be extracted in the best way you think"
+                case "context":
+                    result["source"] = (
+                        "This argument can be extracted only from the context given in this prompt"
+                    )
+                case "customer":
+                    result["source"] = "This argument must be EXPLICITLY PROVIDED by the customer"
+
+            return json.dumps(result)
+
         def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
             return {
                 "name": t_id.to_string(),
                 "description": t.description,
                 "optional_parameters": {
-                    name: spec for name, spec in t.parameters.items() if name not in t.required
+                    name: _get_param_spec(spec)
+                    for name, spec in t.parameters.items()
+                    if name not in t.required
                 },
                 "required_parameters": {
-                    name: spec for name, spec in t.parameters.items() if name in t.required
+                    name: _get_param_spec(spec)
+                    for name, spec in t.parameters.items()
+                    if name in t.required
                 },
             }
 
@@ -589,7 +659,7 @@ Guidelines:
         self,
         prompt: str,
     ) -> tuple[GenerationInfo, Sequence[ToolCallEvaluation]]:
-        self._logger.debug(f"[ToolCaller][Inference][Prompt] \n{prompt}")
+        self._logger.debug(f"[ToolCaller][Inference][Prompt]\n{prompt}")
 
         inference = await self._schematic_generator.generate(
             prompt=prompt,
@@ -610,22 +680,27 @@ Guidelines:
     ) -> ToolCallResult:
         try:
             self._logger.debug(
-                f"[ToolCaller][Execution] {tool_call.tool_id.to_string()}/{tool_call.id}, "
-                + (
-                    f"arguments=\n{json.dumps(tool_call.arguments, indent=2)}"
-                    if tool_call.arguments
-                    else ""
+                f"[ToolCaller][Execution][Invocation] ({tool_call.tool_id.to_string()}/{tool_call.id})"
+                + (f"\n{json.dumps(tool_call.arguments, indent=2)}" if tool_call.arguments else "")
+            )
+
+            try:
+                service = await self._service_registry.read_tool_service(tool_id.service_name)
+
+                result = await service.call_tool(
+                    tool_id.tool_name,
+                    context,
+                    tool_call.arguments,
                 )
-            )
-            service = await self._service_registry.read_tool_service(tool_id.service_name)
-            result = await service.call_tool(
-                tool_id.tool_name,
-                context,
-                tool_call.arguments,
-            )
-            self._logger.debug(
-                f"[ToolCaller][Execution] {tool_call.tool_id.to_string()}/{tool_call.id}\n{json.dumps(asdict(result), indent=2)}"
-            )
+
+                self._logger.debug(
+                    f"[ToolCaller][Execution][Result] Tool call succeeded ({tool_call.tool_id.to_string()}/{tool_call.id})\n{json.dumps(asdict(result), indent=2)}"
+                )
+            except Exception as exc:
+                self._logger.error(
+                    f"[ToolCaller][Execution][Result] Tool call failed ({tool_id.to_string()}/{tool_call.id})\n{traceback.format_exception(exc)}"
+                )
+                raise
 
             return ToolCallResult(
                 id=ToolResultId(generate_id()),
@@ -911,23 +986,23 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
     ),
     ToolCallerInferenceShot(
         description=(
-            "the candidate tool is check_indoor_temperature(room: str), and reference tool is check_temperature(location: str, type: str)"
+            "the candidate tool is check_temperature(location: str), and reference tool is check_indoor_temperature(room: str)"
         ),
         expected_result=ToolCallInferenceSchema(
             last_customer_message="What's the temperature in the living room right now?",
             most_recent_customer_inquiry_or_need="Checking the current temperature in the living room",
             most_recent_customer_inquiry_or_need_was_already_resolved=False,
-            name="check_indoor_temperature",
+            name="check_temperature",
             subtleties_to_be_aware_of="no subtleties were detected",
             tool_calls_for_candidate_tool=[
                 ToolCallEvaluation(
-                    applicability_rationale="need to check the current temperature in a specific room",
-                    applicability_score=7,
+                    applicability_rationale="need to check the current temperature in the living room",
+                    applicability_score=8,
                     argument_evaluations={
-                        "room": ArgumentEvaluation(
-                            evaluate_is_it_provided_in_the_context="Yes; the customer asked about a specific room",
-                            evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why="Checking room temperature could come either directly from the customer, or even if I wanted to check room temperatures to help with some other inquiry",
-                            evaluate_was_it_already_provided_and_should_it_be_provided_again="The customer asked about a specific room",
+                        "location": ArgumentEvaluation(
+                            evaluate_is_it_provided_in_the_context="Yes; the customer asked about the living room",
+                            evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why="Checking the temperature at some location could come either directly from the customer, or even if I wanted to check room temperatures to help with some other inquiry",
+                            evaluate_was_it_already_provided_and_should_it_be_provided_again="The customer asked about a specific location",
                             evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided="It would be absurd to provide unsolicited information on some random room, but I don't need to guess here since the customer provided it",
                             is_missing=False,
                             is_optional=False,
@@ -935,13 +1010,13 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     },
                     same_call_is_already_staged=False,
-                    comparison_with_rejected_tools_including_references_to_subtleties="not as good a fit as check_temperature",
+                    comparison_with_rejected_tools_including_references_to_subtleties="check_indoor_temperature is a better fit for this usecase, as it's more specific",
                     relevant_subtleties="no subtleties were detected",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=True,
-                    potentially_better_rejected_tool_name="check_temperature",
+                    potentially_better_rejected_tool_name="check_indoor_temperature",
                     potentially_better_rejected_tool_rationale=(
-                        "check_temperature is more versatile and can handle both indoor and outdoor locations "
-                        "with the type parameter, making it more suitable than the room-specific tool"
+                        "check_temperature is a more general case of check_indoor_temperature. "
+                        "Here, since the customer inquired about the temperature of a specific room, the check_indoor_temperature is more fitting."
                     ),
                     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool=False,
                     should_run=False,

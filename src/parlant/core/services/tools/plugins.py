@@ -36,6 +36,7 @@ from typing import (
     get_args,
     overload,
 )
+from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Unpack, override
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -45,10 +46,12 @@ from urllib.parse import urljoin
 import uvicorn
 
 from parlant.core.agents import AgentId
+from parlant.core.logging import Logger
 from parlant.core.tools import (
     Tool,
     ToolError,
-    ToolParameter,
+    ToolParameterDescriptor,
+    ToolParameterOptions,
     ToolParameterType,
     ToolResult,
     ToolContext,
@@ -121,15 +124,28 @@ class _ToolDecoratorParams(TypedDict, total=False):
 _ToolParameterType = Union[str, int, float, bool, None]
 
 
-class _ResolvedToolParameterTyped(NamedTuple):
-    t: type[_ToolParameterType]
+class _ToolParameterInfo(NamedTuple):
+    raw_type: type
+    resolved_type: type[_ToolParameterType]
+    options: Optional[ToolParameterOptions]
     is_optional: bool
 
 
-def _resolve_param_type(param: inspect.Parameter) -> _ResolvedToolParameterTyped:
+def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
     try:
-        if args := get_args(param.annotation):
-            if getattr(param.annotation, "__name__", None) != "Optional":
+        parameter_type = param.annotation
+        parameter_options: Optional[ToolParameterOptions] = None
+
+        if getattr(parameter_type, "__name__", None) == "Annotated":
+            annotation_params = get_args(parameter_type)
+            parameter_type = annotation_params[0]
+            annotation_value = annotation_params[1]
+
+            if isinstance(annotation_value, ToolParameterOptions):
+                parameter_options = annotation_value
+
+        if args := get_args(parameter_type):
+            if getattr(parameter_type, "__name__", None) != "Optional":
                 if len(args) != 2:
                     raise Exception()
                 if type(None) not in args:
@@ -137,17 +153,48 @@ def _resolve_param_type(param: inspect.Parameter) -> _ResolvedToolParameterTyped
                 if all(t is None for t in args):
                     raise Exception()
 
-            return _ResolvedToolParameterTyped(
-                t=get_args(param.annotation)[0],
+            return _ToolParameterInfo(
+                raw_type=parameter_type,
+                resolved_type=get_args(parameter_type)[0],
+                options=parameter_options,
                 is_optional=True,
             )
         else:
-            return _ResolvedToolParameterTyped(
-                t=param.annotation,
+            return _ToolParameterInfo(
+                raw_type=parameter_type,
+                resolved_type=parameter_type,
+                options=parameter_options,
                 is_optional=False,
             )
     except Exception:
         raise TypeError(f"Parameter type '{param.annotation}' is not supported in tool functions")
+
+
+async def adapt_tool_arguments(
+    parameters: Mapping[str, inspect.Parameter],
+    arguments: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    adapted_arguments = {}
+
+    for name, argument in arguments.items():
+        parameter_info = _resolve_param_info(parameters[name])
+
+        if parameter_info.options and parameter_info.options.adapter:
+            adapted_arguments[name] = await parameter_info.options.adapter(argument)
+        else:
+            if issubclass(parameter_info.resolved_type, BaseModel):
+                if parameter_info.is_optional and not argument:
+                    adapted_arguments[name] = None
+                else:
+                    adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_json(
+                        argument
+                    )
+            else:
+                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
+                    argument
+                )
+
+    return adapted_arguments
 
 
 def _tool_decorator_impl(
@@ -174,21 +221,16 @@ def _tool_decorator_impl(
         ), "A tool function must return a ToolResult object"
 
         for param in parameters[1:]:
-            param_type = _resolve_param_type(param)
+            param_info = _resolve_param_info(param)
 
-            if param_type.t not in get_args(_ToolParameterType) and not issubclass(
-                param_type.t, enum.Enum
-            ):
-                raise AssertionError(
-                    f"{param.name}: {param_type.t.__name__}: parameter type must be in {[t.__name__ for t in get_args(_ToolParameterType)]} or be a valid Enum type"
-                )
-
-            if issubclass(param_type.t, enum.Enum):
+            if issubclass(param_info.resolved_type, enum.Enum):
                 assert all(
-                    type(e.value) in get_args(EnumValueType) for e in param_type.t
-                ), f"{param.name}: {param_type.t.__name__}: Enum values must be in {[t.__name__ for t in get_args(EnumValueType)]}"
+                    type(e.value) in get_args(EnumValueType) for e in param_info.resolved_type
+                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be in {[t.__name__ for t in get_args(EnumValueType)]}"
 
-    def _describe_parameters(func: ToolFunction) -> dict[str, ToolParameter]:
+    def _describe_parameters(
+        func: ToolFunction,
+    ) -> dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]:
         type_to_param_type: dict[type[_ToolParameterType], ToolParameterType] = {
             str: "string",
             int: "integer",
@@ -199,27 +241,45 @@ def _tool_decorator_impl(
         parameters = list(inspect.signature(func).parameters.values())
         parameters = parameters[1:]  # Skip tool context parameter
 
-        param_descriptions = {}
+        param_descriptors = {}
 
         for p in parameters:
-            param_type_info = _resolve_param_type(p)
-            param_type = param_type_info.t
+            param_info = _resolve_param_info(p)
+            param_type = param_info.resolved_type
+
+            param_descriptor: ToolParameterDescriptor = {}
 
             if param_type in type_to_param_type:
-                tool_param = ToolParameter(type=type_to_param_type[param_type])
+                param_descriptor["type"] = type_to_param_type[param_type]
             elif issubclass(param_type, enum.Enum):
-                tool_param = ToolParameter(type="string", enum=[e.value for e in param_type])
+                param_descriptor["type"] = "string"
+                param_descriptor["enum"] = [e.value for e in param_type]
             else:
-                raise ValueError(f"Unsupported parameter type: {param_type}")
+                # Do a best-effort with the string type
+                param_descriptor["type"] = "string"
 
-            param_descriptions[p.name] = tool_param
+            if issubclass(param_info.resolved_type, BaseModel):
+                param_descriptor["description"] = json.dumps(
+                    {"json_schema": param_info.resolved_type.model_json_schema()}
+                )
 
-        return param_descriptions
+            if options := param_info.options:
+                if options.description:
+                    param_descriptor["description"] = options.description
+                if options.examples:
+                    param_descriptor["examples"] = options.examples
+
+            param_descriptors[p.name] = (
+                param_descriptor,
+                param_info.options or ToolParameterOptions(),
+            )
+
+        return param_descriptors
 
     def _find_required_params(func: ToolFunction) -> list[str]:
         parameters = list(inspect.signature(func).parameters.values())
         parameters = parameters[1:]  # Skip tool context parameter
-        resolved_params = {p.name: _resolve_param_type(p) for p in parameters}
+        resolved_params = {p.name: _resolve_param_info(p) for p in parameters}
         return [name for name, type in resolved_params.items() if not type.is_optional]
 
     def decorator(func: ToolFunction) -> ToolEntry:
@@ -464,17 +524,15 @@ class PluginServer:
             func = self.tools[name].function
 
             try:
-                result = self.tools[name].function(
-                    context,
-                    **normalize_tool_arguments(
-                        inspect.signature(func).parameters,
-                        request.arguments,
-                    ),
-                )  # type: ignore
-            except BaseException:
+                tool_params = inspect.signature(func).parameters
+                normalized_args = normalize_tool_arguments(tool_params, request.arguments)
+                adapted_args = await adapt_tool_arguments(tool_params, normalized_args)
+
+                result = self.tools[name].function(context, **adapted_args)  # type: ignore
+            except BaseException as exc:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=traceback.format_exc(),
+                    detail=traceback.format_exception(exc),
                 )
 
             result_future: asyncio.Future[ToolResult]
@@ -500,10 +558,12 @@ class PluginClient(ToolService):
         self,
         url: str,
         event_emitter_factory: EventEmitterFactory,
+        logger: Logger,
         correlator: ContextualCorrelator,
     ) -> None:
         self.url = url
         self._event_emitter_factory = event_emitter_factory
+        self._logger = logger
         self._correlator = correlator
 
     async def __aenter__(self) -> PluginClient:
@@ -522,6 +582,24 @@ class PluginClient(ToolService):
         await self._http_client.__aexit__(exc_type, exc_value, traceback)
         return False
 
+    def _translate_parameters(
+        self,
+        parameters: dict[str, Any],
+    ) -> dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]:
+        return {
+            name: (
+                descriptor,
+                ToolParameterOptions(
+                    hidden=options["hidden"],
+                    source=options["source"],
+                    description=options["description"],
+                    significance=options["significance"],
+                    examples=options["examples"],
+                ),
+            )
+            for name, (descriptor, options) in parameters.items()
+        }
+
     @override
     async def list_tools(self) -> Sequence[Tool]:
         response = await self._http_client.get(self._get_url("/tools"))
@@ -531,7 +609,7 @@ class PluginClient(ToolService):
                 name=t["name"],
                 creation_utc=dateutil.parser.parse(t["creation_utc"]),
                 description=t["description"],
-                parameters=t["parameters"],
+                parameters=self._translate_parameters(t["parameters"]),
                 required=t["required"],
                 consequential=t["consequential"],
             )
@@ -544,14 +622,14 @@ class PluginClient(ToolService):
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise ItemNotFoundError(UniqueId(name))
         content = response.json()
-        tool = content["tool"]
+        t = content["tool"]
         return Tool(
-            name=tool["name"],
-            creation_utc=dateutil.parser.parse(tool["creation_utc"]),
-            description=tool["description"],
-            parameters=tool["parameters"],
-            required=tool["required"],
-            consequential=tool["consequential"],
+            name=t["name"],
+            creation_utc=dateutil.parser.parse(t["creation_utc"]),
+            description=t["description"],
+            parameters=self._translate_parameters(t["parameters"]),
+            required=t["required"],
+            consequential=t["consequential"],
         )
 
     @override
@@ -579,10 +657,30 @@ class PluginClient(ToolService):
                     raise ItemNotFoundError(UniqueId(name))
 
                 if response.is_error:
-                    raise ToolExecutionError(
-                        tool_name=name,
-                        message=f"url='{self.url}', arguments='{arguments}'",
-                    )
+                    err: ToolExecutionError
+
+                    try:
+                        detail = json.loads(await response.aread())["detail"]
+
+                        self._logger.error(
+                            f"[PluginClient] Tool call error (url={self.url}, tool={tool.name}):\n{detail}"
+                        )
+
+                        err = ToolExecutionError(
+                            tool_name=name,
+                            message=f"url='{self.url}', arguments='{arguments}', detail={detail}",
+                        )
+                    except Exception:
+                        self._logger.error(
+                            f"[PluginClient] Tool call error (url={self.url}, tool={tool.name})"
+                        )
+
+                        err = ToolExecutionError(
+                            tool_name=name,
+                            message=f"url='{self.url}', arguments='{arguments}'",
+                        )
+
+                    raise err
 
                 event_emitter = await self._event_emitter_factory.create_event_emitter(
                     emitting_agent_id=AgentId(context.agent_id),

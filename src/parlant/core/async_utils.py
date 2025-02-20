@@ -131,6 +131,21 @@ async def safe_gather(  # type: ignore[misc]
         raise
 
 
+async def with_timeout(
+    coro_or_future: asyncio.Future[_TResult0]
+    | asyncio.Task[_TResult0]
+    | Coroutine[Any, Any, _TResult0],
+    timeout: Timeout,
+) -> _TResult0:
+    fut = asyncio.ensure_future(coro_or_future)
+
+    try:
+        return await asyncio.wait_for(coro_or_future, timeout.remaining())
+    except asyncio.TimeoutError:
+        fut.cancel()
+        raise
+
+
 class ReaderWriterLock:
     def __init__(self) -> None:
         _lock = aiorwlock.RWLock()

@@ -15,7 +15,9 @@
 # mypy: disable-error-code=import-untyped
 
 import asyncio
+import json
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 import click
 import click.shell_completion
@@ -62,8 +64,11 @@ from parlant.client.types import (
     CustomerTagUpdateParams,
     Tag,
     ConsumptionOffsetsUpdateParams,
+    Fragment,
+    FragmentField,
+    FragmentTagUpdateParams,
 )
-import zmq
+from websocket import WebSocketConnectionClosedException, create_connection
 
 INDENT = "  "
 
@@ -142,6 +147,7 @@ class Actions:
         name: Optional[str] = None,
         description: Optional[str] = None,
         max_engine_iterations: Optional[int] = None,
+        composition_mode: Optional[str] = None,
     ) -> Agent:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -150,6 +156,7 @@ class Actions:
             name=name,
             description=description,
             max_engine_iterations=max_engine_iterations,
+            composition_mode=composition_mode,
         )
 
     @staticmethod
@@ -857,29 +864,74 @@ class Actions:
         client.tags.delete(tag_id=tag_id)
 
     @staticmethod
+    def list_fragments(ctx: click.Context) -> list[Fragment]:
+        client = cast(ParlantClient, ctx.obj.client)
+        client.fragments.list()
+        return client.fragments.list()
+
+    @staticmethod
+    def view_fragment(ctx: click.Context, fragment_id: str) -> Fragment:
+        client = cast(ParlantClient, ctx.obj.client)
+        return client.fragments.retrieve(fragment_id=fragment_id)
+
+    @staticmethod
+    def load_fragments(ctx: click.Context, path: Path) -> list[Fragment]:
+        with open(path, "r") as file:
+            data = json.load(file)
+
+        client = cast(ParlantClient, ctx.obj.client)
+
+        for fragment in client.fragments.list():
+            client.fragments.delete(fragment_id=fragment.id)
+
+        fragments = []
+        for fragment_data in data.get("fragments", []):
+            value = fragment_data["value"]
+            assert value
+
+            fields = [
+                FragmentField(**fragment_field)
+                for fragment_field in fragment_data.get("fields", [])
+            ]
+
+            fragment = client.fragments.create(
+                value=value,
+                fields=fields,
+            )
+
+            if tag_ids := fragment_data.get("tags", []):
+                client.fragments.update(
+                    fragment_id=fragment.id, tags=FragmentTagUpdateParams(add=tag_ids)
+                )
+
+            fragments.append(fragment)
+
+        return fragments
+
+    @staticmethod
     def stream_logs(
         ctx: click.Context,
         union_patterns: list[str],
         intersection_patterns: list[str],
     ) -> Iterator[dict[str, Any]]:
-        context = zmq.Context.instance()
-        sub_socket = context.socket(zmq.SUB)
+        url = f"{ctx.obj.server_address.replace('http', 'ws')}/logs"
+        ws = create_connection(url)
 
         try:
-            sub_socket.connect(f"{ctx.obj.log_server_address}")
-
-            sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-
             rich.print(Text("Streaming logs...", style="bold yellow"))
 
             while True:
-                message = cast(dict[str, Any], sub_socket.recv_json())
+                raw_message = ws.recv()
+                message = json.loads(raw_message)
+
                 if Actions._log_entry_matches(message, union_patterns, intersection_patterns):
                     yield message
         except KeyboardInterrupt:
             rich.print(Text("Log streaming interrupted by user.", style="bold red"))
+        except WebSocketConnectionClosedException:
+            Interface.write_error("The WebSocket connection was closed.")
         finally:
-            sub_socket.close()
+            ws.close()
 
     @staticmethod
     def _log_entry_matches(
@@ -942,13 +994,16 @@ class Interface:
     def _print_table(data: list[dict[str, Any]]) -> None:
         table = Table(box=box.ROUNDED, border_style="bright_green")
 
-        headers = list(data[0].keys())
+        table.add_column("#", header_style="bright_green", overflow="fold")
+
+        headers = list(data[0].keys()) if data else []
 
         for header in headers:
             table.add_column(header, header_style="bright_green", overflow="fold")
 
-        for row in data:
-            table.add_row(*list(map(str, row.values())))
+        for idx, row in enumerate(data, start=1):
+            row_values = [str(row.get(h, "")) for h in headers]
+            table.add_row(str(idx), *row_values)
 
         rich.print(table)
 
@@ -961,6 +1016,7 @@ class Interface:
                 "Creation Date": reformat_datetime(a.creation_utc),
                 "Description": a.description or "",
                 "Max Engine Iterations": a.max_engine_iterations,
+                "Composition Mode": a.composition_mode.replace("_", "-"),
             }
             for a in agents
         ]
@@ -1035,9 +1091,12 @@ class Interface:
         name: Optional[str],
         description: Optional[str],
         max_engine_iterations: Optional[int],
+        composition_mode: Optional[str],
     ) -> None:
         try:
-            agent = Actions.update_agent(ctx, agent_id, name, description, max_engine_iterations)
+            agent = Actions.update_agent(
+                ctx, agent_id, name, description, max_engine_iterations, composition_mode
+            )
             Interface._write_success(f"Updated agent (id: {agent_id})")
             Interface._render_agents([agent])
         except Exception as e:
@@ -2021,6 +2080,58 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
+    def _render_fragments(fragments: list[Fragment]) -> None:
+        fragment_items = [
+            {
+                "ID": f.id,
+                "Value": f.value,
+                "Fields": [
+                    f"name: {s.name}, description: {s.description}, examples: {s.examples}"
+                    for s in f.fields
+                ]
+                or "",
+                "Tags": f.tags or "",
+                "Creation Date": reformat_datetime(f.creation_utc),
+            }
+            for f in fragments
+        ]
+
+        Interface._print_table(fragment_items)
+
+    @staticmethod
+    def load_fragments(ctx: click.Context, path: Path) -> None:
+        try:
+            fragments = Actions.load_fragments(ctx, path)
+
+            Interface._write_success(f"Loaded {len(fragments)} fragments from {path}")
+            Interface._render_fragments(fragments)
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def list_fragments(ctx: click.Context) -> None:
+        try:
+            fragments = Actions.list_fragments(ctx)
+            if not fragments:
+                rich.print("No fragments found")
+                return
+
+            Interface._render_fragments(fragments)
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def view_fragment(ctx: click.Context, fragment_id: str) -> None:
+        try:
+            fragment = Actions.view_fragment(ctx, fragment_id=fragment_id)
+            Interface._render_fragments([fragment])
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
     def stream_logs(
         ctx: click.Context,
         union_patterns: list[str],
@@ -2145,6 +2256,13 @@ async def async_main() -> None:
         help="Max engine iterations",
         required=False,
     )
+    @click.option(
+        "--composition-mode",
+        "-c",
+        type=click.Choice(["fluid", "strict-assembly", "loose-assembly", "composited-assembly"]),
+        help="Composition mode",
+        required=False,
+    )
     @click.pass_context
     def agent_update(
         ctx: click.Context,
@@ -2152,11 +2270,15 @@ async def async_main() -> None:
         name: Optional[str],
         description: Optional[str],
         max_engine_iterations: Optional[int],
+        composition_mode: Optional[str],
     ) -> None:
         id = id if id else Interface.get_default_agent(ctx)
         assert id
 
-        Interface.update_agent(ctx, id, name, description, max_engine_iterations)
+        if composition_mode:
+            composition_mode = composition_mode.replace("-", "_")
+
+        Interface.update_agent(ctx, id, name, description, max_engine_iterations, composition_mode)
 
     @cli.group(help="Manage sessions")
     def session() -> None:
@@ -3128,6 +3250,65 @@ async def async_main() -> None:
     def tag_delete(ctx: click.Context, id: str) -> None:
         Interface.delete_tag(ctx, id)
 
+    @cli.group(help="Manage fragments")
+    def fragment() -> None:
+        pass
+
+    @fragment.command("init", help="Initialize a sample fragments JSON file.")
+    @click.argument("file", type=click.Path(dir_okay=False, writable=True))
+    def fragment_init(file: str) -> None:
+        sample_data = {
+            "fragments": [
+                {
+                    "value": "Hello, {username}!",
+                    "fields": [
+                        {
+                            "name": "username",
+                            "description": "The user's name",
+                            "examples": ["Alice", "Bob"],
+                        }
+                    ],
+                    "tags": ["tgId123", "tgId32"],
+                },
+                {
+                    "value": "Your balance is {balance}",
+                    "fields": [
+                        {
+                            "name": "balance",
+                            "description": "Account balance",
+                            "examples": ["1000", "9999"],
+                        }
+                    ],
+                },
+            ]
+        }
+
+        path = Path(file).resolve()
+        if path.exists():
+            rich.print(Text(f"Overwriting existing file at {path}", style="bold yellow"))
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(sample_data, f, indent=2)
+
+        Interface._write_success(f"Created sample fragment data at {path}")
+
+    @fragment.command("load", help="Load fragments from a JSON file.")
+    @click.argument("file", type=click.Path(exists=True, dir_okay=False))
+    @click.pass_context
+    def fragment_load(ctx: click.Context, file: str) -> None:
+        Interface.load_fragments(ctx, Path(file))
+
+    @fragment.command("list", help="List fragments")
+    @click.pass_context
+    def fragment_list(ctx: click.Context) -> None:
+        Interface.list_fragments(ctx)
+
+    @fragment.command("view", help="View a fragment")
+    @click.option("--id", type=str, metavar="ID", help="Fragment ID", required=True)
+    @click.pass_context
+    def fragment_view(ctx: click.Context, id: str) -> None:
+        Interface.view_fragment(ctx, id)
+
     @cli.command(
         "log",
         help="Stream server logs",
@@ -3137,10 +3318,10 @@ async def async_main() -> None:
     )
     @click.option("--tool-caller", "-t", is_flag=True, help="Filter logs by [ToolCaller]")
     @click.option(
-        "--message-event-generator",
+        "--message-event-composer",
         "-m",
         is_flag=True,
-        help="Filter logs by [MessageEventGenerator]",
+        help="Filter logs by [MessageEventComposer]",
     )
     @click.option(
         "-a",
@@ -3165,7 +3346,7 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_proposer: bool,
         tool_caller: bool,
-        message_event_generator: bool,
+        message_event_composer: bool,
         intersection_patterns: tuple[str],
         union_patterns: tuple[str],
     ) -> None:
@@ -3175,8 +3356,8 @@ async def async_main() -> None:
             union_pattern_list.append("[GuidelineProposer]")
         if tool_caller:
             union_pattern_list.append("[ToolCaller]")
-        if message_event_generator:
-            union_pattern_list.append("[MessageEventGenerator]")
+        if message_event_composer:
+            union_pattern_list.append("[MessageEventComposer]")
 
         Interface.stream_logs(ctx, union_pattern_list, list(intersection_patterns))
 

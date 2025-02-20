@@ -195,7 +195,7 @@ GUIDELINES_DICT = {
 
 def propose_guidelines(
     context: ContextOfTest,
-    agents: Sequence[Agent],
+    agent: Agent,
     customer: Customer,
     conversation_context: list[tuple[str, str]],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
@@ -218,7 +218,7 @@ def propose_guidelines(
 
     guideline_proposition_result = context.sync_await(
         guideline_proposer.propose_guidelines(
-            agents=agents,
+            agent=agent,
             customer=customer,
             guidelines=list(context.guidelines.values()),
             context_variables=context_variables,
@@ -304,7 +304,7 @@ def base_test_that_correct_guidelines_are_proposed(
 
     guideline_propositions = propose_guidelines(
         context,
-        [agent],
+        agent,
         customer,
         conversation_context,
         context_variables=context_variables,

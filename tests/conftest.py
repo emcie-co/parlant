@@ -22,6 +22,7 @@ from lagom import Container, Singleton
 from pytest import fixture, Config
 import pytest
 
+from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.openai import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
@@ -33,13 +34,16 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerDocumentStore, CustomerStore
 from parlant.core.engines.alpha import guideline_proposer
 from parlant.core.engines.alpha import tool_caller
-from parlant.core.engines.alpha import message_event_generator
+from parlant.core.engines.alpha import fluid_message_generator
+from parlant.core.engines.alpha.hooks import LifecycleHooks
+from parlant.core.engines.alpha.message_assembler import MessageAssembler, AssembledMessageSchema
 from parlant.core.evaluations import (
     EvaluationListener,
     PollingEvaluationListener,
     EvaluationDocumentStore,
     EvaluationStore,
 )
+from parlant.core.fragments import FragmentDocumentStore, FragmentStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
 from parlant.core.guideline_connections import (
@@ -67,10 +71,10 @@ from parlant.core.engines.alpha.guideline_proposer import (
     GuidelinePropositionShot,
     GuidelinePropositionsSchema,
 )
-from parlant.core.engines.alpha.message_event_generator import (
-    MessageEventGenerator,
-    MessageEventGeneratorShot,
-    MessageEventSchema,
+from parlant.core.engines.alpha.fluid_message_generator import (
+    FluidMessageGenerator,
+    FluidMessageGeneratorShot,
+    FluidMessageSchema,
 )
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
@@ -186,10 +190,15 @@ async def container(
 
     container[ContextualCorrelator] = correlator
     container[Logger] = logger
+    container[WebSocketLogger] = WebSocketLogger(container[ContextualCorrelator])
 
     async with AsyncExitStack() as stack:
         container[BackgroundTaskService] = await stack.enter_async_context(
             BackgroundTaskService(container[Logger])
+        )
+
+        await container[BackgroundTaskService].start(
+            container[WebSocketLogger].start(), tag="websocket-logger"
         )
 
         container[AgentStore] = await stack.enter_async_context(
@@ -213,6 +222,9 @@ async def container(
         container[CustomerStore] = await stack.enter_async_context(
             CustomerDocumentStore(TransientDocumentDatabase())
         )
+        container[FragmentStore] = await stack.enter_async_context(
+            FragmentDocumentStore(TransientDocumentDatabase())
+        )
         container[GuidelineToolAssociationStore] = await stack.enter_async_context(
             GuidelineToolAssociationDocumentStore(TransientDocumentDatabase())
         )
@@ -228,6 +240,7 @@ async def container(
             ServiceDocumentRegistry(
                 database=TransientDocumentDatabase(),
                 event_emitter_factory=container[EventEmitterFactory],
+                logger=container[Logger],
                 correlator=container[ContextualCorrelator],
                 nlp_services={"default": OpenAIService(container[Logger])},
             )
@@ -249,7 +262,8 @@ async def container(
 
         for generation_schema in (
             GuidelinePropositionsSchema,
-            MessageEventSchema,
+            FluidMessageSchema,
+            AssembledMessageSchema,
             ToolCallInferenceSchema,
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
@@ -263,8 +277,8 @@ async def container(
 
         container[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
         container[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
-        container[ShotCollection[MessageEventGeneratorShot]] = (
-            message_event_generator.shot_collection
+        container[ShotCollection[FluidMessageGeneratorShot]] = (
+            fluid_message_generator.shot_collection
         )
 
         container[GuidelineProposer] = Singleton(GuidelineProposer)
@@ -278,14 +292,19 @@ async def container(
             ),
         )
 
-        container[MessageEventGenerator] = Singleton(MessageEventGenerator)
+        container[FluidMessageGenerator] = Singleton(FluidMessageGenerator)
+        container[MessageAssembler] = Singleton(MessageAssembler)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
 
-        container[Engine] = AlphaEngine
+        container[LifecycleHooks] = LifecycleHooks()
+
+        container[Engine] = Singleton(AlphaEngine)
 
         container[Application] = Application(container)
 
         yield container
+
+        await container[BackgroundTaskService].cancel_all()
 
 
 @fixture
@@ -318,12 +337,21 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[MessageEventSchema]],
+        container[SchematicGenerator[FluidMessageSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[MessageEventSchema],
-            container[SchematicGenerator[MessageEventSchema]],
+            CachedSchematicGenerator[FluidMessageSchema],
+            container[SchematicGenerator[FluidMessageSchema]],
+        ).use_cache = False
+
+    if isinstance(
+        container[SchematicGenerator[AssembledMessageSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[AssembledMessageSchema],
+            container[SchematicGenerator[AssembledMessageSchema]],
         ).use_cache = False
 
     if isinstance(

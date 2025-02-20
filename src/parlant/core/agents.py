@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import NewType, Optional, Sequence, cast
+from typing import Literal, NewType, Optional, Sequence, TypeAlias, cast
 from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
@@ -25,11 +25,19 @@ from parlant.core.persistence.document_database import DocumentDatabase, Documen
 
 AgentId = NewType("AgentId", str)
 
+CompositionMode: TypeAlias = Literal[
+    "fluid",
+    "strict_assembly",
+    "composited_assembly",
+    "fluid_assembly",
+]
+
 
 class AgentUpdateParams(TypedDict, total=False):
     name: str
     description: Optional[str]
     max_engine_iterations: int
+    composition_mode: CompositionMode
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,7 @@ class Agent:
     description: Optional[str]
     creation_utc: datetime
     max_engine_iterations: int
+    composition_mode: CompositionMode = "fluid"
 
 
 class AgentStore(ABC):
@@ -83,6 +92,7 @@ class _AgentDocument(TypedDict, total=False):
     name: str
     description: Optional[str]
     max_engine_iterations: int
+    composition_mode: CompositionMode
 
 
 class AgentDocumentStore(AgentStore):
@@ -120,6 +130,7 @@ class AgentDocumentStore(AgentStore):
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
+            composition_mode=agent.composition_mode,
         )
 
     def _deserialize(self, agent_document: _AgentDocument) -> Agent:
@@ -129,6 +140,7 @@ class AgentDocumentStore(AgentStore):
             name=agent_document["name"],
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
+            composition_mode=cast(CompositionMode, agent_document.get("composition_mode", "fluid")),
         )
 
     @override
@@ -138,10 +150,11 @@ class AgentDocumentStore(AgentStore):
         description: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
         max_engine_iterations: Optional[int] = None,
+        composition_mode: Optional[CompositionMode] = None,
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            max_engine_iterations = max_engine_iterations or 3
+            max_engine_iterations = max_engine_iterations or 1
 
             agent = Agent(
                 id=AgentId(generate_id()),
@@ -149,6 +162,7 @@ class AgentDocumentStore(AgentStore):
                 description=description,
                 creation_utc=creation_utc,
                 max_engine_iterations=max_engine_iterations,
+                composition_mode=composition_mode or "fluid",
             )
 
             await self._collection.insert_one(document=self._serialize(agent=agent))

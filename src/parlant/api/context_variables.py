@@ -15,7 +15,6 @@
 from pydantic import Field, field_validator
 from datetime import datetime
 from croniter import croniter
-from enum import Enum
 from fastapi import HTTPException, Path, Query, status
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
 
@@ -34,18 +33,6 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import ToolId
 
 API_GROUP = "context-variables"
-
-
-class DayOfWeekDTO(Enum):
-    """Days of the week for freshness rules."""
-
-    SUNDAY = "Sunday"
-    MONDAY = "Monday"
-    TUESDAY = "Tuesday"
-    WEDNESDAY = "Wednesday"
-    THURSDAY = "Thursday"
-    FRIDAY = "Friday"
-    SATURDAY = "Saturday"
 
 
 FreshnessRulesField: TypeAlias = Annotated[
@@ -87,14 +74,7 @@ context_variable_example = {
         "service_name": "finance_service",
         "tool_name": "balance_checker",
     },
-    "freshness_rules": {
-        "months": [1, 6, 12],
-        "days_of_month": [1, 15, 30],
-        "days_of_week": ["Monday", "Wednesday", "Friday"],
-        "hours": [9, 13, 17],
-        "minutes": [0, 30],
-        "seconds": [0, 30],
-    },
+    "freshness_rules": "*/5 * * * *",
 }
 
 
@@ -124,14 +104,7 @@ context_variable_creation_params_example = {
         "service_name": "finance_service",
         "tool_name": "balance_checker",
     },
-    "freshness_rules": {
-        "months": [1, 6, 12],
-        "days_of_month": [1, 15, 30],
-        "days_of_week": ["Monday", "Wednesday", "Friday"],
-        "hours": [9, 13, 17],
-        "minutes": [0, 30],
-        "seconds": [0, 30],
-    },
+    "freshness_rules": "30 2 * * *",
 }
 
 
@@ -162,9 +135,11 @@ class ContextVariableCreationParamsDTO(
 
 context_variable_update_params_example = {
     "name": "CustomerBalance",
-    "freshness_rules": {
-        "hours": [8, 12, 16],
-        "minutes": [0],
+    "description": "Stores the account balances of users",
+    "freshness_rules": "0 8,20 * * *",
+    "tool_id": {
+        "service_name": "finance_service",
+        "tool_name": "balance_checker",
     },
 }
 
@@ -278,14 +253,7 @@ context_variable_read_result_example: ExampleJson = {
         "name": "UserBalance",
         "description": "Stores the account balances of users",
         "tool_id": {"service_name": "finance_service", "tool_name": "balance_checker"},
-        "freshness_rules": {
-            "months": [1, 6, 12],
-            "days_of_month": [1, 15, 30],
-            "days_of_week": ["Monday", "Wednesday", "Friday"],
-            "hours": [9, 13, 17],
-            "minutes": [0, 30],
-            "seconds": [0, 30],
-        },
+        "freshness_rules": "0 8,20 * * *",
     },
     "key_value_pairs": {
         "user_123": {

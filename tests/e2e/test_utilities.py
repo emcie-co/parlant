@@ -594,3 +594,11 @@ class API:
             )
             evaluation_response.raise_for_status()
             return evaluation_response.json()
+
+    async def list_fragments(self) -> Any:
+        async with self.make_client() as client:
+            fragments_reponse = await client.get(
+                "/fragments",
+            )
+            fragments_reponse.raise_for_status()
+            return fragments_reponse.json()

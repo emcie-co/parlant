@@ -290,7 +290,7 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             )
         ]
 
-        self._logger.debug(f"Similar documents found: {json.dumps(docs, indent=2)}")
+        self._logger.debug(f"Similar documents found\n{json.dumps(docs, indent=2)}")
 
         return [
             SimilarDocumentResult(

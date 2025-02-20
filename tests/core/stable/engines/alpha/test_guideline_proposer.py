@@ -216,7 +216,7 @@ def context(
 
 def propose_guidelines(
     context: ContextOfTest,
-    agents: Sequence[Agent],
+    agent: Agent,
     customer: Customer,
     conversation_context: list[tuple[str, str]],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
@@ -239,7 +239,7 @@ def propose_guidelines(
 
     guideline_proposition_result = context.sync_await(
         guideline_proposer.propose_guidelines(
-            agents=agents,
+            agent=agent,
             customer=customer,
             guidelines=context.guidelines,
             context_variables=context_variables,
@@ -322,7 +322,7 @@ def base_test_that_correct_guidelines_are_proposed(
 
     guideline_propositions = propose_guidelines(
         context,
-        [agent],
+        agent,
         customer,
         conversation_context,
         context_variables=context_variables,
@@ -450,7 +450,7 @@ def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
     ]
 
     guideline_propositions = propose_guidelines(
-        context, [agent], customer, [("customer", "Hello there")]
+        context, agent, customer, [("customer", "Hello there")]
     )
 
     assert len(guideline_propositions) == len(relevant_guidelines)

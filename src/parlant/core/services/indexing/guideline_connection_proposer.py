@@ -126,7 +126,7 @@ Each guideline is composed of two parts:
 - "when": A natural-language condition specifying when the guideline applies. After every message that the user (also referred to as the customer) sends, this condition is tested to determine if the guideline should influence the agent's next reply.
 - "then": A natural-language instruction that the agent must follow whenever the "when" condition applies to the current state of the conversation. These instructions are directed solely at the agent and do not apply to the customer.
 
-After each message by the customer, a separate component examines which guidelines need to be activated, meaning that they'd effect the agent's response, based on whether their 'when' condition is fulfilled.
+After each message by the customer, a separate component examines which guidelines need to be activated, meaning that they'd affect the agent's response, based on whether their 'when' condition is fulfilled.
 Your task is to identify causal connections between guidelines. A causal connection exists when the activation of one guideline directly triggers the conditions of another.
 
 Your role in our system is to determine which guidelines should automatically cause another guideline to activate.

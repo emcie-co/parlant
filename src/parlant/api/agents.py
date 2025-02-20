@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from datetime import datetime
+from enum import Enum
 import dateutil
 import dateutil.parser
 from fastapi import APIRouter, Path, status
@@ -79,6 +80,23 @@ agent_example: ExampleJson = {
 }
 
 
+class CompositionModeDTO(Enum):
+    """
+    Defines the composition mode for an entity.
+
+    Available options:
+    - fluid
+    - strict_assembly
+    - composited_assembly
+    - fluid_assembly
+    """
+
+    FLUID = "fluid"
+    STRICT_ASSEMBLY = "strict_assembly"
+    COMPOSITED_ASSEMBLY = "composited_assembly"
+    FLUID_ASSEMBLY = "fluid_assembly"
+
+
 class AgentDTO(
     DefaultBaseModel,
     json_schema_extra={"example": agent_example},
@@ -97,6 +115,7 @@ class AgentDTO(
     description: Optional[AgentDescriptionField] = None
     creation_utc: AgentCreationUTCField
     max_engine_iterations: AgentMaxEngineIterationsField
+    composition_mode: CompositionModeDTO
 
 
 agent_creation_params_example: ExampleJson = {
@@ -146,6 +165,7 @@ class AgentUpdateParamsDTO(
     name: Optional[AgentNameField] = None
     description: Optional[AgentDescriptionField] = None
     max_engine_iterations: Optional[AgentMaxEngineIterationsField] = None
+    composition_mode: Optional[CompositionModeDTO] = None
 
 
 def create_router(
@@ -195,6 +215,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
+            composition_mode=CompositionModeDTO(agent.composition_mode),
         )
 
     @router.get(
@@ -225,6 +246,7 @@ def create_router(
                 description=a.description,
                 creation_utc=a.creation_utc,
                 max_engine_iterations=a.max_engine_iterations,
+                composition_mode=CompositionModeDTO(a.composition_mode),
             )
             for a in agents
         ]
@@ -258,6 +280,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
+            composition_mode=CompositionModeDTO(agent.composition_mode),
         )
 
     @router.patch(
@@ -301,6 +324,9 @@ def create_router(
             if dto.max_engine_iterations:
                 params["max_engine_iterations"] = dto.max_engine_iterations
 
+            if dto.composition_mode:
+                params["composition_mode"] = dto.composition_mode.value
+
             return params
 
         agent = await agent_store.update_agent(
@@ -313,6 +339,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
+            composition_mode=CompositionModeDTO(agent.composition_mode),
         )
 
     @router.delete(

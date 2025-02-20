@@ -1,7 +1,7 @@
 # DCO Sign Off
 
 All commits must be signed off with the Developer Certificate of Origin ([DCO.md](DCO.md)).
-This attests that you have the rights to submit your contribution under our project's license.
+This attests that you have the rights to submit your contribution under our project's license (Apache 2.0).
 
 To sign off your commits:
 
@@ -24,5 +24,5 @@ To sign off your commits:
 
 * Add the sign-off manually with:
    ```
-   Signed-off-by: Your Name your.email@example.com
+   Signed-off-by: Your Name <your.email@example.com>
    ```

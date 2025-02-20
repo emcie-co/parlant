@@ -45,6 +45,7 @@ from parlant.core.nlp.generation import GenerationInfo, UsageInfo
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import DocumentDatabase, DocumentCollection
 from parlant.core.glossary import TermId
+from parlant.core.fragments import FragmentId
 
 SessionId = NewType("SessionId", str)
 
@@ -98,7 +99,8 @@ class MessageEventData(TypedDict):
     message: str
     participant: Participant
     flagged: NotRequired[bool]
-    tags: NotRequired[list[str]]
+    tags: NotRequired[Sequence[str]]
+    fragments: NotRequired[Mapping[FragmentId, str]]
 
 
 class ControlOptions(TypedDict, total=False):
@@ -163,7 +165,7 @@ class ContextVariable(TypedDict):
 @dataclass(frozen=True)
 class MessageGenerationInspection:
     generation: GenerationInfo
-    messages: Sequence[Optional[str]]
+    messages: Sequence[Optional[MessageEventData]]
 
 
 @dataclass(frozen=True)
@@ -355,7 +357,7 @@ class _PreparationIterationGenerationsDocument(TypedDict):
 
 class _MessageGenerationInspectionDocument(TypedDict):
     generation: _GenerationInfoDocument
-    messages: Sequence[Optional[str]]
+    messages: Sequence[Optional[MessageEventData]]
 
 
 class _PreparationIterationDocument(TypedDict):

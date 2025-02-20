@@ -30,8 +30,9 @@ from typing_extensions import override
 
 from parlant.core.tools import (
     Tool,
+    ToolParameterOptions,
     ToolResult,
-    ToolParameter,
+    ToolParameterDescriptor,
     ToolParameterType,
     ToolContext,
     validate_tool_arguments,
@@ -80,8 +81,8 @@ class OpenAPIClient(ToolService):
 
     def _parse_tools(self, openapi_json: str) -> dict[str, _ToolSpec]:
         class ParameterSpecification(NamedTuple):
-            query_parameters: dict[str, ToolParameter]
-            body_parameters: dict[str, ToolParameter]
+            query_parameters: dict[str, ToolParameterDescriptor]
+            body_parameters: dict[str, ToolParameterDescriptor]
             required: list[str]
 
         def parse_parameters(operation: Operation) -> ParameterSpecification:
@@ -148,8 +149,11 @@ class OpenAPIClient(ToolService):
                     creation_utc=datetime.now(timezone.utc),
                     description=operation.description or "",
                     parameters={
-                        **parameter_spec.query_parameters,
-                        **parameter_spec.body_parameters,
+                        name: (value, ToolParameterOptions())
+                        for name, value in {
+                            **parameter_spec.query_parameters,
+                            **parameter_spec.body_parameters,
+                        }.items()
                     },
                     required=parameter_spec.required,
                     consequential=False,

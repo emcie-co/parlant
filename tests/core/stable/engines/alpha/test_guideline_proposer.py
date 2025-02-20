@@ -188,6 +188,14 @@ GUIDELINES_DICT = {
         "condition": "the customer asked a question about birds",
         "action": "answer their question enthusiastically, while not using punctuation. Also say that the kingfisher is your favorite bird",
     },
+    "second_thanks": {
+        "condition": "the customer is thanking you for the second time in the interaction",
+        "action": "compliment the customer for their manners",
+    },
+    "pay_cc_bill": {
+        "condition": "the customer wants to pay their credit card bill",
+        "action": "determine which card and how much they want to pay",
+    },
 }
 
 
@@ -1186,8 +1194,6 @@ def test_that_guidelines_based_on_context_variables_arent_proposed_repetitively(
             "Your pizza will be ready in about 25 minutes. Would you like delivery or pickup?",
         ),
         ("customer", "Delivery please?"),
-        ("ai_agent", "Great, the total would be 10$, would you like to pay by credit or cash?"),
-        ("customer", "Actually hold up, could you add another large pizza to the order?"),
     ]
     context_variables = [
         create_context_variable(

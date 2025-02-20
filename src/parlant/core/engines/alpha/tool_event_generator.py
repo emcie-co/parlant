@@ -19,7 +19,8 @@ from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
 from parlant.core.tools import ToolContext
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.loggers import Logger
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue

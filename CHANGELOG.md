@@ -6,6 +6,12 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [1.6.5] - 2025-02-20
+
+### Fixed
+
+- Improve guideline proposer generation consistency
+
 ## [1.6.4] - 2025-02-20
 
 ### Fixed

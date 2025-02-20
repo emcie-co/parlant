@@ -48,7 +48,9 @@ class GuidelinePropositionSchema(DefaultBaseModel):
     action: Optional[str] = ""
     guideline_is_continuous: Optional[bool] = False
     capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls: bool = True
-    guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information: str = ""
+    guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information: Optional[
+        str
+    ] = ""
     guideline_previously_applied_rationale: Optional[dict[str, str]] = {}
     guideline_previously_applied: Optional[str] = "no"
     is_missing_part_cosmetic_or_functional: Optional[Literal["cosmetic", "functional"]] = None

@@ -21,19 +21,19 @@ import traceback
 from typing import Any, Mapping, NewType, Optional, Sequence
 
 from parlant.core import async_utils
-from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tools import Tool, ToolContext, ToolParameterDescriptor, ToolParameterOptions
 from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable, generate_id, DefaultBaseModel
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
+from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
+from parlant.core.glossary import Term
+from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, ToolResult
-from parlant.core.glossary import Term
-from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
-from parlant.core.emissions import EmittedEvent
-from parlant.core.loggers import Logger
+from parlant.core.shots import Shot, ShotCollection
+from parlant.core.tools import Tool, ToolContext, ToolParameterDescriptor, ToolParameterOptions
 from parlant.core.tools import ToolId, ToolService
 
 ToolCallId = NewType("ToolCallId", str)
@@ -390,7 +390,7 @@ Example #{i}: ###
     ) -> PromptBuilder:
         staged_calls = self._get_staged_calls(staged_events)
 
-        builder = PromptBuilder()
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="tool-caller-general-instructions",
@@ -709,8 +709,6 @@ Guidelines:
         self,
         prompt: PromptBuilder,
     ) -> tuple[GenerationInfo, Sequence[ToolCallEvaluation]]:
-        self._logger.debug(f"Inference::Prompt:\n{prompt}")
-
         inference = await self._schematic_generator.generate(
             prompt=prompt,
             hints={"temperature": 0.05},

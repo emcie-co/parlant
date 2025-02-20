@@ -43,10 +43,9 @@ from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
@@ -157,7 +156,6 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
 
             return SchematicGenerationResult(
                 content=content,
-                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,

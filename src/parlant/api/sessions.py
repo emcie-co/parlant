@@ -29,7 +29,7 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.types import UtteranceReason, UtteranceRequest
 from parlant.core.loggers import Logger
-from parlant.core.nlp.generation import GenerationInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (

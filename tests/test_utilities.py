@@ -38,6 +38,7 @@ from fastapi.responses import JSONResponse
 import httpx
 from lagom import Container
 import uvicorn
+
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.nlp.openai_service import GPT_4o
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -58,11 +59,10 @@ from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
     SchematicGenerator,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.sessions import (
@@ -451,7 +451,6 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 
         return SchematicGenerationResult[TBaseModel](
             content=content,
-            prompt="",
             info=info,
         )
 

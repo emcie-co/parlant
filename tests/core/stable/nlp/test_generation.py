@@ -30,11 +30,10 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
     SchematicGenerator,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 
@@ -57,7 +56,6 @@ async def test_that_fallback_generation_uses_the_first_working_generator(
     mock_first_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_first_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
-        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -96,7 +94,6 @@ async def test_that_fallback_generation_falls_back_to_the_next_generator_when_en
     mock_second_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_second_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
-        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -182,7 +179,6 @@ async def test_that_retry_succeeds_after_failures(
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     success_result = SchematicGenerationResult(
         content=DummySchema(result="Success"),
-        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -339,7 +335,6 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
 
             return SchematicGenerationResult(
                 content=DummySchema(result=prompt),
-                prompt=prompt,
                 info=GenerationInfo(
                     schema_name="DummySchema",
                     model="mock-model",

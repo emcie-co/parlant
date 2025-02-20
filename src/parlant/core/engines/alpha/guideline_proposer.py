@@ -25,7 +25,8 @@ from parlant.core import async_utils
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
-from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,
     PreviouslyAppliedType,
@@ -250,8 +251,6 @@ class GuidelineProposer:
                 hints={"temperature": 0.15},
             )
 
-        self._logger.debug(f"Prompt:\n{inference.prompt}")
-
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
@@ -383,7 +382,7 @@ class GuidelineProposer:
             for i, g in guidelines.items()
         )
 
-        builder = PromptBuilder()
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-proposer-general-instructions",

@@ -28,7 +28,8 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposition,
 )
 from parlant.core.engines.alpha.tool_caller import MissingToolData, ToolInsights
-from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
@@ -205,8 +206,6 @@ class FluidMessageGenerator(MessageEventComposer):
 
         last_generation_exception: Exception | None = None
 
-        self._logger.debug(f"Prompt:\n{prompt}")
-
         for generation_attempt in range(3):
             try:
                 generation_info, response_message = await self._generate_response_message(
@@ -311,7 +310,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         tool_insights: ToolInsights,
         shots: Sequence[FluidMessageGeneratorShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder()
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="fluid-message-generator-general-instructions",

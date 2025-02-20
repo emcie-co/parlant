@@ -20,12 +20,12 @@ from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.tool_caller import ToolInsights
-from parlant.core.nlp.generation import GenerationInfo
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.sessions import Event
 from parlant.core.tools import ToolId
+from parlant.core.nlp.generation_info import GenerationInfo
 
 
 @dataclass(frozen=True)

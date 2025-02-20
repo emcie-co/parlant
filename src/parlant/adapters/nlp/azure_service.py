@@ -40,10 +40,9 @@ from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 
 
@@ -146,7 +145,6 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
 
             return SchematicGenerationResult[T](
                 content=parsed_object,
-                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,
@@ -211,7 +209,6 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
 
                 return SchematicGenerationResult(
                     content=content,
-                    prompt=prompt,
                     info=GenerationInfo(
                         schema_name=self.schema.__name__,
                         model=self.id,

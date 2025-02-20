@@ -254,7 +254,7 @@ Each guideline is composed of two parts:
 
 
 Your task is to evaluate whether pairs of guidelines have entailing 'when' statements.
-{self.get_task_description()}
+{formatted_task_description}
 
 To find whether two guidelines have entailing 'when's, independently determine whether the first 'when' entails the second, and vice-versa.
 Be forgiving regarding misspellings and grammatical errors.
@@ -433,7 +433,7 @@ Expected Output:
 ```
 ###
 """,
-            props={},
+            props={"formatted_task_description": self.get_task_description()},
         )
 
         builder.add_agent_identity(agent)
@@ -536,7 +536,7 @@ Each guideline is composed of two parts:
           Any instruction described here applies only to the agent, and not to the customer.
 
 To ensure consistency, it is crucial to avoid scenarios where multiple guidelines with conflicting 'then' statements are applied.
-{self.get_task_description()}
+{formatted_task_description}
 
 
 Be forgiving regarding misspellings and grammatical errors.
@@ -686,7 +686,7 @@ Expected Output:
 ```
 
 ###""",
-            props={},
+            props={"formatted_task_description": self.get_task_description()},
         )
         builder.add_agent_identity(agent)
         terms = await self._glossary_store.find_relevant_terms(

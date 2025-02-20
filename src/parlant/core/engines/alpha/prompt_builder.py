@@ -57,12 +57,27 @@ class Section:
 
 
 class PromptBuilder:
-    def __init__(self) -> None:
+    def __init__(self, on_build: Optional[Callable[[str], None]] = None) -> None:
         self.sections: dict[str | BuiltInSection, Section] = {}
+
+        self._on_build = on_build
+        self._cached_results: set[str] = set()
+
+    def _call_on_build(self, prompt: str) -> None:
+        if prompt in self._cached_results:
+            return
+
+        if self._on_build:
+            self._on_build(prompt)
+
+        self._cached_results.add(prompt)
 
     def build(self) -> str:
         section_contents = [s.template.format(**s.props) for s in self.sections.values()]
         prompt = "\n\n".join(section_contents)
+
+        self._call_on_build(prompt)
+
         return prompt
 
     def add_section(

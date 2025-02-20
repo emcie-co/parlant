@@ -29,7 +29,8 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.engines.alpha.tool_caller import ToolInsights
 from parlant.core.fragments import Fragment, FragmentId, FragmentStore
-from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
 from parlant.core.glossary import Term
@@ -222,8 +223,6 @@ class MessageAssembler(MessageEventComposer):
 
         last_generation_exception: Exception | None = None
 
-        self._logger.debug(f"Prompt:\n{prompt}")
-
         for generation_attempt in range(3):
             try:
                 generation_info, assembly_result = await self._generate_response_message(
@@ -379,7 +378,7 @@ Example {i} - {shot.description}: ###
     ) -> PromptBuilder:
         can_suggest_fragments = agent.composition_mode == "fluid_assembly"
 
-        builder = PromptBuilder()
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="message-assembler-general-instructions",

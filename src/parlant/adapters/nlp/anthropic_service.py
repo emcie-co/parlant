@@ -34,11 +34,10 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    GenerationInfo,
     SchematicGenerationResult,
     SchematicGenerator,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
@@ -145,7 +144,6 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
             return SchematicGenerationResult(
-                prompt=prompt,
                 content=model_content,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,

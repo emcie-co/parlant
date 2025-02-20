@@ -33,10 +33,9 @@ from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
     FallbackSchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 
 
@@ -141,7 +140,6 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
             return SchematicGenerationResult(
                 content=model_content,
-                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,

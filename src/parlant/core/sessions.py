@@ -41,7 +41,7 @@ from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
 from parlant.core.guidelines import GuidelineId
-from parlant.core.nlp.generation import GenerationInfo, UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.persistence.common import (
     ObjectId,
     Where,

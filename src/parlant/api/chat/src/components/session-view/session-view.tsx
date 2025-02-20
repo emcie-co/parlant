@@ -269,7 +269,21 @@ export default function SessionView(): ReactElement {
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
-								<MessageWithDate key={i} event={event} index={i} />
+								<>
+									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
+									<div ref={lastMessageRef} className='flex flex-col'>
+										<Message
+											isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
+											isRegenerateHidden={!!isMissingAgent}
+											event={event}
+											isContinual={event.source === visibleMessages[i + 1]?.source}
+											regenerateMessageFn={regenerateMessageDialog(i)}
+											resendMessageFn={resendMessageDialog(i)}
+											showLogsForMessage={showLogsForMessage}
+											showLogs={showLogs(i)}
+										/>
+									</div>
+								</>
 							))}
 							{(showTyping || showThinking) && (
 								<div className='animate-fade-in flex mb-1 justify-between mt-[44.33px]'>

@@ -11,6 +11,7 @@ TBD
 ### Fixed
 
 - Improve guideline proposer generation consistency
+- Adapt schemas for Gemini schematic generation support
 
 ## [1.6.4] - 2025-02-20
 

@@ -14,16 +14,13 @@
 
 import os
 import time
-import google.generativeai as genai  # type: ignore
-from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
+from google import genai  # type: ignore
 from typing import Any, Mapping
 from typing_extensions import override
 import jsonfinder  # type: ignore
 from pydantic import ValidationError
-from vertexai.preview import tokenization  # type: ignore
 
 from parlant.adapters.nlp.common import normalize_json_output
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -32,7 +29,6 @@ from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
-    FallbackSchematicGenerator,
     GenerationInfo,
     SchematicGenerationResult,
     UsageInfo,
@@ -40,16 +36,22 @@ from parlant.core.nlp.generation import (
 from parlant.core.logging import Logger
 
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-
-
 class GoogleEstimatingTokenizer(EstimatingTokenizer):
-    def __init__(self, model_name: str) -> None:
-        self._tokenizer = tokenization.get_tokenizer_for_model("gemini-1.5-pro")
+    def __init__(self, client: genai.Client, model_name: str) -> None:
+        self._client = client
+        self._model_name = model_name
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:
-        result = self._tokenizer.count_tokens(prompt)
+        model_approximation = {
+            "text-embedding-004": "gemini-1.5-flash",
+        }.get(self._model_name, self._model_name)
+
+        result = await self._client.aio.models.count_tokens(
+            model=model_approximation,
+            contents=prompt,
+        )
+
         return int(result.total_tokens)
 
 
@@ -64,9 +66,9 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         self.model_name = model_name
         self._logger = logger
 
-        self._model = genai.GenerativeModel(model_name)
+        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-        self._tokenizer = GoogleEstimatingTokenizer(model_name=self.model_name)
+        self._tokenizer = GoogleEstimatingTokenizer(self._client, model_name=self.model_name)
 
     @property
     @override
@@ -80,14 +82,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
     @policy(
         [
-            retry(
-                exceptions=(
-                    NotFound,
-                    TooManyRequests,
-                    ResourceExhausted,
-                )
-            ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(Exception, max_attempts=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -99,9 +94,10 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
         t_start = time.time()
-        response = await self._model.generate_content_async(
+        response = await self._client.aio.models.generate_content(
+            model=self.model_name,
             contents=prompt,
-            generation_config=gemini_api_arguments,
+            config=gemini_api_arguments,
         )
         t_end = time.time()
 
@@ -154,6 +150,19 @@ class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.0-flash",
+            logger=logger,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(
@@ -172,7 +181,8 @@ class GoogleEmbedder(Embedder):
 
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
-        self._tokenizer = GoogleEstimatingTokenizer(model_name=self.model_name)
+        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._tokenizer = GoogleEstimatingTokenizer(self._client, model_name=self.model_name)
 
     @property
     @override
@@ -186,14 +196,7 @@ class GoogleEmbedder(Embedder):
 
     @policy(
         [
-            retry(
-                exceptions=(
-                    NotFound,
-                    TooManyRequests,
-                    ResourceExhausted,
-                )
-            ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(Exception, max_attempts=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -204,19 +207,19 @@ class GoogleEmbedder(Embedder):
     ) -> EmbeddingResult:
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
-        response = await genai.embed_content_async(
+        response = await self._client.aio.models.embed_content(
             model=self.model_name,
-            content=texts,
-            **gemini_api_arguments,
+            contents=texts,
+            config=gemini_api_arguments,
         )
 
-        vectors = [data_point for data_point in response["embedding"]]
+        vectors = [data_point.values for data_point in response.embeddings if data_point.values]
         return EmbeddingResult(vectors=vectors)
 
 
 class GeminiTextEmbedding_004(GoogleEmbedder):
     def __init__(self) -> None:
-        super().__init__(model_name="models/text-embedding-004")
+        super().__init__(model_name="text-embedding-004")
 
     @property
     @override
@@ -238,13 +241,7 @@ class GeminiService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        if t == ToolCallInferenceSchema:
-            return FallbackSchematicGenerator(
-                Gemini_1_5_Flash[t](self._logger),  # type: ignore
-                Gemini_1_5_Pro[t](self._logger),  # type: ignore
-                logger=self._logger,
-            )
-        return Gemini_1_5_Pro[t](self._logger)  # type: ignore
+        return Gemini_2_0_Flash[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

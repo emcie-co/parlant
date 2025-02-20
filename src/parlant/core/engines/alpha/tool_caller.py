@@ -35,30 +35,40 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSect
 from parlant.core.emissions import EmittedEvent
 from parlant.core.logging import Logger
 from parlant.core.tools import ToolId, ToolService
+from parlant.core.engines.alpha.reasoning_method import (
+    ReasoningMethod,
+    TOOL_CALLER_REASONING_METHOD,
+)
 
 ToolCallId = NewType("ToolCallId", str)
 ToolResultId = NewType("ToolResultId", str)
 
 
 class ArgumentEvaluation(DefaultBaseModel):
-    evaluate_is_it_provided_in_the_context: str
-    evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why: str
-    evaluate_was_it_already_provided_and_should_it_be_provided_again: str
-    evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided: str
-    is_optional: bool
-    has_default: bool = False
-    is_missing: bool
+    evaluate_is_it_provided_in_the_context: Optional[str] = ""
+    evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why: Optional[
+        str
+    ] = ""
+    evaluate_was_it_already_provided_and_should_it_be_provided_again: Optional[str] = ""
+    evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided: Optional[
+        str
+    ] = ""
+    is_optional: Optional[bool] = False
+    has_default: Optional[bool] = False
+    is_missing: Optional[bool] = False
     value: Optional[Any]
 
 
 class ToolCallEvaluation(DefaultBaseModel):
-    applicability_rationale: str
+    applicability_rationale: Optional[str] = ""
     applicability_score: int
     argument_evaluations: Optional[dict[str, ArgumentEvaluation]] = None
-    same_call_is_already_staged: bool
-    comparison_with_rejected_tools_including_references_to_subtleties: str
-    relevant_subtleties: str
-    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected: bool
+    same_call_is_already_staged: Optional[bool] = False
+    comparison_with_rejected_tools_including_references_to_subtleties: Optional[str] = ""
+    relevant_subtleties: Optional[str] = ""
+    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected: Optional[bool] = (
+        False
+    )
     potentially_better_rejected_tool_name: Optional[str] = None
     potentially_better_rejected_tool_rationale: Optional[str] = None
     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool: bool = False
@@ -130,6 +140,7 @@ class ToolCaller:
         self._service_registry = service_registry
         self._logger = logger
         self._schematic_generator = schematic_generator
+        self._reasoning_method = TOOL_CALLER_REASONING_METHOD
 
     async def infer_tool_calls(
         self,
@@ -235,21 +246,63 @@ class ToolCaller:
 
         tool_calls = []
         missing_data = []
-
         for tc in inference_output:
-            if tc.applicability_score >= 6 and (
-                not tc.a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected
-                or tc.the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool
-            ):
-                if tc.should_run and all(
-                    not evaluation.is_missing
-                    for argument, evaluation in (tc.argument_evaluations or {}).items()
-                    if argument in candidate_descriptor[1].required
+            if self._reasoning_method == ReasoningMethod.ARQ:
+                if tc.applicability_score >= 6 and (
+                    not tc.a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected
+                    or tc.the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool
                 ):
+                    if tc.should_run and all(
+                        not evaluation.is_missing
+                        for argument, evaluation in (tc.argument_evaluations or {}).items()
+                        if argument in candidate_descriptor[1].required
+                    ):
+                        self._logger.debug(
+                            f"[ToolCaller][Completion][Activated]\n{tc.model_dump_json(indent=2)}"
+                        )
+
+                        tool_calls.append(
+                            ToolCall(
+                                id=ToolCallId(generate_id()),
+                                tool_id=tool_id,
+                                arguments={
+                                    name: evaluation.value
+                                    for name, evaluation in tc.argument_evaluations.items()
+                                }
+                                if tc.argument_evaluations
+                                else {},
+                            )
+                        )
+                    elif tc.applicability_score >= 8:
+                        for argument, evaluation in (tc.argument_evaluations or {}).items():
+                            if argument not in tool.parameters:
+                                self._logger.error(
+                                    f"[ToolCaller][Completion] Argument {argument} not found in tool parameters"
+                                )
+                                continue
+
+                            _, tool_options = tool.parameters[argument]
+
+                            if (
+                                evaluation.is_missing
+                                and not evaluation.is_optional
+                                and not tool_options.hidden
+                            ):
+                                missing_data.append(
+                                    MissingToolData(
+                                        parameter=argument,
+                                        significance=tool_options.significance,
+                                    )
+                                )
+                else:
+                    self._logger.debug(
+                        f"Inference::Completion::Skipped:\n{tc.model_dump_json(indent=2)}"
+                    )
+            else:
+                if tc.applicability_score >= 6:
                     self._logger.debug(
                         f"[ToolCaller][Completion][Activated]\n{tc.model_dump_json(indent=2)}"
                     )
-
                     tool_calls.append(
                         ToolCall(
                             id=ToolCallId(generate_id()),
@@ -262,33 +315,10 @@ class ToolCaller:
                             else {},
                         )
                     )
-                elif tc.applicability_score >= 8:
-                    for argument, evaluation in (tc.argument_evaluations or {}).items():
-                        if argument not in tool.parameters:
-                            self._logger.error(
-                                f"[ToolCaller][Completion] Argument {argument} not found in tool parameters"
-                            )
-                            continue
-
-                        _, tool_options = tool.parameters[argument]
-
-                        if (
-                            evaluation.is_missing
-                            and not evaluation.is_optional
-                            and not tool_options.hidden
-                        ):
-                            missing_data.append(
-                                MissingToolData(
-                                    parameter=argument,
-                                    significance=tool_options.significance,
-                                )
-                            )
-
-            else:
-                self._logger.debug(
-                    f"[ToolCaller][Completion][Skipped]\n{tc.model_dump_json(indent=2)}"
-                )
-
+                else:
+                    self._logger.debug(
+                        f"Inference::Completion::Skipped:\n{tc.model_dump_json(indent=2)}"
+                    )
         return generation_info, tool_calls, missing_data
 
     async def execute_tool_calls(

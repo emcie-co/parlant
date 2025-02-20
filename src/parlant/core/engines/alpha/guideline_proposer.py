@@ -46,7 +46,6 @@ from parlant.core.engines.alpha.reasoning_method import (
 
 class GuidelinePropositionSchema(DefaultBaseModel):
     guideline_id: str
-    reasoning: Optional[str] = "..."
     condition: Optional[str] = ""
     action: Optional[str] = ""
     condition_application_rationale: Optional[str] = ""
@@ -314,6 +313,7 @@ class GuidelineProposer:
                 "data": e.data,
             }
 
+        reasoning_text = ""
         formatted_shot = ""
         if shot.interaction_events:
             formatted_shot += f"""
@@ -340,13 +340,13 @@ class GuidelineProposer:
                 [
                     {
                         "guideline_id": g.guideline_id,
-                        "reasoning": g.reasoning,
                         "applies_score": g.applies_score,
                     }
                     for g in shot.expected_result.checks
                 ],
                 indent=2,
             )
+            reasoning_text = "<Reasoning...>"
         elif self._reasoning_method == ReasoningMethod.NONE:
             examples_text = json.dumps(
                 [
@@ -360,6 +360,7 @@ class GuidelineProposer:
             )
         formatted_shot += f"""
 - **Expected Result**:
+{reasoning_text}
 ```json
 {examples_text}
 ```
@@ -389,16 +390,7 @@ class GuidelineProposer:
                 }
                 for g in guidelines.values()
             ]
-        elif self._reasoning_method == ReasoningMethod.COT:
-            return [
-                {
-                    "guideline_id": g.id,
-                    "reasoning": "<Reasoning chain for this task>",
-                    "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
-                }
-                for i, g in guidelines.items()
-            ]
-        elif self._reasoning_method == ReasoningMethod.NONE:
+        else:
             return [
                 {
                     "guideline_id": g.id,
@@ -468,7 +460,7 @@ For each provided guideline, return:
 """)
         elif self._reasoning_method == ReasoningMethod.COT:
             builder.add_section("""
-Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reasoning' field of your response. 
+Before generating a response JSON, provide step-by-step reasoning for how to generate an optimal response. After generating these reasoning steps, output a json with your final application score for each guideline.
                                 """)
         builder.add_section(
             """
@@ -519,13 +511,19 @@ Example #{i}: ###
             status=SectionStatus.ACTIVE,
         )
 
+        if self._reasoning_method == ReasoningMethod.COT:
+            reasoning_instruction = """- Provide step-by-step reasoning for how to generate an optimal response
+- Afterwards, specify the applicability of each guideline by filling in the details in the following list as instructed
+
+<Reasoning...>"""
+        else:
+            reasoning_instruction = "- Specify the applicability of each guideline by filling in the details in the following list as instructed"
         builder.add_section(f"""
 IMPORTANT: Please note there are exactly {len(guidelines)} guidelines in the list for you to check.
 
 Expected Output
 ---------------------------
-- Specify the applicability of each guideline by filling in the details in the following list as instructed:
-
+{reasoning_instruction}
     ```json
     {{
         "checks":

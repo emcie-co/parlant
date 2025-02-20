@@ -38,10 +38,9 @@ from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
     FallbackSchematicGenerator,
-    GenerationInfo,
     SchematicGenerationResult,
-    UsageInfo,
 )
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry

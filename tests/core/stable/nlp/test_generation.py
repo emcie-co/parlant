@@ -149,7 +149,6 @@ async def test_that_retry_succeeds_on_first_attempt(
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_generator.generate.return_value = SchematicGenerationResult(
         content=DummySchema(result="Success"),
-        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
@@ -216,7 +215,6 @@ async def test_that_retry_handles_multiple_exception_types(container: Container)
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     success_result = SchematicGenerationResult(
         content=DummySchema(result="Success"),
-        prompt="test prompt",
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",

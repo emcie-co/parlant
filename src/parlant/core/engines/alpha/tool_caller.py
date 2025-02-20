@@ -29,7 +29,8 @@ from parlant.core.engines.alpha.guideline_proposition import GuidelinePropositio
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.loggers import Logger
-from parlant.core.nlp.generation import GenerationInfo, SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, ToolResult
 from parlant.core.shots import Shot, ShotCollection

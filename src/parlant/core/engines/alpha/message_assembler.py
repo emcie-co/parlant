@@ -257,11 +257,14 @@ class MessageAssembler(MessageEventComposer):
 
         raise MessageCompositionError() from last_generation_exception
 
-    def _get_fragment_bank_text(self, fragments: Sequence[Fragment]) -> str:
-        content = """
+    def _get_fragment_bank_text(
+        self,
+        fragments: Sequence[Fragment],
+    ) -> tuple[str, list[str]]:
+        template = """
 In formulating your reply, you must rely on the following bank of fragments.
 Each fragment contains content, which may or may not refer to "fragment fields" using curly braces.
-For example, in the fragment 'I can help you with {something}', there is one fragment field called 'something'.
+For example, in the fragment 'I can help you with {{something}}', there is one fragment field called 'something'.
 For your references, some fragment may include some examples for how to fill out their fragment fields properly.
 
 Note: If you do not have fragments for fulfilling any instruction, you should at least try to
@@ -271,6 +274,7 @@ you explain this situation (the very fact you cannot help).
 
 FRAGMENT BANK:
 --------------
+{rendered_fragments}
 """
 
         rendered_fragments = []
@@ -296,9 +300,9 @@ FRAGMENT BANK:
 
             rendered_fragments.append(str(fragment_dict))
 
-        content += str(rendered_fragments)
+        template
 
-        return content
+        return template, rendered_fragments
 
     def _get_guideline_propositions_text(
         self,
@@ -528,10 +532,16 @@ EXAMPLES
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
+        fragment_bank_template, fragment_bank_rendered_fragments = self._get_fragment_bank_text(
+            fragments
+        )
         builder.add_section(
             name="message-assembler-fragment-bank",
-            template=self._get_fragment_bank_text(fragments),
-            props={"fragments": fragments},
+            template=fragment_bank_template,
+            props={
+                "fragments": fragments,
+                "rendered_fragments": fragment_bank_rendered_fragments,
+            },
         )
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,

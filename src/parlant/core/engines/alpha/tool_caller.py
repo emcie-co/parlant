@@ -497,13 +497,15 @@ EXAMPLES
                 "tool_id_propositions": (batch[0], batch[2]),
             },
         )
+        tool_definitions_template, tool_definitions_props = self._add_tool_definitions_section(
+            candidate_tool=(batch[0], batch[1]),
+            reference_tools=reference_tools,
+        )
         builder.add_section(
             name="tool-caller-tool-definitions",
-            template=self._add_tool_definitions_section(
-                candidate_tool=(batch[0], batch[1]),
-                reference_tools=reference_tools,
-            ),
+            template=tool_definitions_template,
             props={
+                **tool_definitions_props,
                 "candidate_tool": (batch[0], batch[1]),
                 "reference_tools": reference_tools,
             },
@@ -581,7 +583,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         self,
         candidate_tool: tuple[ToolId, Tool],
         reference_tools: Sequence[tuple[ToolId, Tool]],
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
             descriptor, options = spec
 
@@ -630,18 +632,23 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
 
         candidate_tool_spec = _get_tool_spec(candidate_tool[0], candidate_tool[1])
         if not reference_tools:
-            return f"""
+            return (
+                """
 The following is the tool function definition.
 IMPORTANT: You must not return results for any tool other than this one, even if you believe they might be relevant:
 ###
 {candidate_tool_spec}
 ###
-"""
+""",
+                {"candidate_tool_spec": candidate_tool_spec},
+            )
+
         else:
             reference_tool_specs = [
                 _get_tool_spec(tool_id, tool) for tool_id, tool in reference_tools
             ]
-            return f"""
+            return (
+                """
 You are provided with multiple tools, categorized as follows:
 - Candidate Tool: The tool under your evaluation.
 - Rejected Tools: A list of additional tools that have been considered already and deemed irrelevant for an unspecified reason
@@ -663,7 +670,12 @@ Rejected tools: ###
 Candidate tool: ###
 {candidate_tool_spec}
 ###
-"""
+""",
+                {
+                    "candidate_tool_spec": candidate_tool_spec,
+                    "reference_tool_specs": reference_tool_specs,
+                },
+            )
 
     def _add_guideline_propositions_section(
         self,

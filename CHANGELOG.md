@@ -6,6 +6,12 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [1.6.7] - 2025-02-23
+
+### Fixed
+
+- Fix major issue with tool-call inference of non-string parameters on OpenAI
+
 ## [1.6.6] - 2025-02-23
 
 ### Fixed

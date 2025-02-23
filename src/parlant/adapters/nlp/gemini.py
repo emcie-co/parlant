@@ -28,6 +28,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
+    FallbackSchematicGenerator,
     SchematicGenerator,
     GenerationInfo,
     SchematicGenerationResult,
@@ -111,6 +112,11 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = normalize_json_output(raw_content)
             json_content = json_content.replace("“", '"').replace("”", '"')
+            # Fix cases where Gemini returns double-escaped sequences
+            for control_character in "utn":
+                json_content = json_content.replace(
+                    f"\\\\{control_character}", f"\\{control_character}"
+                )
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
             self._logger.error(
@@ -168,6 +174,19 @@ class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.0-flash-lite-preview-02-05",
+            logger=logger,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(
@@ -181,11 +200,26 @@ class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
         return 2 * 1024 * 1024
 
 
+class Gemini_2_0_Pro(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.0-pro-exp-02-05",
+            logger=logger,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 2 * 1024 * 1024
+
+
 class GoogleEmbedder(Embedder):
     supported_hints = ["title", "task_type"]
 
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, logger: Logger) -> None:
         self.model_name = model_name
+
+        self._logger = logger
         self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self._tokenizer = GoogleEstimatingTokenizer(self._client, model_name=self.model_name)
 
@@ -212,24 +246,25 @@ class GoogleEmbedder(Embedder):
     ) -> EmbeddingResult:
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
-        response = await self._client.aio.models.embed_content(
-            model=self.model_name,
-            contents=texts,
-            config=gemini_api_arguments,
-        )
+        with self._logger.operation("Embedding google text"):
+            response = await self._client.aio.models.embed_content(
+                model=self.model_name,
+                contents=texts,
+                config=gemini_api_arguments,
+            )
 
         vectors = [data_point.values for data_point in response.embeddings if data_point.values]
         return EmbeddingResult(vectors=vectors)
 
 
 class GeminiTextEmbedding_004(GoogleEmbedder):
-    def __init__(self) -> None:
-        super().__init__(model_name="text-embedding-004")
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(model_name="text-embedding-004", logger=logger)
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 8000
+        return 2048
 
     @property
     def dimensions(self) -> int:
@@ -246,11 +281,15 @@ class GeminiService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        return Gemini_2_0_Flash[t](self._logger)  # type: ignore
+        return FallbackSchematicGenerator(
+            Gemini_2_0_Flash_Lite[t](self._logger),  # type: ignore
+            Gemini_2_0_Flash[t](self._logger),  # type: ignore
+            logger=self._logger,
+        )
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GeminiTextEmbedding_004()
+        return GeminiTextEmbedding_004(self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

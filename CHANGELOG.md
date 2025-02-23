@@ -6,12 +6,20 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [1.6.6] - 2025-02-23
+
+### Fixed
+
+- Fix unicode generation issues in gemini
+- Adapt tool calling with optional parameters
+
 ## [1.6.5] - 2025-02-20
 
 ### Fixed
 
 - Improve guideline proposer generation consistency
 - Adapt schemas for Gemini schematic generation support
+
 
 ## [1.6.4] - 2025-02-20
 

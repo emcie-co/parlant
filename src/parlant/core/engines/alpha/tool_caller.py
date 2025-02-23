@@ -61,7 +61,7 @@ class ArgumentEvaluation(DefaultBaseModel):
 
 class ToolCallEvaluation(DefaultBaseModel):
     applicability_rationale: Optional[str] = ""
-    applicability_score: int
+    applicability_score: Optional[int] = 0
     argument_evaluations: Optional[dict[str, ArgumentEvaluation]] = None
     same_call_is_already_staged: Optional[bool] = False
     comparison_with_rejected_tools_including_references_to_subtleties: Optional[str] = ""
@@ -79,8 +79,8 @@ class ToolCallInferenceSchema(DefaultBaseModel):
     last_customer_message: Optional[str] = None
     most_recent_customer_inquiry_or_need: Optional[str] = None
     most_recent_customer_inquiry_or_need_was_already_resolved: Optional[bool] = False
+    subtleties_to_be_aware_of: Optional[str] = ""
     name: str
-    subtleties_to_be_aware_of: str
     tool_calls_for_candidate_tool: list[ToolCallEvaluation]
 
 
@@ -355,6 +355,123 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 ###
 """  # noqa
 
+    async def _get_task_description(self) -> str:
+        general_instructions = """While doing so, take the following instructions into account:
+1. You may suggest tool that don’t directly address the customer’s latest interaction but can advance the conversation to a more useful state based on function definitions.
+2. Each tool may be called multiple times with different arguments.
+3. Avoid calling a tool with the same arguments more than once, unless clearly justified by the interaction.
+4. Ensure each tool call relies only on the immediate context and staged calls, without requiring other tools not yet invoked, to avoid dependencies.
+5. Use the "should_run" argument to indicate whether a tool should be executed, meaning it has a high applicability score and either (a) has not been staged with the same arguments, or (b) was staged but needs to be re-executed.
+6. If a tool needs to be applied multiple times (each with different arguments), you may include it in the output multiple times.
+"""
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            return f"""
+-----------------
+TASK DESCRIPTION
+-----------------
+Your task is to review the provided tool and, based on your most recent interaction with the customer, decide whether to use it.
+For the provided tool, assign a score from 1 to 10 to indicate its usefulness at this time, where a higher score indicates that the tool call should execute.
+For any tool with a score of 5 or higher, provide the arguments for activation, following the format in its description.
+
+{general_instructions}
+
+Produce a valid JSON object according to the following format:
+```json
+{{
+    "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
+    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
+    "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
+    "name": "<TOOL NAME>",
+    "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
+            "applicability_score": <INTEGER FROM 1 TO 10>,
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
+            "same_call_is_already_staged": <BOOL>,
+            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
+            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
+            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
+            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
+            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
+            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
+            "should_run": <BOOL>
+        }}
+        ...
+    ]
+}}
+```
+
+where the tool provided to you under appears at least once in "tool_calls_for_candidate_tool", whether you decide to use it or not.
+The exact format of your output will be provided to you at the end of this prompt.
+
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
+
+"""  # noqa
+        elif self._reasoning_method == ReasoningMethod.COT:
+            return f"""-----------------
+TASK DESCRIPTION
+-----------------
+Your task is to review the provided tool and, based on your most recent interaction with the customer, decide whether to use it.
+For the provided tool, evaluate whether it should run by outputting a boolean value for the key "should_run".
+
+{general_instructions}
+
+Begin your response by providing step-by-step instructions for how to craft an optimal response, 
+and then proceed to return if and how the tool should be called, in JSON format. 
+Follow the following output format:
+
+Reasoning: <...>
+
+```json
+{{
+    "name": "<TOOL NAME>",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }}
+        ...
+    ]
+}}
+```
+
+The exact format of your output will be provided to you at the end of this prompt.
+
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
+
+"""
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            return f"""-----------------
+TASK DESCRIPTION
+-----------------
+Your task is to review the provided tool and, based on your most recent interaction with the customer, decide whether to use it.
+For the provided tool, evaluate whether it should run by outputting a boolean value for the key "should_run".
+
+{general_instructions}
+
+Produce a valid JSON object according to the following format:
+```json
+{{
+    "name": "<TOOL NAME>",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }}
+        ...
+    ]
+}}
+```
+The exact format of your output will be provided to you at the end of this prompt.
+
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions.
+
+"""
+
     async def shots(self) -> Sequence[ToolCallerInferenceShot]:
         return await shot_collection.list()
 
@@ -362,7 +479,21 @@ Please be tolerant of possible typos by the user with regards to these terms,and
         self,
         shot: ToolCallerInferenceShot,
     ) -> str:
-        return f"""
+        def filter_keys(d, keys_to_exclude):
+            """Recursively removes specified keys from a dictionary."""
+            if isinstance(d, dict):
+                return {
+                    k: filter_keys(v, keys_to_exclude)
+                    for k, v in d.items()
+                    if k not in keys_to_exclude
+                }
+            elif isinstance(d, list):
+                return [filter_keys(item, keys_to_exclude) for item in d]
+            else:
+                return d
+
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            return f"""
 - **Context**:
 {shot.description}
 
@@ -370,6 +501,103 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 ```json
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ```"""
+        excluded_keys = [
+            "evaluate_is_it_provided_in_the_context",
+            "evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why",
+            "evaluate_was_it_already_provided_and_should_it_be_provided_again",
+            "evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided",
+            "is_optional",
+            "has_default",
+            "is_missing",
+            "applicability_rationale",
+            "applicability_score",
+            "same_call_is_already_staged",
+            "comparison_with_rejected_tools_including_references_to_subtleties",
+            "relevant_subtleties",
+            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected",
+            "potentially_better_rejected_tool_name",
+            "potentially_better_rejected_tool_rationale",
+            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool",
+        ]
+        filtered_shot = filter_keys(shot, excluded_keys)
+        if self._reasoning_method == ReasoningMethod.COT:
+            return f"""
+- **Context**:
+{shot.description}
+
+- **Expected Result**:
+```json
+Reasoning: {shot.expected_result.reasoning}
+{json.dumps(filtered_shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```"""
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            return f"""
+- **Context**:
+{shot.description}
+
+- **Expected Result**:
+```json
+Reasoning: {shot.expected_result.reasoning}
+{json.dumps(filtered_shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```"""
+
+    def _get_output_format(self, tool_name: str) -> str:
+        if self._reasoning_method == ReasoningMethod.ARQ:
+            return f"""```json
+{{
+    "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
+    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
+    "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
+    "name": "{tool_name}",
+    "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
+            "applicability_score": <INTEGER FROM 1 TO 10>,
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
+            "same_call_is_already_staged": <BOOL>,
+            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
+            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
+            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
+            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
+            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
+            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
+            "should_run": <BOOL>
+        }}
+    ]
+}}
+```
+"""
+        elif self._reasoning_method == ReasoningMethod.COT:
+            return f"""
+Reasoning: <...>
+
+```json
+{{
+    "name": "{tool_name}",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }}
+    ]
+}}
+```
+"""
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            return f"""```json
+{{
+    "name": "{tool_name}",
+    "tool_calls_for_candidate_tool": [
+        {{
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }}
+    ]
+}}
+```
+"""
+        return ""
 
     def _format_tool_call_inference_prompt(
         self,
@@ -406,59 +634,7 @@ These calls do not require to be re-run at this time, unless you identify a vali
 """
         )
         builder.add_agent_identity(agent)
-        builder.add_section(
-            f"""
------------------
-TASK DESCRIPTION
------------------
-Your task is to review the provided tool and, based on your most recent interaction with the customer, decide whether to use it.
-For the provided tool, assign a score from 1 to 10 to indicate its usefulness at this time, where a higher score indicates that the tool call should execute.
-For any tool with a score of 5 or higher, provide the arguments for activation, following the format in its description.
-
-While doing so, take the following instructions into account:
-
-1. You may suggest tool that don’t directly address the customer’s latest interaction but can advance the conversation to a more useful state based on function definitions.
-2. Each tool may be called multiple times with different arguments.
-3. Avoid calling a tool with the same arguments more than once, unless clearly justified by the interaction.
-4. Ensure each tool call relies only on the immediate context and staged calls, without requiring other tools not yet invoked, to avoid dependencies.
-5. Use the "should_run" argument to indicate whether a tool should be executed, meaning it has a high applicability score and either (a) has not been staged with the same arguments, or (b) was staged but needs to be re-executed.
-6. If a tool needs to be applied multiple times (each with different arguments), you may include it in the output multiple times.
-
-Produce a valid JSON object according to the following format:
-```json
-{{
-    "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
-    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
-    "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
-    "name": "<TOOL NAME>",
-    "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
-    "tool_calls_for_candidate_tool": [
-        {{
-            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
-            "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
-            "same_call_is_already_staged": <BOOL>,
-            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
-            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
-            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
-            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
-            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
-            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "should_run": <BOOL>
-        }}
-        ...
-    ]
-}}
-```
-
-where the tool provided to you under appears at least once in "tool_calls_for_candidate_tool", whether you decide to use it or not.
-The exact format of your output will be provided to you at the end of this prompt.
-
-The following examples show correct outputs for various hypothetical situations.
-Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
-
-"""  # noqa
-        )
+        builder.add_section(self._get_task_description())
         builder.add_section(
             """
 EXAMPLES
@@ -525,30 +701,7 @@ There are no staged tool calls at this time.
 OUTPUT FORMAT
 -----------------
 Given the tool, your output should adhere to the following format:
-```json
-{{
-    "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
-    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
-    "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
-    "name": "{batch[0].service_name}:{batch[0].tool_name}",
-    "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
-    "tool_calls_for_candidate_tool": [
-        {{
-            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
-            "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
-            "same_call_is_already_staged": <BOOL>,
-            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
-            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
-            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
-            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
-            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
-            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "should_run": <BOOL>
-        }}
-    ]
-}}
-```
+{self._get_output_format(f"{batch[0].service_name}:{batch[0].tool_name}")}
 
 However, note that you may choose to have multiple entries in 'tool_calls_for_candidate_tool' if you wish to call the candidate tool multiple times with different arguments.
 ###
@@ -556,6 +709,8 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         )
 
         prompt = builder.build()
+        with open("tool call prompt.txt", "w") as f:
+            f.write(prompt)
         return prompt
 
     def _add_tool_definitions_section(

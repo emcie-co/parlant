@@ -158,7 +158,6 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
             response = await self._client.chat.completions.create(
                 messages=[{"role": "developer", "content": prompt}],
                 model=self.model_name,
-                response_format={"type": "json_object"},
                 **openai_api_arguments,
             )
             t_end = time.time()

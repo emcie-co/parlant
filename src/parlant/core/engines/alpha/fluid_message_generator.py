@@ -232,19 +232,27 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         expected_result_str = ""
         if self._reasoning_method == ReasoningMethod.ARQ:
             expected_result_str = f"{json.dumps(shot.expected_result.model_dump(mode='json', exclude={'reasoning'}, exclude_unset=True), indent=2)}"
-        elif self._reasoning_method == ReasoningMethod.COT:
-            expected_result_str = f"""{{
-  "reasoning": {json.dumps(shot.expected_result.reasoning)},
-  "response": {json.dumps(shot.expected_result.response)},
-}}"""
-        elif self._reasoning_method == ReasoningMethod.NONE:
-            expected_result_str = f"""{{
-  "response": {json.dumps(shot.expected_result.response)},
-}}"""
-        return f"""
+            return f"""
 - **Expected Result**:
 ```json
 {expected_result_str}
+```"""
+        elif self._reasoning_method == ReasoningMethod.COT:
+            return f"""
+- **Expected Result**:
+Reasoning: {shot.expected_result.reasoning}
+```json
+{{
+  "response": {json.dumps(shot.expected_result.response)},
+}}
+```"""
+        elif self._reasoning_method == ReasoningMethod.NONE:
+            return f"""
+- **Expected Result**:
+```json
+{{
+  "response": {json.dumps(shot.expected_result.response)},
+}}
 ```"""
 
     def _get_message_generation_instructions(self) -> str:
@@ -412,14 +420,21 @@ Produce a valid JSON object in the following format: ###
         if self._reasoning_method == ReasoningMethod.ARQ:
             return self._get_ARQ_output_format(interaction_history, guidelines)
         if self._reasoning_method == ReasoningMethod.COT:
-            return """{{
-  "reasoning": "<reasoning chain for this task>"
+            return """Reasoning: ...
+```json
+{{
   "response": <STR>,
-}}"""
+}}
+`'''`
+"""
         if self._reasoning_method == ReasoningMethod.NONE:
-            return """{{
+            return """```json
+
+{{
   "response": <STR>,
-}}"""
+}}
+'''
+"""
 
     def _get_ARQ_output_format(
         self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
@@ -485,7 +500,7 @@ Produce a valid JSON object in the following format: ###
     ],
     "response": <STR>
 }}
-```
+'''
 ###"""
 
     async def _generate_response_message(

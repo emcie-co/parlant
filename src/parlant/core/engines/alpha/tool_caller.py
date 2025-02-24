@@ -80,6 +80,7 @@ class ToolCallInferenceSchema(DefaultBaseModel):
     most_recent_customer_inquiry_or_need: Optional[str] = None
     most_recent_customer_inquiry_or_need_was_already_resolved: Optional[bool] = False
     subtleties_to_be_aware_of: Optional[str] = ""
+    reasoning: Optional[str] = ""
     name: str
     tool_calls_for_candidate_tool: list[ToolCallEvaluation]
 
@@ -299,7 +300,7 @@ class ToolCaller:
                         f"Inference::Completion::Skipped:\n{tc.model_dump_json(indent=2)}"
                     )
             else:
-                if tc.applicability_score >= 6:
+                if tc.should_run:
                     self._logger.debug(
                         f"[ToolCaller][Completion][Activated]\n{tc.model_dump_json(indent=2)}"
                     )
@@ -355,7 +356,7 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 ###
 """  # noqa
 
-    async def _get_task_description(self) -> str:
+    def _get_task_description(self) -> str:
         general_instructions = """While doing so, take the following instructions into account:
 1. You may suggest tool that don’t directly address the customer’s latest interaction but can advance the conversation to a more useful state based on function definitions.
 2. Each tool may be called multiple times with different arguments.
@@ -480,28 +481,29 @@ Only the responses are provided, without the interaction history or tool descrip
         shot: ToolCallerInferenceShot,
     ) -> str:
         def filter_keys(d, keys_to_exclude):
-            """Recursively removes specified keys from a dictionary."""
             if isinstance(d, dict):
-                return {
-                    k: filter_keys(v, keys_to_exclude)
-                    for k, v in d.items()
-                    if k not in keys_to_exclude
-                }
+                filtered = {}
+                for k, v in d.items():
+                    if k not in keys_to_exclude:
+                        filtered[k] = filter_keys(v, keys_to_exclude)
+                return filtered
             elif isinstance(d, list):
                 return [filter_keys(item, keys_to_exclude) for item in d]
             else:
                 return d
 
+        model_dict = shot.expected_result.model_dump(mode="json", exclude_unset=True)
+
         if self._reasoning_method == ReasoningMethod.ARQ:
             return f"""
 - **Context**:
 {shot.description}
-
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(model_dict, indent=2)}
 ```"""
-        excluded_keys = [
+
+        excluded_keys = {
             "evaluate_is_it_provided_in_the_context",
             "evaluate_should_this_argument_in_principle_be_provided_by_the_customer_and_why",
             "evaluate_was_it_already_provided_and_should_it_be_provided_again",
@@ -518,27 +520,29 @@ Only the responses are provided, without the interaction history or tool descrip
             "potentially_better_rejected_tool_name",
             "potentially_better_rejected_tool_rationale",
             "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool",
-        ]
-        filtered_shot = filter_keys(shot, excluded_keys)
+            "last_customer_message",
+            "most_recent_customer_inquiry_or_need",
+            "most_recent_customer_inquiry_or_need_was_already_resolved",
+            "subtleties_to_be_aware_of",
+        }
+        filtered_dict = filter_keys(model_dict, excluded_keys)
+
         if self._reasoning_method == ReasoningMethod.COT:
             return f"""
 - **Context**:
 {shot.description}
-
 - **Expected Result**:
-```json
 Reasoning: {shot.expected_result.reasoning}
-{json.dumps(filtered_shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```json
+{json.dumps(filtered_dict, indent=2)}
 ```"""
-        elif self._reasoning_method == ReasoningMethod.NONE:
+        else:
             return f"""
 - **Context**:
 {shot.description}
-
 - **Expected Result**:
 ```json
-Reasoning: {shot.expected_result.reasoning}
-{json.dumps(filtered_shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(filtered_dict, indent=2)}
 ```"""
 
     def _get_output_format(self, tool_name: str) -> str:

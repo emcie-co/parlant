@@ -445,7 +445,7 @@ For each condition that is met, determine whether its corresponding action shoul
 Process Description
 -------------------
 a. Examine Interaction Events: Review the provided interaction events to discern the most recent state of the interaction between the user and the agent.
-b. Evaluate Conditions: Assess the entire interaction to determine whether each condition is still relevant and directly fulfilled based on the most recent interaction state.
+b. Evaluate Condition/s: Assess the entire interaction to determine whether each condition is still relevant and directly fulfilled based on the most recent interaction state.
 c. Check for Prior Action: Determine whether the condition has already been addressed, i.e., whether it applied in an earlier state and its corresponding action has already been performed.
 d. Guideline Application: A guideline should be applied only if:
     (1) Its condition is currently met and its action has not been performed yet, or
@@ -469,7 +469,7 @@ Insights Regarding Guideline re-activation
 A condition typically no longer applies if its corresponding action has already been executed.
 However, there are exceptions where re-application is warranted, such as when the condition is re-applied again. For example, a guideline with the condition "the customer is asking a question" should be applied again whenever the customer asks a question.
 Additionally, actions that involve continuous behavior (e.g., "do not ask the user for their age", or guidelines involving the language the agent should use) should be re-applied whenever their condition is met, even if their action was already taken.
-If a guideline's condition has multiple requirements, mark it as continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and help them with their order" should be marked as continuous, since 'helping them with their order' is continuous.
+If a guideline's condition has multiple requirements, consider it continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and help them with their order" should be considered continuous, since 'helping them with their order' is continuous.
 Actions that forbid certain behaviors are generally considered continuous, as they must be upheld across multiple messages to ensure consistent adherence.
 
 IMPORTANT: guidelines that only require you to say a specific thing are generally not continuous. Once you said the required thing - the guideline is fulfilled.
@@ -478,7 +478,7 @@ Conversely, actions dictating one-time behavior (e.g., "send the user our addres
 Only re-apply these if the condition ceased to be true earlier in the conversation before being fulfilled again in the current context.
 
 IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, treat the guideline as though it has been fully executed.
-In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is marked as continuous.
+In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is continuous.
 
 """  # noqa
         )
@@ -789,8 +789,8 @@ example_3_expected = GuidelinePropositionsSchema(
             },
             guideline_previously_applied="partially",
             is_missing_part_cosmetic_or_functional="functional",
-            guideline_should_reapply=True,
-            applies_score=6,
+            guideline_should_reapply=False,
+            applies_score=5,
         ),
     ]
 )

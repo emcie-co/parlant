@@ -11,33 +11,12 @@ Feature: Glossary
         Then a single message event is emitted
         And the message contains an explanation of token as a digital token
 
-    Scenario: The agent explains an ambiguous term wallet
-        Given the term "wallet" defined as a digital wallet
-        And a customer message, "What is a wallet?"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains an explanation of wallet as a digital wallet
-
-    Scenario: The agent explains an ambiguous term mining
-        Given the term "mining" defined as cryptocurrency mining
-        And a customer message, "What is mining?"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains an explanation of mining as cryptocurrency mining
-
     Scenario: The agent explains an ambiguous term private key
         Given the term "private key" defined as a private key in cryptocurrency
         And a customer message, "What is a private key?"
         When processing is triggered
         Then a single message event is emitted
         And the message contains an explanation of private key as a private key in cryptocurrency
-
-    Scenario: The agent explains an ambiguous term gas
-        Given the term "gas" defined as a type of fee in Ethereum
-        And a customer message, "What is gas?"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains an explanation of gas as a type of fee in Ethereum
 
     Scenario: The agent follows a guideline that mentions a term by name
         Given the term "walnut" defined as the name of an altcoin

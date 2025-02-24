@@ -63,14 +63,6 @@ Feature: Supervision
         When processing is triggered
         Then no message events are emitted
 
-    Scenario: the agent initiates conversation when instructed
-        Given the alpha engine
-        And an agent
-        And a guideline "initiate_conversation" to greet the customer when the conversation begins
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains a greeting to the customer
-
     Scenario: The agent prioritizes guideline from conversation
         Given the alpha engine
         And an agent

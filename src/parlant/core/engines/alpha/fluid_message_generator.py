@@ -239,6 +239,10 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
 ```"""
         elif self._reasoning_method == ReasoningMethod.COT:
             return f"""
+Last customer message: {shot.expected_result.last_message_of_customer}
+
+Active Guidelines: {shot.expected_result.guidelines}
+
 - **Expected Result**:
 Reasoning: {shot.expected_result.reasoning}
 ```json
@@ -248,6 +252,10 @@ Reasoning: {shot.expected_result.reasoning}
 ```"""
         elif self._reasoning_method == ReasoningMethod.NONE:
             return f"""
+Last customer message: {shot.expected_result.last_message_of_customer}
+
+Active Guidelines: {shot.expected_result.guidelines}
+
 - **Expected Result**:
 ```json
 {{

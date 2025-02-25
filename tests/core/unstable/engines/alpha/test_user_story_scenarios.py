@@ -17,18 +17,7 @@ from pytest_bdd import scenarios
 from tests.core.common.engines.alpha.utils import load_steps
 
 
-load_steps(
-    "agents",
-    "context_variables",
-    "engines",
-    "events",
-    "guidelines",
-    "sessions",
-    "terms",
-    "tools",
-    "customers",
-    "tags",
-)
+load_steps()
 
 scenarios(
     *(

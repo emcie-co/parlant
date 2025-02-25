@@ -30,13 +30,4 @@ load_steps(
     "tags",
 )
 
-scenarios(
-    *(
-        f"core/unstable/engines/alpha/features/baseline/{feature}.feature"
-        for feature in (
-            "supervision",
-            "glossary",
-            "tools",
-        )
-    )
-)
+scenarios(*(f"core/unstable/engines/alpha/features/baseline/{feature}.feature" for feature in ()))

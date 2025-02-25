@@ -20,8 +20,12 @@ from pytest import fixture
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.sessions import Session, SessionStore
-
 from tests.core.common.utils import ContextOfTest
+from parlant.core.engines.alpha.reasoning_method import (
+    TOOL_CALLER_REASONING_METHOD,
+    GUIDELINE_PROPOSER_REASONING_METHOD,
+    MESSAGE_GENERATOR_REASONING_METHOD,
+)
 from tests.test_utilities import SyncAwaiter
 import csv
 import os
@@ -119,10 +123,12 @@ def pytest_configure(config):
                 [
                     "test_name",
                     "timestamp",
-                    "message_generator_responses",
+                    "message_generator_mode" "message_generator_responses",
                     "message_generator_tokens",
+                    "tool_caller_mode",
                     "tool_caller_responses",
                     "tool_caller_tokens",
+                    "guideline_proposer_mode",
                     "guideline_proposer_responses",
                     "guideline_proposer_tokens",
                     "status",
@@ -161,10 +167,13 @@ def pytest_runtest_teardown(item):
             [
                 data["test_name"],
                 data["timestamp"],
+                MESSAGE_GENERATOR_REASONING_METHOD,
                 json.dumps(data["message_generator_responses"]),
                 json.dumps(data["message_generator_tokens"]),
+                TOOL_CALLER_REASONING_METHOD,
                 json.dumps(data["tool_caller_responses"]),
                 json.dumps(data["tool_caller_tokens"]),
+                GUIDELINE_PROPOSER_REASONING_METHOD,
                 json.dumps(data["guideline_proposer_responses"]),
                 json.dumps(data["guideline_proposer_tokens"]),
                 data["status"],
@@ -321,7 +330,7 @@ def pytest_runtest_call(item):
         test_data[item.nodeid]["status"] = "running"
 
 
-@pytest.hookimpl(trylast=True)
+@pytest.hookimpl()
 def pytest_runtest_protocol(item, nextitem):
     """Apply the monkey patches before running tests"""
     from parlant.core.engines.alpha.fluid_message_generator import FluidMessageGenerator
@@ -370,3 +379,9 @@ def pytest_unconfigure(config):
     if hasattr(GuidelineProposer, "_original_propose_guidelines"):
         GuidelineProposer.propose_guidelines = GuidelineProposer._original_propose_guidelines
         delattr(GuidelineProposer, "_original_propose_guidelines")
+
+
+print("\n*** conftest.py is being loaded! ***\n")
+print(
+    f"Available pytest hooks in this file: {[name for name in globals() if name.startswith('pytest_')]}"
+)

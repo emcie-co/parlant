@@ -40,7 +40,7 @@ from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 from parlant.core.engines.alpha.reasoning_method import (
     ReasoningMethod,
-    MESSGE_GENERATOR_REASONING_METHOD,
+    MESSAGE_GENERATOR_REASONING_METHOD,
 )
 
 
@@ -91,7 +91,7 @@ class FluidMessageGenerator(MessageEventComposer):
         self._logger = logger
         self._correlator = correlator
         self._schematic_generator = schematic_generator
-        self._reasoning_method = MESSGE_GENERATOR_REASONING_METHOD
+        self._reasoning_method = MESSAGE_GENERATOR_REASONING_METHOD
 
     async def shots(self) -> Sequence[FluidMessageGeneratorShot]:
         return await shot_collection.list()

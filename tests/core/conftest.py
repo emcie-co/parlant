@@ -27,7 +27,6 @@ from parlant.core.engines.alpha.reasoning_method import (
     MESSAGE_GENERATOR_REASONING_METHOD,
 )
 from tests.test_utilities import SyncAwaiter
-import csv
 import os
 import json
 
@@ -101,7 +100,7 @@ def new_session(
 
 # pytest hooks and logging
 
-CSV_LOG_PATH = "parlant_test_results.csv"
+JSONL_LOG_PATH = "parlant_test_results.jsonl"
 test_data = {}
 
 
@@ -114,26 +113,8 @@ def get_current_test():
 
 
 def pytest_configure(config):
-    """Set up the CSV file with headers when pytest starts"""
-    # Create file with headers if it doesn't exist
-    if not os.path.exists(CSV_LOG_PATH):
-        with open(CSV_LOG_PATH, "w", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(
-                [
-                    "test_name",
-                    "timestamp",
-                    "message_generator_mode" "message_generator_responses",
-                    "message_generator_tokens",
-                    "tool_caller_mode",
-                    "tool_caller_responses",
-                    "tool_caller_tokens",
-                    "guideline_proposer_mode",
-                    "guideline_proposer_responses",
-                    "guideline_proposer_tokens",
-                    "status",
-                ]
-            )
+    if not os.path.exists(JSONL_LOG_PATH):
+        open(JSONL_LOG_PATH, "w").close()
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -154,33 +135,28 @@ def pytest_runtest_setup(item):
 
 @pytest.hookimpl(trylast=True)
 def pytest_runtest_teardown(item):
-    """Record the test data to CSV after test completes"""
     if item.nodeid not in test_data:
         return
 
-    with open(CSV_LOG_PATH, "a", newline="") as csvfile:
-        writer = csv.writer(csvfile)
-        data = test_data[item.nodeid]
+    data_to_write = {
+        "test_name": test_data[item.nodeid]["test_name"],
+        "timestamp": test_data[item.nodeid]["timestamp"],
+        "message_generator_reasoning_mode": MESSAGE_GENERATOR_REASONING_METHOD.value,
+        "message_generator_responses": test_data[item.nodeid]["message_generator_responses"],
+        "message_generator_tokens": test_data[item.nodeid]["message_generator_tokens"],
+        "tool_caller_reasoning_mode": TOOL_CALLER_REASONING_METHOD.value,
+        "tool_caller_responses": test_data[item.nodeid]["tool_caller_responses"],
+        "tool_caller_tokens": test_data[item.nodeid]["tool_caller_tokens"],
+        "guideline_proposer_reasoning_mode": GUIDELINE_PROPOSER_REASONING_METHOD.value,
+        "guideline_proposer_responses": test_data[item.nodeid]["guideline_proposer_responses"],
+        "guideline_proposer_tokens": test_data[item.nodeid]["guideline_proposer_tokens"],
+        "status": test_data[item.nodeid]["status"],
+    }
 
-        # Convert lists to JSON strings for storage
-        writer.writerow(
-            [
-                data["test_name"],
-                data["timestamp"],
-                MESSAGE_GENERATOR_REASONING_METHOD,
-                json.dumps(data["message_generator_responses"]),
-                json.dumps(data["message_generator_tokens"]),
-                TOOL_CALLER_REASONING_METHOD,
-                json.dumps(data["tool_caller_responses"]),
-                json.dumps(data["tool_caller_tokens"]),
-                GUIDELINE_PROPOSER_REASONING_METHOD,
-                json.dumps(data["guideline_proposer_responses"]),
-                json.dumps(data["guideline_proposer_tokens"]),
-                data["status"],
-            ]
-        )
+    with open(JSONL_LOG_PATH, "a") as jsonl_file:
+        json.dump(data_to_write, jsonl_file)
+        jsonl_file.write("\n")
 
-    # Clean up
     del test_data[item.nodeid]
 
 
@@ -212,8 +188,8 @@ def capture_fluid_message_generator(original_function):
                             messages.append(event.data["message"])
 
                 # Extract token info
-                if hasattr(composition, "info"):
-                    token_count = extract_token_count(composition.info)
+                if hasattr(composition, "generation_info"):
+                    token_count = extract_token_count(composition.generation_info)
                     if token_count is not None:
                         token_counts.append(token_count)
 

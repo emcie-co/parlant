@@ -145,14 +145,16 @@ export default function SessionView(): ReactElement {
 			return data;
 		});
 
-		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage);
+		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage());
+
 		setMessages((messages) => {
 			const last = messages.at(-1);
 			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
 				last.serverStatus = correlationsMap[last.correlation_id].at(-1)?.data?.status || last.serverStatus;
 				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
 			}
-			if (withStatusMessages && pendingMessage) setPendingMessage(emptyPendingMessage);
+			if (!withStatusMessages?.length) return [...messages];
+			if (pendingMessage?.data?.message) setPendingMessage(emptyPendingMessage());
 
 			const newVals: EventInterface[] = [];
 			for (const messageArray of [messages, withStatusMessages]) {
@@ -228,7 +230,8 @@ export default function SessionView(): ReactElement {
 		} else if (e.key === 'Enter' && e.shiftKey) e.preventDefault();
 	};
 
-	const visibleMessages = session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
+	const isCurrSession = (session?.id === NEW_SESSION_ID && !pendingMessage?.id) || (session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id);
+	const visibleMessages = (!messages?.length || isCurrSession) && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
 
 	const showLogs = (i: number) => (event: EventInterface) => {
 		event.index = i;
@@ -285,13 +288,7 @@ export default function SessionView(): ReactElement {
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 								/>
-								<Button
-									variant='ghost'
-									data-testid='submit-button'
-									className='max-w-[60px] rounded-full hover:bg-white'
-									ref={submitButtonRef}
-									disabled={!message?.trim() || !agent?.id || showThinking || showTyping}
-									onClick={() => postMessage(message)}>
+								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 								</Button>
 							</div>

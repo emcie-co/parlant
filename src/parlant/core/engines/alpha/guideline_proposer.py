@@ -458,10 +458,7 @@ For each provided guideline, return:
     (1) Whether its condition is fulfilled.
     (2) Whether its action needs to be applied at this time. See the following section for more details.
 """)
-        elif self._reasoning_method == ReasoningMethod.COT:
-            builder.add_section("""
-Before generating a response JSON, provide step-by-step reasoning for how to generate an optimal response. After generating these reasoning steps, output a json with your final application score for each guideline.
-                                """)
+
         builder.add_section(
             """
 Insights Regarding Guideline re-activation
@@ -512,8 +509,8 @@ Example #{i}: ###
         )
 
         if self._reasoning_method == ReasoningMethod.COT:
-            reasoning_instruction = """- Provide step-by-step reasoning for how to generate an optimal response
-- Afterwards, specify the applicability of each guideline by filling in the details in the following list as instructed
+            reasoning_instruction = """- Begin your response by providing step-by-step instructions for how to craft an optimal response. In your reasoning process, take your time and consider, systematically and with reflection at each step, how to best ensure that each guideline is scored correctly.
+- proceed to return your final guideline evaluation/s, in JSON format. 
 
 <Reasoning...>"""
         else:

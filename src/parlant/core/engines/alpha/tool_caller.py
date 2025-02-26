@@ -421,9 +421,10 @@ For the provided tool, evaluate whether it should run by outputting a boolean va
 
 Begin your response by providing step-by-step instructions for how to craft an optimal response, 
 and then proceed to return if and how the tool should be called, in JSON format. 
+In your reasoning process, take your time and consider, systematically and with reflection at each step, how to best ensure how many tool calls need to be made, and exactly how to parameterize each of them.
 Follow the following output format:
 
-Reasoning: <...>
+Reasoning: <REASON AND REFLECT STEP BY STEP SYSTEMATICALLY AND CAREFULLY IN STAGES ABOUT HOW MANY TOOL CALLS ARE NEEDED, AND HOW TO BEST PARAMETERIZE THEIR ARGUMENTS>
 
 ```json
 {{
@@ -574,7 +575,7 @@ Reasoning: {shot.expected_result.reasoning}
 """
         elif self._reasoning_method == ReasoningMethod.COT:
             return f"""
-Reasoning: <...>
+Reasoning: <REASON AND REFLECT STEP BY STEP SYSTEMATICALLY AND CAREFULLY IN STAGES ABOUT HOW MANY TOOL CALLS ARE NEEDED, AND HOW TO BEST PARAMETERIZE THEIR ARGUMENTS>
 
 ```json
 {{

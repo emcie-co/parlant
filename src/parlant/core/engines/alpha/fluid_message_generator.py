@@ -279,10 +279,18 @@ The response should have either:
             return response_generation_text
         elif self._reasoning_method == ReasoningMethod.COT:
             return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
-1. REASONING
-    - Before generating a response, provide step-by-step reasoning for how to generate an optimal response. Document this reasoning process in the 'reasoning' field of your response. 
-2. RESPONSE GENERATION
+- RESPONSE GENERATION
     {response_generation_text}
+ REASONING
+  - When generating a response, provide an extensive and comprehensive reasoning chain that thoroughly explores all aspects of the situation. 
+  - Use numbered lists to organize your thinking process, differentiating between:
+    * Primary considerations (requirements, guidelines, user needs)
+    * Secondary considerations (tone, personalization, business goals)
+    * Potential conflicts and their resolutions
+    * Alternative approaches considered and why they were rejected
+  - Consider multiple hypothetical scenarios or 'what-if' analyses to explore different outcomes
+  - Explicitly connect your reasoning to the final response, showing how each element of the response satisfies specific requirements
+  - To ensure sufficient depth  - More comprehensive reasoning chains are generally prefered - be sure to consider all aspects of your response.
 """
         elif self._reasoning_method == ReasoningMethod.ARQ:
             return f"""To generate an optimal response that aligns with all guidelines and the current interaction state, follow this structured process:
@@ -428,7 +436,7 @@ Produce a valid JSON object in the following format: ###
         if self._reasoning_method == ReasoningMethod.ARQ:
             return self._get_ARQ_output_format(interaction_history, guidelines)
         if self._reasoning_method == ReasoningMethod.COT:
-            return """Reasoning: ...
+            return """Reasoning: <REASON STEP BY STEP ABOUT HOW TO CRAFT AN OPTIMAL RESPONSE, INCLUDING HOW TO ADHERE TO EVERY INSTRUCTION WITHIN THIS PROMPT>
 ```json
 {{
   "response": <STR>,

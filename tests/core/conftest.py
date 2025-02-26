@@ -130,7 +130,26 @@ def pytest_runtest_setup(item):
         "guideline_proposer_responses": [],
         "guideline_proposer_tokens": [],
         "status": "setup",
+        "passed": False,
     }
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logreport(report):
+    """Capture test result information"""
+    if report.when == "call":
+        for nodeid in test_data:
+            if nodeid == report.nodeid:
+                # Update the result field
+                if report.passed:
+                    test_data[nodeid]["result"] = "passed"
+                elif report.failed:
+                    test_data[nodeid]["result"] = "failed"
+                elif report.skipped:
+                    test_data[nodeid]["result"] = "skipped"
+                else:
+                    test_data[nodeid]["result"] = "unknown"
+                break
 
 
 @pytest.hookimpl(trylast=True)
@@ -151,6 +170,7 @@ def pytest_runtest_teardown(item):
         "guideline_proposer_responses": test_data[item.nodeid]["guideline_proposer_responses"],
         "guideline_proposer_tokens": test_data[item.nodeid]["guideline_proposer_tokens"],
         "status": test_data[item.nodeid]["status"],
+        "result": test_data[item.nodeid].get("result", "unknown"),
     }
 
     with open(JSONL_LOG_PATH, "a") as jsonl_file:

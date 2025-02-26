@@ -1,5 +1,5 @@
 import {twJoin} from 'tailwind-merge';
-import Tooltip from '../ui/custom/tooltip';
+import Tooltip from '../../../ui/custom/tooltip';
 import {Copy, Fullscreen, X} from 'lucide-react';
 import {copy} from '@/lib/utils';
 import clsx from 'clsx';
@@ -32,7 +32,7 @@ const MessageLog = ({log}: {log: Log}) => {
 	};
 
 	return (
-		<div className={twJoin('flex max-h-[max(30%,100px)] overflow-hidden group relative font-ubuntu-mono rounded-[8px] gap-[5px] px-[20px] p-[14px] border-white border text-[14px] transition-all hover:border-[#EDEDED] hover:bg-[#F5F6F8]')}>
+		<div className={twJoin('flex max-h-[100px] overflow-hidden group relative font-ubuntu-mono rounded-[8px] gap-[5px] px-[20px] border-white border text-[14px] transition-all hover:border-[#EDEDED] hover:bg-[#F5F6F8]')}>
 			<div className='absolute hidden z-10 group-hover:flex right-[10px] top-[10px] gap-[10px]'>
 				<Tooltip value='Copy' side='top'>
 					<Copy size={18} onClick={() => copy(log?.message || '')} className='cursor-pointer' />

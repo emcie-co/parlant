@@ -11,12 +11,13 @@ import MessageFragments from '../message-fragments/message-fragments';
 import EmptyState from './empty-state';
 import FilterTabs from './filter-tabs';
 import MessageLogsHeader from './message-logs-header';
-import MessageLog from './message-log';
 import {ResizableHandle, ResizablePanel, ResizablePanelGroup} from '../ui/resizable';
 import {ImperativePanelHandle} from 'react-resizable-panels';
 import Tooltip from '../ui/custom/tooltip';
 import {Copy} from 'lucide-react';
 import {copy} from '@/lib/utils';
+import MessageLog from './message-logs/message-logs/message-log';
+import MessageLogs from './message-logs/message-logs';
 
 interface DefInterface {
 	level?: Level;
@@ -45,7 +46,7 @@ const MessageError = ({event}: {event: EventInterface}) => {
 	);
 };
 
-const MessageLogs = ({
+const MessageDetails = ({
 	event,
 	closeLogs,
 	regenerateMessageFn,
@@ -134,19 +135,11 @@ const MessageLogs = ({
 						<EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." wrapperClassName='bg-[#f5f6f8]' className={twJoin(isError && 'translate-y-[0px]')} />
 					)}
 					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
-					{event && !!filteredLogs.length && (
-						<div className='bg-[#EBECF0] p-[14px] pt-0 h-auto overflow-auto flex-1'>
-							<div ref={messagesRef} className='rounded-[8px] border-[10px] border-white h-full overflow-auto bg-white fixed-scroll'>
-								{filteredLogs.map((log, i) => (
-									<MessageLog key={i} log={log} />
-								))}
-							</div>
-						</div>
-					)}
+					{event && !!filteredLogs.length && <MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />}
 				</ResizablePanel>
 			</ResizablePanelGroup>
 		</div>
 	);
 };
 
-export default MessageLogs;
+export default MessageDetails;

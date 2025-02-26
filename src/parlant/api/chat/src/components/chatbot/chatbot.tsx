@@ -38,16 +38,15 @@ export default function Chatbot(): ReactElement {
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
-				<div data-testid='chatbot' className='main bg-main h-screen flex flex-col rounded-[16px]'>
+				<div className='flex items-center bg-green-main h-[50px] mb-[8px]'>
+					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[24px] me-[6px] max-mobile:ms-0' />
+				</div>
+				<div data-testid='chatbot' className='main bg-green-light h-[calc(100vh-58px)] flex flex-col rounded-[16px]'>
 					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className='flex justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] ps-[14px] bg-[#f4f5f9]'>
-						<div className='bg-[#f5f5f9] h-full rounded-[16px] border-solid w-[352px] max-mobile:hidden z-[11] '>
-							<div className='flex items-center bg-[#f4f5f9] pt-[16px] h-[58px]'>
-								<img src='/chat/parlant-bubble-app-logo.svg' alt='logo' aria-hidden height={25} width={30} className='ms-[24px] me-[6px] max-mobile:ms-0' />
-								<p className='text-[26.96px] font-bold'>Parlant</p>
-							</div>
+					<div className='flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] ps-[14px]'>
+						<div className='bg-white h-full rounded-[16px] overflow-auto border-solid w-[352px] max-mobile:hidden z-[11] '>
 							<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 							<Sessions filterSessionVal={filterSessionVal} />
 						</div>

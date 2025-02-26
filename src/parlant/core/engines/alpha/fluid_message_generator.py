@@ -140,18 +140,6 @@ class FluidMessageGenerator(MessageEventComposer):
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
         with self._logger.operation("[MessageEventComposer][Fluid] Message generation"):
-            if (
-                not interaction_history
-                and not ordinary_guideline_propositions
-                and not tool_enabled_guideline_propositions
-            ):
-                # No interaction and no guidelines that could trigger
-                # a proactive start of the interaction
-                self._logger.info(
-                    "[MessageEventComposer][Fluid] Skipping response; interaction is empty and there are no guidelines"
-                )
-                return []
-
             prompt = self._format_prompt(
                 agent=agent,
                 context_variables=context_variables,
@@ -277,7 +265,7 @@ Active Guidelines: {shot.expected_result.guidelines}
 Reasoning: {shot.expected_result.reasoning}
 ```json
 {{
-  "response": {json.dumps(shot.expected_result.revisions[-1].content.model_dump_json(indent=2))},
+  "response": {shot.expected_result.revisions[-1].content},
 }}
 ```"""
         elif self._reasoning_method == ReasoningMethod.NONE:
@@ -289,7 +277,7 @@ Active Guidelines: {shot.expected_result.guidelines}
 - **Expected Result**:
 ```json
 {{
-  "response": {json.dumps(shot.expected_result.revisions[-1].content.model_dump_json(indent=2))},
+  "response": {shot.expected_result.revisions[-1].content},
 }}
 ```"""
 
@@ -623,10 +611,10 @@ Produce a valid JSON object in the following format: ###
         )
 
         self._logger.debug(
-            f"[MessageEventComposer][Fluid][Completion]\n{message_event_response.content.model_dump_json(indent=2)}"
+            f"[MessageEventComposer][Fluid][Completion]\n{message_event_response.content}"
         )
         with open("message generator response.txt", "w") as f:
-            f.write(message_event_response.content.model_dump_json(indent=2, exclude_unset=True))
+            f.write(message_event_response.content.model_dump_json(indent=2))
         if self._reasoning_method == ReasoningMethod.ARQ:
             if first_correct_revision := next(
                 (

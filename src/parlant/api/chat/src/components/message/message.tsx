@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import {memo, ReactElement, Ref, useEffect, useRef, useState} from 'react';
+import {memo, ReactElement, useEffect, useRef, useState} from 'react';
 import {EventInterface} from '@/utils/interfaces';
 import styles from './message.module.scss';
 import {Spacer} from '../ui/custom/spacer';
@@ -61,7 +61,7 @@ const MessageBubble = ({event, isFirstMessageInDate, isContinual, showLogs, show
 	return (
 		<>
 			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
-				<div>
+				<div className='relative'>
 					<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 						<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
 							<div className='size-[26px] flex text-white rounded-[6.5px] items-center justify-center font-bold' style={{background: colorPallete?.agentName}}>
@@ -71,9 +71,9 @@ const MessageBubble = ({event, isFirstMessageInDate, isContinual, showLogs, show
 						</div>
 						<div className='text-[14px] text-[#A9A9A9]'>{event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc)}</div>
 					</div>
-					<div className='flex items-center'>
+					<div className='flex items-center relative'>
 						{isCustomer && (
-							<div className={twMerge('self-stretch items-center px-[16px] flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
+							<div className={twMerge('self-stretch absolute -left-[40px] top-[50%] -translate-y-1/2 items-center flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
 								<Tooltip value='Edit' side='left'>
 									<div data-testid='edit-button' role='button' onClick={() => setIsEditing?.(true)} className='group cursor-pointer'>
 										<img src='icons/edit-message.svg' alt='edit' className='block rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />

@@ -46,7 +46,7 @@ export default function Chatbot(): ReactElement {
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
 					<div className='flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] ps-[14px]'>
-						<div className='bg-white h-full rounded-[16px] overflow-auto border-solid w-[352px] max-mobile:hidden z-[11] '>
+						<div className='bg-white h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
 							<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 							<Sessions filterSessionVal={filterSessionVal} />
 						</div>

@@ -4,7 +4,7 @@ import {Checkbox} from '../ui/checkbox';
 import {Input} from '../ui/input';
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogPortal, DialogTitle, DialogTrigger} from '../ui/dialog';
 import {ClassNameValue, twMerge} from 'tailwind-merge';
-import {ListFilter, Plus, X} from 'lucide-react';
+import {Plus, X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
 
@@ -77,7 +77,21 @@ const FilterDialog = ({contentChanged, content, children, className}: {contentCh
 	);
 };
 
-const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: string[], level: string, content: string[]) => void; filterId?: number; def?: {level?: Level; types?: Type[]; content?: string[]} | null; className?: ClassNameValue}) => {
+const LogFilters = ({
+	applyFn,
+	def,
+	filterId,
+	className,
+	showDropdown,
+	showTags,
+}: {
+	applyFn: (types: string[], level: string, content: string[]) => void;
+	filterId?: number;
+	def?: {level?: Level; types?: Type[]; content?: string[]} | null;
+	className?: ClassNameValue;
+	showDropdown?: boolean;
+	showTags?: boolean;
+}) => {
 	const [sources, setSources] = useState(structuredClone(def?.types || []));
 	const [contentConditions, setContentConditions] = useState(structuredClone(def?.content || []));
 	const [level, setLevel] = useState<Level>(def?.level || ALL_LEVELS[ALL_LEVELS.length - 1]);
@@ -195,9 +209,9 @@ const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: strin
 		return (
 			<div className='wrapper relative' ref={wrapperRef}>
 				<div>
-					{!def?.types?.length ? (
+					{!def?.types?.length || true ? (
 						<div onClick={() => setDropdownOpen(true)} role='button' className={twMerge('flex bg-[#EDEDED] hover:bg-[#F5F6F8] rounded-[5px] items-center gap-[6px] h-[30px] px-[14px]', dropdownOpen && 'bg-[#CDCDCD]')}>
-							<ListFilter className='[stroke-width:2px] size-[16px]' />
+							<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
 							<p className='text-[14px] font-medium'>Filters</p>
 						</div>
 					) : (
@@ -219,8 +233,8 @@ const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: strin
 					<hr className='bg-[#EBECF0]' />
 					<div className='flex flex-col gap-[4px] mt-[9px] pb-[11px] px-[8px]'>
 						{ALL_TYPES.map((type) => (
-							<div key={type} className={twMerge('flex items-center py-[4px] ps-[6px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && 'bg-[#EBECF0]')}>
-								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
+							<div key={type} className={twMerge('flex items-center py-[4px] ps-[6px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
+								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
 								<label className='text-[12px] font-normal w-full cursor-pointer' htmlFor={type}>
 									{typeLabels[type]}
 								</label>
@@ -266,7 +280,7 @@ const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: strin
 								applyFn(sources, level, content);
 								setDropdownOpen(false);
 							}}
-							className='flex-1 text-[12px] font-normal !text-white bg-[#151515] h-[35px] w-[95px] hover:bg-black'>
+							className='flex-1 text-[12px] font-normal !text-white bg-green-main hover:bg-[#005C3F] h-[35px] w-[95px]'>
 							Apply
 						</Button>
 					</div>
@@ -278,28 +292,29 @@ const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: strin
 	return (
 		<div className={twMerge('flex justify-between py-[10px] pe-[10px] ps-[14px] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
 			<div className='filters-button flex items-center gap-[8px] flex-wrap'>
-				{!!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
-				{def?.content?.map((c: string, index: number) => (
-					<Dialog key={c}>
-						<DialogTrigger>
-							<CondChip key={c} text={c} index={index} apply={true} />
-						</DialogTrigger>
-						<DialogPortal>
-							<DialogContent className='p-0'>
-								<DialogTitle hidden>Filter by content</DialogTitle>
-								<DialogDescription hidden>Filter by content</DialogDescription>
-								<FilterDialogContent
-									defaultValue={c}
-									contentChanged={(text) => {
-										const updatedContent = contentConditions.map((item, i) => (i === index ? text : item));
-										applyFn(sources, level, updatedContent);
-									}}
-								/>
-							</DialogContent>
-						</DialogPortal>
-					</Dialog>
-				))}
-				<DropDownFilter />
+				{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
+				{showTags &&
+					def?.content?.map((c: string, index: number) => (
+						<Dialog key={c}>
+							<DialogTrigger>
+								<CondChip key={c} text={c} index={index} apply={true} />
+							</DialogTrigger>
+							<DialogPortal>
+								<DialogContent className='p-0'>
+									<DialogTitle hidden>Filter by content</DialogTitle>
+									<DialogDescription hidden>Filter by content</DialogDescription>
+									<FilterDialogContent
+										defaultValue={c}
+										contentChanged={(text) => {
+											const updatedContent = contentConditions.map((item, i) => (i === index ? text : item));
+											applyFn(sources, level, updatedContent);
+										}}
+									/>
+								</DialogContent>
+							</DialogPortal>
+						</Dialog>
+					))}
+				{showDropdown && <DropDownFilter />}
 			</div>
 		</div>
 	);

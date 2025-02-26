@@ -10,7 +10,7 @@ import LogFilters, {Level, Type} from '../log-filters/log-filters';
 import MessageFragments from '../message-fragments/message-fragments';
 import EmptyState from './empty-state';
 import FilterTabs from './filter-tabs';
-import MessageLogsHeader from './message-logs-header';
+import MessageDetailsHeader from './message-details-header';
 import {ResizableHandle, ResizablePanel, ResizablePanelGroup} from '../ui/resizable';
 import {ImperativePanelHandle} from 'react-resizable-panels';
 import Tooltip from '../ui/custom/tooltip';
@@ -105,7 +105,7 @@ const MessageDetails = ({
 
 	return (
 		<div className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
-			<MessageLogsHeader
+			<MessageDetailsHeader
 				event={event || null}
 				closeLogs={closeLogs}
 				resendMessageFn={resendMessageFn}
@@ -119,9 +119,19 @@ const MessageDetails = ({
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
 				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white ps-[10px]'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
+					<div className='flex justify-between items-center h-[38px] p-[10px]'>
+						<div>Logs</div>
+						<LogFilters
+							showDropdown
+							filterId={currFilterTabs || undefined}
+							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
+							applyFn={(types, level, content) => setFilters({types, level, content})}
+						/>
+					</div>
 					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
 					{event && !!logs?.length && (
 						<LogFilters
+							showTags
 							className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}
 							filterId={currFilterTabs || undefined}
 							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}

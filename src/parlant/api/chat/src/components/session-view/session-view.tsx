@@ -229,7 +229,7 @@ export default function SessionView(): ReactElement {
 	return (
 		<>
 			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px]'>
-				<div className={twMerge('h-full min-w-[calc(100%)] flex flex-col transition-[min-width]', showLogsForMessage && 'min-w-[calc(50%-7px)]')}>
+				<div className={twMerge('h-full min-w-[calc(100%)] flex flex-col transition-[min-width] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%]')}>
 					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 					<SessoinViewHeader />
 					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>

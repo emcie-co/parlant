@@ -1,17 +1,16 @@
 {
-    "name": "Parlant",
-    "short_name": "Parlant",
-    "description": "Chatbot by Parlant",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#FBFBFB",
-    "theme_color": "#FBFBFB",
-    "icons": [
-      {
-        "src": "/chat/parlant-bubble-app-logo.svg",
-        "sizes": "any",
-        "type": "image/svg+xml"
-      }
-    ]
-  }
-  
+	"name": "Parlant",
+	"short_name": "Parlant",
+	"description": "Chatbot by Parlant",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#FBFBFB",
+	"theme_color": "#FBFBFB",
+	"icons": [
+		{
+			"src": "/chat/logo-color.svg",
+			"sizes": "any",
+			"type": "image/svg+xml"
+		}
+	]
+}

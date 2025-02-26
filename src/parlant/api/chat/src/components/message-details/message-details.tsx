@@ -11,12 +11,11 @@ import MessageFragments from '../message-fragments/message-fragments';
 import EmptyState from './empty-state';
 import FilterTabs from './filter-tabs';
 import MessageLogsHeader from './message-logs-header';
-import MessageLog from './message-log';
 import {ResizableHandle, ResizablePanel, ResizablePanelGroup} from '../ui/resizable';
 import {ImperativePanelHandle} from 'react-resizable-panels';
 import Tooltip from '../ui/custom/tooltip';
-import {Copy} from 'lucide-react';
 import {copy} from '@/lib/utils';
+import MessageLogs from './message-logs';
 
 interface DefInterface {
 	level?: Level;
@@ -32,11 +31,11 @@ interface Filter {
 
 const MessageError = ({event}: {event: EventInterface}) => {
 	return (
-		<div className='h-full p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
+		<div className='h-full group p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
 			<pre className={clsx('p-[10px] max-w-[-webkit-fill-available] pe-[10px] text-wrap break-words bg-white rounded-[8px] h-full overflow-auto  group relative')}>
-				<div className='sticky h-0 hidden z-10 group-hover:flex [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
+				<div className='sticky h-0 hidden z-10 group-hover:block [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
 					<Tooltip value='Copy' side='top'>
-						<Copy size={18} color='#151515' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
+						<img src='icons/copy.svg' sizes='18' alt='' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
 					</Tooltip>
 				</div>
 				{event?.error}
@@ -45,7 +44,7 @@ const MessageError = ({event}: {event: EventInterface}) => {
 	);
 };
 
-const MessageLogs = ({
+const MessageDetails = ({
 	event,
 	closeLogs,
 	regenerateMessageFn,
@@ -118,7 +117,7 @@ const MessageLogs = ({
 					{isError && <MessageError event={event} />}
 				</ResizablePanel>
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
-				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col'>
+				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white ps-[10px]'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
 					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
 					{event && !!logs?.length && (
@@ -134,19 +133,11 @@ const MessageLogs = ({
 						<EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." wrapperClassName='bg-[#f5f6f8]' className={twJoin(isError && 'translate-y-[0px]')} />
 					)}
 					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
-					{event && !!filteredLogs.length && (
-						<div className='bg-[#EBECF0] p-[14px] pt-0 h-auto overflow-auto flex-1'>
-							<div ref={messagesRef} className='rounded-[8px] border-[10px] border-white h-full overflow-auto bg-white fixed-scroll'>
-								{filteredLogs.map((log, i) => (
-									<MessageLog key={i} log={log} />
-								))}
-							</div>
-						</div>
-					)}
+					{event && !!filteredLogs.length && <MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />}
 				</ResizablePanel>
 			</ResizablePanelGroup>
 		</div>
 	);
 };
 
-export default MessageLogs;
+export default MessageDetails;

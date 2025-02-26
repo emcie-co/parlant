@@ -6,6 +6,7 @@ import '@testing-library/jest-dom/vitest';
 
 import useFetch from '@/hooks/useFetch.tsx';
 import Sessions from './session-list.tsx';
+import SessionList from './session-list.tsx';
 
 const sessionsArr = [
 	{id: 'session1', title: 'Session One'},
@@ -43,7 +44,7 @@ describe(Sessions, () => {
 	let rerender: (ui: React.ReactNode) => void;
 
 	beforeEach(async () => {
-		const utils = render(<Sessions />);
+		const utils = render(<SessionList filterSessionVal='' />);
 		getByTestId = utils.getByTestId as (id: Matcher, options?: MatcherOptions | undefined) => HTMLElement;
 		getByText = utils.getByText as (id: Matcher, options?: SelectorMatcherOptions | undefined) => HTMLElement;
 		rerender = utils.rerender;
@@ -69,7 +70,7 @@ describe(Sessions, () => {
 		(useFetch as Mock).mockImplementationOnce(() => ({
 			loading: true,
 		}));
-		rerender(<Sessions />);
+		rerender(<SessionList filterSessionVal='' />);
 		const loading = getByText('loading...');
 		expect(loading).toBeInTheDocument();
 	});
@@ -78,7 +79,7 @@ describe(Sessions, () => {
 		(useFetch as Mock).mockImplementationOnce(() => ({
 			ErrorTemplate: () => <div>error</div>,
 		}));
-		rerender(<Sessions />);
+		rerender(<SessionList filterSessionVal='' />);
 		const error = getByText('error');
 		expect(error).toBeInTheDocument();
 	});

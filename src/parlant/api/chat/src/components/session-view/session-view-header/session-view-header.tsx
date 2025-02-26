@@ -1,6 +1,8 @@
+import AgentAvatar from '@/components/agent-avatar/agent-avatar';
 import HeaderWrapper from '@/components/header-wrapper/header-wrapper';
 import CopyText from '@/components/ui/custom/copy-text';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
+import {AgentInterface} from '@/utils/interfaces';
 import {useAtom} from 'jotai';
 import {twJoin} from 'tailwind-merge';
 
@@ -13,6 +15,7 @@ const SessoinViewHeader = () => {
 			{session?.id && (
 				<div className='w-full flex items-center h-full'>
 					<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
+						<AgentAvatar agent={agent as AgentInterface} />
 						<div>
 							<div>{agent?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
@@ -21,6 +24,7 @@ const SessoinViewHeader = () => {
 						</div>
 					</div>
 					<div className='h-full flex-1 flex items-center ps-[24px]'>
+						<AgentAvatar agent={customer as AgentInterface} />
 						<div>
 							<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>

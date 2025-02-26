@@ -175,15 +175,15 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			onClick={() => !disabled && !editingTitle && !isDeleting && setSession(session)}
 			key={session.id}
 			className={
-				'bg-white animate-fade-in text-[14px] font-ubuntu-sans justify-between font-medium border-b-[0.6px] border-b-solid border-muted cursor-pointer p-1 flex items-center ps-[8px] min-h-[80px] h-[80px] ml-0 mr-0 ' +
+				'bg-white animate-fade-in text-[14px] rounded-[10px] font-ubuntu-sans justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[80px] h-[80px] ml-0 mr-0 ' +
 				(editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ') +
 				(isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '') +
 				(disabled ? ' pointer-events-none' : '') +
 				(isDeleting ? 'opacity-[33%]' : '')
 			}>
-			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[202px] ms-[16px] h-[39px]'>
+			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[202px] ms-[16px] h-[48px]'>
 				{editingTitle !== session.id && (
-					<div className='overflow-hidden overflow-ellipsis flex items-center'>
+					<div className='overflow-visible overflow-ellipsis flex items-center'>
 						<div>
 							<AgentAvatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}} />
 						</div>

@@ -12,7 +12,7 @@ import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
-import MessageLogs from '../message-logs/message-logs';
+import MessageDetails from '../message-details/message-details';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
@@ -209,7 +209,7 @@ export default function SessionView(): ReactElement {
 			.catch(() => toast.error('Something went wrong'));
 	};
 
-	const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+	const handleTextareaKeydown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			submitButtonRef?.current?.click();
@@ -226,18 +226,20 @@ export default function SessionView(): ReactElement {
 
 	return (
 		<>
-			<div className='flex items-center h-full w-full'>
-				<div className='h-full min-w-[50%] flex flex-col'>
+			<div className='flex items-center h-full w-full bg-green-light gap-[14px]'>
+				<div className='h-full min-w-[calc(50%-7px)] flex flex-col'>
+					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 					<SessoinViewHeader />
-					<div className={twMerge('h-[21px] bg-white border-e border-t-0 bg-main')}></div>
-					<div className={twMerge('flex flex-col items-center bg-white h-[calc(100%-70px)] mx-auto w-full flex-1 overflow-auto border-e bg-main')}>
+					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>
+					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto border-e')}>
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
 								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-main' />}
+									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
 									<div ref={lastMessageRef} className='flex flex-col'>
 										<Message
+											isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 											isRegenerateHidden={!!isMissingAgent}
 											event={event}
 											isContinual={event.source === visibleMessages[i + 1]?.source}
@@ -262,14 +264,14 @@ export default function SessionView(): ReactElement {
 						</div>
 						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 							<Spacer />
-							<div className='group border flex-1 border-muted border-solid rounded-full flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
+							<div className='group border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
 								<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
 								<Textarea
 									role='textbox'
 									ref={textareaRef}
 									placeholder='Message...'
 									value={message}
-									onKeyDown={onKeyDown}
+									onKeyDown={handleTextareaKeydown}
 									onChange={(e) => setMessage(e.target.value)}
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
@@ -283,8 +285,8 @@ export default function SessionView(): ReactElement {
 					</div>
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
-					<div className='flex h-full min-w-[50%]'>
-						<MessageLogs
+					<div className='flex h-full min-w-[calc(50%-7px)]'>
+						<MessageDetails
 							event={showLogsForMessage}
 							regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
 							resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}

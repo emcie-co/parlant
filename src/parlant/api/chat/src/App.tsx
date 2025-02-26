@@ -12,7 +12,7 @@ const WebSocketComp = () => {
 
 function App() {
 	return (
-		<div>
+		<div className='bg-green-light'>
 			<Chatbot />
 			<WebSocketComp />
 		</div>

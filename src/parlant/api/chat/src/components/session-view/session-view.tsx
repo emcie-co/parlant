@@ -12,7 +12,7 @@ import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
-import MessageLogs from '../message-logs/message-logs';
+import MessageDetails from '../message-details/message-details';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
@@ -226,12 +226,12 @@ export default function SessionView(): ReactElement {
 
 	return (
 		<>
-			<div className='flex items-center h-full w-full bg-[#f5f5f9] gap-[14px]'>
+			<div className='flex items-center h-full w-full bg-green-light gap-[14px]'>
 				<div className='h-full min-w-[calc(50%-7px)] flex flex-col'>
-					<div className='h-[58px] bg-[#f5f5f9]'></div>
+					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 					<SessoinViewHeader />
 					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>
-					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white max-h-[calc(100%-70px-58px-21px)] h-[calc(100%-70px-58px-21px)] mx-auto w-full flex-1 overflow-auto border-e')}>
+					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto border-e')}>
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
@@ -286,7 +286,7 @@ export default function SessionView(): ReactElement {
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<div className='flex h-full min-w-[calc(50%-7px)]'>
-						<MessageLogs
+						<MessageDetails
 							event={showLogsForMessage}
 							regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
 							resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}

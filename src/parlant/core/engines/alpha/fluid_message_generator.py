@@ -66,6 +66,35 @@ class InstructionEvaluation(DefaultBaseModel):
     data_available: str
 
 
+class FactualInformationEvaluation(DefaultBaseModel):
+    fact: str
+    source: str
+    is_source_based_in_this_prompt: bool
+
+
+class OfferedServiceEvaluation(DefaultBaseModel):
+    service: str
+    source: str
+    is_source_based_in_this_prompt: bool
+
+
+class Revision(DefaultBaseModel):
+    revision_number: int
+    content: str
+    factual_information_provided: Optional[list[FactualInformationEvaluation]] = None
+    offered_services: Optional[list[OfferedServiceEvaluation]] = None
+    instructions_followed: Optional[list[str]] = None
+    instructions_broken: Optional[list[str]] = None
+    is_repeat_message: Optional[bool] = None
+    followed_all_instructions: Optional[bool] = None
+    instructions_broken_due_to_missing_data: Optional[bool] = None
+    missing_data_rationale: Optional[str] = None
+    instructions_broken_only_due_to_prioritization: Optional[bool] = None
+    prioritization_rationale: Optional[str] = None
+    all_facts_and_services_sourced_from_prompt: Optional[bool] = None
+    further_revisions_required: Optional[bool] = None
+
+
 class MessageSchema(DefaultBaseModel):
     last_message_of_customer: Optional[str] = ""
     guidelines: Optional[list[str]] = []
@@ -73,7 +102,8 @@ class MessageSchema(DefaultBaseModel):
     insights: Optional[list[str]] = []
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
     reasoning: Optional[str] = "..."
-    response: str
+    response: Optional[str] = ""
+    revisions: Optional[list[Revision]] = None
 
 
 @dataclass

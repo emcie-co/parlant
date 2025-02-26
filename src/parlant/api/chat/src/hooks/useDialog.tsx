@@ -39,7 +39,7 @@ export const useDialog = (): UseDialogReturn => {
 	const DialogComponent = () => (
 		<Dialog open={!!dialogContent}>
 			<DialogPortal>
-				<DialogContent data-testid='dialog' aria-hidden={false} style={{maxHeight: dialogSize.height, width: dialogSize.width}} className={'[&>button]:hidden p-0 h-[80%] font-ubuntu-sans bg-white block max-w-[95%]'}>
+				<DialogContent data-testid='dialog' aria-hidden={false} style={{maxHeight: dialogSize.height, width: dialogSize.width}} className={'[&>button]:hidden !pointer-events-auto p-0 h-[80%] font-ubuntu-sans bg-white block max-w-[95%]'}>
 					<div className='bg-white h-full rounded-[12px] flex flex-col' aria-hidden={false}>
 						<DialogHeader className={clsx(!dialogTitle && 'hidden')}>
 							<DialogTitle>

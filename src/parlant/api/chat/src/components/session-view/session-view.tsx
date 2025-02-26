@@ -298,8 +298,8 @@ export default function SessionView(): ReactElement {
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
 						<DrawerContent className='left-[unset] h-full right-0 bg-white' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
 							<DrawerHeader>
-								<DrawerTitle hidden>Are you absolutely sure?</DrawerTitle>
-								<DrawerDescription hidden>This action cannot be undone.</DrawerDescription>
+								<DrawerTitle hidden></DrawerTitle>
+								<DrawerDescription hidden></DrawerDescription>
 							</DrawerHeader>
 							<MessageDetails
 								event={showLogsForMessage}

@@ -3,13 +3,12 @@ import {X} from 'lucide-react';
 import {copy} from '@/lib/utils';
 import clsx from 'clsx';
 import {Log} from '@/utils/interfaces';
-import {useAtom} from 'jotai';
-import {dialogAtom} from '@/store';
 import {useRef} from 'react';
 import Tooltip from '../ui/custom/tooltip';
+import {useDialog} from '@/hooks/useDialog';
 
 const MessageLog = ({log}: {log: Log}) => {
-	const [dialog] = useAtom(dialogAtom);
+	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const ref = useRef<HTMLPreElement>(null);
 
 	const openLogs = (text: string) => {
@@ -21,14 +20,14 @@ const MessageLog = ({log}: {log: Log}) => {
 							<img src='icons/copy.svg' alt='' onClick={() => copy(text, ref?.current || undefined)} className='cursor-pointer' />
 						</Tooltip>
 						<Tooltip value='Close' side='top'>
-							<X onClick={() => dialog.closeDialog()} size={18} className='cursor-pointer' />
+							<X onClick={() => closeDialog()} size={18} className='cursor-pointer' />
 						</Tooltip>
 					</div>
 				</div>
 				<div>{text}</div>
 			</pre>
 		);
-		dialog.openDialog('', element, {height: '90vh', width: '90vw'});
+		openDialog('', element, {height: '90vh', width: '90vw'});
 	};
 
 	return (
@@ -49,6 +48,7 @@ const MessageLog = ({log}: {log: Log}) => {
 				{log?.level ? `[${log.level}]` : ''}
 				{log?.message}
 			</pre>
+			<DialogComponent />
 		</div>
 	);
 };

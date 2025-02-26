@@ -30,7 +30,6 @@ export default function SessionView(): ReactElement {
 
 	const [message, setMessage] = useState('');
 	const [lastOffset, setLastOffset] = useState(0);
-	const [chatSize, setChatSize] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
 	const [showThinking, setShowThinking] = useState(false);
@@ -179,11 +178,6 @@ export default function SessionView(): ReactElement {
 	useEffect(scrollToLastMessage, [messages, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
 	useEffect(() => {
-		if (!chatSize) {
-			setChatSize(messagesRef?.current?.clientWidth || 0);
-		}
-	}, []);
-	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
 	}, [agents, agent?.id]);
 
@@ -234,8 +228,8 @@ export default function SessionView(): ReactElement {
 
 	return (
 		<>
-			<div className='flex items-center h-full w-full bg-green-light gap-[14px]'>
-				<div ref={messagesRef} className={twMerge('h-full min-w-[calc(100%)] flex flex-col transition-[min-width]', showLogsForMessage && 'min-w-[calc(50%-7px)]')}>
+			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px]'>
+				<div className={twMerge('h-full min-w-[calc(100%)] flex flex-col transition-[min-width]', showLogsForMessage && 'min-w-[calc(50%-7px)]')}>
 					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 					<SessoinViewHeader />
 					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>
@@ -302,7 +296,7 @@ export default function SessionView(): ReactElement {
 						/>
 					</div> */}
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent className='left-[unset] h-full right-0 bg-white' style={{width: `${chatSize / 2}px`}}>
+						<DrawerContent className='left-[unset] h-full right-0 bg-white' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
 							<DrawerHeader>
 								<DrawerTitle hidden>Are you absolutely sure?</DrawerTitle>
 								<DrawerDescription hidden>This action cannot be undone.</DrawerDescription>

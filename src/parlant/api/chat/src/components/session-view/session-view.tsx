@@ -14,24 +14,12 @@ import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
 import MessageLogs from '../message-logs/message-logs';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ProgressImage from '../progress-logo/progress-logo';
 import DateHeader from './date-header/date-header';
 import SessoinViewHeader from './session-view-header/session-view-header';
 import {isSameDay} from '@/lib/utils';
-
-const emptyPendingMessage: () => EventInterface = () => ({
-	kind: 'message',
-	source: 'customer',
-	creation_utc: new Date(),
-	serverStatus: 'pending',
-	offset: 0,
-	correlation_id: '',
-	data: {
-		message: '',
-	},
-});
 
 export default function SessionView(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -39,7 +27,6 @@ export default function SessionView(): ReactElement {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 	const [message, setMessage] = useState('');
-	const [pendingMessage, setPendingMessage] = useState<EventInterface>(emptyPendingMessage());
 	const [lastOffset, setLastOffset] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
@@ -50,6 +37,7 @@ export default function SessionView(): ReactElement {
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 
+	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
@@ -144,8 +132,6 @@ export default function SessionView(): ReactElement {
 			if (data.serverStatus === 'error') data.error = item?.data?.exception;
 			return data;
 		});
-
-		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage());
 
 		setMessages((messages) => {
 			const last = messages.at(-1);

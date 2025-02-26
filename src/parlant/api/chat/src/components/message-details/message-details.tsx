@@ -33,11 +33,11 @@ interface Filter {
 
 const MessageError = ({event}: {event: EventInterface}) => {
 	return (
-		<div className='h-full p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
+		<div className='h-full group p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
 			<pre className={clsx('p-[10px] max-w-[-webkit-fill-available] pe-[10px] text-wrap break-words bg-white rounded-[8px] h-full overflow-auto  group relative')}>
-				<div className='sticky h-0 hidden z-10 group-hover:flex [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
+				<div className='sticky h-0 hidden z-10 group-hover:block [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
 					<Tooltip value='Copy' side='top'>
-						<Copy size={18} color='#151515' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
+						<img src='icons/copy.svg' sizes='18' alt='' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
 					</Tooltip>
 				</div>
 				{event?.error}
@@ -119,7 +119,7 @@ const MessageDetails = ({
 					{isError && <MessageError event={event} />}
 				</ResizablePanel>
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
-				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col'>
+				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white ps-[10px]'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
 					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
 					{event && !!logs?.length && (

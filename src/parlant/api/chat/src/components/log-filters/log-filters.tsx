@@ -276,7 +276,7 @@ const LogFilters = ({applyFn, def, filterId, className}: {applyFn: (types: strin
 	};
 
 	return (
-		<div className={twMerge('flex justify-between py-[10px] pe-[10px] ps-[14px] bg-[#ebecf0] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
+		<div className={twMerge('flex justify-between py-[10px] pe-[10px] ps-[14px] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
 			<div className='filters-button flex items-center gap-[8px] flex-wrap'>
 				{!!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
 				{def?.content?.map((c: string, index: number) => (

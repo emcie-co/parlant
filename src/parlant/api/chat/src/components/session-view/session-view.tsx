@@ -14,24 +14,12 @@ import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
 import MessageLogs from '../message-logs/message-logs';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ProgressImage from '../progress-logo/progress-logo';
 import DateHeader from './date-header/date-header';
 import SessoinViewHeader from './session-view-header/session-view-header';
 import {isSameDay} from '@/lib/utils';
-
-const emptyPendingMessage: () => EventInterface = () => ({
-	kind: 'message',
-	source: 'customer',
-	creation_utc: new Date(),
-	serverStatus: 'pending',
-	offset: 0,
-	correlation_id: '',
-	data: {
-		message: '',
-	},
-});
 
 export default function SessionView(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -39,7 +27,6 @@ export default function SessionView(): ReactElement {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 	const [message, setMessage] = useState('');
-	const [pendingMessage, setPendingMessage] = useState<EventInterface>(emptyPendingMessage());
 	const [lastOffset, setLastOffset] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
@@ -50,6 +37,7 @@ export default function SessionView(): ReactElement {
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 
+	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
@@ -123,7 +111,7 @@ export default function SessionView(): ReactElement {
 	};
 
 	const regenerateMessage = async (index: number, sessionId: string, offset: number) => {
-		resendMessage(index - 1, sessionId, offset - 1);
+		resendMessage(index - 1, sessionId, offset);
 	};
 
 	const formatMessagesFromEvents = () => {
@@ -145,8 +133,6 @@ export default function SessionView(): ReactElement {
 			return data;
 		});
 
-		if (pendingMessage.serverStatus !== 'pending' && pendingMessage.data.message) setPendingMessage(emptyPendingMessage);
-
 		setMessages((messages) => {
 			const last = messages.at(-1);
 			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
@@ -154,7 +140,7 @@ export default function SessionView(): ReactElement {
 				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
 			}
 			if (!withStatusMessages?.length) return [...messages];
-			if (withStatusMessages && pendingMessage) setPendingMessage(emptyPendingMessage);
+			if (pendingMessage?.data?.message) setPendingMessage(emptyPendingMessage());
 
 			const newVals: EventInterface[] = [];
 			for (const messageArray of [messages, withStatusMessages]) {
@@ -227,35 +213,15 @@ export default function SessionView(): ReactElement {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			submitButtonRef?.current?.click();
-		}
+		} else if (e.key === 'Enter' && e.shiftKey) e.preventDefault();
 	};
 
-	const visibleMessages = session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
+	const isCurrSession = (session?.id === NEW_SESSION_ID && !pendingMessage?.id) || (session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id);
+	const visibleMessages = (!messages?.length || isCurrSession) && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
 
 	const showLogs = (i: number) => (event: EventInterface) => {
 		event.index = i;
 		setShowLogsForMessage(event.id === showLogsForMessage?.id ? null : event);
-	};
-
-	const MessageWithDate = ({event, index}: {event: EventInterface; index: number}) => {
-		const isFirstMessageInDate = !isSameDay(messages[index - 1]?.creation_utc, event.creation_utc);
-		return (
-			<>
-				{isFirstMessageInDate && <DateHeader date={event.creation_utc} isFirst={!index} bgColor='bg-white' />}
-				<div ref={lastMessageRef} className='flex flex-col'>
-					<Message
-						isFirstMessageInDate={isFirstMessageInDate}
-						isRegenerateHidden={!!isMissingAgent}
-						event={event}
-						isContinual={event.source === visibleMessages[index + 1]?.source}
-						regenerateMessageFn={regenerateMessageDialog(index)}
-						resendMessageFn={resendMessageDialog(index)}
-						showLogsForMessage={showLogsForMessage}
-						showLogs={showLogs(index)}
-					/>
-				</div>
-			</>
-		);
 	};
 
 	return (
@@ -269,7 +235,7 @@ export default function SessionView(): ReactElement {
 						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
-								<>
+								<React.Fragment key={i}>
 									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
 									<div ref={lastMessageRef} className='flex flex-col'>
 										<Message
@@ -283,7 +249,7 @@ export default function SessionView(): ReactElement {
 											showLogs={showLogs(i)}
 										/>
 									</div>
-								</>
+								</React.Fragment>
 							))}
 							{(showTyping || showThinking) && (
 								<div className='animate-fade-in flex mb-1 justify-between mt-[44.33px]'>

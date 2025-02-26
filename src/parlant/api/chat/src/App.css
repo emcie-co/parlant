@@ -4,6 +4,10 @@
 	font-family: Ubuntu Sans;
 }
 
+body {
+	pointer-events: all !important;
+}
+
 .fixed-scroll {
 	overflow: scroll;
 	scrollbar-width: auto;

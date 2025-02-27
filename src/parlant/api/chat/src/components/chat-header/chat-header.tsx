@@ -49,7 +49,7 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 						</Sheet>
 					</div>
 				</div>
-				<div className='flex items-center ps-[12px] relative'>
+				<div className='flex items-center ps-[12px] relative !shadow-main'>
 					<img src='icons/search.svg' alt='' className='absolute left-[24px]' />
 					<Input onChange={(e) => setFilterSessionVal(e.target.value)} className='!ring-0 !ring-offset-0 h-[38px] w-[250px] ps-[35px] rounded-[10px]' />
 				</div>
@@ -60,7 +60,7 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 							role='button'
 							onKeyDown={spaceClick}
 							onClick={createNewSession}
-							className='hover:bg-[#F3F5F9] w-[70px] cursor-pointer py-[9px] h-[38px] ps-[12px] rounded-[10px] [box-shadow:0px_3px_3px_0px_#00000005]
+							className='hover:bg-[#F3F5F9] w-[70px] cursor-pointer py-[9px] h-[38px] ps-[12px] rounded-[10px] shadow-main
  border hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'>
 							<img src='icons/new-session.svg' alt='add session' height={15} width={15} className='cursor-pointer' />
 							<div className='font-medium text-[14px]'>New</div>

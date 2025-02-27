@@ -171,7 +171,7 @@ export default function SessionView(): ReactElement {
 		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
 		resetChat();
 		if (session?.id !== NEW_SESSION_ID) refetch();
-		textareaRef?.current?.focus();
+		// textareaRef?.current?.focus();
 	};
 
 	useEffect(formatMessagesFromEvents, [lastEvents]);

@@ -11,13 +11,23 @@ import {dialogAtom, sessionAtom} from '@/store';
 
 export const SessionProvider = createContext({});
 
+const SessionsSection = () => {
+	const [filterSessionVal, setFilterSessionVal] = useState('');
+	return (
+		<div className='bg-white h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
+			<ChatHeader setFilterSessionVal={setFilterSessionVal} />
+			<SessionList filterSessionVal={filterSessionVal} />
+		</div>
+	);
+};
+
 export default function Chatbot(): ReactElement {
 	const SessionView = lazy(() => import('../session-view/session-view'));
 	const [sessionName, setSessionName] = useState<string | null>('');
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
-	const [filterSessionVal, setFilterSessionVal] = useState('');
+	const [, setFilterSessionVal] = useState('');
 
 	useEffect(() => {
 		if (session?.id) {
@@ -46,10 +56,7 @@ export default function Chatbot(): ReactElement {
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
 					<div className='flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]'>
-						<div className='bg-white h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
-							<ChatHeader setFilterSessionVal={setFilterSessionVal} />
-							<SessionList filterSessionVal={filterSessionVal} />
-						</div>
+						<SessionsSection />
 						<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
 							{session?.id ? (
 								<Suspense>

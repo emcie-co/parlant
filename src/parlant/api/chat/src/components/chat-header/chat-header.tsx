@@ -51,7 +51,7 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 				</div>
 				<div className='flex items-center ps-[12px] relative'>
 					<img src='icons/search.svg' alt='' className='absolute left-[24px]' />
-					<Input onChange={(e) => setFilterSessionVal(e.target.value)} className='h-[38px] w-[250px] ps-[35px] rounded-[10px]' />
+					<Input onChange={(e) => setFilterSessionVal(e.target.value)} className='!ring-0 !ring-offset-0 h-[38px] w-[250px] ps-[35px] rounded-[10px]' />
 				</div>
 				<div className='group ms-[8px]'>
 					<Tooltip value='New Session' side='right'>

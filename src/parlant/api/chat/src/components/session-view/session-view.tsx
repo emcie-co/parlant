@@ -268,7 +268,7 @@ export default function SessionView(): ReactElement {
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 								/>
-								{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[22px] font-medium text-[#A9AFB7] text-[11px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
+								{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
 								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 								</Button>

@@ -127,7 +127,7 @@ const LogFilters = ({
 
 	const TypeChip = ({type}: {type: Type}) => {
 		return (
-			<div key={type} className='group cursor-pointer bg-[#F5F6F8] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[14px] rounded-[5px] pe-[8px] hover:bg-white'>
+			<div key={type} className='group cursor-pointer border border-[#F2F2F2] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[14px] rounded-[5px] pe-[8px] hover:bg-white'>
 				<p className='text-nowrap font-normal text-[14px]'>{typeLabels[type]}</p>
 				<X role='button' className='invisible size-[18px] group-hover:visible rounded-[3px]' onClick={() => changeSource(type, false, applyFn)} />
 			</div>
@@ -153,24 +153,27 @@ const LogFilters = ({
 	}) => {
 		return (
 			<Tooltip value={text} side='top' delayDuration={1000}>
-				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-[#F5F6F8] hover:bg-white border-[#A9A9A9] hover:border-[#D7D7D7] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
-					<div
-						className={twMerge('flex items-center justify-center max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[14px] pe-[6px] gap-[8px] bg-white group-hover:bg-[#F5F6F8] border border-[#D7D7D7] group-hover:border-[#A9A9A9]', className)}>
-						<img src='icons/text.svg' alt='' />
-						<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
-						<X
-							role='button'
-							className={twMerge('invisible min-w-[18px] size-[18px] group-hover:visible rounded-[3px]', deleteButtonClassName)}
-							onClick={(e) => {
-								e.stopPropagation();
-								const content = contentConditions?.filter((_, i) => i !== index);
-								if (apply) {
-									setContentConditions(content);
-									applyFn(sources, level, content);
-								}
-								deleted?.(content);
-							}}
-						/>
+				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-white border-[#F2F2F2] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
+					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[4px] pe-[6px] gap-[8px]', className)}>
+						<div className='flex items-center gap-[8px]'>
+							<img src='icons/text.svg' alt='' />
+							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
+						</div>
+						{deleted && (
+							<X
+								role='button'
+								className={twMerge('invisible min-w-[18px] size-[18px] group-hover:visible rounded-[3px]', deleteButtonClassName)}
+								onClick={(e) => {
+									e.stopPropagation();
+									const content = contentConditions?.filter((_, i) => i !== index);
+									if (apply) {
+										setContentConditions(content);
+										applyFn(sources, level, content);
+									}
+									deleted?.(content);
+								}}
+							/>
+						)}
 					</div>
 				</div>
 			</Tooltip>
@@ -294,27 +297,7 @@ const LogFilters = ({
 		<div className={twMerge('flex justify-between py-[10px] pe-[10px] ps-[14px] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
 			<div className='filters-button flex items-center gap-[8px] flex-wrap'>
 				{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
-				{showTags &&
-					def?.content?.map((c: string, index: number) => (
-						<Dialog key={c}>
-							<DialogTrigger>
-								<CondChip key={c} text={c} index={index} apply={true} />
-							</DialogTrigger>
-							<DialogPortal>
-								<DialogContent className='p-0'>
-									<DialogTitle hidden>Filter by content</DialogTitle>
-									<DialogDescription hidden>Filter by content</DialogDescription>
-									<FilterDialogContent
-										defaultValue={c}
-										contentChanged={(text) => {
-											const updatedContent = contentConditions.map((item, i) => (i === index ? text : item));
-											applyFn(sources, level, updatedContent);
-										}}
-									/>
-								</DialogContent>
-							</DialogPortal>
-						</Dialog>
-					))}
+				{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} />)}
 				{showDropdown && <DropDownFilter />}
 			</div>
 		</div>

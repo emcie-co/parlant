@@ -8,6 +8,7 @@ interface Props {
 	agent: AgentInterface;
 	customer?: CustomerInterface;
 	tooltip?: boolean;
+	asCustomer?: boolean;
 }
 
 const colors = [
@@ -23,7 +24,7 @@ export const getAvatarColor = (agentId: string) => {
 	return colors[hash % colors.length];
 };
 
-const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
+const AgentAvatar = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
 	const agentColor = getAvatarColor(agent.id);
 	const customerColor = customer && getAvatarColor(customer.id);
 	const isAgentUnavailable = agent?.name === 'N/A';
@@ -39,7 +40,7 @@ const AgentAvatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
 			<div className='relative'>
 				<div className='size-[44px] rounded-[6.5px] flex me-[10px] items-center justify-center' style={{background: agentColor.background}}>
 					<div
-						style={{background: customer ? '' : agentColor.background, color: agentColor.agentName}}
+						style={{background: customer ? '' : agentColor[asCustomer ? 'customerName' : 'background'], color: asCustomer ? 'white' : agentColor.agentName}}
 						aria-label={'agent ' + agent.name}
 						className={twMerge('size-[36px] rounded-[5px] flex items-center justify-center text-white text-[20px] font-semibold', isAgentUnavailable && 'text-[14px] !bg-gray-300')}>
 						{isAgentUnavailable ? 'N/A' : agentFirstLetter}

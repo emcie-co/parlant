@@ -15,7 +15,7 @@ const SessoinViewHeader = () => {
 			{session?.id && (
 				<div className='w-full flex items-center h-full'>
 					<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
-						<AgentAvatar agent={agent as AgentInterface} />
+						<AgentAvatar agent={agent as AgentInterface} tooltip={false} />
 						<div>
 							<div>{agent?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
@@ -24,7 +24,7 @@ const SessoinViewHeader = () => {
 						</div>
 					</div>
 					<div className='h-full flex-1 flex items-center ps-[24px]'>
-						<AgentAvatar agent={customer as AgentInterface} />
+						<AgentAvatar agent={customer as AgentInterface} asCustomer tooltip={false} />
 						<div>
 							<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>

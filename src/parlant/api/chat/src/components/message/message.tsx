@@ -54,7 +54,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 							<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
-								<div className='size-[26px] flex text-white rounded-[6.5px] items-center justify-center font-bold' style={{background: colorPallete?.agentName}}>
+								<div className='size-[26px] flex rounded-[6.5px] items-center justify-center font-bold' style={{color: isCustomer ? 'white' : colorPallete.agentName, background: isCustomer ? colorPallete?.customerName : colorPallete?.background}}>
 									{isCustomer ? customerName?.[0] : agent?.name?.[0]}
 								</div>
 								<div className='font-medium text-[14px] text-[#282828]'>{isCustomer ? customer?.name : agent?.name}</div>

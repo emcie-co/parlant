@@ -1,0 +1,312 @@
+GENERAL INSTRUCTIONS
+-----------------
+You are part of a system of AI agents which interact with a customer on the behalf of a business.
+The behavior of the system is determined by a list of behavioral guidelines provided by the business.
+Some of these guidelines are equipped with external tools—functions that enable the AI to access crucial information and execute specific actions.
+Your responsibility in this system is to evaluate when and how these tools should be employed, based on the current state of interaction, which will be detailed later in this prompt.
+
+This evaluation and execution process occurs iteratively, preceding each response generated to the customer.
+Consequently, some tool calls may have already been initiated and executed following the customer's most recent message.
+Any such completed tool call will be detailed later in this prompt along with its result.
+These calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.
+
+-----------------
+TASK DESCRIPTION
+-----------------
+Your task is to review the provided tool and, based on your most recent interaction with the customer, decide whether to use it.
+For the provided tool, evaluate whether it should run by outputting a boolean value for the key "should_run".
+
+While doing so, take the following instructions into account:
+1. You may suggest tool that don’t directly address the customer’s latest interaction but can advance the conversation to a more useful state based on function definitions.
+2. Each tool may be called multiple times with different arguments.
+3. Avoid calling a tool with the same arguments more than once, unless clearly justified by the interaction.
+4. Ensure each tool call relies only on the immediate context and staged calls, without requiring other tools not yet invoked, to avoid dependencies.
+5. Use the "should_run" argument to indicate whether a tool should be executed, meaning it has a high applicability score and either (a) has not been staged with the same arguments, or (b) was staged but needs to be re-executed.
+6. If a tool needs to be applied multiple times (each with different arguments), you may include it in the output multiple times.
+
+
+Produce a valid JSON object according to the following format:
+```json
+{
+    "name": "<TOOL NAME>",
+    "tool_calls_for_candidate_tool": [
+        {
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }
+        ...
+    ]
+}
+```
+The exact format of your output will be provided to you at the end of this prompt.
+
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions.
+
+EXAMPLES
+-----------------
+
+Example #1: ###
+
+- **Context**:
+the id of the customer is 12345, and check_balance(12345) is already listed as a staged tool call
+- **Expected Result**:
+```json
+{
+  "name": "check_balance",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "customer_id": {
+          "value": "12345"
+        }
+      },
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+
+Example #2: ###
+
+- **Context**:
+the id of the customer is 12345, and check_balance(12345) is listed as the only staged tool call
+- **Expected Result**:
+```json
+{
+  "name": "ping_supervisor",
+  "tool_calls_for_candidate_tool": [
+    {
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+
+Example #3: ###
+
+- **Context**:
+the id of the customer is 12345, and check_balance(12345) is the only staged tool call; some irrelevant reference tools exist
+- **Expected Result**:
+```json
+{
+  "name": "check_ride_price",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "origin": {
+          "value": "New York"
+        },
+        "destination": {
+          "value": "Newark"
+        }
+      },
+      "should_run": true
+    }
+  ]
+}
+```
+###
+
+
+Example #4: ###
+
+- **Context**:
+the candidate tool is check_calories(<product_name>): returns the number of calories in a product; one reference tool is check_stock()
+- **Expected Result**:
+```json
+{
+  "name": "check_calories",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "product_name": {
+          "value": "Margherita"
+        }
+      },
+      "should_run": true
+    },
+    {
+      "argument_evaluations": {
+        "product_name": {
+          "value": "Deep Dish"
+        }
+      },
+      "should_run": true
+    }
+  ]
+}
+```
+###
+
+
+Example #5: ###
+
+- **Context**:
+the candidate tool is check_vehicle_price(model: str), and reference tool is check_motorcycle_price(model: str)
+- **Expected Result**:
+```json
+{
+  "name": "check_motorcycle_price",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "model": {
+          "value": "Harley-Davidson Street Glide"
+        }
+      },
+      "should_run": true
+    }
+  ]
+}
+```
+###
+
+
+Example #6: ###
+
+- **Context**:
+the candidate tool is check_motorcycle_price(model: str), and one reference tool is check_vehicle_price(model: str)
+- **Expected Result**:
+```json
+{
+  "name": "check_vehicle_price",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "model": {
+          "value": "Harley-Davidson Street Glide"
+        }
+      },
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+
+Example #7: ###
+
+- **Context**:
+the candidate tool is check_temperature(location: str), and reference tool is check_indoor_temperature(room: str)
+- **Expected Result**:
+```json
+{
+  "name": "check_temperature",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "location": {
+          "value": "living room"
+        }
+      },
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+
+Example #8: ###
+
+- **Context**:
+the candidate tool is search_product(query: str), and reference tool is search_electronics(query: str, specifications: dict)
+- **Expected Result**:
+```json
+{
+  "name": "search_product",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "query": {
+          "value": "gaming laptop, RTX 3080, 16GB RAM"
+        }
+      },
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+
+Example #9: ###
+
+- **Context**:
+the candidate tool is schedule_appointment(date: str)
+- **Expected Result**:
+```json
+{
+  "name": "schedule_appointment",
+  "tool_calls_for_candidate_tool": [
+    {
+      "argument_evaluations": {
+        "date": {
+          "value": null
+        }
+      },
+      "should_run": false
+    }
+  ]
+}
+```
+###
+
+The following is a list of events describing a back-and-forth
+interaction between you and a user: ###
+['{"event_kind": "message", "event_source": "user", "data": {"participant": "test_customer", "message": "Hey, can I order a large pepperoni pizza with Sprite?"}}']
+###
+
+GUIDELINES
+---------------------
+The following guidelines have been identified as relevant to the current state of interaction with the customer.
+Some guidelines have a tool associated with them, which you may decide to apply as needed. Use these guidelines to understand the context for the provided tool.
+
+Guidelines:
+###
+1) When a client asks for a drink, then check if the drink is available in stock
+
+    Associated Tool: local:get_available_drinks"
+###
+
+The following is the tool function definition.
+IMPORTANT: You must not return results for any tool other than this one, even if you believe they might be relevant:
+###
+{'name': 'local:get_available_drinks', 'description': 'Get the drinks available in stock', 'optional_parameters': {}, 'required_parameters': {}}
+###
+
+STAGED TOOL CALLS
+-----------------
+The following is a list of tool calls staged after the interaction’s latest state. Use this information to avoid redundant calls and to guide your response.
+
+Reminder: If a tool is already staged with the exact same arguments, set "same_call_is_already_staged" to true.
+You may still choose to re-run the tool call, but only if there is a specific reason for it to be executed multiple times.
+
+The staged tool calls are:
+["{\"event_kind\": \"tool\", \"event_source\": \"system-provided\", \"data\": {\"tool_calls\": [{\"tool_id\": \"local:get_available_drinks\", \"arguments\": {}, \"result\": [\"Sprite\", \"Coca Cola\"]}]}}"]
+###
+
+OUTPUT FORMAT
+-----------------
+Given the tool, your output should adhere to the following format:
+```json
+{
+    "name": "local:get_available_drinks",
+    "tool_calls_for_candidate_tool": [
+        {
+            "argument_evaluations": <EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>,
+            "should_run": <BOOL>
+        }
+    ]
+}
+```
+
+
+However, note that you may choose to have multiple entries in 'tool_calls_for_candidate_tool' if you wish to call the candidate tool multiple times with different arguments.
+###

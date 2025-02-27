@@ -1,0 +1,462 @@
+GENERAL INSTRUCTIONS
+-----------------
+In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
+Each guideline is composed of two parts:
+- "condition": This is a natural-language condition that specifies when a guideline should apply.
+          We look at each conversation at any particular state, and we test against this
+          condition to understand if we should have this guideline participate in generating
+          the next reply to the user.
+- "action": This is a natural-language instruction that should be followed by the agent
+          whenever the "condition" part of the guideline applies to the conversation in its particular state.
+          Any instruction described here applies only to the agent, and not to the user.
+
+
+Task Description
+----------------
+Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
+These conditions, along with the interaction details, will be provided later in this message.
+For each condition that is met, determine whether its corresponding action should be taken by the agent or if it has already been addressed previously.
+
+
+Process Description
+-------------------
+a. Examine Interaction Events: Review the provided interaction events to discern the most recent state of the interaction between the user and the agent.
+b. Evaluate Condition/s: Assess the entire interaction to determine whether each condition is still relevant and directly fulfilled based on the most recent interaction state.
+c. Check for Prior Action: Determine whether the condition has already been addressed, i.e., whether it applied in an earlier state and its corresponding action has already been performed.
+d. Guideline Application: A guideline should be applied only if:
+    (1) Its condition is currently met and its action has not been performed yet, or
+    (2) The interaction warrants re-application of its action (e.g., when a recurring condition becomes true again after previously being fulfilled).
+
+For each provided guideline, return:
+    (1) Whether its condition is fulfilled.
+    (2) Whether its action needs to be applied at this time. See the following section for more details.
+
+Insights Regarding Guideline re-activation
+-------------------
+A condition typically no longer applies if its corresponding action has already been executed.
+However, there are exceptions where re-application is warranted, such as when the condition is re-applied again. For example, a guideline with the condition "the customer is asking a question" should be applied again whenever the customer asks a question.
+Additionally, actions that involve continuous behavior (e.g., "do not ask the user for their age", or guidelines involving the language the agent should use) should be re-applied whenever their condition is met, even if their action was already taken.
+If a guideline's condition has multiple requirements, consider it continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and help them with their order" should be considered continuous, since 'helping them with their order' is continuous.
+Actions that forbid certain behaviors are generally considered continuous, as they must be upheld across multiple messages to ensure consistent adherence.
+
+IMPORTANT: guidelines that only require you to say a specific thing are generally not continuous. Once you said the required thing - the guideline is fulfilled.
+
+Conversely, actions dictating one-time behavior (e.g., "send the user our address") should be re-applied more conservatively.
+Only re-apply these if the condition ceased to be true earlier in the conversation before being fulfilled again in the current context.
+
+IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, treat the guideline as though it has been fully executed.
+In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is continuous.
+
+Examples of Condition Evaluations:
+-------------------
+
+Example #1: ###
+
+- **Interaction Events**:
+[
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Can I purchase a subscription to your software?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "Absolutely, I can assist you with that right now."
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Cool, let's go with the subscription for the Pro plan."
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "Your subscription has been successfully activated. Is there anything else I can help you with?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Will my son be able to see that I'm subscribed? Or is my data protected?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "If your son is not a member of your same household account, he won't be able to see your subscription. Please refer to our privacy policy page for additional up-to-date information."
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Gotcha, and I imagine that if he does try to add me to the household account he won't be able to see that there already is an account, right?"
+    }
+  }
+]
+
+
+- **Guidelines**:
+1) condition: the customer initiates a purchase., action: Open a new cart for the customer
+2) condition: the customer asks about data security, action: Refer the customer to our privacy policy page
+3) condition: the customer asked to subscribe to our pro plan, action: maintain a helpful tone and thank them for shopping at our store
+
+
+- **Expected Result**:
+
+```json
+{
+  "checks": [
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer initiates a purchase",
+      "condition_application_rationale": "The purchase-related guideline was initiated earlier, but is currently irrelevant since the customer completed the purchase and the conversation has moved to a new topic.",
+      "condition_applies": false,
+      "applies_score": 3
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer asks about data security",
+      "action": "Refer the customer to our privacy policy page",
+      "condition_application_rationale": "The customer specifically inquired about data security policies, making this guideline highly relevant to the ongoing discussion.",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "While the guideline previously applied to a *different question*, this is a subtly different question, effectively making it a new question, so the guideline needs to apply again for this new question",
+      "guideline_previously_applied_rationale": {
+        "REFER the customer to our privacy policy page": "While the customer has already asked a question to do with data security, and has been REFERRED to the privacy policy page, they now asked another question, so I should tell them once again to refer to the privacy policy page, perhaps stressing it more this time."
+      },
+      "guideline_previously_applied": "yes",
+      "guideline_should_reapply": true,
+      "applies_score": 9
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer asked to subscribe to our pro plan",
+      "action": "maintain a helpful tone and thank them for shopping at our store",
+      "condition_application_rationale": "The customer recently asked to subscribe to the pro plan. The conversation is beginning to drift elsewhere, but still deals with the pro plan",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "We're still dealing with the same current need and context",
+      "guideline_previously_applied_rationale": {
+        "MAINTAIN a helpful tone": "a helpful tone was MAINTAINED (i.e. held up)",
+        "THANK them for shopping at our store": "the agent didn't THANK (i.e. say 'thank you') the customer for shopping at our store, making the guideline partially fulfilled. By this, it should be treated as if it was fully followed"
+      },
+      "guideline_previously_applied": "partially",
+      "is_missing_part_cosmetic_or_functional": "cosmetic",
+      "guideline_should_reapply": false,
+      "applies_score": 6
+    }
+  ]
+}
+```
+
+###
+
+Example #2: ###
+
+- **Interaction Events**:
+[
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "I'm looking for a job, what do you have available?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "Hi there! we have plenty of opportunities for you, where are you located?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "I'm looking for anything around the bay area"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "That's great. We have a number of positions available over there. What kind of role are you interested in?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Anything to do with training and maintaining AI agents"
+    }
+  }
+]
+
+
+- **Guidelines**:
+1) condition: the customer indicates that they are looking for a job., action: ask the customer for their location
+2) condition: the customer asks about job openings., action: emphasize that we have plenty of positions relevant to the customer, and over 10,000 opennings overall
+3) condition: discussing job opportunities., action: maintain a positive, assuring tone
+
+
+- **Expected Result**:
+
+```json
+{
+  "checks": [
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer indicates that they are looking for a job.",
+      "action": "ask the customer for their location",
+      "condition_application_rationale": "The current discussion is about the type of job the customer is looking for",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "No new context here; the customer's location couldn't have changed so quickly",
+      "guideline_previously_applied_rationale": {
+        "ASK the customer for their location": "The agent ASKED for the customer's location earlier in the interaction. There is no need to ASK for it again, as it is already known."
+      },
+      "guideline_previously_applied": "fully",
+      "guideline_should_reapply": false,
+      "applies_score": 3
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer asks about job openings.",
+      "action": "emphasize that we have plenty of positions relevant to the customer, and over 10,000 openings overall",
+      "condition_application_rationale": "the customer asked about job openings, and the discussion still revolves around this request",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "No new context here",
+      "guideline_previously_applied_rationale": {
+        "EMPHASIZE we have plenty of relevant positions": "The agent already has EMPHASIZED (i.e. clearly stressed) that we have open positions",
+        "EMPHASIZE we have over 10,000 openings overall": "The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k opennings overall. The means the guideline partially applies and should be treated as if it was fully applied. However, since the customer is narrowing down their search, this point should be EMPHASIZED again to clarify that it still holds true."
+      },
+      "guideline_previously_applied": "partially",
+      "is_missing_part_cosmetic_or_functional": "functional",
+      "guideline_should_reapply": true,
+      "applies_score": 7
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "discussing job opportunities.",
+      "action": "maintain a positive, assuring tone",
+      "condition_application_rationale": "the discussion is about job opportunities that are relevant to the customer, so the condition applies.",
+      "condition_applies": true,
+      "guideline_is_continuous": true,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "This is a naturally continuous guideline, so the context is always considered 'new' as long as the condition applies",
+      "guideline_previously_applied_rationale": {
+        "MAINTAIN a positive, assuring tone": "The agent's tone is already MAINTAINED (i.e. held up) as positive. But since this action describes a continuous action, the guideline should be re-applied."
+      },
+      "guideline_previously_applied": "fully",
+      "guideline_should_reapply": true,
+      "applies_score": 9
+    }
+  ]
+}
+```
+
+###
+
+Example #3: ###
+
+- **Interaction Events**:
+[
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Hi there, what is the S&P500 trading at right now?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "Hello! It's currently priced at just about 6,000$."
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Better than I hoped. And what's the weather looking like today?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "It's 5 degrees Celsius in London today"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Bummer. Does S&P500 still trade at 6,000$ by the way?"
+    }
+  }
+]
+
+
+- **Guidelines**:
+1) condition: the customer asks about the value of a stock., action: provide the price using the 'check_stock_price' tool
+2) condition: the weather at a certain location is discussed., action: check the weather at that location using the 'check_weather' tool
+3) condition: the customer asked about the weather., action: provide the customre with the temperature and the chances of precipitation
+
+
+- **Expected Result**:
+
+```json
+{
+  "checks": [
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer asks about the value of a stock.",
+      "action": "provide the price using the 'check_stock_price' tool",
+      "condition_application_rationale": "The customer asked what does the S&P500 trade at",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "The agent previously PROVIDED the price, but that was several messages ago. The actual price may have driften since then.",
+      "guideline_previously_applied_rationale": {
+        "PROVIDE the price using the aforementioned tool": "Several messages ago, the agent previously PROVIDED (i.e. gave or reported) the price of that stock following the customer's question, but since the price might have changed since since those several exchanges between the agent and the customer, it should be checked and PROVIDED again."
+      },
+      "guideline_previously_applied": "fully",
+      "guideline_should_reapply": true,
+      "applies_score": 9
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the weather at a certain location is discussed.",
+      "condition_application_rationale": "while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
+      "condition_applies": false,
+      "applies_score": 3
+    },
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer asked about the weather.",
+      "action": "provide the customer with the temperature and the chances of precipitation",
+      "condition_application_rationale": "The customer asked about the weather earlier, though the conversation has somewhat moved on to a new topic",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "No new context; a weather prediction doesn't change so frequently as to require updating within 1 less than hour",
+      "guideline_previously_applied_rationale": {
+        "PROVIDE the temperature": "The action segment was fulfilled by PROVIDING (i.e. giving or reporting) the temperature",
+        "PROVIDE the changes of precipitation": "The agent did not PROVIDE (i.e. giving or reporting) the chances of precipitation. This means the guideline as a whole was only partially applied."
+      },
+      "guideline_previously_applied": "partially",
+      "is_missing_part_cosmetic_or_functional": "functional",
+      "guideline_should_reapply": false,
+      "applies_score": 5
+    }
+  ]
+}
+```
+
+###
+
+Example #4: ###
+
+- **Interaction Events**:
+[
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Hey there, I'd like to book an appointment please"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "ai_agent",
+    "data": {
+      "message": "Hi, sure thing. With whom and at what time?"
+    }
+  },
+  {
+    "event_kind": "message",
+    "event_source": "user",
+    "data": {
+      "message": "Great! With John D. please, thank you."
+    }
+  }
+]
+
+
+- **Guidelines**:
+1) condition: the customer wants to book an appointment, action: get the name of the person they want to meet and the time they want to meet them
+
+
+- **Expected Result**:
+
+```json
+{
+  "checks": [
+    {
+      "guideline_id": "<example-id-for-few-shots--do-not-use-this-in-output>",
+      "condition": "the customer wants to book an appointment",
+      "action": "get the name of the person they want to meet and the time they want to meet them",
+      "condition_application_rationale": "The customer has specifically asked to book an appointment",
+      "condition_applies": true,
+      "guideline_is_continuous": false,
+      "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true,
+      "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "No new context",
+      "guideline_previously_applied_rationale": {
+        "GET the name of the person they want to meet": "The action segment was fulfilled by GETTING (i.e. clarifying) the person's name",
+        "GET at what time they want to meet": "The agent did not yet GET (i.e clarify) the time of the appointment. This means the guideline as a whole was only partially applied."
+      },
+      "guideline_previously_applied": "partially",
+      "is_missing_part_cosmetic_or_functional": "functional",
+      "guideline_should_reapply": true,
+      "applies_score": 8
+    }
+  ]
+}
+```
+
+###
+
+The following is a list of events describing a back-and-forth
+interaction between you and a user: ###
+['{"event_kind": "message", "event_source": "user", "data": {"participant": "test_customer", "message": "Hey, can I order a large pepperoni pizza with Sprite?"}}']
+###
+
+Here are the most recent staged events for your reference.
+They represent interactions with external tools that perform actions or provide information.
+Prioritize their data over any other sources and use their details to complete your task: ###
+['{"event_kind": "tool", "event_source": "system-provided", "data": {"tool_calls": [{"tool_id": "local:get_available_drinks", "arguments": {}, "result": ["Sprite", "Coca Cola"]}]}}']
+###
+
+- Guidelines list: ###
+sgNOvixpuI) Condition: a client asks for a drink. Action: check if the drink is available in stock
+###
+
+IMPORTANT: Please note there are exactly 1 guidelines in the list for you to check.
+
+Expected Output
+---------------------------
+- Specify the applicability of each guideline by filling in the details in the following list as instructed
+    ```json
+    {
+        "checks":
+        [{"guideline_id": "sgNOvixpuI", "condition": "a client asks for a drink", "condition_application_rationale": "<Explanation for why the condition is or isn't met>", "condition_applies": "<BOOL>", "action": "check if the drink is available in stock", "guideline_is_continuous": "<BOOL: Optional, only necessary if guideline_previously_applied is true. Specifies whether the action is taken one-time, or is continuous>", "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": true, "guideline_previously_applied_rationale": {"<action_segment_1>": "<explanation of whether this action segment was already applied; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>", "<action_segment_N>": "<explanation...>"}, "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "<if the guideline DID previously apply, explain here whether or not it needs to re-apply due to it being applicable to new context or information>", "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was previously preformed>", "is_missing_part_cosmetic_or_functional": "<str: only included if guideline_previously_applied is 'partially'. Value is either 'cosmetic' or 'functional' depending on the nature of the missing segment.", "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>", "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>"}]
+    }
+    ```

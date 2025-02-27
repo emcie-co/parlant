@@ -3,7 +3,7 @@ FOR INSTALLATION INSTURCTIONS AND OTHER INFORMATION ABOUT PARLANT, VISIT OUR MAI
 
 SUPPLEMENTARY MATERIALS:
 All supplementary materials, including:
-- example prompts for ARQ, CoT and no reasoning (control) are available under supplementary_materials/prompts/
+- example prompts for ARQ, CoT and no reasoning (control) are available under supplementary_materials/prompts/. The prompts are the ones used for the test "Single tool get_available_drinks is being called once"
 - plots and figures are available under supplementary_materials/plots/
 
 

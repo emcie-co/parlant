@@ -33,7 +33,7 @@ export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: Se
 			<Button data-testid='cancel-delete' onClick={closeDialog} className='h-[46px] w-[96px] !bg-white text-[#656565] hover:text-[#151515] rounded-[6px] py-[12px] px-[24px] me-[10px] text-[16px] font-normal border'>
 				Cancel
 			</Button>
-			<Button data-testid='gradient-button' onClick={deleteClicked} className='h-[46px] w-[161px] bg-[#151515] hover:bg-black rounded-[6px] py-[10px] px-[29.5px] text-[15px] font-medium'>
+			<Button data-testid='gradient-button' onClick={deleteClicked} className='h-[46px] w-[161px] bg-green-main hover:bg-green-hover rounded-[6px] py-[10px] px-[29.5px] text-[15px] font-medium'>
 				Delete Session
 			</Button>
 		</div>

@@ -76,9 +76,9 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 	};
 
 	return (
-		<div className={twMerge('flex bg-[#F5F6F8] items-center filter-tabs border-b border-[#DBDCE0] min-h-[36px] max-h-[36px] overflow-x-auto overflow-y-hidden no-scrollbar', isEditing && 'border-[#ebecf0]')}>
+		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#DBDCE0] overflow-x-auto  overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
 			{filterTabs.map((tab: Filter, i: number) => (
-				<div className='border-e border-[#DBDCE0]' key={tab.id}>
+				<div className={twJoin('border border-[#DBDCE0] relative rounded-[6px]', tab.id === currFilterTabs && 'after:content-[""] after:absolute after:left-0 after:w-full after:h-[2px] after:bg-black after:-bottom-[7px]')} key={tab.id}>
 					<div
 						key={tab.id}
 						role='button'
@@ -87,7 +87,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 							setCurrFilterTabs(tab.id);
 						}}
 						className={twJoin(
-							'group flex min-h-[36px] max-w-[200px] max-h-[36px] justify-center leading-[18px] text-[15px] border border-transparent items-center ps-[8px] pe-[8px] p-[10px] border-e w-fit',
+							'group flex min-h-[28px] max-w-[200px] rounded-[6px] max-h-[28px] justify-center leading-[18px] text-[15px] border border-transparent items-center ps-[8px] pe-[8px] p-[10px] border-e w-fit',
 							tab.id === currFilterTabs && '!bg-white',
 							i === 0 && 'ps-[16px]',
 							tab.id === currFilterTabs && isEditing && 'border-b-black border-b-[2px] min-h-[28px] max-h-[28px] !border-[#151515] h-full rounded-[5px]'
@@ -117,7 +117,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 					</div>
 				</div>
 			))}
-			<div className='flex gap-[10px] ms-[6px] items-center rounded-[2px] p-[4px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] hover:bg-[#EBECF0]' role='button' onClick={addFilter}>
+			<div className='flex gap-[10px] ms-[6px] items-center rounded-[2px] p-[4px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] bg-white' role='button' onClick={addFilter}>
 				<Plus size={16} />
 			</div>
 		</div>

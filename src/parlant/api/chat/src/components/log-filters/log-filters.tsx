@@ -47,7 +47,7 @@ const FilterDialogContent = ({contentChanged, defaultValue}: {contentChanged: (t
 			</div>
 			<div className='buttons flex items-center gap-[16px] justify-end text-[16px] font-normal font-ubuntu-sans'>
 				<DialogClose className='h-[38px] w-[84px] !bg-white text-[#656565] hover:text-[#151515] rounded-[5px] border'>Cancel</DialogClose>
-				<DialogClose onClick={onApplyClick} className='bg-[#151515] text-white h-[38px] w-[79px] hover:bg-black rounded-[5px]'>
+				<DialogClose onClick={onApplyClick} className='bg-green-main text-white h-[38px] w-[79px] hover:bg-green-hover rounded-[5px]'>
 					Apply
 				</DialogClose>
 			</div>
@@ -156,6 +156,7 @@ const LogFilters = ({
 				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-[#F5F6F8] hover:bg-white border-[#A9A9A9] hover:border-[#D7D7D7] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
 					<div
 						className={twMerge('flex items-center justify-center max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[14px] pe-[6px] gap-[8px] bg-white group-hover:bg-[#F5F6F8] border border-[#D7D7D7] group-hover:border-[#A9A9A9]', className)}>
+						<img src='icons/text.svg' alt='' />
 						<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
 						<X
 							role='button'

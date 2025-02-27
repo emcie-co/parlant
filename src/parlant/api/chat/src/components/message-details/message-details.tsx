@@ -117,7 +117,7 @@ const MessageDetails = ({
 					{isError && <MessageError event={event} />}
 				</ResizablePanel>
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
-				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white ps-[10px]'>
+				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
 					<div className='flex justify-between items-center h-[38px] p-[10px]'>
 						<div>Logs</div>
@@ -143,7 +143,11 @@ const MessageDetails = ({
 						<EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." wrapperClassName='bg-[#f5f6f8]' className={twJoin(isError && 'translate-y-[0px]')} />
 					)}
 					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
-					{event && !!filteredLogs.length && <MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />}
+					{event && !!filteredLogs.length && (
+						<div className='ps-[10px]'>
+							<MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />
+						</div>
+					)}
 				</ResizablePanel>
 			</ResizablePanelGroup>
 		</div>

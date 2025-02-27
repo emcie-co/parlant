@@ -296,7 +296,7 @@ export default function SessionView(): ReactElement {
 						/>
 					</div> */}
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent className='left-[unset] h-full right-0 bg-white' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
+						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F]' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
 							<DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>
 								<DrawerDescription hidden></DrawerDescription>

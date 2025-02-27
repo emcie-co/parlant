@@ -244,7 +244,7 @@ export default function SessionView(): ReactElement {
 											isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 											isRegenerateHidden={!!isMissingAgent}
 											event={event}
-											isContinual={event.source === visibleMessages[i + 1]?.source}
+											isContinual={event.source === visibleMessages[i - 1]?.source}
 											regenerateMessageFn={regenerateMessageDialog(i)}
 											resendMessageFn={resendMessageDialog(i)}
 											showLogsForMessage={showLogsForMessage}
@@ -253,20 +253,10 @@ export default function SessionView(): ReactElement {
 									</div>
 								</React.Fragment>
 							))}
-							{(showTyping || showThinking) && (
-								<div className='animate-fade-in flex mb-1 justify-between mt-[44.33px]'>
-									<Spacer />
-									<div className='flex items-center max-w-[1200px] flex-1'>
-										<ProgressImage phace={showThinking ? 'thinking' : 'typing'} />
-										<p className='font-medium text-[#A9AFB7] text-[11px] font-inter'>{showTyping ? 'Typing...' : 'Thinking...'}</p>
-									</div>
-									<Spacer />
-								</div>
-							)}
 						</div>
 						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 							<Spacer />
-							<div className='group border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] relative mb-[26px] hover:bg-main'>
+							<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] mb-[26px] hover:bg-main'>
 								<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
 								<Textarea
 									role='textbox'
@@ -278,10 +268,16 @@ export default function SessionView(): ReactElement {
 									rows={1}
 									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 								/>
+								{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[22px] font-medium text-[#A9AFB7] text-[11px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
 								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 								</Button>
 							</div>
+							<Spacer />
+						</div>
+						<div className='w-full'>
+							<Spacer />
+							<div></div>
 							<Spacer />
 						</div>
 					</div>

@@ -89,7 +89,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								onClick={() => showLogs(event)}
 								className={twMerge(
 									'bg-green-light border-[2px] hover:bg-[#F5F9F3] text-black border-transparent cursor-pointer',
-									isViewingCurrentMessage && 'bg-white border border-[#F2F2F2] [box-shadow:0px_3px_3px_0px_#00000005]',
+									isViewingCurrentMessage && '!bg-white hover:!bg-white border border-[#F2F2F2] [box-shadow:0px_3px_3px_0px_#00000005]',
 									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
 									'max-w-fit peer w-fit flex items-center relative',
 									isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'

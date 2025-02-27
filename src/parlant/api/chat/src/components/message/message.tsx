@@ -36,7 +36,7 @@ const statusIcon = {
 	cancelled: <img src='icons/green-v.svg' title='canceled' data-testid='cancelled' height={11} width={11} className='ms-[4px]' alt='read' />,
 };
 
-const MessageBubble = ({event, isFirstMessageInDate, showLogs, showLogsForMessage, setIsEditing}: Props) => {
+const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, showLogsForMessage, setIsEditing}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
@@ -87,15 +87,9 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, showLogsForMessag
 								tabIndex={0}
 								data-testid='message'
 								onClick={() => showLogs(event)}
-								style={{
-									background: isViewingCurrentMessage ? colorPallete?.background : '',
-									borderColor: isViewingCurrentMessage ? colorPallete?.agentName : '',
-								}}
 								className={twMerge(
-									'bg-[#F6F6F6] border-[2px] border-transparent',
-									isCustomer && 'text-black hover:bg-[#F5F6F8] cursor-pointer',
-									isCustomer && showLogsForMessage && showLogsForMessage.id !== event.id && 'bg-opacity-[0.33]',
-									!isCustomer && ' hover:bg-[#F5F6F8] cursor-pointer',
+									'bg-green-light border-[2px] hover:bg-[#F5F9F3] text-black border-transparent cursor-pointer',
+									isViewingCurrentMessage && 'bg-white border border-[#F2F2F2] [box-shadow:0px_3px_3px_0px_#00000005]',
 									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
 									'max-w-fit peer w-fit flex items-center relative',
 									isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'

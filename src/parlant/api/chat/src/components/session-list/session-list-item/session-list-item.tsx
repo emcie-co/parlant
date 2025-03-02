@@ -8,13 +8,13 @@ import {SessionInterface} from '@/utils/interfaces';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
-import AgentAvatar from '../../agent-avatar/agent-avatar';
 import {NEW_SESSION_ID} from '../../chat-header/chat-header';
 import {spaceClick} from '@/utils/methods';
 import {twJoin} from 'tailwind-merge';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import {copy} from '@/lib/utils';
+import Avatar from '@/components/avatar/avatar';
 
 interface Props {
 	session: SessionInterface;
@@ -185,7 +185,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				{editingTitle !== session.id && (
 					<div className='overflow-visible overflow-ellipsis flex items-center'>
 						<div>
-							<AgentAvatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}} />
+							<Avatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}} />
 						</div>
 						<div className={twJoin(!agent && 'opacity-50')}>
 							{session.title}
@@ -199,7 +199,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				)}
 				{editingTitle === session.id && (
 					<div className='flex items-center ps-[6px]'>
-						<div>{agent && <AgentAvatar agent={agent} />}</div>
+						<div>{agent && <Avatar agent={agent} />}</div>
 						<Input data-testid='sessionTitle' ref={sessionNameRef} onKeyUp={onInputKeyUp} onClick={(e) => e.stopPropagation()} defaultValue={session.title} className='box-shadow-none border-none bg-[#F5F6F8] text-foreground h-fit p-1 ms-[6px]' />
 					</div>
 				)}

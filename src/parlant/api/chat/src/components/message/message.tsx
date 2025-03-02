@@ -9,7 +9,7 @@ import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
 import {useAtom} from 'jotai';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
-import {getAvatarColor} from '../agent-avatar/agent-avatar';
+import {getAvatarColor} from '../avatar/avatar';
 import {timeAgo} from '@/lib/utils';
 
 interface Props {

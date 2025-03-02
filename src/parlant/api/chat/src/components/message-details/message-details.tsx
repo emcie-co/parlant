@@ -144,7 +144,7 @@ const MessageDetails = ({
 					)}
 					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
 					{event && !!filteredLogs.length && (
-						<div className='ps-[10px]'>
+						<div className='ps-[10px] overflow-auto h-[-webkit-fill-available]'>
 							<MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />
 						</div>
 					)}

@@ -8,7 +8,7 @@ interface Props {
 
 const MessageLogs = ({messagesRef, filteredLogs}: Props) => {
 	return (
-		<div className='p-[6px] bg-green-light overflow-hidden h-[-webkit-fill-available]'>
+		<div className='p-[6px] bg-green-light overflow-hidden h-full'>
 			<div className='pt-0 flex-1 border bg-white h-full'>
 				<div className='flex items-center min-h-[48px] text-[14px] font-medium border-b'>
 					<div className='w-[86px] border-e min-h-[48px] flex items-center ps-[10px] pt-[8px]'>Level</div>

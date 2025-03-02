@@ -24,7 +24,7 @@ export const getAvatarColor = (agentId: string) => {
 	return colors[hash % colors.length];
 };
 
-const AgentAvatar = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
+const Agent = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
 	const agentColor = getAvatarColor(agent.id);
 	const customerColor = customer && getAvatarColor(customer.id);
 	const isAgentUnavailable = agent?.name === 'N/A';
@@ -59,4 +59,4 @@ const AgentAvatar = ({agent, customer, tooltip = true, asCustomer = false}: Prop
 	);
 };
 
-export default AgentAvatar;
+export default Agent;

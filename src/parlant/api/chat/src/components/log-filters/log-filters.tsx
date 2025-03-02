@@ -146,7 +146,7 @@ const LogFilters = ({
 		text: string;
 		index: number;
 		apply?: boolean;
-		deleted?: (content: string[]) => void;
+		deleted?: () => void;
 		className?: ClassNameValue;
 		wrapperClassName?: ClassNameValue;
 		deleteButtonClassName?: ClassNameValue;
@@ -165,12 +165,12 @@ const LogFilters = ({
 								className={twMerge('invisible min-w-[18px] size-[18px] group-hover:visible rounded-[3px]', deleteButtonClassName)}
 								onClick={(e) => {
 									e.stopPropagation();
-									const content = contentConditions?.filter((_, i) => i !== index);
+									const newContentConditions = contentConditions?.filter((_, i) => i !== index);
 									if (apply) {
-										setContentConditions(content);
-										applyFn(sources, level, content);
+										setContentConditions(newContentConditions);
+										applyFn(sources, level, newContentConditions);
 									}
-									deleted?.(content);
+									deleted?.();
 								}}
 							/>
 						)}
@@ -224,7 +224,7 @@ const LogFilters = ({
 						</Button>
 					)}
 				</div>
-				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[218px] z-10 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
+				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[218px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
 					<div className='flex justify-between items-center'>
 						<div className='flex items-center gap-[6px] h-[35px] px-[14px]'>
 							{/* <ListFilter className='[stroke-width:2px] size-[16px]' /> */}
@@ -261,7 +261,7 @@ const LogFilters = ({
 									text={item}
 									index={i}
 									apply={false}
-									deleted={(content) => setContent(content)}
+									deleted={() => setContent(content.filter((c, index) => index !== i))}
 									wrapperClassName='w-full !border-0 bg-[#F5F6F8] hover:bg-[#EBECF0]'
 									className='justify-between !border-0 bg-[#F5F6F8] group-hover:bg-[#EBECF0]'
 									deleteButtonClassName='visible'

@@ -44,7 +44,7 @@ export default function SessionList({filterSessionVal}: {filterSessionVal: strin
 	}, [filterSessionVal, sessions]);
 
 	return (
-		<div className='flex flex-col items-center h-[calc(100%-58px)] border-e '>
+		<div className='flex flex-col items-center h-[calc(100%-68px)] border-e '>
 			<div data-testid='sessions' className='bg-white px-[12px] flex-1 justify-center w-[352px] overflow-auto rounded-es-[16px] rounded-ee-[16px]'>
 				{loading && !sessions?.length && <div>loading...</div>}
 				<VirtualScroll height='80px' className='flex flex-col-reverse'>

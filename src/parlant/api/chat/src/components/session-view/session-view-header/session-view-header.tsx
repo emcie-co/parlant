@@ -11,7 +11,7 @@ const SessoinViewHeader = () => {
 	const [session] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
-	console.log('dsds');
+
 	return (
 		<HeaderWrapper className={twJoin('border-e')}>
 			{session?.id && (

@@ -183,7 +183,7 @@ export default function SessionView(): ReactElement {
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
 		const {customer_id, title} = newSession;
-		return postData('sessions?allow_greeting=true', {customer_id, agent_id: agent?.id, title} as object)
+		return postData('sessions?allow_greeting=false', {customer_id, agent_id: agent?.id, title} as object)
 			.then((res: SessionInterface) => {
 				if (newSession) {
 					setSession(res);

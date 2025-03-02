@@ -78,7 +78,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 	return (
 		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#DBDCE0] overflow-x-auto  overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
 			{filterTabs.map((tab: Filter, i: number) => (
-				<div className={twJoin('border border-[#DBDCE0] relative rounded-[6px]', tab.id === currFilterTabs && 'after:content-[""] after:absolute after:left-0 after:w-full after:h-[2px] after:bg-black after:-bottom-[7px]')} key={tab.id}>
+				<div className={twJoin('border border-[#EEEEEE] relative rounded-[6px]', tab.id === currFilterTabs && 'after:content-[""] after:absolute after:left-0 after:w-full after:h-[2px] after:bg-black after:-bottom-[7px]')} key={tab.id}>
 					<div
 						key={tab.id}
 						role='button'

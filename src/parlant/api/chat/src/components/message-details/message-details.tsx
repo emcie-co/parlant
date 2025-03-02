@@ -119,19 +119,22 @@ const MessageDetails = ({
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
 				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
-					<div className='flex justify-between items-center h-[38px] p-[10px]'>
+					<div className='flex justify-between items-center h-[38px] p-[10px] pe-0'>
 						<div>Logs</div>
-						<LogFilters
-							showDropdown
-							filterId={currFilterTabs || undefined}
-							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
-							applyFn={(types, level, content) => setFilters({types, level, content})}
-						/>
+						{!shouldRenderTabs && (
+							<LogFilters
+								showDropdown
+								filterId={currFilterTabs || undefined}
+								def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
+								applyFn={(types, level, content) => setFilters({types, level, content})}
+							/>
+						)}
 					</div>
 					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
-					{event && !!logs?.length && (
+					{event && !!logs?.length && shouldRenderTabs && (
 						<LogFilters
 							showTags
+							showDropdown
 							className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}
 							filterId={currFilterTabs || undefined}
 							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}

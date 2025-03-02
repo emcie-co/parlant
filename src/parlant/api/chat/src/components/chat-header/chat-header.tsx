@@ -54,17 +54,20 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 					<Input onChange={(e) => setFilterSessionVal(e.target.value)} className='!ring-0 !ring-offset-0 h-[38px] w-[250px] ps-[35px] rounded-[10px]' />
 				</div>
 				<div className='group ms-[8px]'>
-					<Tooltip value='New Session' side='right'>
-						<div
+					<Tooltip value='New Session' side='right' className='group'>
+						{/* <div
 							tabIndex={1}
 							role='button'
 							onKeyDown={spaceClick}
 							onClick={createNewSession}
-							className='hover:bg-[#F3F5F9] w-[70px] cursor-pointer py-[9px] h-[38px] ps-[12px] rounded-[10px] shadow-main
- border hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'>
-							<img src='icons/new-session.svg' alt='add session' height={15} width={15} className='cursor-pointer' />
-							<div className='font-medium text-[14px]'>New</div>
-						</div>
+							className='hover:bg-[#F3F5F9] w-[70px] cursor-pointer py-[9px] h-[38px] ps-[12px] rounded-[10px] shadow-main */}
+						{/* border hover:border-[#E9EBEF] pe-[8px] flex items-center gap-[4px]'> */}
+						<>
+							<img src='buttons/new-session.svg' alt='add session' className='cursor-pointer group-hover:hidden' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
+							<img src='buttons/new-session-hover.svg' alt='add session' className='cursor-pointer hidden group-hover:block' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
+						</>
+						{/* <div className='font-medium text-[14px]'>New</div> */}
+						{/* </div> */}
 					</Tooltip>
 				</div>
 			</div>

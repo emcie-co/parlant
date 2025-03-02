@@ -255,7 +255,7 @@ export default function SessionView(): ReactElement {
 						</div>
 						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 							<Spacer />
-							<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1200px] mb-[26px] hover:bg-main'>
+							<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
 								<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
 								<Textarea
 									role='textbox'

@@ -50,7 +50,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 
 	return (
 		<>
-			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
+			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1000px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
 				<div className='relative'>
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
@@ -81,7 +81,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								onClick={() => showLogs(event)}
 								className={twMerge(
 									'bg-green-light border-[2px] hover:bg-[#F5F9F3] text-black border-transparent cursor-pointer',
-									isViewingCurrentMessage && '!bg-white hover:!bg-white border border-[#F2F2F2] shadow-main',
+									isViewingCurrentMessage && '!bg-white hover:!bg-white border border-[#EEEEEE] shadow-main',
 									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
 									'max-w-fit peer w-fit flex items-center relative',
 									event?.serverStatus === 'pending' && 'opacity-50',
@@ -139,7 +139,7 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 			<div
 				className={twMerge(
 					'group/main flex my-[12px] mx-0 mb-1 w-full justify-between animate-fade-in scrollbar',
-					isEditing && 'flex-1 flex justify-start max-w-[1200px] items-end w-[calc(100%-412px)] max-[2100px]:w-[calc(100%-200px)] self-end max-[1700px]:w-[calc(100%-40px)]'
+					isEditing && 'flex-1 flex justify-start max-w-[1000px] items-end w-[calc(100%-412px)] max-[2100px]:w-[calc(100%-200px)] self-end max-[1700px]:w-[calc(100%-40px)]'
 				)}>
 				{isEditing ? (
 					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />

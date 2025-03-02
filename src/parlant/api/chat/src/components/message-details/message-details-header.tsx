@@ -25,7 +25,7 @@ const MessageDetailsHeader = ({
 	return (
 		<HeaderWrapper className={twMerge('static bg-[#FBFBFB]', !event && '!border-transparent bg-[#f5f6f8]', className)}>
 			{event && (
-				<div className={twMerge('flex items-center justify-between w-full pe-[20px]')}>
+				<div className={twMerge('flex items-center justify-between w-full pe-[12px]')}>
 					<div className='flex ps-[16px]'>
 						<div role='button' className='p-[5px] pe-[10px]' onClick={() => closeLogs?.()}>
 							<X height={20} width={20} />

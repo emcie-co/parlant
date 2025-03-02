@@ -22,9 +22,9 @@ const typeLabels: Record<Type, string> = {
 
 const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
 	return (
-		<div className={twMerge('group cursor-pointer bg-[#F5F6F8] hover:bg-[#EBECF0] h-[30px] rounded-[3px] flex items-center w-full', className)}>
-			<div className='flex items-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px] gap-[8px]'>
-				<Plus role='button' className='min-w-[18px] size-[18px] rounded-[3px]' />
+		<div className={twMerge('group cursor-pointer bg-white border-[#eeeeee] hover:bg-[#F3F5F9] hover:border-[#E4E6EA] border h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
+			<div className='flex items-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
+				<p className='me-[2px]'>+</p>
 				<p className='text-nowrap font-normal text-[14px]'>Add Custom Filter</p>
 			</div>
 		</div>
@@ -215,16 +215,16 @@ const LogFilters = ({
 		return (
 			<div className='wrapper relative' ref={wrapperRef}>
 				<div>
-					{!def?.types?.length || true ? (
-						<div onClick={() => setDropdownOpen(true)} role='button' className={twMerge('flex bg-[#EDEDED] hover:bg-[#F5F6F8] rounded-[5px] items-center gap-[6px] max-h-[38px] h-[38px] w-[73px] min-w-max px-[14px]', dropdownOpen && 'bg-[#CDCDCD]')}>
-							<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
-							<p className='text-[14px] font-medium'>Filters</p>
-						</div>
-					) : (
-						<Button onClick={() => setDropdownOpen(true)} variant='ghost' className={twMerge('flex bg-[#EDEDED] hover:bg-[#F5F6F8] items-center gap-[6px] w-[32px] h-[30px] p-0', dropdownOpen && 'bg-[#CDCDCD]')}>
-							<img src='icons/filter.svg' alt='' />
-						</Button>
-					)}
+					<div
+						onClick={() => setDropdownOpen(true)}
+						role='button'
+						className={twMerge(
+							'flex bg-white border-[#eeeeee] hover:border-[#E4E6EA] border hover:bg-[#F3F5F9] rounded-[6px] shadow-main items-center gap-[6px] max-h-[38px] h-[38px] w-[73px] min-w-max ps-[12px] pe-[8px]',
+							dropdownOpen && 'bg-white border-transparent [box-shadow:0px_0px_3px_0px_#0000005E_inset]'
+						)}>
+						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
+						<p className='text-[14px] font-medium'>Filters</p>
+					</div>
 				</div>
 				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[218px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
 					<div className='flex justify-between items-center'>
@@ -239,7 +239,7 @@ const LogFilters = ({
 					<hr className='bg-[#EBECF0]' />
 					<div className='flex flex-col gap-[4px] mt-[9px] pb-[11px] px-[8px]'>
 						{ALL_TYPES.map((type) => (
-							<div key={type} className={twMerge('flex items-center py-[4px] ps-[6px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
+							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
 								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
 								<label className='text-[12px] font-normal w-full cursor-pointer' htmlFor={type}>
 									{typeLabels[type]}
@@ -276,8 +276,8 @@ const LogFilters = ({
 						<FilterDialog contentChanged={(inputVal) => setContent((val) => [...val, inputVal])} />
 					</div>
 					<hr className='bg-[#EBECF0]' />
-					<div className='buttons flex items-center h-[47px] p-[6px]'>
-						<Button onClick={() => applyFn([], 'DEBUG', [])} variant='ghost' className='flex-1 text-[12px] hover:text-[#151515] hover:bg-transparent font-normal text-[#656565] h-[35px] w-[95px]'>
+					<div className='buttons flex gap-[8px] items-center h-[47px] p-[6px]'>
+						<Button onClick={() => applyFn([], 'DEBUG', [])} variant='ghost' className='flex-1 text-[12px] bg-[#FAFAFA] hover:text-[#151515] hover:bg-transparent font-normal text-[#656565] h-[35px] w-[95px]'>
 							Clear all
 						</Button>
 						<Button
@@ -286,7 +286,7 @@ const LogFilters = ({
 								applyFn(sources, level, content);
 								setDropdownOpen(false);
 							}}
-							className='flex-1 text-[12px] font-normal !text-white bg-green-main hover:bg-[#005C3F] h-[35px] w-[95px]'>
+							className='flex-1 ps-[12px] pe-[10px] text-[12px] font-normal !text-white bg-green-main hover:bg-[#005C3F] w-fit max-w-fit h-[35px]'>
 							Apply
 						</Button>
 					</div>

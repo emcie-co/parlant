@@ -95,6 +95,7 @@ module.exports = {
 				'ubuntu-sans': 'Ubuntu Sans',
 				'ubuntu-mono': 'Ubuntu Mono',
 				inter: 'inter',
+				'ibm-plex-mono': 'IBM Plex Mono',
 			},
 		},
 	},

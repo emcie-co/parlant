@@ -1,5 +1,5 @@
 import {getDateStr} from '@/utils/date';
-import {ReactElement} from 'react';
+import {memo, ReactElement} from 'react';
 import {twMerge} from 'tailwind-merge';
 
 const DateHeader = ({date, isFirst, bgColor}: {date: string | Date; isFirst: boolean; bgColor?: string}): ReactElement => {
@@ -12,4 +12,4 @@ const DateHeader = ({date, isFirst, bgColor}: {date: string | Date; isFirst: boo
 	);
 };
 
-export default DateHeader;
+export default memo(DateHeader);

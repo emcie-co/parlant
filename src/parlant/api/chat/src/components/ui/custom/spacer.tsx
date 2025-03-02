@@ -1,5 +1,7 @@
-import {ReactElement} from 'react';
+import {memo, ReactElement} from 'react';
 
-export const Spacer = (): ReactElement => {
+const Spacer = (): ReactElement => {
 	return <div className='w-[24px]'></div>;
 };
+
+export default memo(Spacer);

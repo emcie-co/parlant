@@ -4,12 +4,14 @@ import CopyText from '@/components/ui/custom/copy-text';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
 import {AgentInterface} from '@/utils/interfaces';
 import {useAtom} from 'jotai';
+import {memo} from 'react';
 import {twJoin} from 'tailwind-merge';
 
 const SessoinViewHeader = () => {
 	const [session] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
+	console.log('dsds');
 	return (
 		<HeaderWrapper className={twJoin('border-e')}>
 			{session?.id && (
@@ -37,4 +39,4 @@ const SessoinViewHeader = () => {
 		</HeaderWrapper>
 	);
 };
-export default SessoinViewHeader;
+export default memo(SessoinViewHeader);

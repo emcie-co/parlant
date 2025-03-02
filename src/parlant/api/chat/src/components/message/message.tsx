@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import {memo, ReactElement, useEffect, useRef, useState} from 'react';
 import {EventInterface} from '@/utils/interfaces';
-import {Spacer} from '../ui/custom/spacer';
+import Spacer from '../ui/custom/spacer';
 import {twJoin, twMerge} from 'tailwind-merge';
 import Markdown from '../markdown/markdown';
 import Tooltip from '../ui/custom/tooltip';

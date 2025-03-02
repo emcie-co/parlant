@@ -68,12 +68,13 @@ const MessageDetails = ({
 	}, [event?.id]);
 
 	useEffect(() => {
+		const hasFilters = Object.keys(filters).length;
 		if (logs) {
-			if (!Object.keys(filters).length) setFilteredLogs(logs);
+			if (!hasFilters) setFilteredLogs(logs);
 			else {
 				setFilteredLogs(getMessageLogsWithFilters(event?.correlation_id as string, filters as {level: string; types?: string[]; content?: string[]}));
 				(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
-					if (!tabFilters.length) {
+					if (!tabFilters.length && hasFilters) {
 						const filter = {id: Date.now(), def: filters, name: 'Logs'};
 						setCurrFilterTabs(filter.id);
 						return [filter];
@@ -110,7 +111,7 @@ const MessageDetails = ({
 				closeLogs={closeLogs}
 				resendMessageFn={resendMessageFn}
 				regenerateMessageFn={regenerateMessageFn}
-				className={twJoin(event && logs && !logs?.length && 'bg-white', Object.keys(filters).length ? 'border-[#DBDCE0]' : '')}
+				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters).length ? 'border-[#F3F5F9]' : '')}
 			/>
 			<ResizablePanelGroup direction='vertical' className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 				<ResizablePanel ref={resizableRef} minSize={0} maxSize={isError ? 99 : 0} defaultSize={isError ? 50 : 0}>
@@ -119,8 +120,8 @@ const MessageDetails = ({
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
 				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
-					<div className='flex justify-between items-center h-[38px] p-[10px] pe-0'>
-						<div>Logs</div>
+					<div className='flex justify-between items-center min-h-[58px] h-[58px] p-[10px] pb-[4px] pe-0'>
+						<div className='ps-[14px]'>Logs</div>
 						{!shouldRenderTabs && (
 							<LogFilters
 								showDropdown

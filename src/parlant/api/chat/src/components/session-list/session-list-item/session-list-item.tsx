@@ -181,15 +181,15 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				(disabled ? ' pointer-events-none' : '') +
 				(isDeleting ? 'opacity-[33%]' : '')
 			}>
-			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[202px] ms-[16px] h-[48px]'>
+			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[210px] ms-[16px] h-[48px]'>
 				{editingTitle !== session.id && (
 					<div className='overflow-visible overflow-ellipsis flex items-center'>
 						<div>
 							<Avatar agent={agent || {id: '', name: 'N/A'}} customer={customer || {id: '', name: 'N/A'}} />
 						</div>
-						<div className={twJoin(!agent && 'opacity-50')}>
+						<div className={twJoin(!agent && 'opacity-50', 'ms-[4px] text-[15px]')}>
 							{session.title}
-							<small className='text-[12px] text-[#A9A9A9] font-light flex gap-[6px]'>
+							<small className='text-[13px] text-[#A9A9A9] -mb-[7px] font-light flex gap-[6px]'>
 								{getDateStr(session.creation_utc)}
 								<img src='icons/dot-saparetor.svg' alt='' height={18} width={3} />
 								{getTimeStr(session.creation_utc)}
@@ -204,11 +204,11 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 					</div>
 				)}
 			</div>
-			<div className='h-[39px] flex items-center'>
+			<div className='h-[39px] flex items-start'>
 				{!disabled && editingTitle !== session.id && (
 					<DropdownMenu>
 						<DropdownMenuTrigger disabled={!!editingTitle} className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-							<div tabIndex={tabIndex} role='button' className='rounded-full me-[24px]' onClick={(e) => e.stopPropagation()}>
+							<div tabIndex={tabIndex} role='button' className='rounded-full me-[14px]' onClick={(e) => e.stopPropagation()}>
 								<img src='icons/more.svg' alt='more' height={14} width={14} />
 							</div>
 						</DropdownMenuTrigger>

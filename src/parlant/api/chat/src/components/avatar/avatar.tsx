@@ -14,21 +14,32 @@ interface Props {
 interface Color {
 	text: string;
 	background: string;
+	outerBackground: string;
+	iconBackground?: string;
+	iconText?: string;
 }
 
+const colors = {
+	green: {dark: 'rgb(80 130 1)', light: 'rgb(80 130 1 / 10%)', extraLight: 'rgb(80 130 1 / 5%)'},
+	purple: {dark: 'rgb(85 1 104)', light: 'rgb(85 1 104 / 10%)', extraLight: 'rgb(85 1 104 / 5%)'},
+	pink: {dark: 'rgb(155 3 95)', light: 'rgb(155 3 95 / 10%)', extraLight: 'rgb(155 3 95 / 5%)'},
+	orange: {dark: 'rgb(183 99 0)', light: 'rgb(183 99 0 / 10%)', extraLight: 'rgb(183 99 0 / 5%)'},
+	blue: {dark: 'rgb(46 128 108)', light: 'rgb(46 128 108 / 10%)', extraLight: 'rgb(46 128 108 / 5%)'},
+};
+
 const agentColors: Color[] = [
-	{text: '#649614', background: '#B4E64A1A'},
-	{text: '#69157C', background: '#B965CC1A'},
-	{text: '#AF1873', background: '#FF68C31A'},
-	{text: '#CB7714', background: '#FFB8001A'},
-	{text: '#419480', background: '#87DAC61A'},
+	{text: 'white', background: colors.green.dark, outerBackground: colors.green.light},
+	{text: 'white', background: colors.purple.dark, outerBackground: colors.purple.light},
+	{text: 'white', background: colors.pink.dark, outerBackground: colors.pink.light},
+	{text: 'white', background: colors.orange.dark, outerBackground: colors.orange.light},
+	{text: 'white', background: colors.blue.dark, outerBackground: colors.blue.light},
 ];
 const customerColors: Color[] = [
-	{text: 'white', background: '#508200'},
-	{text: 'white', background: '#550168'},
-	{text: 'white', background: '#9B045F'},
-	{text: 'white', background: '#B76300'},
-	{text: 'white', background: '#2D806C'},
+	{iconBackground: colors.green.dark, background: colors.green.light, text: colors.green.dark, outerBackground: colors.green.extraLight},
+	{iconBackground: colors.purple.dark, background: colors.purple.light, text: colors.purple.dark, outerBackground: colors.purple.extraLight},
+	{iconBackground: colors.pink.dark, background: colors.pink.light, text: colors.pink.dark, outerBackground: colors.pink.extraLight},
+	{iconBackground: colors.orange.dark, background: colors.orange.light, text: colors.orange.dark, outerBackground: colors.orange.extraLight},
+	{iconBackground: colors.blue.dark, background: colors.blue.light, text: colors.blue.dark, outerBackground: colors.blue.extraLight},
 ];
 
 export const getAvatarColor = (id: string, type: 'agent' | 'customer') => {
@@ -37,7 +48,7 @@ export const getAvatarColor = (id: string, type: 'agent' | 'customer') => {
 	return palette[hash % palette.length];
 };
 
-const Agent = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
+const Avatar = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
 	const agentColor = getAvatarColor(agent.id, asCustomer ? 'customer' : 'agent');
 	const customerColor = customer && getAvatarColor(customer.id, 'customer');
 	const isAgentUnavailable = agent?.name === 'N/A';
@@ -51,9 +62,9 @@ const Agent = ({agent, customer, tooltip = true, asCustomer = false}: Props): Re
 	return (
 		<Tooltip value={`${agent.name} / ${!customer?.name || isGuest ? 'Guest' : customer.name}`} side='right' style={style}>
 			<div className='relative'>
-				<div className='size-[44px] rounded-[6.5px] flex me-[10px] items-center justify-center' style={{background: agentColor.background}}>
+				<div className={twMerge('size-[44px] rounded-[8px] flex me-[14px] items-center justify-center', agent && customer && 'size-[38px]')} style={{background: agent && customer ? '' : agentColor.outerBackground}}>
 					<div
-						style={{background: customer ? '' : agentColor.background, color: asCustomer ? 'white' : agentColor.text}}
+						style={{background: agentColor.background, color: agentColor.text}}
 						aria-label={'agent ' + agent.name}
 						className={twMerge('size-[36px] rounded-[5px] flex items-center justify-center text-white text-[20px] font-semibold', isAgentUnavailable && 'text-[14px] !bg-gray-300')}>
 						{isAgentUnavailable ? 'N/A' : agentFirstLetter}
@@ -61,9 +72,9 @@ const Agent = ({agent, customer, tooltip = true, asCustomer = false}: Props): Re
 				</div>
 				{agent && customer && (
 					<div
-						style={{background: customerColor?.background, color: customerColor?.text}}
+						style={{background: customerColor?.iconBackground, color: 'white'}}
 						aria-label={'customer ' + customer.name}
-						className={twMerge('absolute me-[3px] size-[16px] rounded-[3.75px] flex items-center justify-center text-white text-[12px] font-semibold bottom-[2px] right-[5px] z-10', isCustomerUnavailable && 'text-[8px] !bg-gray-300')}>
+						className={twMerge('absolute me-[3px] border border-white size-[18px] rounded-[4px] flex items-center justify-center text-white text-[12px] font-normal -bottom-[3px] right-[1px] z-10', isCustomerUnavailable && 'text-[8px] !bg-gray-300')}>
 						{isCustomerUnavailable ? 'N/A' : customerFirstLetter}
 					</div>
 				)}
@@ -72,4 +83,4 @@ const Agent = ({agent, customer, tooltip = true, asCustomer = false}: Props): Re
 	);
 };
 
-export default Agent;
+export default Avatar;

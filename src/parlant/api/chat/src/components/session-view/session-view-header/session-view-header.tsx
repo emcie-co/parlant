@@ -5,7 +5,6 @@ import {agentAtom, customerAtom, sessionAtom} from '@/store';
 import {AgentInterface} from '@/utils/interfaces';
 import {useAtom} from 'jotai';
 import {memo} from 'react';
-import {twJoin} from 'tailwind-merge';
 
 const SessoinViewHeader = () => {
 	const [session] = useAtom(sessionAtom);
@@ -13,10 +12,10 @@ const SessoinViewHeader = () => {
 	const [customer] = useAtom(customerAtom);
 
 	return (
-		<HeaderWrapper className={twJoin('border-e')}>
+		<HeaderWrapper>
 			{session?.id && (
-				<div className='w-full flex items-center h-full'>
-					<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
+				<div className='w-full flex items-center h-full pb-[2px] max-w-[1000px] m-auto'>
+					<div className='h-full flex-1 flex items-center border-e border-[#F3F5F9]'>
 						<Avatar agent={agent as AgentInterface} tooltip={false} />
 						<div>
 							<div>{agent?.name}</div>
@@ -25,7 +24,7 @@ const SessoinViewHeader = () => {
 							</div>
 						</div>
 					</div>
-					<div className='h-full flex-1 flex items-center ps-[24px]'>
+					<div className='h-full flex-1 flex items-center ps-[14px]'>
 						<Avatar agent={customer as AgentInterface} asCustomer tooltip={false} />
 						<div>
 							<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>

@@ -231,9 +231,9 @@ export default function SessionView(): ReactElement {
 				<div className={twMerge('h-full min-w-full flex flex-col transition-[min-width] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
 					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 					<SessoinViewHeader />
-					<div className={twMerge('h-[21px] border-e border-t-0 bg-white')}></div>
-					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto border-e')}>
-						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
+					<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
+					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
+						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 max-w-[1020px]' aria-live='polite' role='log' aria-label='Chat messages'>
 							{ErrorTemplate && <ErrorTemplate />}
 							{visibleMessages.map((event, i) => (
 								<React.Fragment key={i}>

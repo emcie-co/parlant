@@ -23,7 +23,7 @@ const MessageDetailsHeader = ({
 	const isCustomer = event?.source === 'customer';
 
 	return (
-		<HeaderWrapper className={twMerge('static bg-[#FBFBFB]', !event && '!border-transparent bg-[#f5f6f8]', className)}>
+		<HeaderWrapper className={twMerge('static', !event && '!border-transparent bg-[#f5f6f8]', className)}>
 			{event && (
 				<div className={twMerge('flex items-center justify-between w-full pe-[12px]')}>
 					<div className='flex ps-[16px]'>

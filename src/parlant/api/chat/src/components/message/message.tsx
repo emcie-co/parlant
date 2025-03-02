@@ -55,7 +55,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 							<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
-								<div className='size-[26px] flex rounded-[6.5px] items-center justify-center font-bold' style={{color: colorPallete.text, background: colorPallete?.background}}>
+								<div className='size-[26px] flex rounded-[6.5px] items-center justify-center font-bold' style={{color: isCustomer ? 'white' : colorPallete.text, background: isCustomer ? colorPallete.iconBackground : colorPallete?.background}}>
 									{isCustomer ? customerName?.[0] : agent?.name?.[0]}
 								</div>
 								<div className='font-medium text-[14px] text-[#282828]'>{formattedName}</div>
@@ -83,7 +83,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									'bg-green-light border-[2px] hover:bg-[#F5F9F3] text-black border-transparent cursor-pointer',
 									isViewingCurrentMessage && '!bg-white hover:!bg-white border border-[#EEEEEE] shadow-main',
 									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
-									'max-w-fit peer w-fit flex items-center relative',
+									'max-w-[560px] peer w-[560px] flex items-center relative',
 									event?.serverStatus === 'pending' && 'opacity-50',
 									isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
 								)}>

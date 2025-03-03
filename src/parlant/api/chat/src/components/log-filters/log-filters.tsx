@@ -4,7 +4,7 @@ import {Checkbox} from '../ui/checkbox';
 import {Input} from '../ui/input';
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogPortal, DialogTitle, DialogTrigger} from '../ui/dialog';
 import {ClassNameValue, twMerge} from 'tailwind-merge';
-import {Plus, X} from 'lucide-react';
+import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
 
@@ -95,7 +95,7 @@ const LogFilters = ({
 	const [sources, setSources] = useState(structuredClone(def?.types || []));
 	const [contentConditions, setContentConditions] = useState(structuredClone(def?.content || []));
 	const [level, setLevel] = useState<Level>(def?.level || ALL_LEVELS[ALL_LEVELS.length - 1]);
-	const [prevTabId, setPrevTabId] = useState<number>(filterId);
+	const [prevTabId, setPrevTabId] = useState<number | undefined>();
 
 	useEffect(() => {
 		if (filterId && filterId !== prevTabId) {

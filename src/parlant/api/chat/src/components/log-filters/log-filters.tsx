@@ -263,7 +263,7 @@ const LogFilters = ({
 									text={item}
 									index={i}
 									apply={false}
-									deleted={() => setContent(content.filter((c, index) => index !== i))}
+									deleted={() => setContent(content.filter((_, index) => index !== i))}
 									wrapperClassName='w-full !border-0 bg-[#F5F6F8] hover:bg-[#EBECF0]'
 									className='justify-between !border-0 bg-[#F5F6F8] group-hover:bg-[#EBECF0]'
 									deleteButtonClassName='visible'

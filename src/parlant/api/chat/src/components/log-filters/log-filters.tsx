@@ -22,10 +22,9 @@ const typeLabels: Record<Type, string> = {
 
 const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
 	return (
-		<div className={twMerge('group cursor-pointer bg-white border-[#eeeeee] hover:bg-[#F3F5F9] hover:border-[#E4E6EA] border h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
-			<div className='flex items-center justify-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
-				<p className='me-[5px] text-[14px]'>+</p>
-				<p className='text-nowrap font-normal text-[14px]'>Add Custom Filter</p>
+		<div className={twMerge('group cursor-pointer bg-white h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
+			<div className='flex items-center justify-center group-hover:underline rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
+				<p className='text-nowrap font-normal text-[14px]'>+ Add Custom Filter</p>
 			</div>
 		</div>
 	);
@@ -302,7 +301,7 @@ const LogFilters = ({
 				</div>
 			</div>
 			{deleteFilterTab && (
-				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
+				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] min-h-[28px] min-w-[28px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
 					<X className='size-[14px] min-h-[14px] min-w-[14px]' />
 				</Button>
 			)}

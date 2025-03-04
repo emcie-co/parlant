@@ -100,10 +100,23 @@ const MessageDetails = ({
 		setLogs(getMessageLogs(event.correlation_id));
 	}, [event?.correlation_id]);
 
+	const deleteFilterTab = (id: number) => {
+		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
+		if (filterIndex === -1) return;
+		const filteredTabs = (filterTabs as Filter[]).filter((t) => t.id !== id);
+		setFilterTabs(filteredTabs);
+
+		if (currFilterTabs === id) {
+			const newTab = filteredTabs?.[(filterIndex || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
+			setCurrFilterTabs(newTab);
+		}
+		if (!filteredTabs.length) setFilters({});
+	};
+
 	const shouldRenderTabs = event && !!logs?.length && !!filterTabs?.length;
 	const fragmentEntries = Object.entries(event?.data?.fragments || {}).map(([id, value]) => ({id, value}));
 	const isError = event?.serverStatus === 'error';
-
+	console.log('buga', currFilterTabs || undefined);
 	return (
 		<div className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 			<MessageDetailsHeader
@@ -131,11 +144,12 @@ const MessageDetails = ({
 							/>
 						)}
 					</div>
-					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
+					{shouldRenderTabs && <FilterTabs currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
 					{event && !!logs?.length && shouldRenderTabs && (
 						<LogFilters
 							showTags
 							showDropdown
+							deleteFilterTab={deleteFilterTab}
 							className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}
 							filterId={currFilterTabs || undefined}
 							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}

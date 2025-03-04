@@ -84,6 +84,7 @@ const LogFilters = ({
 	className,
 	showDropdown,
 	showTags,
+	deleteFilterTab,
 }: {
 	applyFn: (types: string[], level: string, content: string[]) => void;
 	filterId?: number;
@@ -91,6 +92,7 @@ const LogFilters = ({
 	className?: ClassNameValue;
 	showDropdown?: boolean;
 	showTags?: boolean;
+	deleteFilterTab?: Function;
 }) => {
 	const [sources, setSources] = useState(structuredClone(def?.types || []));
 	const [contentConditions, setContentConditions] = useState(structuredClone(def?.content || []));
@@ -98,6 +100,7 @@ const LogFilters = ({
 	const [prevTabId, setPrevTabId] = useState<number | undefined>();
 
 	useEffect(() => {
+		if (!showTags) return;
 		if (filterId && filterId !== prevTabId) {
 			const types = structuredClone(def?.types || ALL_TYPES);
 			const level = def?.level || ALL_LEVELS[ALL_LEVELS.length - 1];
@@ -218,12 +221,9 @@ const LogFilters = ({
 					<div
 						onClick={() => setDropdownOpen(true)}
 						role='button'
-						className={twMerge(
-							'flex bg-white border-[#eeeeee] hover:border-[#E4E6EA] border hover:bg-[#F3F5F9] rounded-[6px] shadow-main items-center gap-[6px] max-h-[38px] h-[38px] w-[73px] min-w-max ps-[12px] pe-[8px]',
-							dropdownOpen && 'bg-white border-transparent [box-shadow:0px_0px_3px_0px_#0000005E_inset]'
-						)}>
+						className={twMerge('flex group bg-white rounded-[6px] shadow-main items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max ps-[12px] pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
 						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
-						<p className='text-[14px] font-medium'>Filters</p>
+						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
 					</div>
 				</div>
 				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[218px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
@@ -296,12 +296,19 @@ const LogFilters = ({
 	};
 
 	return (
-		<div className={twMerge('flex justify-between pt-[6px] pb-[8px] pe-[12px] ps-[14px] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
-			<div className='filters-button flex items-center gap-[8px] flex-wrap'>
-				{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
-				{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} wrapperClassName='cursor-auto' />)}
+		<div className='flex items-center justify-between pe-[14px]'>
+			<div className={twMerge('flex pt-[6px] pb-[8px] pe-[12px] ps-[14px] -h-fit min-h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'min-h-[50px]', className)}>
+				<div className='filters-button flex items-center gap-[8px] flex-wrap'>
+					{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
+					{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} wrapperClassName='cursor-auto' />)}
+				</div>
+				{showDropdown && <DropDownFilter />}
 			</div>
-			{showDropdown && <DropDownFilter />}
+			{deleteFilterTab && (
+				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
+					<X className='size-[14px] min-h-[14px] min-w-[14px]' />
+				</Button>
+			)}
 		</div>
 	);
 };

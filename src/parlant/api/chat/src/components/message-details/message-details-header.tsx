@@ -28,7 +28,7 @@ const MessageDetailsHeader = ({
 				<div className={twMerge('flex items-center justify-between w-full pe-[12px]')}>
 					<div className='flex ps-[16px]'>
 						<div role='button' className='p-[5px] pe-[10px]' onClick={() => closeLogs?.()}>
-							<X height={20} width={20} />
+							<X height={25} width={25} />
 						</div>
 						<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
 							<CopyText preText='Message ID:' textToCopy={event.id} text={` ${event.id}`} />

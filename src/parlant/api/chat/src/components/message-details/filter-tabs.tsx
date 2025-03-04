@@ -10,7 +10,7 @@ interface DefInterface {
 	content?: string[];
 }
 
-interface Filter {
+export interface Filter {
 	id: number;
 	name: string;
 	def: DefInterface | null;
@@ -21,23 +21,11 @@ interface FilterTabsFilterProps {
 	setCurrFilterTabs: React.Dispatch<React.SetStateAction<number | null>>;
 	setFilterTabs: React.Dispatch<React.SetStateAction<Filter[]>>;
 	currFilterTabs: number | null;
-	setFilters: React.Dispatch<React.SetStateAction<any>>;
 }
 
-const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs, setFilters}: FilterTabsFilterProps) => {
+const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs}: FilterTabsFilterProps) => {
 	const [isEditing, setIsEditing] = useState(false);
 	const [inputVal, setInputVal] = useState('');
-
-	const deleteFilterTab = (id: number, index: number) => {
-		const filteredTabs = filterTabs.filter((t) => t.id !== id);
-		setFilterTabs(filteredTabs);
-
-		if (currFilterTabs === id && filteredTabs.length) {
-			const newTab = filteredTabs?.[(index || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
-			setTimeout(() => setCurrFilterTabs(newTab), 0);
-		}
-		if (!filteredTabs.length) setFilters({});
-	};
 
 	const addFilter = () => {
 		const val: Filter = {id: Date.now(), name: 'Logs', def: {level: 'DEBUG', types: []}};
@@ -111,13 +99,6 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 								)}>
 								{tab.name}
 							</p>
-							{filterTabs.length > 0 && (
-								<X
-									role='button'
-									className={twJoin('size-[18px] group-hover:visible rounded-[3px]', tab.id !== currFilterTabs && 'invisible group-hover:visible', tab.id === currFilterTabs && isEditing && '!invisible')}
-									onClick={() => (tab.id !== currFilterTabs || !isEditing) && deleteFilterTab(tab.id, i)}
-								/>
-							)}
 							{/* {filterTabs.length > 0 && <img src='icons/close.svg' alt='close' className='h-[20px]' role='button' height={10} width={10} onClick={() => deleteFilterTab(tab.id)} />} */}
 						</div>
 					</div>

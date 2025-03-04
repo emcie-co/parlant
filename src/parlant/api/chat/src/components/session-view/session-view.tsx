@@ -169,7 +169,10 @@ export default function SessionView(): ReactElement {
 		setIsFirstScroll(true);
 		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
 		resetChat();
-		if (session?.id !== NEW_SESSION_ID) refetch();
+		if (session?.id !== NEW_SESSION_ID) {
+			setLastOffset(0);
+			setTimeout(refetch, 500);
+		}
 		textareaRef?.current?.focus();
 	};
 

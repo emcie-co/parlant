@@ -39,7 +39,7 @@ const MessageDetailsHeader = ({
 							className='group bg-[#006E53] hover:bg-[#005C3F] flex  h-[38px] [box-shadow:0px_1px_5.5px_0px_#006E5329] rounded-[5px] ms-[4px] items-center gap-[7px] py-[13px] px-[10px]'
 							role='button'
 							onClick={() => (event?.source === 'customer' ? resendMessageFn?.(session?.id as string) : regenerateMessageFn?.(session?.id as string))}>
-							<img src={'icons/regenerate-arrow.svg'} alt='regenerate' className='block' />
+							<img src='icons/regenerate.svg' alt='regenerate' className='block' />
 							<div className='text-white text-[14px] font-normal'>{isCustomer ? 'Resend' : 'Regenerate'}</div>
 							{/* <img src={isCustomer ? 'icons/resend-hover.svg' : 'icons/regenerate-arrow-hover.svg'} alt='regenerate' className='hidden group-hover:block' /> */}
 						</div>

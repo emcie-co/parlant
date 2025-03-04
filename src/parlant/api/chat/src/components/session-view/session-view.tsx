@@ -169,13 +169,12 @@ export default function SessionView(): ReactElement {
 		setIsFirstScroll(true);
 		if (newSession && session?.id !== NEW_SESSION_ID) setNewSession(null);
 		resetChat();
-		if (session?.id !== NEW_SESSION_ID) {
-			setLastOffset(0);
-			setTimeout(refetch, 500);
-		}
 		textareaRef?.current?.focus();
 	};
 
+	useEffect(() => {
+		if (lastOffset === 0) refetch();
+	}, [lastOffset]);
 	useEffect(formatMessagesFromEvents, [lastEvents]);
 	useEffect(scrollToLastMessage, [messages, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
@@ -231,56 +230,58 @@ export default function SessionView(): ReactElement {
 	return (
 		<>
 			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px]'>
-				<div className={twMerge('h-full min-w-full flex flex-col transition-[min-width] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
-					{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
-					<SessoinViewHeader />
-					<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
-					<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
-						<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 max-w-[1020px]' aria-live='polite' role='log' aria-label='Chat messages'>
-							{ErrorTemplate && <ErrorTemplate />}
-							{visibleMessages.map((event, i) => (
-								<React.Fragment key={i}>
-									{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-									<div ref={lastMessageRef} className='flex flex-col'>
-										<Message
-											isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
-											isRegenerateHidden={!!isMissingAgent}
-											event={event}
-											isContinual={event.source === visibleMessages[i - 1]?.source}
-											regenerateMessageFn={regenerateMessageDialog(i)}
-											resendMessageFn={resendMessageDialog(i)}
-											showLogsForMessage={showLogsForMessage}
-											showLogs={showLogs(i)}
-										/>
-									</div>
-								</React.Fragment>
-							))}
-						</div>
-						<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
-							<Spacer />
-							<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
-								<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
-								<Textarea
-									role='textbox'
-									ref={textareaRef}
-									placeholder='Message...'
-									value={message}
-									onKeyDown={handleTextareaKeydown}
-									onChange={(e) => setMessage(e.target.value)}
-									rows={1}
-									className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
-								/>
-								{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
-								<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
-									<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
-								</Button>
+				<div className={twMerge('h-full min-w-full pb-[14px] pt-[8px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
+					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
+						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
+						<SessoinViewHeader />
+						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
+						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
+							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 max-w-[1020px]' aria-live='polite' role='log' aria-label='Chat messages'>
+								{ErrorTemplate && <ErrorTemplate />}
+								{visibleMessages.map((event, i) => (
+									<React.Fragment key={i}>
+										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
+										<div ref={lastMessageRef} className='flex flex-col'>
+											<Message
+												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
+												isRegenerateHidden={!!isMissingAgent}
+												event={event}
+												isContinual={event.source === visibleMessages[i - 1]?.source}
+												regenerateMessageFn={regenerateMessageDialog(i)}
+												resendMessageFn={resendMessageDialog(i)}
+												showLogsForMessage={showLogsForMessage}
+												showLogs={showLogs(i)}
+											/>
+										</div>
+									</React.Fragment>
+								))}
 							</div>
-							<Spacer />
-						</div>
-						<div className='w-full'>
-							<Spacer />
-							<div></div>
-							<Spacer />
+							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
+								<Spacer />
+								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
+									<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
+									<Textarea
+										role='textbox'
+										ref={textareaRef}
+										placeholder='Message...'
+										value={message}
+										onKeyDown={handleTextareaKeydown}
+										onChange={(e) => setMessage(e.target.value)}
+										rows={1}
+										className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
+									/>
+									{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
+									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
+										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
+									</Button>
+								</div>
+								<Spacer />
+							</div>
+							<div className='w-full'>
+								<Spacer />
+								<div></div>
+								<Spacer />
+							</div>
 						</div>
 					</div>
 				</div>

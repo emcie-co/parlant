@@ -127,9 +127,9 @@ const LogFilters = ({
 	// 	});
 	// };
 
-	const TypeChip = ({type}: {type: Type}) => {
+	const TypeChip = ({type, className}: {type: Type; className?: ClassNameValue}) => {
 		return (
-			<div key={type} className='group cursor-pointer border border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white'>
+			<div key={type} className={twMerge('group border border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
 				<p className='text-nowrap font-normal text-[14px]'>{typeLabels[type]}</p>
 				{/* <X role='button' className='invisible size-[18px] group-hover:visible rounded-[3px]' onClick={() => changeSource(type, false, applyFn)} /> */}
 			</div>
@@ -299,7 +299,7 @@ const LogFilters = ({
 		<div className={twMerge('flex justify-between pt-[6px] pb-[8px] pe-[12px] ps-[14px] min-h-fit h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'h-[50px]', className)}>
 			<div className='filters-button flex items-center gap-[8px] flex-wrap'>
 				{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
-				{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} />)}
+				{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} wrapperClassName='cursor-auto' />)}
 			</div>
 			{showDropdown && <DropDownFilter />}
 		</div>

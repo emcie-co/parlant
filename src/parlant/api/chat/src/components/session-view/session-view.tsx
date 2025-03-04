@@ -20,6 +20,8 @@ import DateHeader from './date-header/date-header';
 import SessoinViewHeader from './session-view-header/session-view-header';
 import {isSameDay} from '@/lib/utils';
 import {Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle} from '../ui/drawer';
+import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
+import {ShieldEllipsis} from 'lucide-react';
 
 export default function SessionView(): ReactElement {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -34,7 +36,7 @@ export default function SessionView(): ReactElement {
 	const [showThinking, setShowThinking] = useState(false);
 	const [isFirstScroll, setIsFirstScroll] = useState(true);
 	const {openQuestionDialog, closeQuestionDialog} = useQuestionDialog();
-	const [useContentFiltering] = useState(true);
+	const [useContentFiltering, setUseContentFiltering] = useState(false);
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 
@@ -258,8 +260,25 @@ export default function SessionView(): ReactElement {
 							</div>
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
-								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[24px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
-									<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
+								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
+									<DropdownMenu>
+										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+											<div className='me-[8px] border border-transparent hover:border-[#E9EBEF] rounded-[6px] size-[25px] flex items-center justify-center'>
+												{!useContentFiltering && <img src='icons/edit.svg' alt='' className='h-[14px] w-[14px]' />}
+												{useContentFiltering && <ShieldEllipsis className='size-[18px]' />}
+											</div>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent side='top' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
+											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(false)} className='gap-0 font-normal text-[14px] px-[20px] font-ubuntu-sans capitalize hover:!bg-[#FAF9FF]'>
+												<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
+												Bypass Moderation
+											</DropdownMenuItem>
+											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(true)} className='gap-0 font-normal text-[14px] px-[20px] font-ubuntu-sans capitalize hover:!bg-[#FAF9FF]'>
+												<ShieldEllipsis className='me-[8px]' />
+												Apply Moderation
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
 									<Textarea
 										role='textbox'
 										ref={textareaRef}

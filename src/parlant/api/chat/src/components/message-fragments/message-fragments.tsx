@@ -16,14 +16,14 @@ const MessageFragments = ({fragments, className}: {fragments: {id: string; value
 	};
 
 	return (
-		<details onToggle={onToggle} open className={twMerge(isOpen && 'bg-[#F5F6F8]', className)}>
-			<summary className={twMerge('h-[34px] flex items-center justify-between ms-[24px] me-[30px] cursor-pointer text-[16px] bg-[#FBFBFB] hover:bg-white text-[#656565] hover:text-[#151515]', isOpen && '!bg-[#F5F6F8] !text-[#656565]')}>
+		<details onToggle={onToggle} open className={twMerge('max-h-[50%]', className)}>
+			<summary className={twMerge('h-[34px] bg-white flex items-center text-[#282828] justify-between ms-[24px] me-[30px] cursor-pointer text-[16px] ')}>
 				<span>Fragments</span>
 				<img src='icons/arrow-down.svg' alt='' style={{rotate: isOpen ? '0deg' : '180deg'}} />
 			</summary>
-			<div className='p-[14px] pt-[10px]'>
-				<div className='rounded-[14px] bg-white p-[10px]'>
-					<div className='overflow-auto fixed-scroll max-h-[308px]'>
+			<div className='p-[14px] pt-[10px] thi'>
+				<div className='rounded-[14px]'>
+					<div className='overflow-auto fixed-scroll max-h-[308px] border-[6px] border-[#F5F9F7] bg-[#F5F9F7] rounded-[10px]'>
 						<ErrorBoundary component={<div>Could not load fragments</div>}>
 							{fragments.map((fragment) => (
 								<MessageFragment key={fragment.id} fragment={fragment} />

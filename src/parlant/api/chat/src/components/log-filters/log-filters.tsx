@@ -23,8 +23,8 @@ const typeLabels: Record<Type, string> = {
 const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
 	return (
 		<div className={twMerge('group cursor-pointer bg-white border-[#eeeeee] hover:bg-[#F3F5F9] hover:border-[#E4E6EA] border h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
-			<div className='flex items-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
-				<p className='me-[2px]'>+</p>
+			<div className='flex items-center justify-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
+				<p className='me-[5px] text-[14px]'>+</p>
 				<p className='text-nowrap font-normal text-[14px]'>Add Custom Filter</p>
 			</div>
 		</div>

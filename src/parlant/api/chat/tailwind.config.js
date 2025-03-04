@@ -6,6 +6,7 @@ module.exports = {
 		extend: {
 			boxShadow: {
 				main: '0 3px 3px 0 #00000005',
+				'main-inset': '0px 0px 3px 0px #00000054 inset',
 			},
 			screens: {
 				mobile: '751px',

@@ -44,7 +44,7 @@ const MessageLog = ({log}: {log: Log}) => {
 					</div>
 				</Tooltip>
 			</div>
-			<pre className={clsx('max-w-[-webkit-fill-available] font-light font-ibm-plex-mono pe-[10px] text-wrap')}>
+			<pre className={clsx('max-w-[-webkit-fill-available] border-y-[10px] border-white group-hover:border-[#FAFAFA] font-light font-ibm-plex-mono pe-[10px] text-wrap')}>
 				{log?.level ? `[${log.level}]` : ''}
 				{log?.message}
 			</pre>

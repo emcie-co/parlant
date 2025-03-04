@@ -117,6 +117,7 @@ export default function SessionView(): ReactElement {
 	const formatMessagesFromEvents = () => {
 		if (session?.id === NEW_SESSION_ID) return;
 		const lastEvent = lastEvents?.at(-1);
+		const lastStatusEvent = lastEvents?.findLast((e) => e.kind === 'status');
 		if (!lastEvent) return;
 
 		const offset = lastEvent?.offset;
@@ -151,10 +152,12 @@ export default function SessionView(): ReactElement {
 			return newVals.filter((message) => message);
 		});
 
-		const lastEventStatus = lastEvent?.data?.status;
+		const lastStatusEventStaus = lastStatusEvent?.data?.status;
 
-		setShowThinking(!!messages?.length && lastEventStatus === 'processing');
-		setShowTyping(lastEventStatus === 'typing');
+		if (lastStatusEventStaus) {
+			setShowThinking(!!messages?.length && lastStatusEventStaus === 'processing');
+			setShowTyping(lastStatusEventStaus === 'typing');
+		}
 
 		refetch();
 	};

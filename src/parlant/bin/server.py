@@ -211,6 +211,12 @@ def load_together() -> NLPService:
     )
 
 
+def load_litellm() -> NLPService:
+    return load_nlp_service(
+        "LiteLLM", "litellm", "LiteLLMService", "parlant.adapters.nlp.litellm_service"
+    )
+
+
 async def create_agent_if_absent(agent_store: AgentStore) -> None:
     agents = await agent_store.list_agents()
     if not agents:
@@ -381,6 +387,7 @@ async def initialize_container(
             "gemini": load_gemini,
             "openai": load_openai,
             "together": load_together,
+            "litellm": load_litellm,
         }
 
         c[ServiceRegistry] = await EXIT_STACK.enter_async_context(
@@ -633,6 +640,14 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--litellm",
+        is_flag=True,
+        help="""Run with LiteLLM. The following environment variables must be set: LITELLM_PROVIDER_MODEL_NAME, LITELLM_PROVIDER_API_KEY. 
+                Check this link https://docs.litellm.ai/docs/providers for additional environment variables required for your provider,
+                set them and install the extra package parlant[litellm].""",
+        default=False,
+    )
+    @click.option(
         "--log-level",
         type=click.Choice(["debug", "info", "warning", "error", "critical"]),
         default="info",
@@ -674,6 +689,7 @@ def main() -> None:
         anthropic: bool,
         cerebras: bool,
         together: bool,
+        litellm: bool,
         log_level: str,
         module: tuple[str],
         version: bool,
@@ -683,12 +699,12 @@ def main() -> None:
             print(f"Parlant v{VERSION}")
             sys.exit(0)
 
-        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together]) > 2:
+        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm]) > 2:
             print("error: only one NLP service profile can be selected")
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm)
         )
 
         if not non_default_service_selected:
@@ -715,6 +731,9 @@ def main() -> None:
         elif together:
             nlp_service = "together"
             require_env_keys(["TOGETHER_API_KEY"])
+        elif litellm:
+            nlp_service = "litellm"
+            require_env_keys(["LITELLM_PROVIDER_MODEL_NAME", "LITELLM_PROVIDER_API_KEY"])
         else:
             assert False, "Should never get here"
 

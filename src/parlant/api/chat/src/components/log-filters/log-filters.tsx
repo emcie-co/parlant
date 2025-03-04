@@ -218,10 +218,7 @@ const LogFilters = ({
 		return (
 			<div className='wrapper relative flex items-center h-[30px]' ref={wrapperRef}>
 				<div>
-					<div
-						onClick={() => setDropdownOpen(true)}
-						role='button'
-						className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max ps-[12px] pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
+					<div onClick={() => setDropdownOpen(true)} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
 						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
 						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
 					</div>
@@ -248,7 +245,7 @@ const LogFilters = ({
 						))}
 					</div>
 					<hr className='bg-[#EBECF0]' />
-					<div className={twMerge('inputs flex flex-wrap gap-[6px] px-[14px] pb-[14px] pt-[11px]', !content?.length && 'h-0 p-0')}>
+					<div className={twMerge('inputs flex flex-wrap gap-[6px] max-h-[200px] overflow-auto px-[14px] pb-[14px] pt-[11px]', !content?.length && 'h-0 p-0')}>
 						{content?.map((item, i) => (
 							<FilterDialog
 								key={item}
@@ -301,8 +298,8 @@ const LogFilters = ({
 				<div className='filters-button flex items-start gap-[8px] flex-wrap'>
 					{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
 					{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} wrapperClassName='cursor-auto' />)}
+					{showDropdown && <DropDownFilter />}
 				</div>
-				{showDropdown && <DropDownFilter />}
 			</div>
 			{deleteFilterTab && (
 				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>

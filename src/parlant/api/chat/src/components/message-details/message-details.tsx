@@ -116,7 +116,7 @@ const MessageDetails = ({
 	const shouldRenderTabs = event && !!logs?.length && !!filterTabs?.length;
 	const fragmentEntries = Object.entries(event?.data?.fragments || {}).map(([id, value]) => ({id, value}));
 	const isError = event?.serverStatus === 'error';
-	console.log('buga', currFilterTabs || undefined);
+
 	return (
 		<div className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 			<MessageDetailsHeader

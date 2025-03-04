@@ -50,8 +50,8 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 
 	return (
 		<>
-			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1000px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
-				<div className='relative'>
+			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[min(1000px,80%)] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
+				<div className='relative max-w-full'>
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 							<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
@@ -63,7 +63,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 							<div className='text-[14px] text-[#A9A9A9]'>{event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc)}</div>
 						</div>
 					)}
-					<div className='flex items-center relative'>
+					<div className='flex items-center relative max-w-full'>
 						{isCustomer && (
 							<div className={twMerge('self-stretch absolute -left-[40px] top-[50%] -translate-y-1/2 items-center flex invisible group-hover/main:visible peer-hover:visible hover:visible')}>
 								<Tooltip value='Edit' side='left'>
@@ -73,7 +73,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								</Tooltip>
 							</div>
 						)}
-						<div>
+						<div className='max-w-full'>
 							<div
 								ref={ref}
 								tabIndex={0}
@@ -83,7 +83,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									'bg-green-light border-[2px] hover:bg-[#F5F9F3] text-black border-transparent cursor-pointer',
 									isViewingCurrentMessage && '!bg-white hover:!bg-white border border-[#EEEEEE] shadow-main',
 									isCustomer && serverStatus === 'error' && '!bg-[#FDF2F1] hover:!bg-[#F5EFEF]',
-									'max-w-[560px] peer w-[560px] flex items-center relative',
+									'max-w-[min(560px,100%)] peer w-[560px] flex items-center relative',
 									event?.serverStatus === 'pending' && 'opacity-50',
 									isOneLiner ? 'p-[13px_22px_17px_22px] rounded-[16px]' : 'p-[20px_22px_24px_22px] rounded-[22px]'
 								)}>

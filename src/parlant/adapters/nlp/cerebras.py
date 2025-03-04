@@ -33,6 +33,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.logging import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
+from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -59,6 +60,18 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         self._logger = logger
         self._client = AsyncCerebras(api_key=os.environ.get("CEREBRAS_API_KEY"))
 
+    @policy(
+        [
+            retry(
+                exceptions=(
+                    ValueError,
+                    ValidationError,
+                ),
+                max_attempts=2,
+                wait_times=(1.0, 5.0),
+            ),
+        ]
+    )
     @override
     async def generate(
         self,
@@ -71,7 +84,14 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         response = await self._client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
-            response_format={"type": "json_object"},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": self.schema.__name__,
+                    "strict": True,
+                    "schema": self.schema.model_json_schema(),
+                },
+            },
             **cerebras_api_arguments,
         )
         t_end = time.time()

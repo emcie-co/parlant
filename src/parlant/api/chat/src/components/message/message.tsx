@@ -50,8 +50,8 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 
 	return (
 		<>
-			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[min(1000px,80%)] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
-				<div className='relative max-w-full'>
+			<div className={(isCustomer ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[min(1000px,100%)] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
+				<div className='relative max-w-[80%]'>
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 							<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>

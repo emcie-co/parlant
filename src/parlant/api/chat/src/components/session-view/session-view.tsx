@@ -77,7 +77,8 @@ export default function SessionView(): ReactElement {
 
 	const regenerateMessageDialog = (index: number) => (sessionId: string) => {
 		const isLastMessage = index === messages.length - 1;
-		const lastUserMessage = messages.findLast((message, i) => message.source === 'customer' && message.kind === 'message' && i <= index);
+		const prevMessages = messages.slice(0, index + 1);
+		const lastUserMessage = prevMessages.findLast((message) => message.source === 'customer' && message.kind === 'message');
 		const lastUserMessageOffset = lastUserMessage?.offset ?? messages.length - 1;
 
 		if (isLastMessage) {
@@ -99,7 +100,6 @@ export default function SessionView(): ReactElement {
 		const event = messages[index];
 
 		const deleteSession = await deleteData(`sessions/${sessionId}/events?min_offset=${offset}`).catch((e) => ({error: e}));
-
 		if (deleteSession?.error) {
 			toast.error(deleteSession.error.message || deleteSession.error);
 			return;

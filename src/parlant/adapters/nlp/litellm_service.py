@@ -14,11 +14,10 @@
 
 from __future__ import annotations
 import time
-from openai import (
+from litellm import (
     APIConnectionError,
     APIResponseValidationError,
-    APITimeoutError,
-    ConflictError,
+    Timeout,
     InternalServerError,
     RateLimitError,
 )
@@ -113,8 +112,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             retry(
                 exceptions=(
                     APIConnectionError,
-                    APITimeoutError,
-                    ConflictError,
+                    Timeout,
                     RateLimitError,
                     APIResponseValidationError,
                 ),

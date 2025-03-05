@@ -75,7 +75,7 @@ export default function SessionView(): ReactElement {
 	const regenerateMessageDialog = (index: number) => (sessionId: string) => {
 		const isLastMessage = index === messages.length - 1;
 		const lastUserMessage = messages.findLast((message, i) => message.source === 'customer' && message.kind === 'message' && i <= index);
-		const lastUserMessageOffset = lastUserMessage?.offset || messages.length - 1;
+		const lastUserMessageOffset = lastUserMessage?.offset ?? messages.length - 1;
 
 		if (isLastMessage) {
 			setShowLogsForMessage(null);
@@ -94,20 +94,17 @@ export default function SessionView(): ReactElement {
 
 	const resendMessage = async (index: number, sessionId: string, offset: number, text?: string) => {
 		const event = messages[index];
-		const prevAllMessages = messages;
-		const prevLastOffset = lastOffset;
 
-		setMessages((messages) => messages.slice(0, index));
-		setLastOffset(offset);
 		const deleteSession = await deleteData(`sessions/${sessionId}/events?min_offset=${offset}`).catch((e) => ({error: e}));
+
 		if (deleteSession?.error) {
 			toast.error(deleteSession.error.message || deleteSession.error);
-			setMessages(prevAllMessages);
-			setLastOffset(prevLastOffset);
 			return;
 		}
+
+		setLastOffset(offset);
+		setMessages((messages) => messages.slice(0, index));
 		postMessage(text ?? event.data?.message);
-		refetch();
 	};
 
 	const regenerateMessage = async (index: number, sessionId: string, offset: number) => {

@@ -233,9 +233,12 @@ const SessionView = (): ReactElement => {
 
 	return (
 		<>
-			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px] rounded-[10px]'>
+			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
 				<div
-					className={twMerge('h-full min-w-full pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
+					className={twMerge(
+						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+						showLogsForMessage && 'min-w-[calc(100%-700px)] max-w-[calc(100%-700px)]'
+					)}>
 					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
@@ -309,7 +312,7 @@ const SessionView = (): ReactElement => {
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F]' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
+						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[700px]'>
 							<DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>
 								<DrawerDescription hidden></DrawerDescription>

@@ -10,7 +10,7 @@ import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
 import {NEW_SESSION_ID} from '../../chat-header/chat-header';
 import {spaceClick} from '@/utils/methods';
-import {twJoin} from 'tailwind-merge';
+import {twJoin, twMerge} from 'tailwind-merge';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import {copy} from '@/lib/utils';
@@ -174,14 +174,15 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			onKeyDown={spaceClick}
 			onClick={() => !disabled && !editingTitle && !isDeleting && setSession(session)}
 			key={session.id}
-			className={
-				'bg-white animate-fade-in text-[14px] rounded-[10px] font-inter justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[80px] h-[80px] ml-0 mr-0 ' +
-				(editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ') +
-				(isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '') +
-				(disabled ? ' pointer-events-none' : '') +
-				(isDeleting ? 'opacity-[33%]' : '')
-			}>
-			<div className='flex-1 whitespace-nowrap overflow-hidden max-w-[210px] ms-[16px] h-[48px]'>
+			className={twMerge(
+				'bg-white animate-fade-in text-[14px] hover:rounded-[6px] font-inter justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[74px] h-[74px] ml-0 mr-0 ',
+				isSelected && ' rounded-[6px]',
+				editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ',
+				isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '',
+				disabled ? ' pointer-events-none' : '',
+				isDeleting ? 'opacity-[33%]' : ''
+			)}>
+			<div className='flex-1 whitespace-nowrap flex overflow-hidden max-w-[210px] ms-[4px] h-[48px]'>
 				{editingTitle !== session.id && (
 					<div className='overflow-visible overflow-ellipsis flex items-center'>
 						<div>

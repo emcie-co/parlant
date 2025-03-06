@@ -11,7 +11,7 @@ import Spacer from '../ui/custom/spacer';
 import {toast} from 'sonner';
 import {NEW_SESSION_ID} from '../chat-header/chat-header';
 import {useQuestionDialog} from '@/hooks/useQuestionDialog';
-import {twMerge} from 'tailwind-merge';
+import {twJoin, twMerge} from 'tailwind-merge';
 import MessageDetails from '../message-details/message-details';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom, viewingMessageDetailsAtom} from '@/store';
@@ -39,6 +39,7 @@ const SessionView = (): ReactElement => {
 	const [useContentFiltering, setUseContentFiltering] = useState(false);
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
+	const [isContentFilterMenuOpen, setIsContentFilterMenuOpen] = useState(false);
 
 	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
 	const [agents] = useAtom(agentsAtom);
@@ -267,11 +268,11 @@ const SessionView = (): ReactElement => {
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
 								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
-									<DropdownMenu>
+									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-											<div className='me-[8px] border border-transparent hover:border-[#E9EBEF] rounded-[6px] size-[25px] flex items-center justify-center'>
-												{!useContentFiltering && <img src='icons/edit.svg' alt='' className='h-[14px] w-[14px]' />}
-												{useContentFiltering && <ShieldEllipsis className='size-[18px]' />}
+											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-green-main')}>
+												{!useContentFiltering && <img src='icons/edit.svg' alt='' className={twMerge('h-[14px] w-[14px]', isContentFilterMenuOpen && 'invert')} />}
+												{useContentFiltering && <ShieldEllipsis className={twJoin('size-[18px]', isContentFilterMenuOpen && 'text-white')} />}
 											</div>
 										</DropdownMenuTrigger>
 										<DropdownMenuContent side='top' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
@@ -293,7 +294,7 @@ const SessionView = (): ReactElement => {
 										onKeyDown={handleTextareaKeydown}
 										onChange={(e) => setMessage(e.target.value)}
 										rows={1}
-										className='box-shadow-none resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
+										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
 									/>
 									{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>

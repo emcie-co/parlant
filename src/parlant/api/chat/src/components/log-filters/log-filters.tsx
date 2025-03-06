@@ -14,10 +14,22 @@ export type Level = 'WARNING' | 'INFO' | 'DEBUG';
 const ALL_TYPES: Type[] = ['GuidelineProposer', 'ToolCaller', 'MessageEventComposer'];
 const ALL_LEVELS: Level[] = ['WARNING', 'INFO', 'DEBUG'];
 
-const typeLabels: Record<Type, string> = {
-	GuidelineProposer: 'Guideline Proposer',
-	MessageEventComposer: 'Message Event Composer',
-	ToolCaller: 'Tool Caller',
+const typeOptions: {[key in Type]: {label: string; icon: string; color: string}} = {
+	GuidelineProposer: {
+		label: 'Guideline Proposer',
+		icon: 'icons/filters/guideline-proposer-color.svg',
+		color: '#419480',
+	},
+	MessageEventComposer: {
+		label: 'Message Event Composer',
+		icon: 'icons/filters/message-composer-color.svg',
+		color: '#7E3A89',
+	},
+	ToolCaller: {
+		label: 'Tool Caller',
+		icon: 'icons/filters/tool-caller-color.svg',
+		color: '#CB7714',
+	},
 };
 
 const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
@@ -57,14 +69,7 @@ const FilterDialogContent = ({contentChanged, defaultValue}: {contentChanged: (t
 const FilterDialog = ({contentChanged, content, children, className}: {contentChanged: (text: string) => void; content?: string; children?: ReactNode; className?: ClassNameValue}) => {
 	return (
 		<Dialog>
-			<DialogTrigger className='w-full'>
-				{children || <AddFilterChip className={className} />}
-
-				{/* <div className='group border rounded-[3px] h-[24px] flex items-center bg-[#FBFBFB] hover:bg-[#F5F6F8]'>
-					<p className='ps-[10px] text-[12px] capitalize'>Content:</p>
-					<Input readOnly className='h-[22px] !ring-0 !ring-offset-0 border-none text-[12px] bg-[#FBFBFB] hover:bg-[#F5F6F8]' value={content?.join(';') || ''} />
-				</div> */}
-			</DialogTrigger>
+			<DialogTrigger className='w-full'>{children || <AddFilterChip className={className} />}</DialogTrigger>
 			<DialogPortal aria-hidden={false}>
 				<DialogContent aria-hidden={false} className='p-0 [&>button]:hidden'>
 					<DialogTitle className='hidden'>Filter by content</DialogTitle>
@@ -91,7 +96,7 @@ const LogFilters = ({
 	className?: ClassNameValue;
 	showDropdown?: boolean;
 	showTags?: boolean;
-	deleteFilterTab?: Function;
+	deleteFilterTab?: (filterId: number | undefined) => void;
 }) => {
 	const [sources, setSources] = useState(structuredClone(def?.types || []));
 	const [contentConditions, setContentConditions] = useState(structuredClone(def?.content || []));
@@ -132,7 +137,8 @@ const LogFilters = ({
 	const TypeChip = ({type, className}: {type: Type; className?: ClassNameValue}) => {
 		return (
 			<div key={type} className={twMerge('group border border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
-				<p className='text-nowrap font-normal text-[14px]'>{typeLabels[type]}</p>
+				<img src={typeOptions[type].icon} alt={type} />
+				<p className='text-nowrap font-normal text-[14px]'>{typeOptions[type].label}</p>
 				{/* <X role='button' className='invisible size-[18px] group-hover:visible rounded-[3px]' onClick={() => changeSource(type, false, applyFn)} /> */}
 			</div>
 		);
@@ -237,8 +243,9 @@ const LogFilters = ({
 						{ALL_TYPES.map((type) => (
 							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
 								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
-								<label className='text-[12px] font-normal w-full cursor-pointer' htmlFor={type}>
-									{typeLabels[type]}
+								<label className='text-[12px] font-normal w-full cursor-pointer flex gap-[6px]' htmlFor={type}>
+									<img src={typeOptions[type].icon} alt={type} />
+									{typeOptions[type].label}
 								</label>
 							</div>
 						))}
@@ -293,8 +300,8 @@ const LogFilters = ({
 
 	return (
 		<div className='flex items-center justify-between pe-[14px]'>
-			<div className={twMerge('flex z-[1] pt-[6px] pb-[8px] pe-[12px] ps-[14px] gap-[8px] h-fit min-h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'min-h-[50px]', className)}>
-				<div className='filters-button flex items-start gap-[8px] flex-wrap'>
+			<div className={twMerge('flex z-[1] pt-[10px] pb-[8px] pe-[12px] ps-[14px] gap-[8px] h-fit min-h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'min-h-[50px]', className)}>
+				<div className='filters-button flex items-start gap-[10px] flex-wrap'>
 					{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
 					{showTags && def?.content?.map((c: string, index: number) => <CondChip key={c} text={c} index={index} wrapperClassName='cursor-auto' />)}
 					{showDropdown && <DropDownFilter />}

@@ -14,7 +14,7 @@ import {useQuestionDialog} from '@/hooks/useQuestionDialog';
 import {twMerge} from 'tailwind-merge';
 import MessageDetails from '../message-details/message-details';
 import {useAtom} from 'jotai';
-import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom} from '@/store';
+import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom, viewingMessageDetailsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import DateHeader from './date-header/date-header';
 import SessoinViewHeader from './session-view-header/session-view-header';
@@ -23,7 +23,7 @@ import {Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle} fro
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
 import {ShieldEllipsis} from 'lucide-react';
 
-export default function SessionView(): ReactElement {
+const SessionView = (): ReactElement => {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
 	const submitButtonRef = useRef<HTMLButtonElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -45,6 +45,7 @@ export default function SessionView(): ReactElement {
 	const [session, setSession] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
+	const [, setViewingMessage] = useAtom(viewingMessageDetailsAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
 	const {data: lastEvents, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
 
@@ -177,6 +178,7 @@ export default function SessionView(): ReactElement {
 	useEffect(() => {
 		if (lastOffset === 0) refetch();
 	}, [lastOffset]);
+	useEffect(() => setViewingMessage(showLogsForMessage), [showLogsForMessage]);
 	useEffect(formatMessagesFromEvents, [lastEvents]);
 	useEffect(scrollToLastMessage, [messages, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
@@ -231,8 +233,9 @@ export default function SessionView(): ReactElement {
 
 	return (
 		<>
-			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px]'>
-				<div className={twMerge('h-full min-w-full pb-[14px] pt-[8px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
+			<div ref={messagesRef} className='flex items-center h-full w-full bg-green-light gap-[14px] rounded-[10px]'>
+				<div
+					className={twMerge('h-full min-w-full pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]', showLogsForMessage && 'min-w-[50%] max-w-[50%]')}>
 					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
@@ -323,4 +326,6 @@ export default function SessionView(): ReactElement {
 			</div>
 		</>
 	);
-}
+};
+
+export default SessionView;

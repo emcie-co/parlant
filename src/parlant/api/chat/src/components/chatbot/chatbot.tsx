@@ -6,8 +6,9 @@ import {useDialog} from '@/hooks/useDialog';
 import {Helmet} from 'react-helmet';
 import {NEW_SESSION_ID} from '../agents-list/agent-list';
 import {useAtom} from 'jotai';
-import {dialogAtom, sessionAtom} from '@/store';
+import {dialogAtom, sessionAtom, viewingMessageDetailsAtom} from '@/store';
 import {twMerge} from 'tailwind-merge';
+import SessionView from '../session-view/session-view';
 
 export const SessionProvider = createContext({});
 
@@ -22,13 +23,13 @@ const SessionsSection = () => {
 };
 
 export default function Chatbot(): ReactElement {
-	const SessionView = lazy(() => import('../session-view/session-view'));
+	// const SessionView = lazy(() => import('../session-view/session-view'));
 	const [sessionName, setSessionName] = useState<string | null>('');
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
 	const [, setFilterSessionVal] = useState('');
-	const [isLogDetailsOpen, setIsLogDetailsOpen] = useState(false);
+	const [isViewingMessage] = useAtom(viewingMessageDetailsAtom);
 
 	useEffect(() => {
 		if (session?.id) {
@@ -45,6 +46,8 @@ export default function Chatbot(): ReactElement {
 		setDialog({openDialog, closeDialog});
 	}, []);
 
+	useEffect(() => console.log(isViewingMessage), [isViewingMessage]);
+
 	return (
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
@@ -56,13 +59,13 @@ export default function Chatbot(): ReactElement {
 					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]', session?.id && !isLogDetailsOpen && 'bg-white')}>
+					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]', session?.id && !isViewingMessage && 'bg-white')}>
 						<SessionsSection />
 						{session?.id ? (
 							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
-								<Suspense>
-									<SessionView />
-								</Suspense>
+								{/* <Suspense> */}
+								<SessionView />
+								{/* </Suspense> */}
 							</div>
 						) : (
 							<div className='flex-1 flex items-center justify-center'>

@@ -60,7 +60,7 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 		(customParams = '') => {
 			const controller = new AbortController();
 			const {signal} = controller;
-			setLoading(true);
+			setTimeout(() => setLoading(true), 0);
 			setError(null);
 			const reqParams = customParams || params;
 
@@ -84,8 +84,8 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 				.finally(() => checkErr && setLoading(false));
 
 			return () => controller.abort();
-			// eslint-disable-next-line react-hooks/exhaustive-deps
 		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[url, refetchData, ...dependencies]
 	);
 

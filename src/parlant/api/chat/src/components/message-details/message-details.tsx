@@ -156,11 +156,9 @@ const MessageDetails = ({
 							applyFn={(types, level, content) => setFilters({types, level, content})}
 						/>
 					)}
-					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' wrapperClassName='bg-[#f5f6f8]' />}
-					{event && logs && !logs?.length && (
-						<EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." wrapperClassName='bg-[#f5f6f8]' className={twJoin(isError && 'translate-y-[0px]')} />
-					)}
-					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
+					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' />}
+					{event && logs && !logs?.length && <EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." className={twJoin(isError && 'translate-y-[0px]')} />}
+					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' className={twJoin(isError && 'translate-y-[0px]')} />}
 					{event && !!filteredLogs.length && (
 						<div className='ps-[10px] overflow-auto h-[-webkit-fill-available]'>
 							<MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />

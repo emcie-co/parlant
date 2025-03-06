@@ -5,16 +5,16 @@ import ChatHeader from '../chat-header/chat-header';
 import {useDialog} from '@/hooks/useDialog';
 import {Helmet} from 'react-helmet';
 import {NEW_SESSION_ID} from '../agents-list/agent-list';
-import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {dialogAtom, sessionAtom} from '@/store';
+import {twMerge} from 'tailwind-merge';
 
 export const SessionProvider = createContext({});
 
 const SessionsSection = () => {
 	const [filterSessionVal, setFilterSessionVal] = useState('');
 	return (
-		<div className='bg-white h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
+		<div className='bg-white [box-shadow:0px_0px_25px_0px_#0000000A] h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
 			<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 			<SessionList filterSessionVal={filterSessionVal} />
 		</div>
@@ -28,6 +28,7 @@ export default function Chatbot(): ReactElement {
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
 	const [, setFilterSessionVal] = useState('');
+	const [isLogDetailsOpen, setIsLogDetailsOpen] = useState(false);
 
 	useEffect(() => {
 		if (session?.id) {
@@ -48,14 +49,14 @@ export default function Chatbot(): ReactElement {
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
-				<div className='flex items-center bg-green-main h-[60px] mb-[8px]'>
+				<div className={'flex items-center bg-green-main h-[60px] mb-[8px]'}>
 					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[24px] self-center me-[6px] max-mobile:ms-0' />
 				</div>
-				<div data-testid='chatbot' className='main bg-green-light h-[calc(100vh-68px)] flex flex-col rounded-[16px]'>
+				<div data-testid='chatbot' className={'main bg-green-light h-[calc(100vh-68px)] flex flex-col rounded-[16px]'}>
 					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className='flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]'>
+					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]', session?.id && !isLogDetailsOpen && 'bg-white')}>
 						<SessionsSection />
 						{session?.id ? (
 							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
@@ -65,7 +66,7 @@ export default function Chatbot(): ReactElement {
 							</div>
 						) : (
 							<div className='flex-1 flex items-center justify-center'>
-								<img src='select-session.svg' alt='' />
+								<img src='select-session.svg' className='-translate-y-[50%] me-[360px]' alt='' />
 							</div>
 						)}
 					</div>

@@ -66,6 +66,11 @@ class ToolCallEvaluation(DefaultBaseModel):
     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool: Optional[
         bool
     ] = None
+    # These 3 ARQs are for cases we've observed where many optional arguments are missing
+    # such that the model would be possibly biased to say the tool shouldn't run.
+    are_optional_arguments_missing: bool
+    are_non_optional_arguments_missing: bool
+    allowed_to_run_without_optional_arguments_even_if_they_are_missing: bool
     should_run: bool
 
 
@@ -262,9 +267,13 @@ class ToolCaller:
         missing_data = []
 
         for tc in inference_output:
-            if tc.applicability_score >= 6 and (
-                not tc.a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected
-                or tc.the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool
+            if (
+                tc.applicability_score >= 6
+                and not tc.same_call_is_already_staged
+                and (
+                    not tc.a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected
+                    or tc.the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool
+                )
             ):
                 if tc.should_run and all(
                     not evaluation.is_missing
@@ -444,7 +453,7 @@ Produce a valid JSON object according to the following format:
         {{
             "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED IF THE TOOL SHOULD NOT EXECUTE>],
+            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED ONLY IF THE TOOL APPLICABILITY IS UNDER 6>],
             "same_call_is_already_staged": <BOOL>,
             "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
             "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
@@ -452,7 +461,10 @@ Produce a valid JSON object according to the following format:
             "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
             "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
             "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "should_run": <BOOL>
+            "are_optional_arguments_missing": <BOOL>,
+            "are_non_optional_arguments_missing": <BOOL>,
+            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
+            "should_run": <BOOL-WHETHER THE TOOL IS APPLICABLE, NOT YET STAGED, AND ALL REQUIRED PARAMS ARE PROVIDED>
         }}
         ...
     ]
@@ -556,7 +568,7 @@ Given the tool, your output should adhere to the following format:
         {{
             "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
             "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE OMITTED IF THE TOOL SHOULD NOT EXECUTE>],
+            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED ONLY IF THE TOOL APPLICABILITY IS UNDER 6>],
             "same_call_is_already_staged": <BOOL>,
             "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
             "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
@@ -564,7 +576,10 @@ Given the tool, your output should adhere to the following format:
             "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
             "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
             "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "should_run": <BOOL>
+            "are_optional_arguments_missing": <BOOL>,
+            "are_non_optional_arguments_missing": <BOOL>,
+            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
+            "should_run": <BOOL-WHETHER THE TOOL IS APPLICABLE, NOT YET STAGED, AND ALL REQUIRED PARAMS ARE PROVIDED>
         }}
     ]
 }}
@@ -588,10 +603,16 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
             descriptor, options = spec
 
-            result: dict[str, Any] = {"type": descriptor["type"]}
+            result: dict[str, Any] = {"schema": {"type": descriptor["type"]}}
 
-            if enum := descriptor.get("enum"):
-                result["enum"] = enum
+            if descriptor["type"] == "array":
+                result["schema"]["items"] = {"type": descriptor["item_type"]}
+
+                if enum := descriptor.get("enum"):
+                    result["schema"]["items"]["enum"] = enum
+            else:
+                if enum := descriptor.get("enum"):
+                    result["schema"]["enum"] = enum
 
             if options.description:
                 result["description"] = options.description
@@ -621,7 +642,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             return {
                 "tool_name": t_id.to_string(),
                 "description": t.description,
-                "optional_parameters": {
+                "optional_arguments": {
                     name: _get_param_spec(spec)
                     for name, spec in t.parameters.items()
                     if name not in t.required
@@ -826,6 +847,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     ),
                     relevant_subtleties="check_balance(12345) is already staged",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],
@@ -850,6 +874,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     comparison_with_rejected_tools_including_references_to_subtleties="There are no tools in the list of rejected tools",
                     relevant_subtleties="no subtleties were detected",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],
@@ -901,6 +928,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     ),
                     relevant_subtleties="no subtleties were detected",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=True,
                 )
             ],
@@ -941,6 +971,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     ),
                     relevant_subtleties="two products need to be checked for calories - begin with margherita",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=True,
                 ),
                 ToolCallEvaluation(
@@ -964,6 +997,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     ),
                     relevant_subtleties="two products need to be checked for calories - now check deep dish",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=True,
                 ),
             ],
@@ -1008,6 +1044,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         "and not just general vehicles."
                     ),
                     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=True,
                 )
             ],
@@ -1049,6 +1088,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         "which is better fitting for this case compared to the more general check_vehicle_price"
                     ),
                     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],
@@ -1090,6 +1132,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         "Here, since the customer inquired about the temperature of a specific room, the check_indoor_temperature is more fitting."
                     ),
                     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],
@@ -1133,6 +1178,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         "which will provide more accurate results for electronic products"
                     ),
                     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],
@@ -1166,6 +1214,9 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     relevant_subtleties="This is the right tool to run, but we lack information for the date argument",
                     comparison_with_rejected_tools_including_references_to_subtleties="There are no tools in the list of rejected tools",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
+                    are_optional_arguments_missing=False,
+                    are_non_optional_arguments_missing=False,
+                    allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
                     should_run=False,
                 )
             ],

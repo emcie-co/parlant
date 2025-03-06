@@ -11,6 +11,7 @@ import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
 import {useAtom} from 'jotai';
 import {sessionAtom} from '@/store';
+import {NEW_SESSION_ID} from '../agents-list/agent-list';
 
 interface Props {
 	event: EventInterface;
@@ -49,6 +50,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 
 	const isClient = event.source === 'customer' || event.source === 'customer_ui';
 	const serverStatus = event.serverStatus;
+
 	return (
 		<div className={(isClient ? 'justify-end' : 'justify-start') + ' flex-1 flex max-w-[1200px] items-end w-[calc(100%-412px)]  max-[1440px]:w-[calc(100%-160px)] max-[900px]:w-[calc(100%-40px)]'}>
 			{!isClient && <div className='flex items-end me-[14px]'>{!isContinual ? <img src='parlant-bubble-muted.svg' alt='Parlant' height={36} width={36} /> : <div className='h-[36px] w-[36px]' />}</div>}
@@ -82,7 +84,7 @@ const MessageBubble = ({event, isContinual, showLogs, showLogsForMessage, setIsE
 				</div>
 				<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pb-[16px] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? '!pb-[10px] ps-[12px]' : '')}>
 					<div className={twJoin('flex items-center', isClient && 'w-[46px]')}>
-						<div>{getTimeStr(event.creation_utc)}</div>
+						<div>{event.id === NEW_SESSION_ID ? 'Just Now' : getTimeStr(event.creation_utc)}</div>
 						{isClient && !!serverStatus && <div className='w-6'>{statusIcon[serverStatus]}</div>}
 					</div>
 				</div>

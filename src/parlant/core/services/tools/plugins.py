@@ -121,7 +121,7 @@ class _ToolDecoratorParams(TypedDict, total=False):
     consequential: bool
 
 
-_ToolParameterType = Union[str, int, float, bool, None]
+_ToolParameterType = Union[str, int, float, bool, list[Any], None]
 
 
 class _ToolParameterInfo(NamedTuple):
@@ -136,16 +136,32 @@ def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
         parameter_type = param.annotation
         parameter_options: Optional[ToolParameterOptions] = None
 
+        # First thing, is our parameter annotated?
         if getattr(parameter_type, "__name__", None) == "Annotated":
             annotation_params = get_args(parameter_type)
             parameter_type = annotation_params[0]
             annotation_value = annotation_params[1]
 
+            # Do we have a ToolParameterOptions to use here?
+            # If so, let's unpack our parameter options from that.
             if isinstance(annotation_value, ToolParameterOptions):
                 parameter_options = annotation_value
 
+        # At this point—if needed—we've normalized an annotated
+        # parameter to a non-annotated parameter.
+
         if args := get_args(parameter_type):
-            if getattr(parameter_type, "__name__", None) != "Optional":
+            # Okay, we're talking about a generic type.
+
+            generic_type = getattr(parameter_type, "__name__", None)
+            is_optional = False
+            unpacked_type = None
+
+            if generic_type == "Optional":
+                is_optional = True
+                unpacked_type = args[0]
+            elif generic_type is None:
+                # Assuming we encountered union syntax; i.e., `str | None`
                 if len(args) != 2:
                     raise Exception()
                 if type(None) not in args:
@@ -153,12 +169,30 @@ def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
                 if all(t is None for t in args):
                     raise Exception()
 
-            return _ToolParameterInfo(
-                raw_type=parameter_type,
-                resolved_type=get_args(parameter_type)[0],
-                options=parameter_options,
-                is_optional=True,
-            )
+                is_optional = True
+                unpacked_type = next(t for t in args if t is not None)
+
+            if not is_optional:
+                # At this point, at least as far as our supported options,
+                # we're expecting to see here a list[T] such that the type
+                # is list and parameter type is T.
+                if generic_type != "list":
+                    raise Exception("Only `list` is supported as a generic container in parameters")
+
+                return _ToolParameterInfo(
+                    raw_type=parameter_type,
+                    resolved_type=parameter_type,
+                    options=parameter_options,
+                    is_optional=False,
+                )
+            else:
+                assert unpacked_type
+                return _ToolParameterInfo(
+                    raw_type=parameter_type,
+                    resolved_type=unpacked_type,
+                    options=parameter_options,
+                    is_optional=True,
+                )
         else:
             return _ToolParameterInfo(
                 raw_type=parameter_type,
@@ -182,7 +216,11 @@ async def adapt_tool_arguments(
         if parameter_info.options and parameter_info.options.adapter:
             adapted_arguments[name] = await parameter_info.options.adapter(argument)
         else:
-            if issubclass(parameter_info.resolved_type, BaseModel):
+            if parameter_info.resolved_type.__name__ == "list":
+                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
+                    argument
+                )
+            elif issubclass(parameter_info.resolved_type, BaseModel):
                 if parameter_info.is_optional and not argument:
                     adapted_arguments[name] = None
                 else:
@@ -195,6 +233,40 @@ async def adapt_tool_arguments(
                 )
 
     return adapted_arguments
+
+
+async def _recompute_and_marshal_tool(tool: Tool) -> Tool:
+    """This function is specifically used to refresh some of the tool's
+    details based on dynamic changes (e.g., updating parameter descriptors
+    based on dynamically-generated enum choices)"""
+    new_parameters = {}
+
+    for name, (old_descriptor, options) in tool.parameters.items():
+        new_descriptor = old_descriptor
+
+        if options.choice_provider:
+            new_descriptor["enum"] = await options.choice_provider()
+
+        marshalled_options = ToolParameterOptions(
+            hidden=options.hidden,
+            source=options.source,
+            description=options.description,
+            significance=options.significance,
+            examples=options.examples,
+            adapter=None,
+            choice_provider=None,
+        )
+
+        new_parameters[name] = (new_descriptor, marshalled_options)
+
+    return Tool(
+        name=tool.name,
+        creation_utc=datetime.now(timezone.utc),
+        description=tool.description,
+        parameters=new_parameters,
+        required=tool.required,
+        consequential=tool.consequential,
+    )
 
 
 def _tool_decorator_impl(
@@ -257,11 +329,27 @@ def _tool_decorator_impl(
             else:
                 # Do a best-effort with the string type
                 param_descriptor["type"] = "string"
+                type_args = get_args(param_info.resolved_type)
 
-            if issubclass(param_info.resolved_type, BaseModel):
-                param_descriptor["description"] = json.dumps(
-                    {"json_schema": param_info.resolved_type.model_json_schema()}
-                )
+                if len(type_args) > 0:
+                    if param_info.resolved_type.__name__ != "list":
+                        raise Exception(
+                            "Only `list` is supported as a generic container in parameters"
+                        )
+
+                    list_item_type = type_args[0]
+
+                    if list_item_type in type_to_param_type:
+                        param_descriptor["type"] = "array"
+                        param_descriptor["item_type"] = type_to_param_type[list_item_type]
+                    elif issubclass(list_item_type, enum.Enum):
+                        param_descriptor["type"] = "array"
+                        param_descriptor["item_type"] = "string"
+                        param_descriptor["enum"] = [e.value for e in list_item_type]
+                elif issubclass(param_info.resolved_type, BaseModel):
+                    param_descriptor["description"] = json.dumps(
+                        {"json_schema": param_info.resolved_type.model_json_schema()}
+                    )
 
             if options := param_info.options:
                 if options.description:
@@ -433,7 +521,10 @@ class PluginServer:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Tool: '{name}' does not exists",
                 )
-            return ReadToolResponse(tool=spec.tool)
+
+            tool = await _recompute_and_marshal_tool(spec.tool)
+
+            return ReadToolResponse(tool=tool)
 
         @app.post("/tools/{name}/calls")
         async def call_tool(
@@ -619,8 +710,12 @@ class PluginClient(ToolService):
     @override
     async def read_tool(self, name: str) -> Tool:
         response = await self._http_client.get(self._get_url(f"/tools/{name}"))
+
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise ItemNotFoundError(UniqueId(name))
+        if response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+            raise ToolError(name, "Failed to read tool from remote service")
+
         content = response.json()
         t = content["tool"]
         return Tool(

@@ -43,7 +43,7 @@ from parlant.core.tools import ToolId
 
 
 class ContextEvaluation(DefaultBaseModel):
-    most_recent_customer_inquiries_or_needs: Optional[str] = None
+    most_recent_user_inquiries_or_needs: Optional[str] = None
     parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs: Optional[
         str
     ] = None
@@ -54,7 +54,7 @@ class ContextEvaluation(DefaultBaseModel):
     was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs: Optional[
         bool
     ] = None
-    should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs: Optional[bool] = None
+    should_i_tell_the_user_i_cannot_help_with_some_of_those_needs: Optional[bool] = None
 
 
 class MaterializedFragmentField(DefaultBaseModel):
@@ -72,6 +72,7 @@ class MaterializedFragment(DefaultBaseModel):
 
 class Revision(DefaultBaseModel):
     revision_number: int
+    insights_about_the_user: Optional[str] = None
     selected_content_fragments: list[MaterializedFragment]
     sequenced_rendered_content_fragments: list[str]
     composited_fragment_sequence: str
@@ -97,7 +98,7 @@ class InstructionEvaluation(DefaultBaseModel):
 
 
 class AssembledMessageSchema(DefaultBaseModel):
-    last_message_of_customer: Optional[str]
+    last_message_of_user: Optional[str]
     produced_reply: Optional[bool] = None
     produced_reply_rationale: Optional[str] = None
     guidelines: list[str]
@@ -269,7 +270,7 @@ For example, in the fragment 'I can help you with {{something}}', there is one f
 For your references, some fragment may include some examples for how to fill out their fragment fields properly.
 
 Note: If you do not have fragments for fulfilling any instruction, you should at least try to
-explain to the customer that cannot help (even if only because you don't have the necessary fragments).
+explain to the user that cannot help (even if only because you don't have the necessary fragments).
 Only attempt to say something like this if you do at least have fragments in the bank that help
 you explain this situation (the very fact you cannot help).
 
@@ -333,7 +334,7 @@ When crafting your reply, you must follow the behavioral guidelines provided bel
 Each guideline includes a priority score to indicate its importance and a rationale for its relevance.
 
 You may choose not to follow a guideline only in the following cases:
-    - It conflicts with a previous customer request.
+    - It conflicts with a previous user request.
     - It contradicts another guideline of equal or higher priority.
     - It is clearly inappropriate given the current context of the conversation.
 In all other situations, you are expected to adhere to the guidelines.
@@ -569,7 +570,7 @@ MISSING DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
 in order to run tools. The tools would have run, if they only had this data available.
-You must inform the customer about this missing data: ###
+If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data: ###
 {formatted_missing_data}
 ###
 """,
@@ -667,17 +668,17 @@ Produce a valid JSON object in the following format: ###
 
         return f"""
 {{
-    "last_message_of_customer": "{last_customer_message}",
-    "produced_reply": "<BOOL, should be true unless the customer explicitly asked you not to respond>",
+    "last_message_of_user": "{last_customer_message}",
+    "produced_reply": "<BOOL, should be true unless the user explicitly asked you not to respond>",
     "produced_reply_rationale": "<str, optional. required only if produced_reply is false>",
     "guidelines": [{guidelines_list_text}],
     "context_evaluation": {{
-        "most_recent_customer_inquiries_or_needs": "<fill out accordingly>",
+        "most_recent_user_inquiries_or_needs": "<fill out accordingly>",
         "parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs": "<fill out accordingly>",
         "topics_for_which_i_have_sufficient_information_and_can_therefore_help_with": "<fill out accordingly>",
         "what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have": "<fill out accordingly>",
         "was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs": <BOOL>,
-        "should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs": <BOOL>
+        "should_i_tell_the_user_i_cannot_help_with_some_of_those_needs": <BOOL>
     }},
     "insights": [<Up to 3 original insights to adhere to>],
     "evaluation_for_each_instruction": [
@@ -687,6 +688,7 @@ Produce a valid JSON object in the following format: ###
     "revisions": [
     {{
         "revision_number": 1,
+        "insights_about_the_user": "<insights based on your fragment selection and what you know about the user>",
         "selected_content_fragments": [
             {{
                 "fragment_id": "<chosen fragment_id from bank>{' or <auto> if you suggested this fragment yourself' if allow_suggestions else ''}",
@@ -734,7 +736,7 @@ Produce a valid JSON object in the following format: ###
             f"Completion:\n{message_event_response.content.model_dump_json(indent=2)}"
         )
 
-        if not message_event_response.content.produced_reply:
+        if message_event_response.content.produced_reply is False:
             self._logger.debug("Produced no reply")
             return message_event_response.info, None
 
@@ -813,18 +815,11 @@ Produce a valid JSON object in the following format: ###
                 continue
 
             if index < len(final_revision.sequenced_rendered_content_fragments):
-                # This check is inside the 'if' to account for possible (erroneous)
-                # divergences between the selected fragments and the list of rendered ones.
-                if (
-                    materialized_fragment.raw_content.lower()
-                    not in final_revision.sequenced_rendered_content_fragments[index].lower()
-                ):
-                    self._logger.warning(
-                        f"Fragment rendering hallucination. ID={materialized_fragment.fragment_id}; ExpectedContent={materialized_fragment.raw_content}; HallucinatedContent={final_revision.sequenced_rendered_content_fragments[index]}"
-                    )
-
                 used_fragments[fragment.id] = fragment.value
             else:
+                self._logger.error(
+                    f"Invalid fragment index. ID={materialized_fragment.fragment_id}; Index={index}"
+                )
                 used_fragments[fragment.id] = "<error: index mismatch>"
 
         match composition_mode:
@@ -843,18 +838,18 @@ Produce a valid JSON object in the following format: ###
 
 
 example_1_expected = AssembledMessageSchema(
-    last_message_of_customer="Hi, I'd like to know the schedule for the next trains to Boston, please.",
+    last_message_of_user="Hi, I'd like to know the schedule for the next trains to Boston, please.",
     produced_reply=True,
     guidelines=[
         "When the customer asks for train schedules, provide them accurately and concisely."
     ],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="Knowing the schedule for the next trains to Boston",
+        most_recent_user_inquiries_or_needs="Knowing the schedule for the next trains to Boston",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="The interaction history contains a tool call with the train schedule for Boston",
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="I can provide the schedule directly from the tool call's result",
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I am not given the current time so I can't say what trains are *next*",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=True,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=True,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=True,
     ),
     insights=[
         "Use markdown format when applicable.",
@@ -863,8 +858,8 @@ example_1_expected = AssembledMessageSchema(
     evaluation_for_each_instruction=[
         InstructionEvaluation(
             number=1,
-            instruction="When the customer asks for train schedules, provide them accurately and concisely.",
-            evaluation="The customer requested train schedules, so I need to respond with accurate timing information.",
+            instruction="When the user asks for train schedules, provide them accurately and concisely.",
+            evaluation="The user requested train schedules, so I need to respond with accurate timing information.",
             data_available="Yes, the train schedule data is available.",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=False,
@@ -915,7 +910,7 @@ example_1_expected = AssembledMessageSchema(
                 "Train 205 departs at 1:00 PM and arrives at 3:45 PM."
             ),
             instructions_followed=[
-                "#1; When the customer asks for train schedules, provide them accurately and concisely."
+                "#1; When the user asks for train schedules, provide them accurately and concisely."
             ],
             instructions_broken=[
                 "#2; Did not use markdown format when applicable.",
@@ -964,7 +959,7 @@ Here's the relevant train schedule:
 | 205   | 1:00 PM   | 3:45 PM  |"""
             ),
             instructions_followed=[
-                "#1; When the customer asks for train schedules, provide them accurately and concisely.",
+                "#1; When the user asks for train schedules, provide them accurately and concisely.",
                 "#2; Use markdown format when applicable.",
                 "#3; Clearly stated that I can't guarantee which trains are next as I don't have the time.",
             ],
@@ -983,16 +978,16 @@ example_1_shot = MessageAssemblerShot(
 
 
 example_2_expected = AssembledMessageSchema(
-    last_message_of_customer="<customer’s last message in the interaction>",
+    last_message_of_user="<user’s last message in the interaction>",
     guidelines=[
-        "When the customer chooses and orders a burger, then provide it",
-        "When the customer chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order",
+        "When the user chooses and orders a burger, then provide it",
+        "When the user chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order",
     ],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="<most recent customer inquiries or need>",
+        most_recent_user_inquiries_or_needs="<most recent user inquiries or need>",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="<relevant contextual quotes>",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=True,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=False,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=False,
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="<what you can help with>",
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have=None,
     ),
@@ -1000,16 +995,16 @@ example_2_expected = AssembledMessageSchema(
     evaluation_for_each_instruction=[
         InstructionEvaluation(
             number=1,
-            instruction="When the customer chooses and orders a burger, then provide it",
-            evaluation="This guideline currently applies, so I need to provide the customer with a burger.",
+            instruction="When the user chooses and orders a burger, then provide it",
+            evaluation="This guideline currently applies, so I need to provide the user with a burger.",
             data_available="The burger choice is available in the interaction",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=True,
         ),
         InstructionEvaluation(
             number=2,
-            instruction="When the customer chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order.",
-            evaluation="The customer chose cheese on the burger, but all of the cheese we currently have is expired",
+            instruction="When the user chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order.",
+            evaluation="The user chose cheese on the burger, but all of the cheese we currently have is expired",
             data_available="The relevant stock availability is given in the tool calls' data. Our cheese has expired.",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=True,
@@ -1018,6 +1013,7 @@ example_2_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
+            insights_about_the_user="The user is a long-time customer and we should treat him with extra respect",
             selected_content_fragments=[
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1032,7 +1028,7 @@ example_2_expected = AssembledMessageSchema(
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
                     raw_content="prepare your burger",
-                    justification="Customer request",
+                    justification="User request",
                 ),
                 MaterializedFragment(
                     fragment_id="<auto>",
@@ -1088,13 +1084,13 @@ example_2_shot = MessageAssemblerShot(
 
 
 example_3_expected = AssembledMessageSchema(
-    last_message_of_customer="Hi there, can I get something to drink? What do you have on tap?",
-    guidelines=["When the customer asks for a drink, check the menu and offer what's on it"],
+    last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
+    guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="Knowing what drinks we have on tap",
+        most_recent_user_inquiries_or_needs="Knowing what drinks we have on tap",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="None",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=False,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=True,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=True,
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with=None,
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I was not given any contextual information (including tool calls) about what drinks we have at all",
     ),
@@ -1104,8 +1100,8 @@ example_3_expected = AssembledMessageSchema(
     evaluation_for_each_instruction=[
         InstructionEvaluation(
             number=1,
-            instruction="When the customer asks for a drink, check the menu and offer what's on it",
-            evaluation="The customer did ask for a drink, so I should check the menu to see what's available.",
+            instruction="When the user asks for a drink, check the menu and offer what's on it",
+            evaluation="The user did ask for a drink, so I should check the menu to see what's available.",
             data_available="No, I don't have the menu info in the interaction or tool calls",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=False,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=True,
@@ -1122,6 +1118,7 @@ example_3_expected = AssembledMessageSchema(
     revisions=[
         Revision(
             revision_number=1,
+            insights_about_the_user="According to contextual information about the user, this is their first time here",
             selected_content_fragments=[
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1175,17 +1172,17 @@ example_3_shot = MessageAssemblerShot(
 
 
 example_4_expected = AssembledMessageSchema(
-    last_message_of_customer="This is not what I was asking for",
+    last_message_of_user="This is not what I was asking for",
     guidelines=[],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="At this point it appears that I do not understand what the customer is asking",
+        most_recent_user_inquiries_or_needs="At this point it appears that I do not understand what the user is asking",
     ),
     insights=["I should not keep repeating myself as it makes me sound robotic"],
     evaluation_for_each_instruction=[
         InstructionEvaluation(
             number=1,
             instruction="I should not keep repeating myself as it makes me sound robotic",
-            evaluation="If I keep repeating myself in asking for clarifications, it makes me sound robotic and unempathetic as if I'm not really tuned into the customer's vibe",
+            evaluation="If I keep repeating myself in asking for clarifications, it makes me sound robotic and unempathetic as if I'm not really tuned into the user's vibe",
             data_available="None needed",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=False,
@@ -1205,7 +1202,7 @@ example_4_expected = AssembledMessageSchema(
                             value="the confusion",
                         )
                     ],
-                    justification="Customer is upset",
+                    justification="User is upset",
                 ),
                 MaterializedFragment(
                     fragment_id="<auto>",
@@ -1238,7 +1235,7 @@ example_4_expected = AssembledMessageSchema(
                             value="Failing to assist you with your issue",
                         )
                     ],
-                    justification="I've failed to understand and help the customer",
+                    justification="I've failed to understand and help the user",
                 ),
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1272,16 +1269,16 @@ example_4_shot = MessageAssemblerShot(
 
 
 example_5_expected = AssembledMessageSchema(
-    last_message_of_customer=(
+    last_message_of_user=(
         "How much money do I have in my account, and how do you know it? Is there some service you use to check "
         "my balance? Can I access it too?"
     ),
-    guidelines=["When you need the balance of a customer, then use the 'check_balance' tool."],
+    guidelines=["When you need the balance of a user, then use the 'check_balance' tool."],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="Know how much money they have in their account; Knowing how and what I use to know how much money they have",
+        most_recent_user_inquiries_or_needs="Know how much money they have in their account; Knowing how and what I use to know how much money they have",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="I know how much money they have based on a tool call's result",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=True,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=False,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=False,
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="Telling them how much is in their account",
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I should not expose my internal process, despite their request",
     ),
@@ -1291,7 +1288,7 @@ example_5_expected = AssembledMessageSchema(
             number=1,
             instruction="use the 'check_balance' tool",
             evaluation="There's already a staged tool call with this tool, so no further action is required.",
-            data_available="Yes, I know that the customer's balance is 1,000$",
+            data_available="Yes, I know that the user's balance is 1,000$",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=True,
         ),
@@ -1318,7 +1315,7 @@ example_5_expected = AssembledMessageSchema(
                             value="$1,000",
                         )
                     ],
-                    justification="Customer requested this information",
+                    justification="User requested this information",
                 ),
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1358,21 +1355,21 @@ example_5_shot = MessageAssemblerShot(
 
 
 example_6_expected = AssembledMessageSchema(
-    last_message_of_customer=("Hey, how can I contact customer support?"),
+    last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="The customer wants to know how to contact customer support",
+        most_recent_user_inquiries_or_needs="The user wants to know how to contact customer support",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="The system has given me no information on contacting customer support",
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="None in this case; I'm not authorized to offer help beyond my configured capabilities",
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I cannot help with contacting customer support",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=False,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=True,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=True,
     ),
-    insights=["When I cannot help with a topic, I should tell the customer I can't help with it"],
+    insights=["When I cannot help with a topic, I should tell the user I can't help with it"],
     evaluation_for_each_instruction=[
         InstructionEvaluation(
             number=1,
-            instruction="When I cannot help with a topic, I should tell the customer I can't help with it",
+            instruction="When I cannot help with a topic, I should tell the user I can't help with it",
             evaluation="Indeed, no information on contacting customer support is provided in my context",
             data_available="Not needed",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=False,
@@ -1393,7 +1390,7 @@ example_6_expected = AssembledMessageSchema(
                             value="What you would need from customer support?",
                         )
                     ],
-                    justification="Customer requested this information",
+                    justification="User requested this information",
                 ),
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1416,7 +1413,7 @@ example_6_expected = AssembledMessageSchema(
             ),
             instructions_followed=[],
             instructions_broken=[
-                "#1; Instead of saying I can't help, I asked for more details from the customer",
+                "#1; Instead of saying I can't help, I asked for more details from the user",
             ],
             is_practically_repeating_yourself=False,
             followed_all_instructions=False,
@@ -1473,22 +1470,22 @@ example_6_shot = MessageAssemblerShot(
 
 
 example_7_expected = AssembledMessageSchema(
-    last_message_of_customer="I don't have any android devices, and I do not want to buy a ticket at the moment. Now, what flights are there from New York to Los Angeles tomorrow?",
+    last_message_of_user="I don't have any android devices, and I do not want to buy a ticket at the moment. Now, what flights are there from New York to Los Angeles tomorrow?",
     guidelines=[
         "When asked anything about plane tickets, suggest completing the order on our android app",
         "When asked about first-class tickets, mention that shorter flights do not offer a complementary meal",
     ],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="Knowing what flights there are from NY to LA tomorrow",
+        most_recent_user_inquiries_or_needs="Knowing what flights there are from NY to LA tomorrow",
         parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="Today's date is [...] and I can see the relevant flight schedule in a staged tool call",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=True,
-        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=False,
+        should_i_tell_the_user_i_cannot_help_with_some_of_those_needs=False,
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="I know the date today, and I have the relevant flight schedule",
         what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have=None,
     ),
     insights=[
-        "In your generated reply to the customer, use markdown format when applicable.",
-        "The customer does not have an android device and does not want to buy anything",
+        "In your generated reply to the user, use markdown format when applicable.",
+        "The user does not have an android device and does not want to buy anything",
     ],
     evaluation_for_each_instruction=[
         InstructionEvaluation(
@@ -1509,7 +1506,7 @@ example_7_expected = AssembledMessageSchema(
         ),
         InstructionEvaluation(
             number=3,
-            instruction="In your generated reply to the customer, use markdown format when applicable",
+            instruction="In your generated reply to the user, use markdown format when applicable",
             evaluation="I need to output a message in markdown format",
             data_available="Not needed",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
@@ -1517,8 +1514,8 @@ example_7_expected = AssembledMessageSchema(
         ),
         InstructionEvaluation(
             number=4,
-            instruction="The customer does not have an android device and does not want to buy anything",
-            evaluation="A guideline should not override a customer's request, so I should not suggest products requiring an android device",
+            instruction="The user does not have an android device and does not want to buy anything",
+            evaluation="A guideline should not override a user's request, so I should not suggest products requiring an android device",
             data_available="Not needed",
             do_i_have_fragments_in_the_bank_for_fulfilling_this_instruction=True,
             if_i_do_not_have_fragments_for_fulfilling_then_do_i_at_least_have_fragments_to_explain_that_i_cannot_help=False,
@@ -1561,7 +1558,7 @@ Here are the flights from {origin} to {destination} {when}:
 | 2      | JFK               | 3:30 PM        | Los Angeles (LAX) |""",
                         ),
                     ],
-                    justification="Customer asks to depart from New York to Los Angeles tomorrow",
+                    justification="User asks to depart from New York to Los Angeles tomorrow",
                 ),
                 MaterializedFragment(
                     fragment_id="<example-id-for-few-shots--do-not-use-this-in-output>",
@@ -1593,8 +1590,8 @@ Here are the flights from New York to Los Angeles tomorrow:
             ),
             instructions_followed=[
                 "#2; When asked about first-class tickets, mention that shorter flights do not offer a complementary meal",
-                "#3; In your generated reply to the customer, use markdown format when applicable.",
-                "#4; The customer does not have an android device and does not want to buy anything",
+                "#3; In your generated reply to the user, use markdown format when applicable.",
+                "#4; The user does not have an android device and does not want to buy anything",
             ],
             instructions_broken=[
                 "#1; When asked anything about plane tickets, suggest completing the order on our android app."
@@ -1603,7 +1600,7 @@ Here are the flights from New York to Los Angeles tomorrow:
             followed_all_instructions=False,
             instructions_broken_only_due_to_prioritization=True,
             prioritization_rationale=(
-                "Instructions #1 and #3 contradict each other, and customer requests take precedent "
+                "Instructions #1 and #3 contradict each other, and user requests take precedent "
                 "over guidelines, so instruction #1 was prioritized."
             ),
             instructions_broken_due_to_missing_data=False,

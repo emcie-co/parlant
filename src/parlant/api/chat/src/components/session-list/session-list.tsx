@@ -1,12 +1,12 @@
 import {ReactElement, useEffect, useState} from 'react';
 import useFetch from '@/hooks/useFetch';
-import Session from '../session/session';
+import Session from './session-list-item/session-list-item';
 import {AgentInterface, SessionInterface} from '@/utils/interfaces';
 import VirtualScroll from '../virtual-scroll/virtual-scroll';
 import {useAtom} from 'jotai';
 import {agentsAtom, customersAtom, sessionAtom, sessionsAtom} from '@/store';
 
-export default function Sessions(): ReactElement {
+export default function SessionList(): ReactElement {
 	const [editingTitle, setEditingTitle] = useState<string | null>(null);
 	const [session] = useAtom(sessionAtom);
 	const {data, ErrorTemplate, loading, refetch} = useFetch<SessionInterface[]>('sessions');

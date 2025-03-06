@@ -269,11 +269,11 @@ export default function SessionView(): ReactElement {
 											</div>
 										</DropdownMenuTrigger>
 										<DropdownMenuContent side='top' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
-											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(false)} className='gap-0 font-normal text-[14px] px-[20px] font-ubuntu-sans capitalize hover:!bg-[#FAF9FF]'>
+											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(false)} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
 												<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
 												Bypass Moderation
 											</DropdownMenuItem>
-											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(true)} className='gap-0 font-normal text-[14px] px-[20px] font-ubuntu-sans capitalize hover:!bg-[#FAF9FF]'>
+											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(true)} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
 												<ShieldEllipsis className='me-[8px]' />
 												Apply Moderation
 											</DropdownMenuItem>

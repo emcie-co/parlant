@@ -175,7 +175,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			onClick={() => !disabled && !editingTitle && !isDeleting && setSession(session)}
 			key={session.id}
 			className={
-				'bg-white animate-fade-in text-[14px] rounded-[10px] font-ubuntu-sans justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[80px] h-[80px] ml-0 mr-0 ' +
+				'bg-white animate-fade-in text-[14px] rounded-[10px] font-inter justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[80px] h-[80px] ml-0 mr-0 ' +
 				(editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ') +
 				(isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '') +
 				(disabled ? ' pointer-events-none' : '') +
@@ -214,7 +214,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 						</DropdownMenuTrigger>
 						<DropdownMenuContent ref={contentRef} side='right' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none w-[168px] [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
 							{sessionActions.map((sessionAction) => (
-								<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-ubuntu-sans capitalize hover:!bg-[#FAF9FF]'>
+								<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
 									<img data-testid={sessionAction.title} src={sessionAction.imgPath} height={16} width={18} className='me-[8px]' alt='' />
 									{sessionAction.title}
 								</DropdownMenuItem>

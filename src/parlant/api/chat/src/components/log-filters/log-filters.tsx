@@ -44,7 +44,7 @@ const FilterDialogContent = ({contentChanged, defaultValue}: {contentChanged: (t
 			<div className='border rounded-[5px] h-[38px] flex items-center bg-[#FBFBFB] hover:bg-[#F5F6F8] focus-within:!bg-white'>
 				<Input value={inputVal} onChange={(e) => setInputVal(e.target.value)} name='filter' className='h-[36px] !ring-0 !ring-offset-0 border-none text-[16px] bg-[#FBFBFB] hover:bg-[#F5F6F8] focus:!bg-white' />
 			</div>
-			<div className='buttons flex items-center gap-[16px] justify-end text-[16px] font-normal font-ubuntu-sans'>
+			<div className='buttons flex items-center gap-[16px] justify-end text-[16px] font-normal font-inter'>
 				<DialogClose className='h-[38px] w-[84px] !bg-white text-[#656565] hover:text-[#151515] rounded-[5px] border'>Cancel</DialogClose>
 				<DialogClose onClick={onApplyClick} className='bg-green-main text-white h-[38px] w-[79px] hover:bg-green-hover rounded-[5px]'>
 					Apply

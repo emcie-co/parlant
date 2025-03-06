@@ -26,7 +26,7 @@ const MessageFragment = ({fragment}: {fragment: {id: string; value: string}}) =>
 				</div>
 			</Tooltip>
 		</div>
-		// <Tooltip value={<TooltipComponent fragmentId={fragment.id} />} side='top' align='start' className='ml-[23px] -mb-[10px] font-medium font-ubuntu-sans'>
+		// <Tooltip value={<TooltipComponent fragmentId={fragment.id} />} side='top' align='start' className='ml-[23px] -mb-[10px] font-medium font-inter'>
 		// </Tooltip>
 	);
 };

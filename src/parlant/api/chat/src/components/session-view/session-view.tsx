@@ -305,14 +305,6 @@ export default function SessionView(): ReactElement {
 					</div>
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
-					{/* <div className='flex h-full min-w-[calc(50%-7px)]'>
-						<MessageDetails
-							event={showLogsForMessage}
-							regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
-							resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}
-							closeLogs={() => setShowLogsForMessage(null)}
-						/>
-					</div> */}
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
 						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F]' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
 							<DrawerHeader>

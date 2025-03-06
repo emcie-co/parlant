@@ -57,15 +57,17 @@ export default function Chatbot(): ReactElement {
 					</div>
 					<div className='flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]'>
 						<SessionsSection />
-						<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
-							{session?.id ? (
+						{session?.id ? (
+							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
 								<Suspense>
 									<SessionView />
 								</Suspense>
-							) : (
-								<HeaderWrapper />
-							)}
-						</div>
+							</div>
+						) : (
+							<div className='flex-1 flex items-center justify-center'>
+								<img src='select-session.svg' alt='' />
+							</div>
+						)}
 					</div>
 				</div>
 			</SessionProvider.Provider>

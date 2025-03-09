@@ -10,7 +10,7 @@ body {
 
 .fixed-scroll {
 	overflow: scroll;
-	scrollbar-width: auto;
+	scrollbar-width: thin;
 	scrollbar-color: #ebecf0 transparent;
 }
 

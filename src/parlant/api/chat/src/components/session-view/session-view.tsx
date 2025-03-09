@@ -238,7 +238,7 @@ const SessionView = (): ReactElement => {
 				<div
 					className={twMerge(
 						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
-						showLogsForMessage && 'min-w-[calc(100%-700px)] max-w-[calc(100%-700px)]'
+						showLogsForMessage && 'min-w-[calc(100%-min(700px,40vw))] max-w-[calc(100%-min(700px,40vw))]'
 					)}>
 					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
@@ -323,7 +323,7 @@ const SessionView = (): ReactElement => {
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<div
 						className={twMerge(
-							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[700px] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[min(700px,40vw)] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,40vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 							showLogsForMessage && 'translate-x-0'
 						)}>
 						{showLogsForMessage && (

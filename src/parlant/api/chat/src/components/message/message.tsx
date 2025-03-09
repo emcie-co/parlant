@@ -123,7 +123,13 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 				<Button variant='ghost' onClick={() => setIsEditing?.(false)} className='rounded-[10px] hover:bg-white'>
 					Cancel
 				</Button>
-				<Button disabled={!textValue?.trim() || textValue?.trim() === event?.data?.message} className='rounded-[10px]' onClick={() => resendMessageFn?.(session?.id || '', textValue?.trim())}>
+				<Button
+					disabled={!textValue?.trim() || textValue?.trim() === event?.data?.message}
+					className='rounded-[10px]'
+					onClick={() => {
+						resendMessageFn?.(session?.id || '', textValue?.trim());
+						setIsEditing?.(false);
+					}}>
 					Apply
 				</Button>
 			</div>

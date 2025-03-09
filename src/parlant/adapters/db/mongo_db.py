@@ -34,11 +34,11 @@ from pymongo.asynchronous.collection import AsyncCollection
 class MongoDocumentDatabase(DocumentDatabase):
     def __init__(
         self,
-        mongo_client_async: AsyncMongoClient[Any],
+        mongo_client: AsyncMongoClient[Any],
         database_name: str,
         logger: Logger,
     ):
-        self.mongo_client: AsyncMongoClient[Any] = mongo_client_async
+        self.mongo_client: AsyncMongoClient[Any] = mongo_client
         self.database_name = database_name
 
         self._logger = logger
@@ -79,26 +79,27 @@ class MongoDocumentDatabase(DocumentDatabase):
             codec_options=CodecOptions(document_class=schema),
         )
 
+        flag_any_failed = False
         collection_existing_documents = result_collection.find({})
-        failed_migrations: list[TDocument] = []
+        failed_migration_collection = await self.create_collection("failed_migrations", schema)
         for doc in await collection_existing_documents.to_list():
             try:
                 if loaded_doc := await document_loader(doc):
                     await result_collection.replace_one(doc, loaded_doc)
                 else:
+                    flag_any_failed = True
                     self._logger.warning(f'Failed to load document "{doc}"')
-                    failed_migrations.append(doc)
+                    await failed_migration_collection.insert_one(doc)
                     await result_collection.delete_one(doc)
             except Exception as e:
+                flag_any_failed = True
                 self._logger.error(
                     f"Failed to load document '{doc}' with error: {e}. Added to failed migrations collection."
                 )
-                failed_migrations.append(doc)
-
-        if len(failed_migrations):
-            failed_migration_collection = await self.create_collection("failed_migrations", schema)
-            for doc in failed_migrations:
                 await failed_migration_collection.insert_one(doc)
+
+        if not flag_any_failed:
+            await self.delete_collection("failed_migrations")
 
         self._collections[name] = MongoDocumentCollection(self, result_collection)
         return self._collections[name]
@@ -153,8 +154,8 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         return result
 
     async def insert_one(self, document: TDocument) -> InsertResult:
-        await self._collection.insert_one(document)
-        return InsertResult(acknowledged=True)
+        insert_result = await self._collection.insert_one(document)
+        return InsertResult(acknowledged=insert_result.acknowledged)
 
     async def update_one(
         self,

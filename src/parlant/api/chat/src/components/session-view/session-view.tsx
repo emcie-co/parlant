@@ -240,7 +240,7 @@ const SessionView = (): ReactElement => {
 						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 						showLogsForMessage && 'min-w-[calc(100%-min(700px,40vw))] max-w-[calc(100%-min(700px,40vw))]'
 					)}>
-					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
+					<div className='h-full flex flex-col rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
 						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>

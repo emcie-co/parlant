@@ -309,7 +309,7 @@ const LogFilters = ({
 				</div>
 			</div>
 			{deleteFilterTab && (
-				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] min-h-[28px] min-w-[28px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
+				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[10px] min-h-[28px] min-w-[28px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
 					<X className='size-[14px] min-h-[14px] min-w-[14px]' />
 				</Button>
 			)}

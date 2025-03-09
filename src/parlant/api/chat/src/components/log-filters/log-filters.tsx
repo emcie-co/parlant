@@ -3,7 +3,7 @@ import {Button} from '../ui/button';
 import {Checkbox} from '../ui/checkbox';
 import {Input} from '../ui/input';
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogPortal, DialogTitle, DialogTrigger} from '../ui/dialog';
-import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
+import {ClassNameValue, twMerge} from 'tailwind-merge';
 import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';

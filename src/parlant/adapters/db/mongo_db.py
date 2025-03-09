@@ -54,7 +54,7 @@ class MongoDocumentDatabase(DocumentDatabase):
         self._logger.debug(f'create collection "{name}"')
         if self._database is None:
             raise Exception("underlying database missing.")
-        
+
         self._collections[name] = MongoDocumentCollection(
             self,
             await self._database.create_collection(

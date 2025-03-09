@@ -19,7 +19,6 @@ import ErrorBoundary from '../error-boundary/error-boundary';
 import DateHeader from './date-header/date-header';
 import SessoinViewHeader from './session-view-header/session-view-header';
 import {isSameDay} from '@/lib/utils';
-import {Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle} from '../ui/drawer';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
 import {ShieldEllipsis} from 'lucide-react';
 
@@ -271,25 +270,28 @@ const SessionView = (): ReactElement => {
 								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
 									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-green-main')}>
-												{!useContentFiltering && <img src='icons/edit.svg' alt='' className={twMerge('h-[14px] w-[14px]', isContentFilterMenuOpen && '[filter:invert(1)_brightness(2)]')} />}
-												{useContentFiltering && <ShieldEllipsis className={twJoin('size-[18px]', isContentFilterMenuOpen && 'text-white')} />}
+											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-[#f5f6f8]')}>
+												{!useContentFiltering && <img src='icons/edit.svg' alt='' className={twMerge('h-[14px] w-[14px]')} />}
+												{useContentFiltering && <ShieldEllipsis className={twJoin('size-[18px]')} />}
 											</div>
 										</DropdownMenuTrigger>
-										<DropdownMenuContent side='top' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
+										<DropdownMenuContent side='top' align='start' className='max-w-[480px] -ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(false)}
-												className={twMerge('gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && 'bg-green-main hover:!bg-green-main !text-white')}>
-												<img src='icons/edit.svg' alt='' className={twMerge('me-[8px] size-[15px]', !useContentFiltering && '[filter:invert(1)_brightness(2)]')} />
-												Bypass Moderation
+												className={twMerge('gap-0 font-normal text-[14px] px-[10px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												<img src='icons/edit.svg' alt='' className={twMerge('me-[8px] size-[15px]')} />
+												Direct (No Moderation)
 											</DropdownMenuItem>
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(true)}
-												className={twMerge('gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]', useContentFiltering && 'bg-green-main hover:!bg-green-main !text-white')}>
-												<ShieldEllipsis className='me-[8px] !size-[17px]' />
-												Apply Moderation
+												className={twMerge('gap-0 font-normal text-[14px] items-start px-[10px] font-inter  hover:!bg-[#FAF9FF]', useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												<ShieldEllipsis className='me-[8px] !size-[17px] mt-[3px]' />
+												<div>
+													<div>Content Moderation</div>
+													<small>Messages will be flagged for harmful or illicit content and censored accordingly. The agent will see such messages were sent and the reason why they were censored, but it won't see their content.</small>
+												</div>
 											</DropdownMenuItem>
 										</DropdownMenuContent>
 									</DropdownMenu>
@@ -319,17 +321,11 @@ const SessionView = (): ReactElement => {
 					</div>
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
-					{/* <Drawer handleOnly modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}> */}
-
 					<div
 						className={twMerge(
 							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[700px] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 							showLogsForMessage && 'translate-x-0'
 						)}>
-						{/* <DrawerHeader>
-								<DrawerTitle hidden></DrawerTitle>
-								<DrawerDescription hidden></DrawerDescription>
-							</DrawerHeader> */}
 						{showLogsForMessage && (
 							<MessageDetails
 								event={showLogsForMessage}
@@ -339,7 +335,6 @@ const SessionView = (): ReactElement => {
 							/>
 						)}
 					</div>
-					{/* </Drawer> */}
 				</ErrorBoundary>
 			</div>
 		</>

@@ -1,4 +1,4 @@
-import {createContext, lazy, ReactElement, Suspense, useEffect, useState} from 'react';
+import {createContext, ReactElement, useEffect, useState} from 'react';
 import SessionList from '../session-list/session-list';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
@@ -6,7 +6,7 @@ import {useDialog} from '@/hooks/useDialog';
 import {Helmet} from 'react-helmet';
 import {NEW_SESSION_ID} from '../agents-list/agent-list';
 import {useAtom} from 'jotai';
-import {dialogAtom, sessionAtom, viewingMessageDetailsAtom} from '@/store';
+import {dialogAtom, sessionAtom} from '@/store';
 import {twMerge} from 'tailwind-merge';
 import SessionView from '../session-view/session-view';
 
@@ -29,7 +29,6 @@ export default function Chatbot(): ReactElement {
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
 	const [, setFilterSessionVal] = useState('');
-	const [isViewingMessage] = useAtom(viewingMessageDetailsAtom);
 
 	useEffect(() => {
 		if (session?.id) {
@@ -44,6 +43,7 @@ export default function Chatbot(): ReactElement {
 
 	useEffect(() => {
 		setDialog({openDialog, closeDialog});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	return (
@@ -57,7 +57,7 @@ export default function Chatbot(): ReactElement {
 					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]', session?.id && !isViewingMessage && 'bg-white')}>
+					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]')}>
 						<SessionsSection />
 						{session?.id ? (
 							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>

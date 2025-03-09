@@ -2,7 +2,7 @@
 import {twJoin, twMerge} from 'tailwind-merge';
 import {Level, Type} from '../log-filters/log-filters';
 import {useState} from 'react';
-import {Plus, X} from 'lucide-react';
+import {Plus} from 'lucide-react';
 
 interface DefInterface {
 	level?: Level;

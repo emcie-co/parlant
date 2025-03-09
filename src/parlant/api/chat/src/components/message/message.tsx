@@ -10,7 +10,7 @@ import {Button} from '../ui/button';
 import {useAtom} from 'jotai';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
 import {getAvatarColor} from '../avatar/avatar';
-import {timeAgo} from '@/lib/utils';
+import MessageRelativeTime from './message-relative-time';
 
 interface Props {
 	event: EventInterface;
@@ -60,7 +60,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								</div>
 								<div className='font-medium text-[14px] text-[#282828]'>{formattedName}</div>
 							</div>
-							<div className='text-[14px] text-[#A9A9A9]'>{event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc)}</div>
+							<MessageRelativeTime event={event} />
 						</div>
 					)}
 					<div className='flex items-center relative max-w-full'>

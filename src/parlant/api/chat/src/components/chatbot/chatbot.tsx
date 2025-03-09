@@ -69,7 +69,7 @@ export default function Chatbot(): ReactElement {
 							</div>
 						) : (
 							<div className='flex-1 flex items-center justify-center'>
-								<img src='select-session.svg' className='-translate-y-[50%] me-[360px]' alt='' />
+								<img src='select-session.svg' fetchPriority='high' className='-translate-y-[50%] me-[360px]' alt='' />
 							</div>
 						)}
 					</div>

@@ -13,7 +13,7 @@ interface Props {
 
 const MessageDetailsDrawer = ({showLogsForMessage, setShowLogsForMessage, messagesRef, regenerateMessageDialog, resendMessageDialog}: Props) => {
 	return (
-		<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
+		<Drawer shouldScaleBackground modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
 			<DrawerContent className='left-[unset] h-full right-0 bg-white' style={{width: `${(messagesRef?.current?.clientWidth || 1) / 2}px`}}>
 				<DrawerHeader>
 					<DrawerTitle hidden></DrawerTitle>

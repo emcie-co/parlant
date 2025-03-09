@@ -271,17 +271,23 @@ const SessionView = (): ReactElement => {
 									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
 											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-green-main')}>
-												{!useContentFiltering && <img src='icons/edit.svg' alt='' className={twMerge('h-[14px] w-[14px]', isContentFilterMenuOpen && 'invert')} />}
+												{!useContentFiltering && <img src='icons/edit.svg' alt='' className={twMerge('h-[14px] w-[14px]', isContentFilterMenuOpen && '[filter:invert(1)_brightness(2)]')} />}
 												{useContentFiltering && <ShieldEllipsis className={twJoin('size-[18px]', isContentFilterMenuOpen && 'text-white')} />}
 											</div>
 										</DropdownMenuTrigger>
 										<DropdownMenuContent side='top' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
-											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(false)} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
-												<img src='icons/edit.svg' alt='' className='me-[8px] h-[14px] w-[14px]' />
+											<DropdownMenuItem
+												tabIndex={0}
+												onClick={() => setUseContentFiltering(false)}
+												className={twMerge('gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && 'bg-green-main hover:!bg-green-main !text-white')}>
+												<img src='icons/edit.svg' alt='' className={twMerge('me-[8px] size-[15px]', !useContentFiltering && '[filter:invert(1)_brightness(2)]')} />
 												Bypass Moderation
 											</DropdownMenuItem>
-											<DropdownMenuItem tabIndex={0} onClick={() => setUseContentFiltering(true)} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
-												<ShieldEllipsis className='me-[8px]' />
+											<DropdownMenuItem
+												tabIndex={0}
+												onClick={() => setUseContentFiltering(true)}
+												className={twMerge('gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]', useContentFiltering && 'bg-green-main hover:!bg-green-main !text-white')}>
+												<ShieldEllipsis className='me-[8px] !size-[17px]' />
 												Apply Moderation
 											</DropdownMenuItem>
 										</DropdownMenuContent>
@@ -313,7 +319,7 @@ const SessionView = (): ReactElement => {
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]'>
+						<DrawerContent tabIndex={undefined} className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]'>
 							<DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>
 								<DrawerDescription hidden></DrawerDescription>

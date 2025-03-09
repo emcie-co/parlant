@@ -51,9 +51,10 @@ class MongoDocumentDatabase(DocumentDatabase):
         name: str,
         schema: type[TDocument],
     ) -> DocumentCollection[TDocument]:
+        self._logger.debug(f'create collection "{name}"')
         if self._database is None:
             raise Exception("underlying database missing.")
-
+        
         self._collections[name] = MongoDocumentCollection(
             self,
             await self._database.create_collection(
@@ -69,6 +70,7 @@ class MongoDocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
         document_loader: Callable[[BaseDocument], Awaitable[TDocument | None]],
     ) -> DocumentCollection[TDocument]:
+        self._logger.debug(f'get collection "{name}"')
         if self._database is None:
             raise Exception("underlying database missing.")
 
@@ -78,17 +80,24 @@ class MongoDocumentDatabase(DocumentDatabase):
         )
 
         collection_existing_documents = result_collection.find({})
-        failed_migration_documents: list[TDocument] = []
+        failed_migrations: list[TDocument] = []
         for doc in await collection_existing_documents.to_list():
-            if loaded_doc := await document_loader(doc):
-                await result_collection.replace_one(doc, loaded_doc)
-            else:
-                failed_migration_documents.append(doc)
-                await result_collection.delete_one(doc)
+            try:
+                if loaded_doc := await document_loader(doc):
+                    await result_collection.replace_one(doc, loaded_doc)
+                else:
+                    self._logger.warning(f'Failed to load document "{doc}"')
+                    failed_migrations.append(doc)
+                    await result_collection.delete_one(doc)
+            except Exception as e:
+                self._logger.error(
+                    f"Failed to load document '{doc}' with error: {e}. Added to failed migrations collection."
+                )
+                failed_migrations.append(doc)
 
-        if len(failed_migration_documents):
+        if len(failed_migrations):
             failed_migration_collection = await self.create_collection("failed_migrations", schema)
-            for doc in failed_migration_documents:
+            for doc in failed_migrations:
                 await failed_migration_collection.insert_one(doc)
 
         self._collections[name] = MongoDocumentCollection(self, result_collection)

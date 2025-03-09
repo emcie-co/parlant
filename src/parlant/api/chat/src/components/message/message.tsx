@@ -156,5 +156,5 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 export default memo(Message, (prevProps, nextProps) => {
 	const prevIsShown = prevProps.showLogsForMessage?.id === prevProps.event.id;
 	const nextIsShown = nextProps.showLogsForMessage?.id === nextProps.event.id;
-	return prevIsShown === nextIsShown;
+	return prevIsShown === nextIsShown && prevProps.event.id === nextProps.event.id;
 });

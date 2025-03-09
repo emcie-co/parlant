@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 import {EventInterface, Log} from '@/utils/interfaces';
-import React, {ReactNode, useEffect, useRef, useState} from 'react';
+import React, {memo, ReactNode, useEffect, useRef, useState} from 'react';
 import {getMessageLogs, getMessageLogsWithFilters} from '@/utils/logs';
 import {twJoin, twMerge} from 'tailwind-merge';
 import clsx from 'clsx';
@@ -178,4 +178,4 @@ const MessageDetails = ({
 	);
 };
 
-export default MessageDetails;
+export default memo(MessageDetails, (prev, next) => prev.event === next.event);

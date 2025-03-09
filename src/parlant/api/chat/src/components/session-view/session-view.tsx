@@ -80,18 +80,19 @@ const SessionView = (): ReactElement => {
 	const regenerateMessageDialog = (index: number) => (sessionId: string) => {
 		const isLastMessage = index === messages.length - 1;
 		const prevMessages = messages.slice(0, index + 1);
-		const lastUserMessage = prevMessages.findLast((message) => message.source === 'customer' && message.kind === 'message');
+		const lastUserMessageIndex = prevMessages.findLastIndex((message) => message.source === 'customer' && message.kind === 'message');
+		const lastUserMessage = prevMessages[lastUserMessageIndex];
 		const lastUserMessageOffset = lastUserMessage?.offset ?? messages.length - 1;
 
 		if (isLastMessage) {
 			setShowLogsForMessage(null);
-			return regenerateMessage(index, sessionId, lastUserMessageOffset);
+			return regenerateMessage(lastUserMessageIndex, sessionId, lastUserMessageOffset);
 		}
 
 		const onApproved = () => {
 			setShowLogsForMessage(null);
 			closeQuestionDialog();
-			regenerateMessage(index, sessionId, lastUserMessageOffset);
+			regenerateMessage(lastUserMessageIndex, sessionId, lastUserMessageOffset);
 		};
 
 		const question = 'Regenerating this message would cause all of the following messages in the session to disappear.';
@@ -113,7 +114,7 @@ const SessionView = (): ReactElement => {
 	};
 
 	const regenerateMessage = async (index: number, sessionId: string, offset: number) => {
-		resendMessage(index - 1, sessionId, offset);
+		resendMessage(index, sessionId, offset);
 	};
 
 	const formatMessagesFromEvents = () => {

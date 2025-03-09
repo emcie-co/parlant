@@ -11,6 +11,7 @@ const MessageRelativeTime = ({event}: {event: EventInterface}) => {
 		if (intervalRef.current) clearInterval(intervalRef.current);
 
 		const updateTime = () => setTime(timeAgo(event.creation_utc));
+		setTime(event.serverStatus === 'pending' ? 'Just Now' : timeAgo(event.creation_utc));
 
 		const creationDate = new Date(event.creation_utc);
 		const now = new Date();

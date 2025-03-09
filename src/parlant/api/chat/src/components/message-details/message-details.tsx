@@ -55,7 +55,7 @@ const MessageDetails = ({
 	regenerateMessageFn?: (sessionId: string) => void;
 	resendMessageFn?: (sessionId: string) => void;
 }): ReactNode => {
-	const [filters, setFilters] = useState({});
+	const [filters, setFilters] = useState<Record<string, any> | null>(null);
 	const [filterTabs, setFilterTabs] = useLocalStorage<Filter[]>('filters', []);
 	const [currFilterTabs, setCurrFilterTabs] = useState<number | null>((filterTabs as Filter[])[0]?.id || null);
 	const [logs, setLogs] = useState<Log[] | null>(null);
@@ -68,11 +68,11 @@ const MessageDetails = ({
 	}, [event?.id]);
 
 	useEffect(() => {
-		const hasFilters = Object.keys(filters).length;
-		if (logs) {
-			if (!hasFilters) setFilteredLogs(logs);
+		const hasFilters = Object.keys(filters || {}).length;
+		if (logs && filters) {
+			if (!hasFilters && filters) setFilteredLogs(logs);
 			else {
-				setFilteredLogs(getMessageLogsWithFilters(event?.correlation_id as string, filters as {level: string; types?: string[]; content?: string[]}));
+				setFilteredLogs(getMessageLogsWithFilters(event?.correlation_id as string, (filters || {}) as {level: string; types?: string[]; content?: string[]}));
 				(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
 					if (!tabFilters.length && hasFilters) {
 						const filter = {id: Date.now(), def: filters, name: 'Logs'};
@@ -86,6 +86,7 @@ const MessageDetails = ({
 				});
 			}
 		}
+		if (!filters && logs?.length) setFilters({});
 	}, [logs, filters]);
 
 	useEffect(() => {
@@ -124,7 +125,7 @@ const MessageDetails = ({
 				closeLogs={closeLogs}
 				resendMessageFn={resendMessageFn}
 				regenerateMessageFn={regenerateMessageFn}
-				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters).length ? 'border-[#F3F5F9]' : '')}
+				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters || {}).length ? 'border-[#F3F5F9]' : '')}
 			/>
 			<ResizablePanelGroup direction='vertical' className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 				<ResizablePanel ref={resizableRef} minSize={0} maxSize={isError ? 99 : 0} defaultSize={isError ? 50 : 0}>

@@ -234,10 +234,10 @@ const SessionView = (): ReactElement => {
 
 	return (
 		<>
-			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
+			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white transition-all gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
 				<div
 					className={twMerge(
-						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-[min-width] duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 						showLogsForMessage && 'min-w-[calc(100%-700px)] max-w-[calc(100%-700px)]'
 					)}>
 					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
@@ -322,8 +322,8 @@ const SessionView = (): ReactElement => {
 
 					<div
 						className={twMerge(
-							'fixed min-w-0 max-w-0 top-0 left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]  transition-[max-width] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
-							showLogsForMessage && 'max-w-[700px]'
+							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[700px] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+							showLogsForMessage && 'translate-x-0'
 						)}>
 						{/* <DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>

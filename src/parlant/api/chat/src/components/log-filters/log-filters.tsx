@@ -3,7 +3,7 @@ import {Button} from '../ui/button';
 import {Checkbox} from '../ui/checkbox';
 import {Input} from '../ui/input';
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogPortal, DialogTitle, DialogTrigger} from '../ui/dialog';
-import {ClassNameValue, twMerge} from 'tailwind-merge';
+import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
 import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
@@ -165,7 +165,7 @@ const LogFilters = ({
 		return (
 			<Tooltip value={text} side='top' delayDuration={1000}>
 				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
-					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[4px] pe-[6px] gap-[8px]', className)}>
+					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[5px] pe-[6px] gap-[8px]', className)}>
 						<div className='flex items-center gap-[8px]'>
 							<img src='icons/text.svg' alt='' />
 							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
@@ -229,7 +229,7 @@ const LogFilters = ({
 						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
 					</div>
 				</div>
-				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[218px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
+				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[246px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
 					<div className='flex justify-between items-center'>
 						<div className='flex items-center gap-[6px] h-[35px] px-[14px]'>
 							{/* <ListFilter className='[stroke-width:2px] size-[16px]' /> */}
@@ -244,8 +244,8 @@ const LogFilters = ({
 						{ALL_TYPES.map((type) => (
 							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
 								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
-								<label className='text-[12px] font-normal w-full cursor-pointer flex gap-[6px]' htmlFor={type}>
-									<img src={typeOptions[type].icon} alt={type} />
+								<label className='text-[14px] font-light w-full cursor-pointer flex gap-[8px] !ms-[12px]' htmlFor={type}>
+									<img src={typeOptions[type].icon} alt={type} className={twJoin(sources.includes(type) && 'brightness-[5]')} />
 									{typeOptions[type].label}
 								</label>
 							</div>

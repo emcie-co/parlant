@@ -46,8 +46,6 @@ export default function Chatbot(): ReactElement {
 		setDialog({openDialog, closeDialog});
 	}, []);
 
-	useEffect(() => console.log(isViewingMessage), [isViewingMessage]);
-
 	return (
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
@@ -69,7 +67,7 @@ export default function Chatbot(): ReactElement {
 							</div>
 						) : (
 							<div className='flex-1 flex items-center justify-center'>
-								<img src='select-session.svg' fetchPriority='high' className='-translate-y-[50%] me-[360px]' alt='' />
+								<img src='select-session.svg' fetchPriority='high' alt='' />
 							</div>
 						)}
 					</div>

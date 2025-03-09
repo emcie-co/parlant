@@ -88,6 +88,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 						)}>
 						<div className={twMerge('flex items-center gap-[8px] relative max-w-full')}>
 							<p
+								tabIndex={-1}
 								onClick={(e) => tab.id === currFilterTabs && clicked(e, tab)}
 								contentEditable={tab.id === currFilterTabs}
 								suppressContentEditableWarning

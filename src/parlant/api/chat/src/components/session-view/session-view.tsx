@@ -318,20 +318,27 @@ const SessionView = (): ReactElement => {
 					</div>
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
-					<Drawer handleOnly modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent tabIndex={undefined} className='!select-text left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]'>
-							<DrawerHeader>
+					{/* <Drawer handleOnly modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}> */}
+
+					<div
+						className={twMerge(
+							'fixed min-w-0 max-w-0 top-0 left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]  transition-[max-width] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+							showLogsForMessage && 'max-w-[700px]'
+						)}>
+						{/* <DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>
 								<DrawerDescription hidden></DrawerDescription>
-							</DrawerHeader>
+							</DrawerHeader> */}
+						{showLogsForMessage && (
 							<MessageDetails
 								event={showLogsForMessage}
 								regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
 								resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}
 								closeLogs={() => setShowLogsForMessage(null)}
 							/>
-						</DrawerContent>
-					</Drawer>
+						)}
+					</div>
+					{/* </Drawer> */}
 				</ErrorBoundary>
 			</div>
 		</>

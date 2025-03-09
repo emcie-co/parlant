@@ -157,7 +157,15 @@ const MessageDetails = ({
 						/>
 					)}
 					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' />}
-					{event && logs && !logs?.length && <EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." className={twJoin(isError && 'translate-y-[0px]')} />}
+					{event && logs && !logs?.length && (
+						<EmptyState
+							imgClassName='w-[68px] h-[48px]'
+							imgUrl='logo-muted.svg'
+							title='Whoopsie!'
+							subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs."
+							className={twJoin(isError && 'translate-y-[0px]')}
+						/>
+					)}
 					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' className={twJoin(isError && 'translate-y-[0px]')} />}
 					{event && !!filteredLogs.length && (
 						<div className='ps-[10px] overflow-auto h-[-webkit-fill-available]'>

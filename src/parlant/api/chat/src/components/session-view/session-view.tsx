@@ -313,7 +313,7 @@ const SessionView = (): ReactElement => {
 				</div>
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<Drawer modal={false} direction='right' open={!!showLogsForMessage} onClose={() => setShowLogsForMessage(null)}>
-						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[700px]'>
+						<DrawerContent className='left-[unset] h-full right-0 bg-white [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,95vw)]'>
 							<DrawerHeader>
 								<DrawerTitle hidden></DrawerTitle>
 								<DrawerDescription hidden></DrawerDescription>

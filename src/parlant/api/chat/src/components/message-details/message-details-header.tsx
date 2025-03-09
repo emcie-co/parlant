@@ -36,7 +36,7 @@ const MessageDetailsHeader = ({
 					</div>
 					<div className='flex items-center gap-[12px] mb-[1px]'>
 						<div
-							className='group bg-[#006E53] hover:bg-[#005C3F] flex  h-[38px] [box-shadow:0px_1px_5.5px_0px_#006E5329] rounded-[5px] ms-[4px] items-center gap-[7px] py-[13px] px-[10px]'
+							className='group bg-[#006E53] [box-shadow:0px_2px_4px_0px_#00403029,0px_1px_5.5px_0px_#006E5329] hover:bg-[#005C3F] flex  h-[38px] rounded-[5px] ms-[4px] items-center gap-[7px] py-[13px] px-[10px]'
 							role='button'
 							onClick={() => (event?.source === 'customer' ? resendMessageFn?.(session?.id as string) : regenerateMessageFn?.(session?.id as string))}>
 							<img src='icons/regenerate.svg' alt='regenerate' className='block' />

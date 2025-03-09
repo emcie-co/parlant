@@ -101,11 +101,11 @@ const MessageDetails = ({
 		setLogs(getMessageLogs(event.correlation_id));
 	}, [event?.correlation_id]);
 
-	const deleteFilterTab = (id: number) => {
+	const deleteFilterTab = (id: number | undefined) => {
 		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
 		if (filterIndex === -1) return;
 		const filteredTabs = (filterTabs as Filter[]).filter((t) => t.id !== id);
-		setFilterTabs(filteredTabs);
+		(setFilterTabs as any)(filteredTabs);
 
 		if (currFilterTabs === id) {
 			const newTab = filteredTabs?.[(filterIndex || 1) - 1]?.id || filteredTabs?.[0]?.id || null;

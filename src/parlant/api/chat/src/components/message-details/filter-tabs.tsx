@@ -71,7 +71,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 				<div
 					className={twJoin(
 						'bg-[#FAFAFA] hover:bg-[#F3F5F9] border border-transparent relative rounded-[6px] text-[#A9A9A9] hover:text-[#282828]',
-						tab.id === currFilterTabs && 'after:content-[""] after:absolute after:left-0 after:w-full after:h-[2px] after:bg-[#282828] after:-bottom-[6px] shadow-main-inset !bg-[#FAFAFA] !text-[#282828]',
+						tab.id === currFilterTabs && 'shadow-main-inset !bg-[#FAFAFA] !text-[#282828]',
 						tab.id === currFilterTabs && isEditing && '!border-black !shadow-none'
 					)}
 					key={tab.id}>

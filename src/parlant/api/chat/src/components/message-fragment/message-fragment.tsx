@@ -15,7 +15,7 @@ const MessageFragment = ({fragment}: {fragment: {id: string; value: string}}) =>
 	const [id, value] = fragment?.value || ['', ''];
 	return (
 		<div className='group relative flex justify-between group min-h-[40px] bg-white hover:bg-[#FAFAFA]'>
-			<div className='group [word-break:break-word] w-full flex gap-[17px] [&:first-child]:rounded-t-[3px] items-start text-[#656565] py-[8px] ps-[15px] pe-[38px]'>
+			<div className='group [word-break:break-word] w-full flex gap-[17px] font-light [&:first-child]:rounded-t-[3px] items-start text-[#656565] py-[8px] ps-[15px] pe-[38px]'>
 				<img src='icons/puzzle.svg' alt='' className='mt-[4px] w-[16px] min-w-[16px]' />
 				<div className={twMerge('invisible', value && 'visible')}>{value || 'loading'}</div>
 			</div>

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import os
 from typing import Any, AsyncIterator, Optional, Sequence, cast
 from pymongo import AsyncMongoClient
+import pytest
 from typing_extensions import Self
 from lagom import Container
 from pytest import fixture, mark, raises
@@ -103,7 +104,7 @@ async def pymongo_tasks_still_running() -> None:
 
 
 @fixture
-async def test_mongo_client() -> AsyncIterator[Optional[AsyncMongoClient[Any]]]:
+async def test_mongo_client() -> AsyncIterator[AsyncMongoClient[Any]]:
     test_mongo_server = os.environ.get("TEST_MONGO_SERVER")
     if test_mongo_server:
         client = AsyncMongoClient[Any](test_mongo_server)
@@ -112,7 +113,7 @@ async def test_mongo_client() -> AsyncIterator[Optional[AsyncMongoClient[Any]]]:
         await pymongo_tasks_still_running()
     else:
         print("could not find `TEST_MONGO_SERVER` in environment, skipping mongo tests...")
-        yield None
+        raise pytest.skip()
 
 
 class MongoTestDocument(BaseDocument):
@@ -128,13 +129,10 @@ class MongoTestDocument(BaseDocument):
 )
 async def test_agent_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
     agent_configuration: dict[str, Any],
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     created_agent: Optional[Agent] = None
@@ -171,12 +169,9 @@ async def test_agent_creation(
 
 async def test_session_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     session: Optional[Session] = None
@@ -212,12 +207,9 @@ async def test_session_creation(
 
 async def test_event_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     session: Optional[Session] = None
@@ -263,12 +255,9 @@ async def test_event_creation(
 
 async def test_guideline_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     guideline: Optional[Guideline] = None
@@ -302,12 +291,9 @@ async def test_guideline_creation(
 
 async def test_multiple_guideline_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     first_guideline: Optional[Guideline] = None
@@ -355,12 +341,9 @@ async def test_multiple_guideline_creation(
 
 async def test_guideline_retrieval(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     created_guideline: Optional[Guideline] = None
@@ -387,12 +370,9 @@ async def test_guideline_retrieval(
 
 async def test_customer_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     created_customer = None
@@ -433,12 +413,9 @@ async def test_customer_creation(
 
 async def test_customer_retrieval(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     created_customer = None
@@ -459,12 +436,9 @@ async def test_customer_retrieval(
 
 async def test_context_variable_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     variable: Optional[ContextVariable] = None
@@ -502,12 +476,9 @@ async def test_context_variable_creation(
 
 async def test_context_variable_value_update_and_retrieval(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     variable: Optional[ContextVariable] = None
@@ -547,12 +518,9 @@ async def test_context_variable_value_update_and_retrieval(
 
 async def test_context_variable_listing(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     var1 = None
@@ -589,12 +557,9 @@ async def test_context_variable_listing(
 
 async def test_context_variable_deletion(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     variable = None
@@ -644,12 +609,9 @@ async def test_context_variable_deletion(
 
 async def test_guideline_tool_association_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     association: Optional[GuidelineToolAssociation] = None
@@ -692,12 +654,9 @@ async def test_guideline_tool_association_creation(
 
 async def test_guideline_tool_association_retrieval(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     created_association = None
@@ -732,12 +691,9 @@ async def test_guideline_tool_association_retrieval(
 
 async def test_database_initialization(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     async with MongoDocumentDatabase(
@@ -756,12 +712,9 @@ async def test_database_initialization(
 
 async def test_evaluation_creation(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     evaluation: Optional[Evaluation] = None
@@ -806,12 +759,9 @@ async def test_evaluation_creation(
 
 async def test_evaluation_update(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     evaluation = None
@@ -919,12 +869,9 @@ class DummyStore:
 
 async def test_document_upgrade_during_loading_of_store(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     adb = test_mongo_client[test_database_name]
@@ -948,12 +895,9 @@ async def test_document_upgrade_during_loading_of_store(
 
 async def test_that_migration_is_not_needed_for_new_store(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     logger = context.container[Logger]
@@ -971,12 +915,9 @@ async def test_that_migration_is_not_needed_for_new_store(
 
 async def test_failed_migration_collection(
     container: Container,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     adb = test_mongo_client[test_database_name]
@@ -1013,12 +954,9 @@ async def test_failed_migration_collection(
 
 async def test_that_version_mismatch_raises_error_when_migration_is_required_but_disabled(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     adb = test_mongo_client[test_database_name]
@@ -1036,12 +974,9 @@ async def test_that_version_mismatch_raises_error_when_migration_is_required_but
 
 async def test_that_persistence_and_store_version_match_allows_store_to_open_when_migrate_is_disabled(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     adb = test_mongo_client[test_database_name]
@@ -1064,12 +999,9 @@ async def test_that_persistence_and_store_version_match_allows_store_to_open_whe
 
 async def test_delete_one_in_collection(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     async with MongoDocumentDatabase(
@@ -1090,12 +1022,9 @@ async def test_delete_one_in_collection(
 
 async def test_delete_collection(
     context: _TestContext,
-    test_mongo_client: Optional[AsyncMongoClient[Any]],
+    test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
-    if test_mongo_client is None:
-        return  # Skip the test because no path in env
-
     await test_mongo_client.drop_database(test_database_name)
 
     async with MongoDocumentDatabase(

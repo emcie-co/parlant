@@ -119,7 +119,7 @@ const MessageDetails = ({
 	const isError = event?.serverStatus === 'error';
 
 	return (
-		<div className={twJoin('w-full h-full animate-fade-in duration-500 overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
+		<div className={twJoin('w-full h-full animate-fade-in duration-200 overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 			<MessageDetailsHeader
 				event={event || null}
 				closeLogs={closeLogs}

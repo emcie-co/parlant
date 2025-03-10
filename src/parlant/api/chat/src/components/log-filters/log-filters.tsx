@@ -138,7 +138,7 @@ const LogFilters = ({
 
 	const TypeChip = ({type, className}: {type: Type; className?: ClassNameValue}) => {
 		return (
-			<div key={type} className={twMerge('group border border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
+			<div key={type} className={twMerge('group border cursor-default border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
 				<img src={typeOptions[type].icon} alt={type} />
 				<p className='text-nowrap font-normal text-[14px]'>{typeOptions[type].label}</p>
 				{/* <X role='button' className='invisible size-[18px] group-hover:visible rounded-[3px]' onClick={() => changeSource(type, false, applyFn)} /> */}
@@ -165,11 +165,11 @@ const LogFilters = ({
 	}) => {
 		return (
 			<Tooltip value={text} side='top' delayDuration={1000}>
-				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
+				<div key={text} className={twMerge('group px-[2px] cursor-default max-w-[320px] bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
 					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[5px] pe-[6px] gap-[8px]', className)}>
 						<div className='flex items-center gap-[8px]'>
 							<img src='icons/text.svg' alt='' />
-							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-light text-[14px]'>{text}</p>
+							<p className='text-nowrap cursor-default max-w-full overflow-hidden text-ellipsis font-light text-[14px]'>{text}</p>
 						</div>
 						{deleted && (
 							<X

@@ -66,7 +66,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 	};
 
 	return (
-		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto  overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
+		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto z-10 overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
 			{filterTabs.map((tab: Filter) => (
 				<div
 					className={twJoin(
@@ -74,14 +74,13 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 						tab.id === currFilterTabs && 'shadow-main-inset !bg-[#FAFAFA] !text-[#282828]',
 						tab.id === currFilterTabs && isEditing && '!border-black !shadow-none'
 					)}
-					key={tab.id}>
+					key={tab.id}
+					role='button'
+					onClick={() => {
+						setIsEditing(false);
+						setCurrFilterTabs(tab.id);
+					}}>
 					<div
-						key={tab.id}
-						role='button'
-						onClick={() => {
-							setIsEditing(false);
-							setCurrFilterTabs(tab.id);
-						}}
 						className={twJoin(
 							'group flex min-h-[28px] max-w-[200px] rounded-[6px] max-h-[28px] justify-center leading-[18px] text-[15px] border border-transparent items-center border-e w-fit',
 							tab.id === currFilterTabs && isEditing && 'h-full rounded-[5px]'
@@ -90,7 +89,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 							<p
 								tabIndex={-1}
 								onClick={(e) => tab.id === currFilterTabs && clicked(e, tab)}
-								contentEditable={tab.id === currFilterTabs}
+								contentEditable={tab.id === currFilterTabs && isEditing}
 								suppressContentEditableWarning
 								onKeyDown={(e) => (e.key === 'Enter' ? editFinished(e, tab) : e.key === 'Escape' && editCancelled(e, tab))}
 								onBlur={(e) => editFinished(e, tab)}

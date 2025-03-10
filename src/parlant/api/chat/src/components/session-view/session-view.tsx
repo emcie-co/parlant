@@ -237,20 +237,20 @@ const SessionView = (): ReactElement => {
 			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white transition-all gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
 				<div
 					className={twMerge(
-						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+						'h-full min-w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 						showLogsForMessage && 'min-w-[calc(100%-min(700px,35vw))] max-w-[calc(100%-min(700px,35vw))]'
 					)}>
-					<div className='h-full flex flex-col rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
+					<div className='h-full flex flex-col rounded-[10px] m-auto w-full min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
 						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
 						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
-							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 max-w-[1020px]' aria-live='polite' role='log' aria-label='Chat messages'>
+							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={i}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-										<div ref={lastMessageRef} className='flex flex-col'>
+										<div ref={lastMessageRef} className='flex flex-col max-w-[min(1020px,100%)] w-[1020px] m-auto'>
 											<Message
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
@@ -267,7 +267,7 @@ const SessionView = (): ReactElement => {
 							</div>
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
-								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
+								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px]'>
 									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
 											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-[#f5f6f8]')}>
@@ -303,9 +303,9 @@ const SessionView = (): ReactElement => {
 										onKeyDown={handleTextareaKeydown}
 										onChange={(e) => setMessage(e.target.value)}
 										rows={1}
-										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
+										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
 									/>
-									{(showTyping || showThinking) && <p className='absolute left-[0.5em] -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
+									{(showTyping || showThinking) && <p className='absolute left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 									</Button>

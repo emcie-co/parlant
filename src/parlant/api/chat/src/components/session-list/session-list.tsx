@@ -48,7 +48,7 @@ export default function SessionList({filterSessionVal}: {filterSessionVal: strin
 
 	return (
 		<div className={twJoin('flex flex-col items-center h-[calc(100%-68px)] border-e')}>
-			<div data-testid='sessions' className='bg-white px-[12px] flex-1 justify-center w-[352px] overflow-auto rounded-es-[16px] rounded-ee-[16px]'>
+			<div data-testid='sessions' className='bg-white px-[12px] border-b-[12px] border-white flex-1 justify-center w-[352px] overflow-auto rounded-es-[16px] rounded-ee-[16px]'>
 				{loading && !sessions?.length && <div>loading...</div>}
 				{session?.id === NEW_SESSION_ID && <Session className='opacity-50' data-testid='session' isSelected={true} session={{...session, agent_id: agent?.id || '', customer_id: customer?.id || ''}} key={NEW_SESSION_ID} />}
 				{filteredSessions.toReversed().map((s, i) => (

@@ -233,7 +233,7 @@ const LogFilters = ({
 				<div>
 					<div onClick={changeMenuOpen} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
 						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
-						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
+						<p className='text-[14px] group-hover:underline font-medium select-none'>Edit Filters</p>
 					</div>
 				</div>
 				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[246px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>

@@ -36,7 +36,8 @@ const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
 	return (
 		<div className={twMerge('group cursor-pointer bg-white border-[#eeeeee] hover:bg-[#F3F5F9] hover:border-[#E4E6EA] border h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
 			<div className='flex items-center justify-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
-				<p className='me-[5px] text-[14px]'>+</p>
+				{/* <p className='me-[5px] text-[14px]'>+</p> */}
+				<img src='icons/text.svg' alt='' className='me-[5px]' />
 				<p className='text-nowrap font-normal text-[14px]'>Add Content Filter</p>
 			</div>
 		</div>
@@ -168,7 +169,7 @@ const LogFilters = ({
 					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[5px] pe-[6px] gap-[8px]', className)}>
 						<div className='flex items-center gap-[8px]'>
 							<img src='icons/text.svg' alt='' />
-							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
+							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-light text-[14px]'>{text}</p>
 						</div>
 						{deleted && (
 							<X
@@ -193,8 +194,8 @@ const LogFilters = ({
 
 	const DropDownFilter = () => {
 		const [dropdownOpen, setDropdownOpen] = useState(false);
-		const [sources, setSources] = useState<Type[]>(def?.types || []);
-		const [content, setContent] = useState<string[]>(def?.content || []);
+		const [sources, setSources] = useState<Type[]>(structuredClone(def?.types || []));
+		const [content, setContent] = useState<string[]>(structuredClone(def?.content || []));
 		const wrapperRef = useRef<HTMLDivElement>(null);
 		const [usePopupToLeft, setUsePopupToLeft] = useState(false);
 
@@ -221,13 +222,16 @@ const LogFilters = ({
 			}
 		}, [wrapperRef?.current?.scrollWidth, dropdownOpen]);
 
+		const changeMenuOpen = () => {
+			setDropdownOpen(!dropdownOpen);
+			setSources(structuredClone(def?.types || []));
+			setContent(structuredClone(def?.content || []));
+		};
+
 		return (
 			<div className='wrapper relative flex items-center h-[30px]' ref={wrapperRef}>
 				<div>
-					<div
-						onClick={() => setDropdownOpen(!dropdownOpen)}
-						role='button'
-						className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
+					<div onClick={changeMenuOpen} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
 						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
 						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
 					</div>
@@ -238,7 +242,7 @@ const LogFilters = ({
 							{/* <ListFilter className='[stroke-width:2px] size-[16px]' /> */}
 							<p className='text-[14px] font-normal'>Filter</p>
 						</div>
-						<div role='button' onClick={() => setDropdownOpen(false)} className='flex h-[24px] w-[24px] items-center me-[2px] justify-center'>
+						<div role='button' onClick={changeMenuOpen} className='flex h-[24px] w-[24px] items-center me-[2px] justify-center'>
 							<img src='icons/close.svg' alt='close' />
 						</div>
 					</div>
@@ -246,7 +250,7 @@ const LogFilters = ({
 					<div className='flex flex-col gap-[4px] mt-[9px] pb-[11px] px-[8px]'>
 						{ALL_TYPES.map((type) => (
 							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-main', sources.includes(type) && '!bg-gray-4')}>
-								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
+								<Checkbox id={type} checked={sources?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
 								<label className='text-[14px] font-light w-full cursor-pointer flex gap-[8px] !ms-[12px]' htmlFor={type}>
 									<img src={typeOptions[type].icon} alt={type} />
 									{typeOptions[type].label}

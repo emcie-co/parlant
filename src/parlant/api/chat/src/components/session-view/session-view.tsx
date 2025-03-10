@@ -279,14 +279,14 @@ const SessionView = (): ReactElement => {
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(false)}
-												className={twMerge('gap-0 font-normal text-[14px] px-[10px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												className={twMerge('gap-0  cursor-pointer font-normal text-[14px] px-[10px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
 												<img src='icons/edit.svg' alt='' className={twMerge('me-[8px] size-[15px]')} />
 												Direct (No Moderation)
 											</DropdownMenuItem>
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(true)}
-												className={twMerge('gap-0 font-normal text-[14px] items-start px-[10px] font-inter  hover:!bg-[#FAF9FF]', useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												className={twMerge('gap-0 !cursor-pointer font-normal text-[14px] items-start px-[10px] font-inter  hover:!bg-[#FAF9FF]', useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
 												<ShieldEllipsis className='me-[8px] !size-[17px] mt-[3px]' />
 												<div>
 													<div>Content Moderation</div>

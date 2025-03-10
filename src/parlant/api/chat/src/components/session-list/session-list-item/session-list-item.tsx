@@ -10,7 +10,7 @@ import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
 import {NEW_SESSION_ID} from '../../chat-header/chat-header';
 import {spaceClick} from '@/utils/methods';
-import {twJoin, twMerge} from 'tailwind-merge';
+import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
 import {copy} from '@/lib/utils';
@@ -24,6 +24,7 @@ interface Props {
 	setEditingTitle?: Dispatch<SetStateAction<string | null>>;
 	refetch?: () => void;
 	tabIndex?: number;
+	className?: ClassNameValue;
 }
 
 export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: SessionInterface; closeDialog: () => void; deleteClicked: (e: React.MouseEvent) => Promise<void> | undefined}) => (
@@ -40,7 +41,7 @@ export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: Se
 	</div>
 );
 
-export default function SessionListItem({session, isSelected, refetch, editingTitle, setEditingTitle, tabIndex, disabled}: Props): ReactElement {
+export default function SessionListItem({session, isSelected, refetch, editingTitle, setEditingTitle, tabIndex, disabled, className}: Props): ReactElement {
 	const sessionNameRef = useRef<HTMLInputElement>(null);
 	const [agents] = useAtom(agentsAtom);
 	const [customers] = useAtom(customersAtom);
@@ -180,7 +181,8 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ',
 				isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '',
 				disabled ? ' pointer-events-none' : '',
-				isDeleting ? 'opacity-[33%]' : ''
+				isDeleting ? 'opacity-[33%]' : '',
+				className
 			)}>
 			<div className='flex-1 whitespace-nowrap flex overflow-hidden max-w-[210px] ms-[4px] h-[48px]'>
 				{editingTitle !== session.id && (
@@ -206,7 +208,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				)}
 			</div>
 			<div className='h-[39px] flex items-start'>
-				{!disabled && editingTitle !== session.id && (
+				{!disabled && editingTitle !== session.id && session.id !== NEW_SESSION_ID && (
 					<DropdownMenu>
 						<DropdownMenuTrigger disabled={!!editingTitle} className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
 							<div tabIndex={tabIndex} role='button' className='rounded-full me-[14px]' onClick={(e) => e.stopPropagation()}>

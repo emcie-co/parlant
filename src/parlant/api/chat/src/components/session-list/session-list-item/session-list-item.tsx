@@ -207,7 +207,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 					</div>
 				)}
 			</div>
-			<div className='h-[39px] flex items-start'>
+			<div className='h-[39px] flex items-center'>
 				{!disabled && editingTitle !== session.id && session.id !== NEW_SESSION_ID && (
 					<DropdownMenu>
 						<DropdownMenuTrigger disabled={!!editingTitle} className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>

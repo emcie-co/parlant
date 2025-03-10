@@ -50,7 +50,7 @@ export default function Chatbot(): ReactElement {
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
-				<div className={'flex items-center bg-green-main h-[60px] mb-[14px] [filter:drop-shadow(0px_-11px_25px_#00000060)]'}>
+				<div className={'flex items-center bg-green-main h-[60px] mb-[14px] [box-shadow:0px_0px_25px_0px_#0000000A]'}>
 					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[27px] self-center me-[6px] max-mobile:ms-0' />
 				</div>
 				<div data-testid='chatbot' className={'main bg-green-light h-[calc(100vh-74px)] flex flex-col rounded-[16px]'}>
@@ -66,8 +66,9 @@ export default function Chatbot(): ReactElement {
 								{/* </Suspense> */}
 							</div>
 						) : (
-							<div className='flex-1 flex items-center justify-center'>
-								<img src='select-session.svg' fetchPriority='high' alt='' />
+							<div className='flex-1 flex flex-col gap-[27px] items-center justify-center'>
+								<img className='select-none' src='select-session.svg' fetchPriority='high' alt='' />
+								<p className='text-[#3C8C71] select-none font-normal text-[18px]'>Select a session to get started</p>
 							</div>
 						)}
 					</div>

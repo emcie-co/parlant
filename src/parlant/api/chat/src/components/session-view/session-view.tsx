@@ -237,7 +237,7 @@ const SessionView = (): ReactElement => {
 			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white transition-all gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
 				<div
 					className={twMerge(
-						'h-full min-w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+						'h-full min-w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all  duration-700 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 						showLogsForMessage && 'min-w-[calc(100%-min(700px,35vw))] max-w-[calc(100%-min(700px,35vw))]'
 					)}>
 					<div className='h-full flex flex-col rounded-[10px] m-auto w-full min-w-[unset]'>
@@ -250,7 +250,7 @@ const SessionView = (): ReactElement => {
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={i}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-										<div ref={lastMessageRef} className='flex flex-col max-w-[min(1020px,100%)] w-[1020px] m-auto'>
+										<div ref={lastMessageRef} className='flex flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
 											<Message
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
@@ -323,7 +323,7 @@ const SessionView = (): ReactElement => {
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<div
 						className={twMerge(
-							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[min(700px,35vw)] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,35vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[min(700px,35vw)] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,35vw)] duration-700 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
 							showLogsForMessage && 'translate-x-0'
 						)}>
 						{showLogsForMessage && (

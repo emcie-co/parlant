@@ -998,7 +998,7 @@ async def test_failed_migration_collection(
             assert len(documents) == 0
 
             failed_migrations_collection = await db.get_collection(
-                "failed_migrations",
+                "test_db_dummy_collection_failed_migrations",
                 BaseDocument,
                 identity_loader,
             )

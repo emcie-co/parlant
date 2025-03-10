@@ -80,26 +80,36 @@ class MongoDocumentDatabase(DocumentDatabase):
         )
 
         flag_any_failed = False
+        failed_migrations_collection_name = f"{self.database_name}_{name}_failed_migrations"
         collection_existing_documents = result_collection.find({})
-        failed_migration_collection = await self.create_collection("failed_migrations", schema)
+        if failed_migrations_collection_name in await self._database.list_collection_names():
+            self._logger.info(f"deleting old `{failed_migrations_collection_name}` collection")
+            await self.delete_collection(failed_migrations_collection_name)
+
+        failed_migration_collection = await self.create_collection(
+            failed_migrations_collection_name, schema
+        )
         for doc in await collection_existing_documents.to_list():
             try:
                 if loaded_doc := await document_loader(doc):
                     await result_collection.replace_one(doc, loaded_doc)
                 else:
                     flag_any_failed = True
-                    self._logger.warning(f'Failed to load document "{doc}"')
+                    self._logger.warning(f'failed to load document "{doc}"')
                     await failed_migration_collection.insert_one(doc)
                     await result_collection.delete_one(doc)
             except Exception as e:
                 flag_any_failed = True
                 self._logger.error(
-                    f"Failed to load document '{doc}' with error: {e}. Added to failed migrations collection."
+                    f"failed to load document '{doc}' with error: {e}. Added to `{failed_migrations_collection_name}` collection."
                 )
                 await failed_migration_collection.insert_one(doc)
 
         if not flag_any_failed:
-            await self.delete_collection("failed_migrations")
+            self._logger.info(
+                f"deleting `{failed_migrations_collection_name}` collection as no migrations failed this run"
+            )
+            await self.delete_collection(failed_migrations_collection_name)
 
         self._collections[name] = MongoDocumentCollection(self, result_collection)
         return self._collections[name]

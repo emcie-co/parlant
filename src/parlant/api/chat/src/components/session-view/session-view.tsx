@@ -245,7 +245,7 @@ const SessionView = (): ReactElement => {
 						<SessoinViewHeader />
 						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
 						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
-							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4' aria-live='polite' role='log' aria-label='Chat messages'>
+							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={i}>

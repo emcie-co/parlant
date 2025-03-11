@@ -148,7 +148,22 @@ async def test_that_a_plugin_reads_a_tool(container: Container) -> None:
     async with run_service_server([my_tool]) as server:
         async with create_client(server, container[EventBufferFactory]) as client:
             returned_tool = await client.read_tool(my_tool.tool.name)
-            assert my_tool.tool == returned_tool
+            assert my_tool.tool.name == returned_tool.name
+            assert my_tool.tool.description == returned_tool.description
+            assert my_tool.tool.required == returned_tool.required
+
+            for param_name, (param_descriptor, param_options) in my_tool.tool.parameters.items():
+                (returned_param_descriptor, returned_param_options) = returned_tool.parameters[
+                    param_name
+                ]
+                assert param_descriptor == returned_param_descriptor
+
+                for option_name, option_field in ToolParameterOptions.model_fields.items():
+                    if not option_field.exclude:
+                        assert (
+                            param_options.model_dump()[option_name]
+                            == returned_param_options.model_dump()[option_name]
+                        )
 
 
 async def test_that_a_plugin_calls_a_tool(tool_context: ToolContext, container: Container) -> None:
@@ -349,6 +364,32 @@ async def test_that_a_plugin_tool_with_enum_parameter_can_be_called(
             )
 
             assert result.data == "category_a"
+
+
+async def test_that_a_plugin_tool_with_enum_list_parameter_can_be_called(
+    tool_context: ToolContext,
+    container: Container,
+) -> None:
+    class ProductCategory(enum.Enum):
+        CATEGORY_A = "category_a"
+        CATEGORY_B = "category_b"
+
+    @tool
+    async def my_enum_tool(context: ToolContext, categories: list[ProductCategory]) -> ToolResult:
+        return ToolResult(",".join(c.value for c in categories))
+
+    async with run_service_server([my_enum_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            tools = await client.list_tools()
+
+            assert tools
+            result = await client.call_tool(
+                my_enum_tool.tool.name,
+                tool_context,
+                arguments={"categories": ["category_a", "category_b"]},
+            )
+
+            assert result.data == "category_a,category_b"
 
 
 async def test_that_a_plugin_tool_with_datetime_parameter_can_be_called(
@@ -682,4 +723,8 @@ async def test_that_a_plugin_raises_tool_error_for_type_mismatch(
 
             error_msg = str(exc_info.value)
             assert "paramA" in error_msg
-            assert "Expected" in error_msg or "must be" in error_msg
+            assert (
+                "Expected" in error_msg
+                or "must be" in error_msg
+                or "Failed to convert" in error_msg
+            )

@@ -6,6 +6,11 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
+export const isSameDay = (dateA: string | Date, dateB: string | Date): boolean => {
+	if (!dateA) return false;
+	return new Date(dateA).toLocaleDateString() === new Date(dateB).toLocaleDateString();
+};
+
 export const copy = (text: string, element?: HTMLElement) => {
 	if (navigator.clipboard && navigator.clipboard.writeText) {
 		navigator.clipboard

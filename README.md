@@ -1,7 +1,7 @@
 
 <div align="center">
 <img alt="Parlant Logo" src="https://github.com/emcie-co/parlant/blob/e0fefba25efd1b956ead881964025baae5dc4119/logo.png" />
-  <h3>Parlant: Reliable Customer-Facing AI Agents with LLMs 💬 ✅</h3>
+  <h3>Parlant: Build Reliable AI Customer Service Agents with LLMs 💬 ✅</h3>
   <p>
     <a href="https://www.parlant.io/" target="_blank">Website</a> —
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> —
@@ -19,7 +19,7 @@
   </p>
 </div>
 
-Parlant is an LLM-first conversational AI agent framework designed to give control freaks the precision they need over their AI agents. 🔧 🎛️ It's operated using an easy-to-use CLI 📟 and native client SDKs in Python and TypeScript 📦.
+Parlant is an LLM-first conversational AI framework designed to provide developers with the control and precision they need over their AI customer service agents, utilizing behavioral guidelines and runtime supervision. 🔧 🎛️ It's operated using an easy-to-use CLI 📟 and native client SDKs in Python and TypeScript 📦.
 
 **IMPORTANT NOTE:** We're looking for more contributors to help get customer-facing agents under control! To be a part of this effort, join our [Discord server](https://discord.gg/duxWqxKk6J) and tell us about your relevant skills and how you wish to help.
 

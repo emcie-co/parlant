@@ -496,7 +496,7 @@ MISSING DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
 in order to run tools. The tools would have run, if they only had this data available.
-You must inform the customer about this missing data: ###
+If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data: ###
 {formatted_missing_data}
 ###
 
@@ -661,7 +661,7 @@ Produce a valid JSON object in the following format: ###
             f"Completion:\n{message_event_response.content.model_dump_json(indent=2)}"
         )
 
-        if not message_event_response.content.produced_reply:
+        if message_event_response.content.produced_reply is False:
             self._logger.debug("Produced no reply")
             return message_event_response.info, None
 

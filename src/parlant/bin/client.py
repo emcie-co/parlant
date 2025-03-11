@@ -2325,7 +2325,7 @@ async def async_main() -> None:
     @click.option(
         "--composition-mode",
         "-c",
-        type=click.Choice(["fluid", "strict-assembly", "loose-assembly", "composited-assembly"]),
+        type=click.Choice(["fluid", "fluid-assembly", "composited-assembly", "fluid-assembly"]),
         help="Composition mode",
         required=False,
     )

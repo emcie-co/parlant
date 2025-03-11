@@ -39,6 +39,6 @@ RUN echo "Configuring Python environment" \
     && pyenv install ${PYTHON_VERSION} \
     && pyenv global ${PYTHON_VERSION} \
     && curl -sSL https://install.python-poetry.org | python3 - \
-    && poetry self update \
+    && poetry self update 1.8.4 \
     && poetry config virtualenvs.in-project false \
     && pip install ruff semver toml

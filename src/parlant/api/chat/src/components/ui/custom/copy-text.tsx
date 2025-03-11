@@ -30,7 +30,7 @@ export default function CopyText({text, textToCopy, preText, className, element}
 	};
 
 	return (
-		<div className={twJoin('group flex gap-[6px] items-center cursor-pointer text-[#A9A9A9]', className)} onKeyDown={spaceClick} onClick={copyClicked}>
+		<div className={twJoin('group flex gap-[6px] items-center cursor-pointer text-[#A9A9A9] text-[15px] font-light', className)} onKeyDown={spaceClick} onClick={copyClicked}>
 			<div>
 				{preText && <span>{preText}</span>}
 				<span className='group-hover:text-[#656565]'>{text}</span>

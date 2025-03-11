@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "parlant"
-version = "1.7.0-rc.21"
+version = "1.7.0-rc.22"
 license = "Apache-2.0"
 description = ""
 authors = ["Yam Marcovitz <yam@emcie.co>", "Dor Zohar <dor@emcie.co>"]

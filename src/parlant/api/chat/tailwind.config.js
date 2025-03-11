@@ -4,6 +4,10 @@ module.exports = {
 	content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
 	theme: {
 		extend: {
+			boxShadow: {
+				main: '0 3px 3px 0 #00000005',
+				'main-inset': '0px 0px 3px 0px #00000054 inset',
+			},
 			screens: {
 				mobile: '751px',
 				tablet: '1080px',
@@ -43,6 +47,9 @@ module.exports = {
 				main: 'var(--main)',
 				'blue-main': '#1E00FF',
 				'black-main': '#151515',
+				'green-main': '#006E53',
+				'green-hover': '#005C3F',
+				'green-light': '#F5F9F7',
 				'gray-0': '#656565',
 				'gray-1': '#A9A9A9',
 				'gray-2': '#CDCDCD',
@@ -89,6 +96,7 @@ module.exports = {
 				'ubuntu-sans': 'Ubuntu Sans',
 				'ubuntu-mono': 'Ubuntu Mono',
 				inter: 'inter',
+				'ibm-plex-mono': 'IBM Plex Mono',
 			},
 		},
 	},

@@ -935,7 +935,7 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
 
     assert message_generation_inspections[0]["generation"]["usage"]["input_tokens"] > 0
 
-    assert "Woof Woof" in message_generation_inspections[0]["messages"][0]["message"]
+    assert "Woof Woof" in message_generation_inspections[0]["messages"][0]
     assert message_generation_inspections[0]["generation"]["usage"]["output_tokens"] >= 2
 
 
@@ -1050,55 +1050,6 @@ async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
     assert "thinking" in events[0]["data"]["message"].lower()
 
 
-async def test_that_fragments_can_be_inspected(
-    async_client: httpx.AsyncClient,
-    container: Container,
-    strict_agent_id: AgentId,
-) -> None:
-    fragment_store = container[FragmentStore]
-
-    customer = await create_customer(
-        container=container,
-        name="John Smith",
-    )
-
-    session = await create_session(
-        container=container,
-        agent_id=strict_agent_id,
-        customer_id=customer.id,
-    )
-
-    fragment = await fragment_store.create_fragment(value="Hey lad!)", fields=[])
-
-    customer_event = await post_message(
-        container=container,
-        session_id=session.id,
-        message="Bobo!",
-        response_timeout=Timeout(60),
-    )
-
-    reply_event = await read_reply(
-        container=container,
-        session_id=session.id,
-        customer_event_offset=customer_event.offset,
-    )
-
-    trace = (
-        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
-        .raise_for_status()
-        .json()["trace"]
-    )
-
-    iterations = trace["message_generations"]
-    assert len(iterations) >= 1
-
-    "Hey lad!" in trace["message_generations"][0]["messages"][0]["message"]
-
-    assert trace["message_generations"][0]["messages"][0].get("fragments")
-    fragment_ids = trace["message_generations"][0]["messages"][0]["fragments"]
-    fragment.id in fragment_ids
-
-
 async def test_that_an_event_with_fragments_can_be_generated(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -1148,5 +1099,4 @@ async def test_that_an_event_with_fragments_can_be_generated(
     event = events[0]
     assert event["data"].get("fragments")
 
-    fragment_ids = event["data"]["fragments"]
-    assert fragment.id in fragment_ids
+    assert any(fragment.id == id for id, _ in event["data"]["fragments"])

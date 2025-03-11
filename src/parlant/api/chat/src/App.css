@@ -1,12 +1,16 @@
 #root {
 	height: 100vh;
 	margin: auto;
-	font-family: Ubuntu Sans;
+	font-family: 'Inter';
+}
+
+body {
+	pointer-events: all !important;
 }
 
 .fixed-scroll {
 	overflow: scroll;
-	scrollbar-width: auto;
+	scrollbar-width: thin;
 	scrollbar-color: #ebecf0 transparent;
 }
 

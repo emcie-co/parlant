@@ -52,7 +52,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.glossary import TermId
-from parlant.core.fragments import FragmentId
+from parlant.core.fragments import Fragment, FragmentId
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 
 SessionId = NewType("SessionId", str)
@@ -108,7 +108,7 @@ class MessageEventData(TypedDict):
     participant: Participant
     flagged: NotRequired[bool]
     tags: NotRequired[Sequence[str]]
-    fragments: NotRequired[Mapping[FragmentId, str]]
+    fragments: NotRequired[Sequence[tuple[FragmentId, str]]]
 
 
 class ControlOptions(TypedDict, total=False):
@@ -119,6 +119,7 @@ class ToolResult(TypedDict):
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable]
     control: ControlOptions
+    fragments: Sequence[Fragment]
 
 
 class ToolCall(TypedDict):
@@ -173,7 +174,7 @@ class ContextVariable(TypedDict):
 @dataclass(frozen=True)
 class MessageGenerationInspection:
     generation: GenerationInfo
-    messages: Sequence[Optional[MessageEventData]]
+    messages: Sequence[Optional[str]]
 
 
 @dataclass(frozen=True)
@@ -363,9 +364,14 @@ class _PreparationIterationGenerationsDocument(TypedDict):
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
-class _MessageGenerationInspectionDocument(TypedDict):
+class _MessageGenerationInspectionDocument_V_0_1_0(TypedDict):
     generation: _GenerationInfoDocument
     messages: Sequence[Optional[MessageEventData]]
+
+
+class _MessageGenerationInspectionDocument(TypedDict):
+    generation: _GenerationInfoDocument
+    messages: Sequence[Optional[str]]
 
 
 class _PreparationIterationDocument(TypedDict):
@@ -374,6 +380,15 @@ class _PreparationIterationDocument(TypedDict):
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
     generations: _PreparationIterationGenerationsDocument
+
+
+class _InspectionDocument_V_0_1_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    session_id: SessionId
+    correlation_id: str
+    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_1_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
 class _InspectionDocument(TypedDict, total=False):
@@ -386,7 +401,7 @@ class _InspectionDocument(TypedDict, total=False):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.1.0")
+    VERSION = Version.from_string("0.2.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -399,16 +414,61 @@ class SessionDocumentStore(SessionStore):
 
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
         if doc["version"] == "0.1.0":
+            doc = cast(_SessionDocument, doc)
+            return _SessionDocument(
+                id=doc["id"],
+                version=self.VERSION.to_string(),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+            )
+        if doc["version"] == "0.2.0":
             return cast(_SessionDocument, doc)
         return None
 
     async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
         if doc["version"] == "0.1.0":
+            doc = cast(_EventDocument, doc)
+            return _EventDocument(
+                id=doc["id"],
+                version=self.VERSION.to_string(),
+                creation_utc=doc["creation_utc"],
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                correlation_id=doc["correlation_id"],
+                data=doc["data"],
+                deleted=doc["deleted"],
+            )
+        if doc["version"] == "0.2.0":
             return cast(_EventDocument, doc)
         return None
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:
         if doc["version"] == "0.1.0":
+            doc = cast(_InspectionDocument_V_0_1_0, doc)
+            return _InspectionDocument(
+                id=doc["id"],
+                version=self.VERSION.to_string(),
+                session_id=doc["session_id"],
+                correlation_id=doc["correlation_id"],
+                message_generations=[
+                    _MessageGenerationInspectionDocument(
+                        generation=mg["generation"],
+                        messages=[
+                            m if isinstance(m, str) else m["message"] if m else None
+                            for m in mg["messages"]
+                        ],
+                    )
+                    for mg in doc["message_generations"]
+                ],
+                preparation_iterations=doc["preparation_iterations"],
+            )
+        if doc["version"] == "0.2.0":
             return cast(_InspectionDocument, doc)
         return None
 
@@ -531,7 +591,8 @@ class SessionDocumentStore(SessionStore):
             correlation_id=correlation_id,
             message_generations=[
                 _MessageGenerationInspectionDocument(
-                    generation=serialize_generation_info(m.generation), messages=m.messages
+                    generation=serialize_generation_info(m.generation),
+                    messages=m.messages,
                 )
                 for m in inspection.message_generations
             ],
@@ -577,7 +638,8 @@ class SessionDocumentStore(SessionStore):
         return Inspection(
             message_generations=[
                 MessageGenerationInspection(
-                    generation=deserialize_generation_info(m["generation"]), messages=m["messages"]
+                    generation=deserialize_generation_info(m["generation"]),
+                    messages=m["messages"],
                 )
                 for m in inspection_document["message_generations"]
             ],

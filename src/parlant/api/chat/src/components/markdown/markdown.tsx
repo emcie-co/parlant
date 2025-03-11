@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
 import remarkBreaks from 'remark-breaks';
 import styles from '../message/message.module.scss';
-import {twJoin} from 'tailwind-merge';
+import {twMerge} from 'tailwind-merge';
 
 const Markdown = ({children, className}: {children: string; className?: string}) => {
 	return (
@@ -13,7 +13,7 @@ const Markdown = ({children, className}: {children: string; className?: string})
 			components={{p: 'div', img: ({node, ...props}) => <img {...props} loading='lazy' alt='' />}}
 			rehypePlugins={[rehypeHighlight]}
 			remarkPlugins={[remarkGfm, remarkBreaks]}
-			className={twJoin('leading-[16px]', styles.markdown, className)}>
+			className={twMerge('leading-[19px]', styles.markdown, className)}>
 			{children}
 		</ReactMarkdown>
 	);

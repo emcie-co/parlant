@@ -777,7 +777,7 @@ Guidelines:
                 )
 
                 self._logger.debug(
-                    f"Execution::Result: Tool call succeeded ({tool_call.tool_id.to_string()}/{tool_call.id})\n{json.dumps(asdict(result), indent=2)}"
+                    f"Execution::Result: Tool call succeeded ({tool_call.tool_id.to_string()}/{tool_call.id})\n{json.dumps(asdict(result), indent=2, default=str)}"
                 )
             except Exception as exc:
                 self._logger.error(
@@ -792,6 +792,7 @@ Guidelines:
                     "data": result.data,
                     "metadata": result.metadata,
                     "control": result.control,
+                    "fragments": result.fragments,
                 },
             )
         except Exception as e:
@@ -809,6 +810,7 @@ Guidelines:
                     "data": "Tool call error",
                     "metadata": {"error_details": str(e)},
                     "control": {},
+                    "fragments": [],
                 },
             )
 

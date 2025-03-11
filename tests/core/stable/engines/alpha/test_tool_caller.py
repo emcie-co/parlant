@@ -328,9 +328,10 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
     agent: Agent,
 ) -> None:
     service_registry = container[ServiceRegistry]
+    plugin_data = {"choices": ["laptops", "peripherals"]}
 
-    async def my_choice_provider() -> list[str]:
-        return ["laptops", "peripherals"]
+    async def my_choice_provider(choices: list[str]) -> list[str]:
+        return choices
 
     @tool
     def available_products_by_category(
@@ -370,7 +371,7 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
-    async with run_service_server([available_products_by_category]) as server:
+    async with run_service_server([available_products_by_category], plugin_data) as server:
         await service_registry.update_tool_service(
             name="my_sdk_service",
             kind="sdk",

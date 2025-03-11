@@ -386,6 +386,20 @@ def given_a_tool(
             },
             "required": ["customer_id"],
         },
+        "get_qualification_info": {
+            "name": "get_qualification_info",
+            "description": "Get the qualification information for the customer",
+            "module_path": "tests.tool_utilities",
+            "parameters": {},
+            "required": [],
+        },
+        "get_minimum_qualification_info": {
+            "name": "get_minimum_qualification_info",
+            "description": "Get the minimum qualification information for the customer",
+            "module_path": "tests.tool_utilities",
+            "parameters": {},
+            "required": [],
+        },
     }
 
     tool = context.sync_await(create_tool(**tools[tool_name]))

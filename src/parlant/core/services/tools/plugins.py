@@ -66,6 +66,7 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
+
 ToolFunction = Union[
     Callable[
         [ToolContext],
@@ -235,7 +236,7 @@ async def adapt_tool_arguments(
     return adapted_arguments
 
 
-async def _recompute_and_marshal_tool(tool: Tool) -> Tool:
+async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]) -> Tool:
     """This function is specifically used to refresh some of the tool's
     details based on dynamic changes (e.g., updating parameter descriptors
     based on dynamically-generated enum choices)"""
@@ -245,7 +246,11 @@ async def _recompute_and_marshal_tool(tool: Tool) -> Tool:
         new_descriptor = old_descriptor
 
         if options.choice_provider:
-            new_descriptor["enum"] = await options.choice_provider()
+            args = {}
+            for param_name in inspect.signature(options.choice_provider).parameters:
+                if param_name in plugin_data:
+                    args[param_name] = plugin_data[param_name]
+            new_descriptor["enum"] = await options.choice_provider(**args)
 
         marshalled_options = ToolParameterOptions(
             hidden=options.hidden,
@@ -425,6 +430,10 @@ class CallToolRequest(DefaultBaseModel):
     arguments: dict[str, _ToolParameterType]
 
 
+class _ToolResultShim(DefaultBaseModel):
+    result: ToolResult
+
+
 class PluginServer:
     def __init__(
         self,
@@ -522,7 +531,7 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
-            tool = await _recompute_and_marshal_tool(spec.tool)
+            tool = await _recompute_and_marshal_tool(spec.tool, self.plugin_data)
 
             return ReadToolResponse(tool=tool)
 
@@ -573,13 +582,14 @@ class PluginServer:
                         try:
                             result = await result_future
 
-                            final_result_chunk = json.dumps(
-                                {
-                                    "data": result.data,
-                                    "metadata": result.metadata,
-                                    "control": result.control,
-                                }
-                            )
+                            final_result_chunk = _ToolResultShim(
+                                result=ToolResult(
+                                    data=result.data,
+                                    metadata=result.metadata,
+                                    control=result.control,
+                                    fragments=result.fragments,
+                                )
+                            ).model_dump_json()
 
                             yield final_result_chunk
                         except Exception as exc:
@@ -791,12 +801,8 @@ class PluginClient(ToolService):
 
                     chunk_dict = json.loads(chunk)
 
-                    if "data" and "metadata" in chunk_dict:
-                        return ToolResult(
-                            data=chunk_dict["data"],
-                            metadata=chunk_dict["metadata"],
-                            control=chunk_dict["control"],
-                        )
+                    if "data" and "metadata" in chunk_dict.get("result", {}):
+                        return _ToolResultShim.model_validate(chunk_dict).result
                     elif "status" in chunk_dict:
                         await event_emitter.emit_status_event(
                             correlation_id=self._correlator.correlation_id,

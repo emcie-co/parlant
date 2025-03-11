@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 import {EventInterface, Log} from '@/utils/interfaces';
-import React, {ReactNode, useEffect, useRef, useState} from 'react';
+import React, {memo, ReactNode, useEffect, useRef, useState} from 'react';
 import {getMessageLogs, getMessageLogsWithFilters} from '@/utils/logs';
 import {twJoin, twMerge} from 'tailwind-merge';
 import clsx from 'clsx';
@@ -10,13 +10,12 @@ import LogFilters, {Level, Type} from '../log-filters/log-filters';
 import MessageFragments from '../message-fragments/message-fragments';
 import EmptyState from './empty-state';
 import FilterTabs from './filter-tabs';
-import MessageLogsHeader from './message-logs-header';
-import MessageLog from './message-log';
+import MessageDetailsHeader from './message-details-header';
 import {ResizableHandle, ResizablePanel, ResizablePanelGroup} from '../ui/resizable';
 import {ImperativePanelHandle} from 'react-resizable-panels';
 import Tooltip from '../ui/custom/tooltip';
-import {Copy} from 'lucide-react';
 import {copy} from '@/lib/utils';
+import MessageLogs from './message-logs';
 
 interface DefInterface {
 	level?: Level;
@@ -32,11 +31,11 @@ interface Filter {
 
 const MessageError = ({event}: {event: EventInterface}) => {
 	return (
-		<div className='h-full p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
+		<div className='h-full group p-[20px] bg-[#ebecf0] text-[13px] text-[#ef5350] z-10'>
 			<pre className={clsx('p-[10px] max-w-[-webkit-fill-available] pe-[10px] text-wrap break-words bg-white rounded-[8px] h-full overflow-auto  group relative')}>
-				<div className='sticky h-0 hidden z-10 group-hover:flex [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
+				<div className='sticky h-0 hidden z-10 group-hover:block [direction:rtl] top-[10px] right-[10px] gap-[10px]'>
 					<Tooltip value='Copy' side='top'>
-						<Copy size={18} color='#151515' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
+						<img src='icons/copy.svg' sizes='18' alt='' onClick={() => copy(event?.error || '')} className='cursor-pointer' />
 					</Tooltip>
 				</div>
 				{event?.error}
@@ -45,7 +44,7 @@ const MessageError = ({event}: {event: EventInterface}) => {
 	);
 };
 
-const MessageLogs = ({
+const MessageDetails = ({
 	event,
 	closeLogs,
 	regenerateMessageFn,
@@ -56,7 +55,7 @@ const MessageLogs = ({
 	regenerateMessageFn?: (sessionId: string) => void;
 	resendMessageFn?: (sessionId: string) => void;
 }): ReactNode => {
-	const [filters, setFilters] = useState({});
+	const [filters, setFilters] = useState<Record<string, any> | null>(null);
 	const [filterTabs, setFilterTabs] = useLocalStorage<Filter[]>('filters', []);
 	const [currFilterTabs, setCurrFilterTabs] = useState<number | null>((filterTabs as Filter[])[0]?.id || null);
 	const [logs, setLogs] = useState<Log[] | null>(null);
@@ -69,12 +68,13 @@ const MessageLogs = ({
 	}, [event?.id]);
 
 	useEffect(() => {
-		if (logs) {
-			if (!Object.keys(filters).length) setFilteredLogs(logs);
+		const hasFilters = Object.keys(filters || {}).length;
+		if (logs && filters) {
+			if (!hasFilters && filters) setFilteredLogs(logs);
 			else {
-				setFilteredLogs(getMessageLogsWithFilters(event?.correlation_id as string, filters as {level: string; types?: string[]; content?: string[]}));
+				setFilteredLogs(getMessageLogsWithFilters(event?.correlation_id as string, (filters || {}) as {level: string; types?: string[]; content?: string[]}));
 				(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
-					if (!tabFilters.length) {
+					if (!tabFilters.length && hasFilters) {
 						const filter = {id: Date.now(), def: filters, name: 'Logs'};
 						setCurrFilterTabs(filter.id);
 						return [filter];
@@ -86,6 +86,7 @@ const MessageLogs = ({
 				});
 			}
 		}
+		if (!filters && logs?.length) setFilters({});
 	}, [logs, filters]);
 
 	useEffect(() => {
@@ -100,47 +101,76 @@ const MessageLogs = ({
 		setLogs(getMessageLogs(event.correlation_id));
 	}, [event?.correlation_id]);
 
+	const deleteFilterTab = (id: number | undefined) => {
+		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
+		if (filterIndex === -1) return;
+		const filteredTabs = (filterTabs as Filter[]).filter((t) => t.id !== id);
+		(setFilterTabs as any)(filteredTabs);
+
+		if (currFilterTabs === id) {
+			const newTab = filteredTabs?.[(filterIndex || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
+			setCurrFilterTabs(newTab);
+		}
+		if (!filteredTabs.length) setFilters({});
+	};
+
 	const shouldRenderTabs = event && !!logs?.length && !!filterTabs?.length;
 	const fragmentEntries = Object.entries(event?.data?.fragments || {}).map(([id, value]) => ({id, value}));
 	const isError = event?.serverStatus === 'error';
 
 	return (
-		<div className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
-			<MessageLogsHeader
+		<div className={twJoin('w-full h-full animate-fade-in duration-500 overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
+			<MessageDetailsHeader
 				event={event || null}
 				closeLogs={closeLogs}
 				resendMessageFn={resendMessageFn}
 				regenerateMessageFn={regenerateMessageFn}
-				className={twJoin(event && logs && !logs?.length && 'bg-white', Object.keys(filters).length ? 'border-[#DBDCE0]' : '')}
+				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters || {}).length ? 'border-[#F3F5F9]' : '')}
 			/>
 			<ResizablePanelGroup direction='vertical' className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 				<ResizablePanel ref={resizableRef} minSize={0} maxSize={isError ? 99 : 0} defaultSize={isError ? 50 : 0}>
 					{isError && <MessageError event={event} />}
 				</ResizablePanel>
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
-				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col'>
-					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} className={twJoin(shouldRenderTabs && 'border-b border-[#dbdce0]')} />}
-					{shouldRenderTabs && <FilterTabs setFilters={setFilters as any} currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
-					{event && !!logs?.length && (
+				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white'>
+					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} />}
+					<div className='flex justify-between items-center min-h-[58px] h-[58px] p-[10px] pb-[4px] pe-0'>
+						<div className='ps-[14px] text-[#282828]'>Logs</div>
+						{!shouldRenderTabs && (
+							<LogFilters
+								showDropdown
+								filterId={currFilterTabs || undefined}
+								def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
+								applyFn={(types, level, content) => setFilters({types, level, content})}
+							/>
+						)}
+					</div>
+					{shouldRenderTabs && <FilterTabs currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
+					{event && !!logs?.length && shouldRenderTabs && (
 						<LogFilters
+							showTags
+							showDropdown
+							deleteFilterTab={deleteFilterTab}
 							className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}
 							filterId={currFilterTabs || undefined}
 							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
 							applyFn={(types, level, content) => setFilters({types, level, content})}
 						/>
 					)}
-					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' wrapperClassName='bg-[#f5f6f8]' />}
+					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' />}
 					{event && logs && !logs?.length && (
-						<EmptyState title='Whoopsie!' subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs." wrapperClassName='bg-[#f5f6f8]' className={twJoin(isError && 'translate-y-[0px]')} />
+						<EmptyState
+							imgClassName='w-[68px] h-[48px]'
+							imgUrl='logo-muted.svg'
+							title='Whoopsie!'
+							subTitle="The logs for this message weren't found in cache. Try regenerating it to get fresh logs."
+							className={twJoin(isError && 'translate-y-[0px]')}
+						/>
 					)}
-					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' wrapperClassName='bg-[#ebecf0]' className={twJoin(isError && 'translate-y-[0px]')} />}
+					{event && !!logs?.length && !filteredLogs.length && <EmptyState title='No logs for the current filters' className={twJoin(isError && 'translate-y-[0px]')} />}
 					{event && !!filteredLogs.length && (
-						<div className='bg-[#EBECF0] p-[14px] pt-0 h-auto overflow-auto flex-1'>
-							<div ref={messagesRef} className='rounded-[8px] border-[10px] border-white h-full overflow-auto bg-white fixed-scroll'>
-								{filteredLogs.map((log, i) => (
-									<MessageLog key={i} log={log} />
-								))}
-							</div>
+						<div className='ps-[10px] overflow-auto h-[-webkit-fill-available]'>
+							<MessageLogs messagesRef={messagesRef} filteredLogs={filteredLogs} />
 						</div>
 					)}
 				</ResizablePanel>
@@ -149,4 +179,4 @@ const MessageLogs = ({
 	);
 };
 
-export default MessageLogs;
+export default memo(MessageDetails, (prev, next) => prev.event === next.event);

@@ -56,34 +56,38 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 		}
 	}, [retry, error]);
 
-	const fetchData = useCallback(() => {
-		const controller = new AbortController();
-		const {signal} = controller;
-		setLoading(true);
-		setError(null);
+	const fetchData = useCallback(
+		(customParams = '') => {
+			const controller = new AbortController();
+			const {signal} = controller;
+			setTimeout(() => setLoading(true), 0);
+			setError(null);
+			const reqParams = customParams || params;
 
-		fetch(`${BASE_URL}/${url}${params}`, {signal})
-			.then(async (response) => {
-				if (!response.ok) {
-					if (response.status === NOT_FOUND_CODE) {
-						throw {code: NOT_FOUND_CODE, message: response.statusText};
+			fetch(`${BASE_URL}/${url}${reqParams}`, {signal})
+				.then(async (response) => {
+					if (!response.ok) {
+						if (response.status === NOT_FOUND_CODE) {
+							throw {code: NOT_FOUND_CODE, message: response.statusText};
+						}
+						throw new Error(`Error: ${response.statusText}`);
 					}
-					throw new Error(`Error: ${response.statusText}`);
-				}
-				const result = await response.json();
-				setData(result);
-			})
-			.catch((err) => {
-				if (checkErr && err.code !== ABORT_REQ_CODE) setError({message: err.message});
-				else if (err.code !== ABORT_REQ_CODE && err.code !== NOT_FOUND_CODE && retry) fetchData();
+					const result = await response.json();
+					setData(result);
+				})
+				.catch((err) => {
+					if (checkErr && err.code !== ABORT_REQ_CODE) setError({message: err.message});
+					else if (err.code !== ABORT_REQ_CODE && err.code !== NOT_FOUND_CODE && retry) fetchData();
 
-				if (err.code === NOT_FOUND_CODE) toast.error('resource not found. please try to refresh the page');
-			})
-			.finally(() => checkErr && setLoading(false));
+					if (err.code === NOT_FOUND_CODE) toast.error('resource not found. please try to refresh the page');
+				})
+				.finally(() => checkErr && setLoading(false));
 
-		return () => controller.abort();
+			return () => controller.abort();
+		},
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [url, refetchData, ...dependencies]);
+		[url, refetchData, ...dependencies]
+	);
 
 	useEffect(() => {
 		if (!initiate) return;

@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import enum
 import importlib
@@ -36,6 +36,7 @@ from pydantic import Field
 from typing_extensions import override, TypedDict
 
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
+from parlant.core.fragments import Fragment
 
 ToolParameterType = Literal[
     "array",
@@ -102,9 +103,22 @@ class ControlOptions(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class ToolResult:
-    data: JSONSerializable
-    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
-    control: ControlOptions = field(default_factory=lambda: ControlOptions())
+    data: Any
+    metadata: Mapping[str, Any]
+    control: ControlOptions
+    fragments: Sequence[Fragment]
+
+    def __init__(
+        self,
+        data: JSONSerializable,
+        metadata: Optional[Mapping[str, JSONSerializable]] = None,
+        control: Optional[ControlOptions] = None,
+        fragments: Optional[Sequence[Fragment]] = None,
+    ) -> None:
+        object.__setattr__(self, "data", data)
+        object.__setattr__(self, "metadata", metadata or {})
+        object.__setattr__(self, "control", control or ControlOptions())
+        object.__setattr__(self, "fragments", fragments or [])
 
 
 class ToolParameterOptions(DefaultBaseModel):
@@ -128,7 +142,7 @@ class ToolParameterOptions(DefaultBaseModel):
     adapter: Optional[Callable[[Any], Awaitable[Any]]] = Field(default=None, exclude=True)
     """A custom adapter function to convert the inferred value to a type."""
 
-    choice_provider: Optional[Callable[[], Awaitable[list[str]]]] = Field(
+    choice_provider: Optional[Callable[..., Awaitable[list[str]]]] = Field(
         default=None, exclude=True
     )
     """A custom function to provide valid choicoes for the parameter's argument."""

@@ -515,11 +515,15 @@ async def create_schematic_generation_result_collection(
 
 
 @asynccontextmanager
-async def run_service_server(tools: list[ToolEntry]) -> AsyncIterator[PluginServer]:
+async def run_service_server(
+    tools: list[ToolEntry],
+    plugin_data: Mapping[str, Any] = {},
+) -> AsyncIterator[PluginServer]:
     async with PluginServer(
         tools=tools,
         port=PLUGIN_SERVER_PORT,
         host="127.0.0.1",
+        plugin_data=plugin_data,
     ) as server:
         try:
             yield server

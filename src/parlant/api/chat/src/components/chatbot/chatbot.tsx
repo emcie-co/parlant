@@ -1,22 +1,34 @@
-import {createContext, lazy, ReactElement, Suspense, useEffect, useState} from 'react';
+import {createContext, ReactElement, useEffect, useState} from 'react';
+import SessionList from '../session-list/session-list';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import ChatHeader from '../chat-header/chat-header';
 import {useDialog} from '@/hooks/useDialog';
 import {Helmet} from 'react-helmet';
 import {NEW_SESSION_ID} from '../agents-list/agent-list';
-import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {dialogAtom, sessionAtom} from '@/store';
-import SessionList from '../session-list/session-list';
+import {twMerge} from 'tailwind-merge';
+import SessionView from '../session-view/session-view';
 
 export const SessionProvider = createContext({});
 
+const SessionsSection = () => {
+	const [filterSessionVal, setFilterSessionVal] = useState('');
+	return (
+		<div className='bg-white [box-shadow:0px_0px_25px_0px_#0000000A] h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
+			<ChatHeader setFilterSessionVal={setFilterSessionVal} />
+			<SessionList filterSessionVal={filterSessionVal} />
+		</div>
+	);
+};
+
 export default function Chatbot(): ReactElement {
-	const SessionView = lazy(() => import('../session-view/session-view'));
+	// const SessionView = lazy(() => import('../session-view/session-view'));
 	const [sessionName, setSessionName] = useState<string | null>('');
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
 	const [session] = useAtom(sessionAtom);
 	const [, setDialog] = useAtom(dialogAtom);
+	const [, setFilterSessionVal] = useState('');
 
 	useEffect(() => {
 		if (session?.id) {
@@ -31,30 +43,33 @@ export default function Chatbot(): ReactElement {
 
 	useEffect(() => {
 		setDialog({openDialog, closeDialog});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	return (
 		<ErrorBoundary>
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
-				<div data-testid='chatbot' className='main bg-main h-screen flex flex-col'>
-					<div className='hidden max-mobile:block'>
-						<ChatHeader />
+				<div className={'flex items-center bg-green-main h-[60px] mb-[8px]'}>
+					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[24px] self-center me-[6px] max-mobile:ms-0' />
+				</div>
+				<div data-testid='chatbot' className={'main bg-green-light h-[calc(100vh-68px)] flex flex-col rounded-[16px]'}>
+					<div className='hidden max-mobile:block rounded-[16px]'>
+						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className='flex justify-between flex-1 w-full overflow-auto flex-row'>
-						<div className='bg-white h-full pb-4 border-solid w-[332px] max-mobile:hidden z-[11] border-e'>
-							<ChatHeader />
-							<SessionList />
-						</div>
-						<div className='h-full w-[calc(100vw-332px)] max-w-[calc(100vw-332px)] max-[750px]:max-w-full max-[750px]:w-full '>
-							{session?.id ? (
-								<Suspense>
-									<SessionView />
-								</Suspense>
-							) : (
-								<HeaderWrapper />
-							)}
-						</div>
+					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]')}>
+						<SessionsSection />
+						{session?.id ? (
+							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
+								{/* <Suspense> */}
+								<SessionView />
+								{/* </Suspense> */}
+							</div>
+						) : (
+							<div className='flex-1 flex items-center justify-center'>
+								<img src='select-session.svg' fetchPriority='high' alt='' />
+							</div>
+						)}
 					</div>
 				</div>
 			</SessionProvider.Provider>

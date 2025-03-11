@@ -1,18 +1,22 @@
+import Avatar from '@/components/avatar/avatar';
 import HeaderWrapper from '@/components/header-wrapper/header-wrapper';
 import CopyText from '@/components/ui/custom/copy-text';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
+import {AgentInterface} from '@/utils/interfaces';
 import {useAtom} from 'jotai';
-import {twJoin} from 'tailwind-merge';
+import {memo} from 'react';
 
 const SessoinViewHeader = () => {
 	const [session] = useAtom(sessionAtom);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
+
 	return (
-		<HeaderWrapper className={twJoin('border-e')}>
+		<HeaderWrapper>
 			{session?.id && (
-				<div className='w-full flex items-center h-full'>
-					<div className='h-full flex-1 flex items-center ps-[24px] border-e'>
+				<div className='w-full flex items-center h-full pb-[2px] max-w-[1000px] m-auto'>
+					<div className='h-full flex-1 flex items-center ps-[16px] border-e border-[#F3F5F9] whitespace-nowrap overflow-hidden'>
+						{agent && <Avatar agent={agent as AgentInterface} tooltip={false} />}
 						<div>
 							<div>{agent?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
@@ -20,7 +24,8 @@ const SessoinViewHeader = () => {
 							</div>
 						</div>
 					</div>
-					<div className='h-full flex-1 flex items-center ps-[24px]'>
+					<div className='h-full flex-1 flex items-center ps-[14px] whitespace-nowrap overflow-hidden'>
+						{customer && <Avatar agent={customer as AgentInterface} asCustomer tooltip={false} />}
 						<div>
 							<div>{(customer?.id == 'guest' && 'Guest') || customer?.name}</div>
 							<div className='group flex items-center gap-[3px] text-[14px] font-normal'>
@@ -33,4 +38,4 @@ const SessoinViewHeader = () => {
 		</HeaderWrapper>
 	);
 };
-export default SessoinViewHeader;
+export default memo(SessoinViewHeader);

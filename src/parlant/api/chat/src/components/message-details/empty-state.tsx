@@ -13,7 +13,7 @@ const EmptyState = ({title, subTitle, wrapperClassName, className, imgClassName,
 	return (
 		<div className={twMerge('flex flex-col m-auto justify-center items-center w-full h-full', wrapperClassName)}>
 			<div className={twMerge('flex flex-col justify-center items-center -translate-y-[70px]', className)}>
-				<img className={twMerge('size-[330px] rounded-full', imgClassName)} src={imgUrl || 'empty-state.svg'} alt='' />
+				<img className={twMerge('size-[330px] select-none pointer-events-none rounded-full', imgClassName)} src={imgUrl || 'empty-state.svg'} alt='' />
 				<h2 className='text-[18px] font-normal font-inter text-[#656565] mt-[30px]'>{title}</h2>
 				{subTitle && <p className='text-[15px] font-normal max-w-[378px] font-inter text-[#656565] text-center mt-[10px]'>{subTitle}</p>}
 			</div>

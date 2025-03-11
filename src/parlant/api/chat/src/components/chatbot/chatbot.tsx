@@ -67,7 +67,7 @@ export default function Chatbot(): ReactElement {
 							</div>
 						) : (
 							<div className='flex-1 flex flex-col gap-[27px] items-center justify-center'>
-								<img className='select-none' src='select-session.svg' fetchPriority='high' alt='' />
+								<img className='select-none pointer-events-none' src='select-session.svg' fetchPriority='high' alt='' />
 								<p className='text-[#3C8C71] select-none font-light text-[18px]'>Select a session to get started</p>
 							</div>
 						)}

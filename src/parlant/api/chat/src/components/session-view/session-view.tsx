@@ -286,7 +286,9 @@ const SessionView = (): ReactElement => {
 												<ShieldEllipsis className='me-[8px] !size-[17px] mt-[3px]' />
 												<div>
 													<div>Content Moderation</div>
-													<small>Messages will be flagged for harmful or illicit content and censored accordingly. The agent will see such messages were sent and the reason why they were censored, but it won't see their content.</small>
+													<small className='font-light'>
+														Messages will be flagged for harmful or illicit content and censored accordingly. The agent will see such messages were sent and the reason why they were censored, but it won't see their content.
+													</small>
 												</div>
 											</DropdownMenuItem>
 										</DropdownMenuContent>

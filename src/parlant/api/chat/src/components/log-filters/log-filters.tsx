@@ -73,7 +73,7 @@ const FilterDialog = ({contentChanged, content, children, className}: {contentCh
 		<Dialog>
 			<DialogTrigger className='w-full'>{children || <AddFilterChip className={className} />}</DialogTrigger>
 			<DialogPortal aria-hidden={false}>
-				<DialogContent aria-hidden={false} className='p-0 [&>button]:hidden'>
+				<DialogContent aria-hidden={false} className='p-0 [&>button]:hidden z-[99]'>
 					<DialogTitle className='hidden'>Filter by content</DialogTitle>
 					<DialogDescription className='hidden'>Filter by content</DialogDescription>
 					<FilterDialogContent contentChanged={contentChanged} defaultValue={content || ''} />
@@ -307,7 +307,7 @@ const LogFilters = ({
 	};
 
 	return (
-		<div className='flex items-center justify-between pe-[14px]'>
+		<div className='flex items-center justify-between pe-[14px] z-[1] bg-white'>
 			<div className={twMerge('flex z-[1] pt-[10px] pb-[8px] pe-[12px] ps-[14px] gap-[8px] h-fit min-h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'min-h-[50px]', className)}>
 				<div className='filters-button flex items-start gap-[10px] flex-wrap'>
 					{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}

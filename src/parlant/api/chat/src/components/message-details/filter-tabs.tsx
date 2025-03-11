@@ -66,7 +66,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 	};
 
 	return (
-		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto z-10 overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
+		<div className={twMerge('ps-[10px] flex gap-[8px] bg-white items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto z-10 overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
 			{filterTabs.map((tab: Filter) => (
 				<div
 					className={twJoin(

@@ -1,7 +1,7 @@
 import {Log} from './interfaces';
 import {groupBy} from './obj';
 
-const logLevels = ['WARNING', 'INFO', 'DEBUG'];
+const logLevels = ['WARNING', 'INFO', 'DEBUG', 'ERROR', 'CRITICAL'];
 
 // const getLocalStorageSize = (): number => {
 // 	let totalBytes = 0;

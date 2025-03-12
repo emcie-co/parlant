@@ -104,7 +104,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 					</div>
 				</div>
 			))}
-			<div className='flex gap-[10px] ms-[6px] items-center rounded-[2px] p-[4px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] bg-white' role='button' onClick={addFilter}>
+			<div className='flex gap-[10px] items-center justify-center size-[28px] min-w-[28px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] bg-white hover:bg-[#f3f5f9] rounded-[6px]' role='button' onClick={addFilter}>
 				<Plus size={16} />
 			</div>
 		</div>

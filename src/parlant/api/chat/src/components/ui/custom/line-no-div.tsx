@@ -26,7 +26,7 @@ const CodeEditor = ({text}: {text: string}) => {
 	}, [text]);
 
 	useEffect(() => {
-		if (editorViewRef.current) setTimeout(() => editorViewRef.current?.dispatch({effects: openSearchPanel(editorViewRef.current) as any}), 0);
+		if (editorViewRef.current) setTimeout(() => openSearchPanel(editorViewRef.current as EditorView), 0);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [editorViewRef.current]);
 

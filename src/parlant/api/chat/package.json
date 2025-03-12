@@ -15,6 +15,7 @@
     "@codemirror/basic-setup": "^0.20.0",
     "@codemirror/lang-javascript": "^6.2.3",
     "@codemirror/language": "^6.10.8",
+    "@codemirror/search": "^6.5.10",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.4",
     "@radix-ui/react-checkbox": "^1.1.3",

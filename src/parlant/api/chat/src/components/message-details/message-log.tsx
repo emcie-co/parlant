@@ -13,7 +13,7 @@ const MessageLog = ({log}: {log: Log}) => {
 
 	const openLogs = (text: string) => {
 		const element = (
-			<pre ref={ref} className='group font-light font-ibm-plex-mono px-[30px] py-[10px] text-wrap text-[#333] relative overflow-auto h-[100%]'>
+			<pre ref={ref} className='group font-light font-ibm-plex-mono px-[30px] border-y-[10px] border-white text-wrap text-[#333] relative overflow-auto h-[100%]'>
 				<div className='invisble group-hover:visible flex sticky top-[10px] right-[20px] justify-end'>
 					<div className='flex justify-end bg-white p-[10px] gap-[20px] rounded-lg'>
 						<Tooltip value='Copy' side='top'>

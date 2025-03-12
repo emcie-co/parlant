@@ -55,7 +55,9 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 					{(!isContinual || isFirstMessageInDate) && (
 						<div className={twJoin('flex justify-between items-center mb-[12px] mt-[46px]', isFirstMessageInDate && 'mt-[0]', isCustomer && 'flex-row-reverse')}>
 							<div className={twJoin('flex gap-[8px] items-center', isCustomer && 'flex-row-reverse')}>
-								<div className='size-[26px] flex rounded-[6.5px] items-center justify-center font-semibold' style={{color: isCustomer ? 'white' : colorPallete.text, background: isCustomer ? colorPallete.iconBackground : colorPallete?.background}}>
+								<div
+									className='size-[26px] flex rounded-[6.5px] select-none items-center justify-center font-semibold'
+									style={{color: isCustomer ? 'white' : colorPallete.text, background: isCustomer ? colorPallete.iconBackground : colorPallete?.background}}>
 									{(isCustomer ? customerName?.[0] : agent?.name?.[0])?.toUpperCase()}
 								</div>
 								<div className='font-medium text-[14px] text-[#282828]'>{formattedName}</div>
@@ -144,7 +146,7 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 		<div className={twMerge(isEditing && '[direction:rtl] flex justify-center')}>
 			<div
 				className={twMerge(
-					'group/main flex my-[12px] mx-0 mb-1 w-full justify-between animate-fade-in scrollbar',
+					'group/main flex py-[12px] mx-0 mb-1 w-full justify-between animate-fade-in scrollbar',
 					isEditing && 'flex-1 flex justify-start max-w-[1000px] items-end w-[calc(100%-412px)] max-[2100px]:w-[calc(100%-200px)] self-end max-[1700px]:w-[calc(100%-40px)]'
 				)}>
 				<Spacer />

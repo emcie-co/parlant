@@ -15,7 +15,7 @@ export const SessionProvider = createContext({});
 const SessionsSection = () => {
 	const [filterSessionVal, setFilterSessionVal] = useState('');
 	return (
-		<div className='bg-white [box-shadow:0px_0px_25px_0px_#0000000A] h-full rounded-[16px] overflow-hidden border-solid w-[352px] max-mobile:hidden z-[11] '>
+		<div className='bg-white [box-shadow:0px_0px_25px_0px_#0000000A] h-full rounded-[16px] overflow-hidden border-solid w-[352px] min-w-[352px] max-mobile:hidden z-[11] '>
 			<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 			<SessionList filterSessionVal={filterSessionVal} />
 		</div>
@@ -51,7 +51,7 @@ export default function Chatbot(): ReactElement {
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
 				<div className={'flex items-center bg-green-main h-[60px] mb-[14px] [box-shadow:0px_0px_25px_0px_#0000000A]'}>
-					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[27px] self-center me-[6px] max-mobile:ms-0' />
+					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='ms-[27px] self-center me-[6px]' />
 				</div>
 				<div data-testid='chatbot' className={'main bg-green-light h-[calc(100vh-74px)] flex flex-col rounded-[16px]'}>
 					<div className='hidden max-mobile:block rounded-[16px]'>
@@ -60,14 +60,14 @@ export default function Chatbot(): ReactElement {
 					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]')}>
 						<SessionsSection />
 						{session?.id ? (
-							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[750px]:max-w-full max-[750px]:w-full '>
+							<div className='h-full w-[calc(100vw-352px-28px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-28px)] max-[800px]:max-w-full max-[800px]:w-full '>
 								{/* <Suspense> */}
 								<SessionView />
 								{/* </Suspense> */}
 							</div>
 						) : (
 							<div className='flex-1 flex flex-col gap-[27px] items-center justify-center'>
-								<img className='select-none pointer-events-none' src='select-session.svg' fetchPriority='high' alt='' />
+								<img className='pointer-events-none' src='select-session.svg' fetchPriority='high' alt='' />
 								<p className='text-[#3C8C71] select-none font-light text-[18px]'>Select a session to get started</p>
 							</div>
 						)}

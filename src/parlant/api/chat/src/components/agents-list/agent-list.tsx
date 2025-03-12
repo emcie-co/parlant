@@ -56,7 +56,7 @@ const AgentList = (): ReactNode => {
 					</div>
 				</DialogTitle>
 			</DialogHeader>
-			<div className='flex flex-col overflow-auto relative flex-1'>
+			<div className='flex flex-col fixed-scroll overflow-auto relative flex-1'>
 				{(agent ? customers : agents)?.map((entity) => (
 					<div
 						data-testid='agent'

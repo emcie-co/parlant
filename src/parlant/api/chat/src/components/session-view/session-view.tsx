@@ -240,13 +240,13 @@ const SessionView = (): ReactElement => {
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
 						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
-						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
-							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
+						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-hidden')}>
+							<div className='messages [scroll-snap-type:y_mandatory] fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={i}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-										<div ref={lastMessageRef} className='flex flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
+										<div ref={lastMessageRef} className='flex snap-end flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
 											<Message
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
@@ -303,7 +303,9 @@ const SessionView = (): ReactElement => {
 										rows={1}
 										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
 									/>
-									{(showTyping || showThinking) && <p className='absolute left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
+									<p className={twMerge('absolute invisible left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter', (showTyping || showThinking) && 'visible')}>
+										{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}
+									</p>
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 									</Button>

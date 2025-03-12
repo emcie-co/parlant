@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from itertools import chain
 import json
 import traceback
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, cast
 
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent
@@ -150,6 +150,20 @@ class FluidMessageGenerator(MessageEventComposer):
                         tool_insights,
                         staged_events,
                     )
+
+    def _format_staged_events(
+        self,
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[EmittedEvent]:
+        for event in staged_events:
+            if event.kind == "tool":
+                event_data: dict[str, Any] = cast(dict[str, Any], event.data)
+                tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
+                for tool_call in tool_calls:
+                    if "fragments" in tool_call.get("result", {}):
+                        del tool_call["result"]["fragments"]
+
+        return staged_events
 
     async def _do_generate_events(
         self,

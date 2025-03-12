@@ -4,8 +4,8 @@
 	"description": "Chatbot by Parlant",
 	"start_url": "/",
 	"display": "standalone",
-	"background_color": "#FBFBFB",
-	"theme_color": "#FBFBFB",
+	"background_color": "#ffffff",
+	"theme_color": "#006e54",
 	"icons": [
 		{
 			"src": "/chat/logo-color.svg",

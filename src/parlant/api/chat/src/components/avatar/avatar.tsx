@@ -61,7 +61,7 @@ const Avatar = ({agent, customer, tooltip = true, asCustomer = false}: Props): R
 
 	return (
 		<Tooltip value={`${agent.name} / ${!customer?.name || isGuest ? 'Guest' : customer.name}`} side='right' style={style}>
-			<div className='relative'>
+			<div className='relative select-none'>
 				<div className={twMerge('size-[44px] rounded-[8px] flex me-[14px] items-center justify-center', agent && customer && 'size-[38px]')} style={{background: agent && customer ? '' : agentColor.outerBackground}}>
 					<div
 						style={{background: agentColor.background, color: agentColor.text}}

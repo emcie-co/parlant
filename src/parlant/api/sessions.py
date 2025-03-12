@@ -753,7 +753,7 @@ class MessageGenerationInspectionDTO(
     """Inspection data for message generation."""
 
     generation: GenerationInfoDTO
-    messages: Sequence[Optional[MessageEventDataDTO]]
+    messages: Sequence[Optional[str]]
 
 
 GuidelinePropositionInspectionTotalDurationField: TypeAlias = Annotated[
@@ -962,34 +962,12 @@ def participant_to_dto(participant: Participant) -> ParticipantDTO:
     )
 
 
-def message_event_data_to_dto(message: MessageEventData) -> MessageEventDataDTO:
-    dto = MessageEventDataDTO(
-        message=message["message"],
-        participant=participant_to_dto(
-            message["participant"],
-        ),
-    )
-
-    if "flagged" in message:
-        dto.flagged = message["flagged"]
-
-    if "tags" in message:
-        dto.tags = message["tags"]
-
-    if "fragments" in message:
-        dto.fragments = list(message["fragments"])
-
-    return dto
-
-
 def message_generation_inspection_to_dto(
     m: MessageGenerationInspection,
 ) -> MessageGenerationInspectionDTO:
     return MessageGenerationInspectionDTO(
         generation=generation_info_to_dto(m.generation),
-        messages=[
-            message_event_data_to_dto(message) for message in m.messages if message is not None
-        ],
+        messages=[message for message in m.messages if message is not None],
     )
 
 

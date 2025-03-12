@@ -151,7 +151,7 @@ Feature: Tools
         And the tool "schedule" from "second_service"
         And an association between "system_check_scheduling" and "schedule" from "first_service"
         And an association between "cs_meeting_scheduleing" and "schedule" from "second_service"
-        And a customer message, "I’m really happy about the system"
+        And a customer message, "I'm really happy about the system"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)

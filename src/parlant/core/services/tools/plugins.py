@@ -66,6 +66,7 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
+
 ToolFunction = Union[
     Callable[
         [ToolContext],
@@ -429,6 +430,10 @@ class CallToolRequest(DefaultBaseModel):
     arguments: dict[str, _ToolParameterType]
 
 
+class _ToolResultShim(DefaultBaseModel):
+    result: ToolResult
+
+
 class PluginServer:
     def __init__(
         self,
@@ -577,13 +582,14 @@ class PluginServer:
                         try:
                             result = await result_future
 
-                            final_result_chunk = json.dumps(
-                                {
-                                    "data": result.data,
-                                    "metadata": result.metadata,
-                                    "control": result.control,
-                                }
-                            )
+                            final_result_chunk = _ToolResultShim(
+                                result=ToolResult(
+                                    data=result.data,
+                                    metadata=result.metadata,
+                                    control=result.control,
+                                    fragments=result.fragments,
+                                )
+                            ).model_dump_json()
 
                             yield final_result_chunk
                         except Exception as exc:
@@ -795,12 +801,8 @@ class PluginClient(ToolService):
 
                     chunk_dict = json.loads(chunk)
 
-                    if "data" and "metadata" in chunk_dict:
-                        return ToolResult(
-                            data=chunk_dict["data"],
-                            metadata=chunk_dict["metadata"],
-                            control=chunk_dict["control"],
-                        )
+                    if "data" and "metadata" in chunk_dict.get("result", {}):
+                        return _ToolResultShim.model_validate(chunk_dict).result
                     elif "status" in chunk_dict:
                         await event_emitter.emit_status_event(
                             correlation_id=self._correlator.correlation_id,

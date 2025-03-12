@@ -66,22 +66,21 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 	};
 
 	return (
-		<div className={twMerge('ps-[10px] flex gap-[8px] items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto  overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
+		<div className={twMerge('ps-[10px] flex gap-[8px] bg-white items-center min-h-[42px] filter-tabs border-b border-[#EDEFF3] overflow-x-auto z-10 overflow-y-visible no-scrollbar', isEditing && 'border-[#ebecf0]')}>
 			{filterTabs.map((tab: Filter) => (
 				<div
 					className={twJoin(
 						'bg-[#FAFAFA] hover:bg-[#F3F5F9] border border-transparent relative rounded-[6px] text-[#A9A9A9] hover:text-[#282828]',
-						tab.id === currFilterTabs && 'after:content-[""] after:absolute after:left-0 after:w-full after:h-[2px] after:bg-[#282828] after:-bottom-[6px] shadow-main-inset !bg-[#FAFAFA] !text-[#282828]',
+						tab.id === currFilterTabs && 'shadow-main-inset !bg-[#FAFAFA] !text-[#282828]',
 						tab.id === currFilterTabs && isEditing && '!border-black !shadow-none'
 					)}
-					key={tab.id}>
+					key={tab.id}
+					role='button'
+					onClick={() => {
+						setIsEditing(false);
+						setCurrFilterTabs(tab.id);
+					}}>
 					<div
-						key={tab.id}
-						role='button'
-						onClick={() => {
-							setIsEditing(false);
-							setCurrFilterTabs(tab.id);
-						}}
 						className={twJoin(
 							'group flex min-h-[28px] max-w-[200px] rounded-[6px] max-h-[28px] justify-center leading-[18px] text-[15px] border border-transparent items-center border-e w-fit',
 							tab.id === currFilterTabs && isEditing && 'h-full rounded-[5px]'
@@ -90,7 +89,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 							<p
 								tabIndex={-1}
 								onClick={(e) => tab.id === currFilterTabs && clicked(e, tab)}
-								contentEditable={tab.id === currFilterTabs}
+								contentEditable={tab.id === currFilterTabs && isEditing}
 								suppressContentEditableWarning
 								onKeyDown={(e) => (e.key === 'Enter' ? editFinished(e, tab) : e.key === 'Escape' && editCancelled(e, tab))}
 								onBlur={(e) => editFinished(e, tab)}
@@ -105,7 +104,7 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 					</div>
 				</div>
 			))}
-			<div className='flex gap-[10px] ms-[6px] items-center rounded-[2px] p-[4px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] bg-white' role='button' onClick={addFilter}>
+			<div className='flex gap-[10px] items-center justify-center size-[28px] min-w-[28px] w-fit sticky right-0 text-[#151515] hover:text-[#151515] bg-white hover:bg-[#f3f5f9] rounded-[6px]' role='button' onClick={addFilter}>
 				<Plus size={16} />
 			</div>
 		</div>

@@ -24,10 +24,10 @@ const MessageLog = ({log}: {log: Log}) => {
 						</Tooltip>
 					</div>
 				</div>
-				<div>{text}</div>
+				<div className='[word-break:break-all]'>{text}</div>
 			</pre>
 		);
-		openDialog('', element, {height: '90vh', width: '90vw'});
+		openDialog('', element, {height: '90vh', width: 'min(90vw, 1200px)'});
 	};
 
 	return (

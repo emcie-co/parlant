@@ -15,12 +15,11 @@
 from __future__ import annotations
 
 import json
-from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
 import uuid
+from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
 
-import qdrant_client
-from qdrant_client.http import models as qdrant_models
-from typing_extensions import override, Self
+from qdrant_client import QdrantClient, grpc, models
+from typing_extensions import Self, override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.loggers import Logger
@@ -45,7 +44,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
-        client: qdrant_client.QdrantClient,
+        client: QdrantClient,
         name: str,
         schema: type[TDocument],
         embedder: Embedder,
@@ -65,81 +64,89 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         if not self._client.collection_exists(collection_name=self._name):
             self._client.create_collection(
                 collection_name=self._name,
-                vectors_config=qdrant_models.VectorParams(
+                vectors_config=models.VectorParams(
                     size=self._vector_size,
-                    distance=qdrant_models.Distance.COSINE,
+                    distance=models.Distance.COSINE,
                 ),
             )
 
-    def _where_to_filter(self, filters: Where) -> Optional[qdrant_models.Filter]:
+    def _build_condition(self, operator, key, value):
+        # See https://qdrant.tech/documentation/concepts/filtering/#range
+        if operator == "$eq":
+            return models.FieldCondition(key=key, match=models.MatchValue(value=value))
+        elif operator == "$lt":
+            return models.FieldCondition(key=key, range=models.Range(lt=value))
+        elif operator == "$lte":
+            return models.FieldCondition(key=key, range=models.Range(lte=value))
+        elif operator == "$gt":
+            return models.FieldCondition(key=key, range=models.Range(gt=value))
+        elif operator == "$gte":
+            return models.FieldCondition(key=key, range=models.Range(gte=value))
+        elif operator == "$ne":
+            return models.FieldCondition(key=key, match=models.MatchExcept(**{"except": [value]}))
+        else:
+            raise ValueError(f"Unsupported operator: {operator}")
+
+    def _translate_where(self, filters: Where) -> models.Filter:
         if not filters:
             return None
 
         conditions = []
         for field, value in filters.items():
-            if isinstance(value, dict):
+            if isinstance(value, list):
+                if field == "$and":
+                    return models.Filter(must=[self._translate_where(child) for child in value])
+                elif field == "$or":
+                    return models.Filter(should=[self._translate_where(child) for child in value])
+            elif isinstance(value, dict):
                 for op, op_value in value.items():
-                    if op == "$eq":
-                        conditions.append(
-                            qdrant_models.FieldCondition(
-                                key=field, match=qdrant_models.MatchValue(value=op_value)
-                            )
-                        )
-                    elif op == "$ne":
-                        conditions.append(
-                            qdrant_models.FieldCondition(
-                                key=field, match=qdrant_models.MatchExcept(**{"except": [op_value]})
-                            )
-                        )
-            else:
-                conditions.append(
-                    qdrant_models.FieldCondition(
-                        key=field, match=qdrant_models.MatchValue(value=value)
-                    )
-                )
-
-        return qdrant_models.Filter(must=conditions)
+                    conditions.append(self._build_condition(op, field, op_value))
+        return models.Filter(must=conditions)
 
     @override
     async def find(
         self,
         filters: Where,
     ) -> Sequence[TDocument]:
-        qdrant_filter = self._where_to_filter(filters)
-        results = self._client.scroll(
-            collection_name=self._name,
-            scroll_filter=qdrant_filter,
-            with_payload=True,
-            with_vectors=False,
-            limit=100,
-        )
+        SCROLL_SIZE = 64
 
-        documents = []
-        for point in results[0]:
-            documents.append(cast(TDocument, point.payload))
+        points = []
+        next_offset = None
+        stop_scrolling = False
+        while not stop_scrolling:
+            results, next_offset = self._client.scroll(
+                collection_name=self._name,
+                scroll_filter=self._translate_where(filters),
+                limit=SCROLL_SIZE,
+                offset=next_offset,
+                with_payload=True,
+            )
+            stop_scrolling = next_offset is None or (
+                isinstance(next_offset, grpc.PointId)
+                and next_offset.num == 0
+                and next_offset.uuid == ""
+            )
+            points.extend(results)
 
-        return documents
+        return [cast(TDocument, point.payload) for point in points]
 
     @override
     async def find_one(
         self,
         filters: Where,
     ) -> Optional[TDocument]:
-        qdrant_filter = self._where_to_filter(filters)
-        results = self._client.scroll(
+        results, _next_offset = self._client.scroll(
             collection_name=self._name,
-            scroll_filter=qdrant_filter,
+            scroll_filter=self._translate_where(filters),
             with_payload=True,
             with_vectors=False,
             limit=1,
         )
 
-        if not results[0]:
+        if not results:
             return None
 
-        point = results[0][0]
-
-        return cast(TDocument, point.payload)
+        return cast(TDocument, results[0].payload)
 
     @override
     async def insert_one(
@@ -153,7 +160,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         self._client.upsert(
             collection_name=self._name,
             points=[
-                qdrant_models.PointStruct(
+                models.PointStruct(
                     id=format_point_id(document["id"]), vector=embeddings, payload=document
                 )
             ],
@@ -183,7 +190,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             self._client.upsert(
                 collection_name=self._name,
                 points=[
-                    qdrant_models.PointStruct(
+                    models.PointStruct(
                         id=format_point_id(updated_document["id"]),
                         vector=embeddings,
                         payload=updated_document,
@@ -206,7 +213,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             self._client.upsert(
                 collection_name=self._name,
                 points=[
-                    qdrant_models.PointStruct(
+                    models.PointStruct(
                         id=format_point_id(params["id"]), vector=embeddings, payload=params
                     )
                 ],
@@ -257,7 +264,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         query_embeddings = list((await self._embedder.embed([query])).vectors)[0]
 
-        qdrant_filter = self._where_to_filter(filters)
+        qdrant_filter = self._translate_where(filters)
 
         search_results = self._client.query_points(
             collection_name=self._name,
@@ -288,7 +295,7 @@ class QdrantDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
-        client: qdrant_client.QdrantClient,
+        client: QdrantClient,
         embedder_factory: EmbedderFactory,
     ) -> None:
         self._logger = logger
@@ -394,7 +401,7 @@ class QdrantDatabase(VectorDatabase):
 
         self._client.upsert(
             collection_name=METADATA_COLLECTION_NAME,
-            points=[qdrant_models.PointStruct(id=METADATA_POINT_ID, vector={}, payload=document)],
+            points=[models.PointStruct(id=METADATA_POINT_ID, vector={}, payload=document)],
         )
 
     @override
@@ -418,7 +425,7 @@ class QdrantDatabase(VectorDatabase):
         document.pop(key)
         self._client.upsert(
             collection_name=METADATA_COLLECTION_NAME,
-            points=[qdrant_models.PointStruct(id=METADATA_POINT_ID, vector={}, payload=document)],
+            points=[models.PointStruct(id=METADATA_POINT_ID, vector={}, payload=document)],
         )
 
     @override
@@ -452,7 +459,7 @@ def format_point_id(_id) -> str:
     We use a seed to convert each string into a UUID string deterministically.
     This allows us to overwrite the same point with the original ID.
     """
-    # If already a valid UUID, return as-is
+    # If already a valid UUID, return as-is.
     if is_valid_uuid(str(_id)):
         return str(_id)
 

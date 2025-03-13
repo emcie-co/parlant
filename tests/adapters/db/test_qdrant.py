@@ -15,11 +15,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 import tempfile
-from typing import AsyncIterator, Iterator, Optional, TypedDict, cast
-import numpy as np
+from typing import AsyncIterator, Iterator, TypedDict, cast
 from typing_extensions import Required
 from lagom import Container
-from pytest import fixture, raises
+from pytest import fixture
 
 from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.vector_db.qdrant import QdrantCollection, QdrantDatabase
@@ -29,7 +28,7 @@ from parlant.core.glossary import GlossaryVectorStore
 from parlant.core.nlp.embedding import EmbedderFactory, NoOpEmbedder
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
-from parlant.core.persistence.common import MigrationRequired, ObjectId
+from parlant.core.persistence.common import ObjectId
 from qdrant_client import QdrantClient
 
 from parlant.core.persistence.vector_database import BaseDocument

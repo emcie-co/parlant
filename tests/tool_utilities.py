@@ -19,6 +19,119 @@ from typing import Optional
 
 from parlant.core.tools import ToolResult
 
+pizza_menu = [
+    {
+        "type": "Margherita",
+        "price": 8.99,
+        "amount": 10,
+        "ingredients": ["tomato sauce", "mozzarella cheese", "fresh basil", "olive oil"],
+    },
+    {
+        "type": "Pepperoni",
+        "price": 10.99,
+        "amount": 15,
+        "ingredients": ["tomato sauce", "mozzarella cheese", "pepperoni slices"],
+    },
+    {
+        "type": "BBQ Chicken",
+        "price": 12.99,
+        "amount": 18,
+        "ingredients": [
+            "bbq sauce",
+            "mozzarella cheese",
+            "grilled chicken",
+            "red onions",
+            "cilantro",
+        ],
+    },
+    {
+        "type": "Veggie Supreme",
+        "price": 9.99,
+        "amount": 10,
+        "ingredients": [
+            "tomato sauce",
+            "mozzarella cheese",
+            "bell peppers",
+            "mushrooms",
+            "red onions",
+            "black olives",
+            "spinach",
+        ],
+    },
+    {
+        "type": "Hawaiian",
+        "price": 11.99,
+        "amount": 12,
+        "ingredients": ["tomato sauce", "mozzarella cheese", "ham", "pineapple"],
+    },
+    {
+        "type": "Meat Lovers",
+        "price": 13.99,
+        "amount": 14,
+        "ingredients": [
+            "tomato sauce",
+            "mozzarella cheese",
+            "pepperoni",
+            "sausage",
+            "bacon",
+            "ground beef",
+            "ham",
+        ],
+    },
+    {
+        "type": "Buffalo Chicken",
+        "price": 12.99,
+        "amount": 8,
+        "ingredients": [
+            "buffalo sauce",
+            "mozzarella cheese",
+            "chicken",
+            "red onions",
+            "blue cheese crumbles",
+        ],
+    },
+    {
+        "type": "Four Cheese",
+        "price": 10.99,
+        "amount": 11,
+        "ingredients": [
+            "tomato sauce",
+            "mozzarella cheese",
+            "parmesan cheese",
+            "gorgonzola cheese",
+            "ricotta cheese",
+        ],
+    },
+    {
+        "type": "Mediterranean",
+        "price": 11.99,
+        "amount": 9,
+        "ingredients": [
+            "olive oil",
+            "feta cheese",
+            "sun-dried tomatoes",
+            "kalamata olives",
+            "artichoke hearts",
+            "spinach",
+        ],
+    },
+    {
+        "type": "Supreme",
+        "price": 14.99,
+        "amount": 13,
+        "ingredients": [
+            "tomato sauce",
+            "mozzarella cheese",
+            "pepperoni",
+            "sausage",
+            "bell peppers",
+            "onions",
+            "mushrooms",
+            "black olives",
+        ],
+    },
+]
+
 
 class Categories(enum.Enum):
     GRAPHICSCARD = "Graphics Card"
@@ -217,3 +330,93 @@ def get_bookings(customer_id: str) -> ToolResult:
         )
     else:
         return ToolResult({"bookings": "No bookings found"})
+
+
+class PizzaType(Enum):
+    """Enum representing different types of pizzas available."""
+
+    MARGHERITA = "Margherita"
+    PEPPERONI = "Pepperoni"
+    BBQ_CHICKEN = "BBQ Chicken"
+    VEGGIE_SUPREME = "Veggie Supreme"
+    HAWAIIAN = "Hawaiian"
+    MEAT_LOVERS = "Meat Lovers"
+    BUFFALO_CHICKEN = "Buffalo Chicken"
+    FOUR_CHEESE = "Four Cheese"
+    MEDITERRANEAN = "Mediterranean"
+    SUPREME = "Supreme"
+
+
+class PizzaIngredient(str, Enum):
+    TOMATO_SAUCE = "tomato sauce"
+    MOZZARELLA_CHEESE = "mozzarella cheese"
+    FRESH_BASIL = "fresh basil"
+    OLIVE_OIL = "olive oil"
+    PEPPERONI_SLICES = "pepperoni slices"
+    BBQ_SAUCE = "bbq sauce"
+    GRILLED_CHICKEN = "grilled chicken"
+    RED_ONIONS = "red onions"
+    CILANTRO = "cilantro"
+    BELL_PEPPERS = "bell peppers"
+    MUSHROOMS = "mushrooms"
+    BLACK_OLIVES = "black olives"
+    SPINACH = "spinach"
+    HAM = "ham"
+    PINEAPPLE = "pineapple"
+    PEPPERONI = "pepperoni"
+    SAUSAGE = "sausage"
+    BACON = "bacon"
+    GROUND_BEEF = "ground beef"
+    BUFFALO_SAUCE = "buffalo sauce"
+    CHICKEN = "chicken"
+    BLUE_CHEESE_CRUMBLES = "blue cheese crumbles"
+    PARMESAN_CHEESE = "parmesan cheese"
+    GORGONZOLA_CHEESE = "gorgonzola cheese"
+    RICOTTA_CHEESE = "ricotta cheese"
+    FETA_CHEESE = "feta cheese"
+    SUN_DRIED_TOMATOES = "sun-dried tomatoes"
+    KALAMATA_OLIVES = "kalamata olives"
+    ARTICHOKE_HEARTS = "artichoke hearts"
+    ONIONS = "onions"
+
+
+async def get_products_by_ingredient(ingredient: PizzaIngredient) -> ToolResult:
+    products = [item["type"] for item in pizza_menu if ingredient.value in item["ingredients"]]
+    return ToolResult({"available_products": products})
+
+
+async def get_availability_by_type_and_amount(product_type: PizzaType, amount: int) -> ToolResult:
+    amount = 0
+    available = False
+    for item in pizza_menu:
+        if item["type"] == product_type.value and item["amount"] >= amount:
+            available = True
+            amount = item["amount"]
+            break
+    return ToolResult({"product_availability": available, "amount": amount})
+
+
+async def get_availability_by_type(product_type: PizzaType) -> ToolResult:
+    available = False
+    for item in pizza_menu:
+        if item.get("type") == product_type.value and item["amount"]:
+            available = True
+            break
+    return ToolResult({"product_availability": available})
+
+
+async def get_menu() -> ToolResult:
+    menu = ""
+    for item in pizza_menu:
+        if item["amount"] > 0:
+            menu += f"""{item["type"]} ({item["ingredients"]}) : {item["price"]} $ \n"""
+    return ToolResult({"menu": menu})
+
+
+async def process_order(product_type: PizzaType, amount: int) -> ToolResult:
+    for item in pizza_menu:
+        if item["type"] == product_type.value and item["amount"] >= amount:
+            item["amount"] -= amount
+            amount = item["amount"]
+            break
+    return ToolResult({"new_amount": amount})

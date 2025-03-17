@@ -2,9 +2,9 @@ from dataclasses import dataclass  # noqa
 from datetime import datetime, timezone
 from itertools import chain  # noqa
 from typing import Any, Optional, Sequence, cast  # noqa
+from pytest import mark
 
 from lagom import Container  # noqa
-
 from parlant.core.agents import Agent, AgentId  # noqa
 from parlant.core.common import DefaultBaseModel, generate_id, JSONSerializable  # noqa
 from parlant.core.context_variables import (
@@ -30,7 +30,7 @@ from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
 from parlant.core.tools import Tool, ToolParameterOptions
-from tests.core.common.utils import create_event_message  # noqa
+from tests.core.common.utils import ContextOfTest, create_event_message  # noqa
 from tests.test_utilities import SyncAwaiter  # noqa
 
 # TODO remove noqas
@@ -483,47 +483,47 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="user wants to transfer money and has specified both how much and to whom and has confirmed it once and not yet specified or successfully confirmed their PIN Code",
                 action="ask for their PIN Code and confirm it",
             ),
-            associated_tools=[],
+            associated_tools=[],  # TODO get_tool("pin_code_verification")
         ),
         _GuidelineAndTool(
             guideline=GuidelineContent(
                 condition="user wants to transfer money and has successfully confirmed their PIN code",
                 action="transfer money to the recipient and confirm the transaction providing its ID",
             ),
-            associated_tools=[],
+            associated_tools=[],  # TODO get_tool("transfer_money")
         ),
         _GuidelineAndTool(
             guideline=GuidelineContent(
                 condition="user wants to know their account balance",
                 action="find it and provide it to them",
             ),
-            associated_tools=[],
+            associated_tools=[get_tool("get_account_balance")],
         ),
         _GuidelineAndTool(
             guideline=GuidelineContent(
                 condition="user wants to know their transactions",
                 action="find the transactions and show it to them",
             ),
-            associated_tools=[],
+            associated_tools=[],  # TODO get_tool("show_transactions")
         ),
     ],
 )
 
 
-def compare_tool_calls(
+def verify_tool_calls(
     emitted_tool_calls: Sequence[EmittedEvent],
     expected_tool_calls: Sequence[ToolCallVerification],
 ) -> bool:
     pass
 
 
-def compare_guidelines(
+def verify_guidelines(
     active_guidelines: Sequence[GuidelineContent], expected_active_guideline_names: Sequence[str]
 ) -> None:
     pass
 
 
-def nlp_test(agent_message: str, expected_content: str) -> None:
+def verify_message_generator(agent_message: str, expected_content: str) -> None:  # NLP test
     pass
 
 
@@ -533,3 +533,12 @@ def build_test_context(scenario: InteractionScenario, message_n: int) -> None:
     # Register Guidelines
     # Register Tools
     pass
+
+
+@mark.parametrize("n", range(10))
+def test_banking_scenario(context: ContextOfTest, n: int) -> None:
+    build_test_context(BANKING_SCENARIO, n)
+    # run engine
+    # analyze guidelines
+    # analyze tool calls
+    # analyze message generator

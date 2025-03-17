@@ -29,9 +29,11 @@ from parlant.core.sessions import EventSource  # noqa
 from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
-from parlant.core.tools import Tool, ToolParameterOptions, create_tool
+from parlant.core.tools import Tool, ToolParameterOptions
 from tests.core.common.utils import create_event_message  # noqa
 from tests.test_utilities import SyncAwaiter  # noqa
+
+# TODO remove noqas
 
 tools: dict[str, dict[str, Any]] = {
     "get_terrys_offering": {
@@ -390,6 +392,8 @@ tools: dict[str, dict[str, Any]] = {
     },
 }
 
+created_tools: Sequence[Tool] = []
+
 
 class ToolCallVerification(DefaultBaseModel):
     expected_tool_id: str
@@ -404,11 +408,15 @@ class ScenarioMessage(DefaultBaseModel):
     expected_active_guidelines: Optional[set[str]] = {}
 
 
+class _GuidelineAndTool(DefaultBaseModel):
+    guideline: GuidelineContent
+    associated_tools: Sequence[Tool]
+
+
 class InteractionScenario(DefaultBaseModel):
     messages: Sequence[ScenarioMessage]
     agent_description: Optional[str] = ""
-    guidelines: Optional[Sequence[GuidelineContent]] = []
-    tools: Optional[Sequence[Tool]] = []
+    guidelines_and_tools: Optional[Sequence[_GuidelineAndTool]] = []
     context_variables: Optional[Sequence[ContextVariableValue]] = []
     glossary: Optional[Sequence[Term]] = []
 
@@ -416,41 +424,88 @@ class InteractionScenario(DefaultBaseModel):
 def get_tool(
     tool_name: str,
 ) -> Tool:
-    creation_utc = datetime.now(timezone.utc)
-    tool_data = tools[tool_name]
-    return Tool(
-        creation_utc=creation_utc,
-        name=tool_data["name"],
-        description=tool_data["description"],
-        parameters={
-            name: (descriptor, ToolParameterOptions())
-            for name, descriptor in tool_data["parameters"].items()
-        },
-        required=tool_data["required"],
-        consequential=False,
-    )
+    if tool_name not in created_tools:
+        creation_utc = datetime.now(timezone.utc)
+        tool_data = tools[tool_name]
+        created_tools[tool_name] = Tool(
+            creation_utc=creation_utc,
+            name=tool_data["name"],
+            description=tool_data["description"],
+            parameters={
+                name: (descriptor, ToolParameterOptions())
+                for name, descriptor in tool_data["parameters"].items()
+            },
+            required=tool_data["required"],
+            consequential=False,
+        )
+    return created_tools[tool_name]
 
 
 BANKING_SCENARIO = InteractionScenario(
     messages=[
         ScenarioMessage(
-            customer_message="I want to open an account",
-            agent_message="",
+            customer_message="I want to transfer 20$ to Alan Johnson",
+            agent_message="It seems the PIN code you provided is incorrect, so the transfer could not be completed. Could you please double-check your PIN code?",
             expected_agent_message_content="",
             expected_tool_results=[
-                ToolCallVerification(
-                    expected_tool_id="open_account",
-                    expected_tool_arguments={"account_type": "savings"},
-                )
+                # ToolCallVerification(
+                #    expected_tool_id="open_account",
+                #    expected_tool_arguments={"account_type": "savings"},
+                # )
             ],
             expected_active_guidelines={},
         ),
     ],
-    guidelines=[GuidelineContent(condition="")],
-    tools=[
-        create_tool(
-            name="open_account",
-        )
+    guidelines_and_tools=[
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user needs help unlocking their card",
+                action="ask for the card's last 4 digits and help them unlock it",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to transfer money and hasn't specified to whom or how much",
+                action="ask them to whom and how much",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to transfer money and has specified both how much and to whom",
+                action="double-check the recipients' name and account number and confirm with the user",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to transfer money and has specified both how much and to whom and has confirmed it once and not yet specified or successfully confirmed their PIN Code",
+                action="ask for their PIN Code and confirm it",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to transfer money and has successfully confirmed their PIN code",
+                action="transfer money to the recipient and confirm the transaction providing its ID",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to know their account balance",
+                action="find it and provide it to them",
+            ),
+            associated_tools=[],
+        ),
+        _GuidelineAndTool(
+            guideline=GuidelineContent(
+                condition="user wants to know their transactions",
+                action="find the transactions and show it to them",
+            ),
+            associated_tools=[],
+        ),
     ],
 )
 
@@ -473,4 +528,8 @@ def nlp_test(agent_message: str, expected_content: str) -> None:
 
 
 def build_test_context(scenario: InteractionScenario, message_n: int) -> None:
+    # Create session
+    # Create agent
+    # Register Guidelines
+    # Register Tools
     pass

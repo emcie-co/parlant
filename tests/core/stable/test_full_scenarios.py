@@ -5,7 +5,7 @@ from typing import Any, Optional, Sequence, cast  # noqa
 from pytest import mark
 
 from lagom import Container  # noqa
-from parlant.core.agents import Agent, AgentId  # noqa
+from parlant.core.agents import Agent, AgentId, AgentStore  # noqa
 from parlant.core.common import DefaultBaseModel, generate_id, JSONSerializable  # noqa
 from parlant.core.context_variables import (
     ContextVariable,  # noqa
@@ -13,9 +13,11 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableValueId,  # noqa
 )
-from parlant.core.customers import Customer  # noqa
+from parlant.core.customers import Customer, CustomerStore  # noqa
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.engine import AlphaEngine  # noqa
 from parlant.core.glossary import Term
+from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.nlp.generation import SchematicGenerator  # noqa
 from parlant.core.engines.alpha.guideline_proposer import (
     GuidelineProposer,  # noqa
@@ -24,12 +26,12 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,  # noqa
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId  # noqa
-from parlant.core.sessions import EventSource  # noqa
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore  # noqa
+from parlant.core.sessions import EventSource, SessionStore  # noqa
 from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
-from parlant.core.tools import Tool, ToolParameterOptions
+from parlant.core.tools import LocalToolService, Tool, ToolId, ToolParameterOptions
 from tests.core.common.utils import ContextOfTest, create_event_message  # noqa
 from tests.test_utilities import SyncAwaiter  # noqa
 
@@ -494,17 +496,70 @@ def verify_message_generator(agent_message: str, expected_content: str) -> None:
     pass
 
 
-def build_test_context(scenario: InteractionScenario, message_n: int) -> None:
+def build_test_context(
+    context: ContextOfTest, scenario: InteractionScenario, message_n: int
+) -> None:
     # Create session
-    # Create agent
-    # Register Guidelines
-    # Register Tools
+    # engine = context.container[AlphaEngine]
+    agent = context.sync_await(
+        context.container[AgentStore].create_agent(
+            name="test-agent",
+            description=scenario.agent_description,
+            max_engine_iterations=2,
+        )
+    )
+    # session_store = context.container[SessionStore]
+    # customer_store = context.container[CustomerStore]
+    guideline_tool_association_store = context.container[GuidelineToolAssociationStore]
+
+    # utc_now = datetime.now(timezone.utc)
+
+    # customer = context.sync_await(customer_store.create_customer("test_customer"))
+    # session = context.sync_await(
+    #     session_store.create_session(
+    #         creation_utc=utc_now,
+    #         customer_id=customer.id,
+    #         agent_id=agent.id,
+    #     )
+    # )
+
+    # Register Guidelines & tools
+    guideline_store = context.container[GuidelineStore]
+    local_tool_service = context.container[LocalToolService]
+
+    for i, guideline_and_tools in enumerate(scenario.guidelines_and_tools):
+        context.guidelines[str(i)] = context.sync_await(
+            guideline_store.create_guideline(
+                guideline_set=agent.id,
+                condition=guideline_and_tools.guideline.condition,
+                action=guideline_and_tools.guideline.action,
+            )
+        )
+        for tool_description in guideline_and_tools.associated_tools:
+            if tool_description.name not in context.tools:
+                tool = context.sync_await(
+                    local_tool_service.create_tool(
+                        name=tool_description.name,
+                        module_path="tests.tool_utilities",
+                        description=tool_description.description,
+                        parameters=tool_description.parameters,
+                        required=tool_description.required,
+                    )
+                )
+                context.tools[tool_description.name] = tool
+            context.sync_await(
+                guideline_tool_association_store.create_association(
+                    guideline_id=context.guidelines[str(i)].id,
+                    tool_id=ToolId("local", tool_description.name),
+                )
+            )
+
     pass
 
 
 @mark.parametrize("n", range(10))
 def test_banking_scenario(context: ContextOfTest, n: int) -> None:
-    build_test_context(BANKING_SCENARIO, n)
+    build_test_context(context, BANKING_SCENARIO, n)
     # run engine
     # analyze guidelines
     # analyze tool calls

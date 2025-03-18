@@ -1,4 +1,4 @@
-from dataclasses import dataclass  # noqa
+from dataclasses import Field, dataclass  # noqa
 from datetime import datetime, timezone
 from itertools import chain  # noqa
 from typing import Any, Optional, Sequence, cast  # noqa
@@ -36,13 +36,6 @@ from tests.test_utilities import SyncAwaiter  # noqa
 # TODO remove noqas
 
 tools: dict[str, dict[str, Any]] = {
-    "get_terrys_offering": {
-        "name": "get_terrys_offering",
-        "description": "Explain Terry's offering",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
     "get_available_drinks": {
         "name": "get_available_drinks",
         "description": "Get the drinks available in stock",
@@ -78,26 +71,6 @@ tools: dict[str, dict[str, Any]] = {
             }
         },
         "required": ["product_type"],
-    },
-    "add": {
-        "name": "add",
-        "description": "Getting the addition calculation between two numbers",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "first_number": {"type": "number", "description": "The first number"},
-            "second_number": {"type": "number", "description": "The second number"},
-        },
-        "required": ["first_number", "second_number"],
-    },
-    "multiply": {
-        "name": "multiply",
-        "description": "Getting the multiplication calculation between two numbers",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "first_number": {"type": "number", "description": "The first number"},
-            "second_number": {"type": "number", "description": "The second number"},
-        },
-        "required": ["first_number", "second_number"],
     },
     "get_account_balance": {
         "name": "get_account_balance",
@@ -217,17 +190,6 @@ tools: dict[str, dict[str, Any]] = {
             },
         },
         "required": [],
-    },
-    "find_answer": {
-        "name": "find_answer",
-        "description": "Get an answer to a question",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "inquiry": {
-                "type": "string",
-            },
-        },
-        "required": ["inquiry"],
     },
     "pay_cc_bill": {
         "name": "pay_cc_bill",
@@ -392,33 +354,37 @@ tools: dict[str, dict[str, Any]] = {
     },
 }
 
-created_tools: Sequence[Tool] = []
+created_tools: dict[str, Tool] = {}
 
 
-class ToolCallVerification(DefaultBaseModel):
+@dataclass(frozen=True)
+class _ToolCallVerification:
     expected_tool_id: str
-    expected_tool_arguments: Optional[dict[str, str]] = {}
+    expected_tool_arguments: Optional[dict[str, str]] = None
 
 
-class ScenarioMessage(DefaultBaseModel):
+@dataclass(frozen=True)
+class ScenarioMessage:
     customer_message: str
     agent_message: str
     expected_agent_message_content: str
-    expected_tool_results: Optional[Sequence[ToolCallVerification]] = []
-    expected_active_guidelines: Optional[set[str]] = {}
+    expected_tool_results: Optional[Sequence[_ToolCallVerification]] = None
+    expected_active_guidelines: Optional[set[str]] = None
 
 
-class _GuidelineAndTool(DefaultBaseModel):
+@dataclass(frozen=True)
+class _GuidelineAndTool:
     guideline: GuidelineContent
-    associated_tools: Sequence[Tool]
+    associated_tools: Sequence[Tool] = None
 
 
-class InteractionScenario(DefaultBaseModel):
+@dataclass(frozen=True)
+class InteractionScenario:
     messages: Sequence[ScenarioMessage]
     agent_description: Optional[str] = ""
-    guidelines_and_tools: Optional[Sequence[_GuidelineAndTool]] = []
-    context_variables: Optional[Sequence[ContextVariableValue]] = []
-    glossary: Optional[Sequence[Term]] = []
+    guidelines_and_tools: Optional[Sequence[_GuidelineAndTool]] = None
+    context_variables: Optional[Sequence[ContextVariableValue]] = None
+    glossary: Optional[Sequence[Term]] = None
 
 
 def get_tool(
@@ -453,27 +419,27 @@ BANKING_SCENARIO = InteractionScenario(
                 #    expected_tool_arguments={"account_type": "savings"},
                 # )
             ],
-            expected_active_guidelines={},
+            expected_active_guidelines=set(),
         ),
     ],
     guidelines_and_tools=[
         _GuidelineAndTool(
             guideline=GuidelineContent(
-                condition="user needs help unlocking their card",
-                action="ask for the card's last 4 digits and help them unlock it",
+                condition="customer needs help unlocking their card",
+                action="ask for the card's last 6 digits, try to unlock the card and report the result to the customer",
             ),
-            associated_tools=[],
+            associated_tools=[get_tool("try_unlock_card")],
         ),
         _GuidelineAndTool(
             guideline=GuidelineContent(
-                condition="user wants to transfer money and hasn't specified to whom or how much",
+                condition="customer wants to transfer money and hasn't specified to whom or how much",
                 action="ask them to whom and how much",
             ),
             associated_tools=[],
         ),
         _GuidelineAndTool(
             guideline=GuidelineContent(
-                condition="user wants to transfer money and has specified both how much and to whom",
+                condition="customer wants to transfer money and has specified both how much and to whom",
                 action="double-check the recipients' name and account number and confirm with the user",
             ),
             associated_tools=[],
@@ -508,11 +474,12 @@ BANKING_SCENARIO = InteractionScenario(
         ),
     ],
 )
+model_config = {"arbitrary_types_allowed": True}
 
 
 def verify_tool_calls(
     emitted_tool_calls: Sequence[EmittedEvent],
-    expected_tool_calls: Sequence[ToolCallVerification],
+    expected_tool_calls: Sequence[_ToolCallVerification],
 ) -> bool:
     pass
 
@@ -542,3 +509,4 @@ def test_banking_scenario(context: ContextOfTest, n: int) -> None:
     # analyze guidelines
     # analyze tool calls
     # analyze message generator
+    assert True

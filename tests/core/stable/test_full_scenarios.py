@@ -1,6 +1,7 @@
 from dataclasses import Field, dataclass  # noqa
 from datetime import datetime, timezone
 from itertools import chain  # noqa
+import json
 from typing import Any, Optional, Sequence, cast  # noqa
 from pytest import mark
 
@@ -8,15 +9,12 @@ from lagom import Container  # noqa
 from parlant.core.agents import Agent, AgentId, AgentStore  # noqa
 from parlant.core.common import DefaultBaseModel, generate_id, JSONSerializable  # noqa
 from parlant.core.context_variables import (
-    ContextVariable,  # noqa
-    ContextVariableId,  # noqa
-    ContextVariableValue,
-    ContextVariableValueId,  # noqa
+    ContextVariableStore,
 )
-from parlant.core.customers import Customer, CustomerStore  # noqa
+from parlant.core.customers import Customer, CustomerId, CustomerStore  # noqa
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.engine import AlphaEngine  # noqa
-from parlant.core.glossary import Term
+from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.nlp.generation import SchematicGenerator  # noqa
 from parlant.core.engines.alpha.guideline_proposer import (
@@ -27,7 +25,7 @@ from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,  # noqa
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore  # noqa
-from parlant.core.sessions import EventSource, SessionStore  # noqa
+from parlant.core.sessions import EventSource, MessageEventData, SessionStore  # noqa
 from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
@@ -366,7 +364,7 @@ class _ToolCallVerification:
 
 
 @dataclass(frozen=True)
-class ScenarioMessage:
+class ScenarioTurn:
     customer_message: str
     agent_message: str
     expected_agent_message_content: str
@@ -381,11 +379,18 @@ class _GuidelineAndTool:
 
 
 @dataclass(frozen=True)
+class _ContextVariableData:
+    name: str
+    data: JSONSerializable
+    description: Optional[str] = ""
+
+
+@dataclass(frozen=True)
 class InteractionScenario:
-    messages: Sequence[ScenarioMessage]
+    messages: Sequence[ScenarioTurn]
     agent_description: Optional[str] = ""
     guidelines_and_tools: Optional[Sequence[_GuidelineAndTool]] = None
-    context_variables: Optional[Sequence[ContextVariableValue]] = None
+    context_variables: Optional[Sequence[_ContextVariableData]] = None
     glossary: Optional[Sequence[Term]] = None
 
 
@@ -411,7 +416,7 @@ def get_tool(
 
 BANKING_SCENARIO = InteractionScenario(
     messages=[
-        ScenarioMessage(
+        ScenarioTurn(
             customer_message="I want to transfer 20$ to Alan Johnson",
             agent_message="It seems the PIN code you provided is incorrect, so the transfer could not be completed. Could you please double-check your PIN code?",
             expected_agent_message_content="",
@@ -496,41 +501,16 @@ def verify_message_generator(agent_message: str, expected_content: str) -> None:
     pass
 
 
-def build_test_context(
-    context: ContextOfTest, scenario: InteractionScenario, message_n: int
+def register_guidelines_and_tools(
+    context: ContextOfTest, agent_id: AgentId, guidelines_and_tools: Sequence[_GuidelineAndTool]
 ) -> None:
-    # Create session
-    # engine = context.container[AlphaEngine]
-    agent = context.sync_await(
-        context.container[AgentStore].create_agent(
-            name="test-agent",
-            description=scenario.agent_description,
-            max_engine_iterations=2,
-        )
-    )
-    # session_store = context.container[SessionStore]
-    # customer_store = context.container[CustomerStore]
-    guideline_tool_association_store = context.container[GuidelineToolAssociationStore]
-
-    # utc_now = datetime.now(timezone.utc)
-
-    # customer = context.sync_await(customer_store.create_customer("test_customer"))
-    # session = context.sync_await(
-    #     session_store.create_session(
-    #         creation_utc=utc_now,
-    #         customer_id=customer.id,
-    #         agent_id=agent.id,
-    #     )
-    # )
-
-    # Register Guidelines & tools
     guideline_store = context.container[GuidelineStore]
     local_tool_service = context.container[LocalToolService]
-
-    for i, guideline_and_tools in enumerate(scenario.guidelines_and_tools):
+    guideline_tool_association_store = context.container[GuidelineToolAssociationStore]
+    for i, guideline_and_tools in enumerate(guidelines_and_tools):
         context.guidelines[str(i)] = context.sync_await(
             guideline_store.create_guideline(
-                guideline_set=agent.id,
+                guideline_set=agent_id,
                 condition=guideline_and_tools.guideline.condition,
                 action=guideline_and_tools.guideline.action,
             )
@@ -554,10 +534,147 @@ def build_test_context(
                 )
             )
 
-    pass
+
+def register_context_variables(
+    context: ContextOfTest,
+    context_variables: Sequence[_ContextVariableData],
+    agent_id: AgentId,
+    customer_id: CustomerId,
+) -> None:
+    context_variable_store = context.container[ContextVariableStore]
+    for context_variable in context_variables:
+        variable = context.sync_await(
+            context_variable_store.create_variable(
+                variable_set=agent_id,
+                name=context_variable.name,
+                description=context_variable.description,
+                tool_id=None,
+                freshness_rules=None,
+            )
+        )
+        context.sync_await(
+            context_variable_store.update_value(
+                variable_set=agent_id,
+                key=customer_id,
+                variable_id=variable.id,
+                data=context_variable.data,
+            )
+        )
 
 
-@mark.parametrize("n", range(10))
+def register_events(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+    session: SessionStore,
+    scenario_messages: Sequence[ScenarioTurn],
+) -> None:
+    session_store = context.container[SessionStore]
+    for i, turn in enumerate(scenario_messages):
+        customer_message_data: MessageEventData = {
+            "message": turn.customer_message,
+            "participant": {
+                "id": customer.id,
+                "display_name": customer.name,
+            },
+        }
+
+        customer_message_event = context.sync_await(
+            session_store.create_event(
+                session_id=session.id,
+                source="customer",
+                kind="message",
+                correlation_id="test_correlation_id",
+                data=cast(JSONSerializable, customer_message_data),
+            )
+        )
+        context.events.append(customer_message_event)
+
+        if i < len(scenario_messages) - 1:  # also add agent message and tool results
+            agent_message_data: MessageEventData = {
+                "message": turn.agent_message,
+                "participant": {
+                    "id": agent.id,
+                    "display_name": agent.name,
+                },
+            }
+            agent_message_event = context.sync_await(
+                session_store.create_event(
+                    session_id=session.id,
+                    source="ai_agent",
+                    kind="message",
+                    correlation_id="test_correlation_id",
+                    data=cast(JSONSerializable, agent_message_data),
+                )
+            )
+            context.events.append(agent_message_event)
+
+            for tool_result in turn.tool_results:
+                context.sync_await(
+                    session_store.create_event(
+                        session_id=session.id,
+                        source="ai_agent",
+                        kind="tool",
+                        correlation_id="test_correlation_id",
+                        data=json.loads(tool_result),
+                    )
+                )
+
+
+def build_test_context(
+    context: ContextOfTest, scenario: InteractionScenario, message_n: int
+) -> None:
+    # Get relevant stores
+    session_store = context.container[SessionStore]
+    customer_store = context.container[CustomerStore]
+    glossary_store = context.container[GlossaryStore]
+
+    # Create agent, customer & session
+    # engine = context.container[AlphaEngine]
+    agent = context.sync_await(
+        context.container[AgentStore].create_agent(
+            name="test-agent",
+            description=scenario.agent_description,
+            max_engine_iterations=2,
+        )
+    )
+    utc_now = datetime.now(timezone.utc)
+    customer = context.sync_await(customer_store.create_customer("test_customer"))
+    session = context.sync_await(
+        session_store.create_session(
+            creation_utc=utc_now,
+            customer_id=customer.id,
+            agent_id=agent.id,
+        )
+    )  # TODO I was here
+
+    # Create guidelines, tools and their associations
+    register_guidelines_and_tools(context, agent.id, scenario.guidelines_and_tools)
+
+    # Create glossary
+    for term in scenario.glossary:
+        context.sync_await(
+            glossary_store.create_term(
+                term_set=agent.id,
+                name=term.name,
+                description=term.description,
+                synonyms=term.synonyms,
+            )
+        )
+
+    # Create context variables
+    register_context_variables(
+        context,
+        scenario.context_variables,
+        agent.id,
+        customer.id,
+    )
+
+    # Create message events
+    register_events(context, agent, customer, session, scenario.messages[:message_n])
+
+
+@mark.parametrize("n", range(1, 11))
 def test_banking_scenario(context: ContextOfTest, n: int) -> None:
     build_test_context(context, BANKING_SCENARIO, n)
     # run engine

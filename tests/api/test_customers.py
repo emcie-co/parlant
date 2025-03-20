@@ -46,6 +46,31 @@ async def test_that_a_customer_can_be_created(
     assert "creation_utc" in customer
 
 
+async def test_that_a_customer_can_be_created_with_tags(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    tag1 = await tag_store.create_tag("tag1")
+    tag2 = await tag_store.create_tag("tag2")
+
+    response = await async_client.post(
+        "/customers",
+        json={
+            "name": "John Doe",
+            "tags": [tag1.id, tag1.id, tag2.id],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    customer_dto = (
+        (await async_client.get(f"/customers/{response.json()['id']}")).raise_for_status().json()
+    )
+
+    assert len(customer_dto["tags"]) == 2
+    assert set(customer_dto["tags"]) == {tag1.id, tag2.id}
+
+
 async def test_that_a_customer_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -188,7 +213,7 @@ async def test_that_a_tag_can_be_removed(
 
     customer = await customer_store.create_customer(name=name)
 
-    await customer_store.add_tag(customer_id=customer.id, tag_id=tag.id)
+    await customer_store.upsert_tag(customer_id=customer.id, tag_id=tag.id)
 
     update_response = await async_client.patch(
         f"/customers/{customer.id}",
@@ -244,3 +269,19 @@ async def test_that_extra_can_be_removed(
 
     updated_customer = await customer_store.read_customer(customer.id)
     assert "department" not in updated_customer.extra
+
+
+async def test_that_adding_nonexistent_tag_to_customer_returns_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    customer_store = container[CustomerStore]
+
+    customer = await customer_store.create_customer("test_customer")
+
+    response = await async_client.patch(
+        f"/customers/{customer.id}",
+        json={"tags": {"add": ["nonexistent_tag"]}},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

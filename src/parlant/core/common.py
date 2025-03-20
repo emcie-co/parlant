@@ -92,6 +92,21 @@ class Version:
     def to_string(self) -> Version.String:
         return Version.String(str(self._v))
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self._v == other._v
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self._v < other._v
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self._v > other._v
+
 
 class ItemNotFoundError(Exception):
     def __init__(self, item_id: UniqueId, message: Optional[str] = None) -> None:

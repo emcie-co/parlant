@@ -94,7 +94,7 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
     )
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.operation(f"Azure LLM Request ({self.schema.__name__})"):

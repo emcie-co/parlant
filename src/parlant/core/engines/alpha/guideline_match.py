@@ -27,7 +27,7 @@ class PreviouslyAppliedType(Enum):
 
 
 @dataclass(frozen=True)
-class GuidelineProposition:
+class GuidelineMatch:
     guideline: Guideline
     score: int
     rationale: str

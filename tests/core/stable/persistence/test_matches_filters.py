@@ -152,3 +152,27 @@ def test_deeply_nested_combination() -> None:
     }
     candidate = {"age": 30}
     assert matches_filters(field_filters, candidate)
+
+
+def test_in_operator() -> None:
+    field_filters: Where = {"id": {"$in": ["a", "b"]}}
+    candidate = {"id": "a"}
+    assert matches_filters(field_filters, candidate)
+
+
+def test_nin_operator() -> None:
+    field_filters: Where = {"id": {"$nin": ["a", "b"]}}
+    candidate = {"id": "c"}
+    assert matches_filters(field_filters, candidate)
+
+
+def test_in_operator_false() -> None:
+    field_filters: Where = {"id": {"$in": ["a", "b"]}}
+    candidate = {"id": "c"}
+    assert not matches_filters(field_filters, candidate)
+
+
+def test_nin_operator_false() -> None:
+    field_filters: Where = {"id": {"$nin": ["a", "b"]}}
+    candidate = {"id": "a"}
+    assert not matches_filters(field_filters, candidate)

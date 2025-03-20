@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
+
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, generate_id, UniqueId
 from parlant.core.persistence.common import ObjectId
@@ -37,6 +38,17 @@ class Tag:
     id: TagId
     creation_utc: datetime
     name: str
+
+    @staticmethod
+    def for_agent_id(agent_id: str) -> TagId:
+        return TagId(f"agent_id:{agent_id}")
+
+    @staticmethod
+    def extract_agent_id(tag_id: TagId) -> Optional[str]:
+        if not tag_id.startswith("agent_id:"):
+            return None
+
+        return str(tag_id.split(":")[1])
 
 
 class TagUpdateParams(TypedDict, total=False):

@@ -16,6 +16,7 @@ from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.glossary import GlossaryStore
+from parlant.core.tags import Tag
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -30,11 +31,16 @@ def given_the_term_definition(
 ) -> None:
     glossary_store = context.container[GlossaryStore]
     agent_id = context.sync_await(context.container[AgentStore].read_agent(agent_id)).id
-    context.sync_await(
+    term = context.sync_await(
         glossary_store.create_term(
-            term_set=agent_id,
             name=term_name,
             description=term_description,
+        )
+    )
+    context.sync_await(
+        glossary_store.upsert_tag(
+            term_id=term.id,
+            tag_id=Tag.for_agent_id(agent_id),
         )
     )
 
@@ -298,7 +304,7 @@ def given_50_random_terms_related_to_technology_companies(
     for term in terms:
         context.sync_await(
             context.container[GlossaryStore].create_term(
-                term_set=agent_id,
+                tags=[Tag.for_agent_id(agent_id)],
                 name=term["name"],  # type: ignore
                 description=term["description"],  # type: ignore
                 synonyms=term["synonyms"],

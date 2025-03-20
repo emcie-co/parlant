@@ -166,6 +166,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                         output_tokens=response.usage_metadata.candidates_token_count,
                         extra={
                             "cached_input_tokens": response.usage_metadata.cached_content_token_count
+                            or 0
                         },
                     ),
                 ),
@@ -321,8 +322,8 @@ class GeminiService(NLPService):
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
         return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_0_Flash_Lite[t](self._logger),  # type: ignore
-            Gemini_1_5_Flash[t](self._logger),  # type: ignore
+            Gemini_2_0_Flash[t](self._logger),  # type: ignore
+            Gemini_1_5_Pro[t](self._logger),  # type: ignore
             logger=self._logger,
         )
 

@@ -23,7 +23,7 @@ from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
 from parlant.core.tools import Tool
-from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline
 from parlant.core.sessions import Event, MessageEventData, EventSource, EventId
 
@@ -36,7 +36,7 @@ class ContextOfTest:
     container: Container
     events: list[Event]
     guidelines: dict[str, Guideline]
-    guideline_propositions: dict[str, GuidelineProposition]
+    guideline_matches: dict[str, GuidelineMatch]
     tools: dict[str, Tool]
     actions: list[UtteranceRequest]
 

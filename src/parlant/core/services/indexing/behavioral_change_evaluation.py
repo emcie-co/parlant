@@ -32,7 +32,7 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
@@ -41,6 +41,7 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
 )
 from parlant.core.loggers import Logger
+from parlant.core.entity_cq import EntityQueries
 
 
 class EvaluationError(Exception):
@@ -57,12 +58,12 @@ class GuidelineEvaluator:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
+        entity_queries: EntityQueries,
         guideline_connection_proposer: GuidelineConnectionProposer,
         coherence_checker: CoherenceChecker,
     ) -> None:
         self._logger = logger
-        self._guideline_store = guideline_store
+        self._entity_queries = entity_queries
         self._guideline_connection_proposer = guideline_connection_proposer
         self._coherence_checker = coherence_checker
 
@@ -72,7 +73,7 @@ class GuidelineEvaluator:
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[InvoiceGuidelineData]:
-        existing_guidelines = await self._guideline_store.list_guidelines(guideline_set=agent.id)
+        existing_guidelines = await self._entity_queries.find_guidelines_for_agent(agent.id)
 
         tasks: list[asyncio.Task[Any]] = []
         coherence_checks_task: Optional[
@@ -320,7 +321,7 @@ class BehavioralChangeEvaluator:
         background_task_service: BackgroundTaskService,
         agent_store: AgentStore,
         evaluation_store: EvaluationStore,
-        guideline_store: GuidelineStore,
+        entity_queries: EntityQueries,
         guideline_connection_proposer: GuidelineConnectionProposer,
         coherence_checker: CoherenceChecker,
     ) -> None:
@@ -328,10 +329,10 @@ class BehavioralChangeEvaluator:
         self._background_task_service = background_task_service
         self._agent_store = agent_store
         self._evaluation_store = evaluation_store
-        self._guideline_store = guideline_store
+        self._entity_queries = entity_queries
         self._guideline_evaluator = GuidelineEvaluator(
             logger=logger,
-            guideline_store=guideline_store,
+            entity_queries=entity_queries,
             guideline_connection_proposer=guideline_connection_proposer,
             coherence_checker=coherence_checker,
         )
@@ -355,9 +356,7 @@ class BehavioralChangeEvaluator:
                         "Duplicate guideline found among the provided guidelines."
                     )
 
-                existing_guidelines = await self._guideline_store.list_guidelines(
-                    guideline_set=agent.id,
-                )
+                existing_guidelines = await self._entity_queries.find_guidelines_for_agent(agent.id)
 
                 if guideline := next(
                     iter(g for g in existing_guidelines if (g.content) in seen_guidelines),

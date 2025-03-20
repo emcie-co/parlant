@@ -20,7 +20,7 @@ from pydantic import Field
 
 from parlant.core.common import DefaultBaseModel
 from parlant.core.fragments import FragmentId, FragmentStore, FragmentUpdateParams, FragmentField
-from parlant.core.tags import TagId
+from parlant.core.tags import TagId, TagStore
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
 
 
@@ -161,6 +161,7 @@ class FragmentCreationParamsDTO(
 
     value: FragmentValueField
     fields: FragmentFieldSequenceField
+    tags: Optional[TagIdSequenceField] = None
 
 
 FragmentTagUpdateAddField: TypeAlias = Annotated[
@@ -251,6 +252,7 @@ TagsQuery: TypeAlias = Annotated[
 
 def create_router(
     fragment_store: FragmentStore,
+    tag_store: TagStore,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -270,9 +272,18 @@ def create_router(
     async def create_fragment(
         params: FragmentCreationParamsDTO,
     ) -> FragmentDTO:
+        tags = []
+
+        if params.tags:
+            for tag_id in params.tags:
+                _ = await tag_store.read_tag(tag_id=tag_id)
+
+            tags = list(set(params.tags))
+
         fragment = await fragment_store.create_fragment(
             value=params.value,
             fields=[_dto_to_fragment_field(s) for s in params.fields],
+            tags=tags or None,
         )
 
         return FragmentDTO(
@@ -386,7 +397,8 @@ def create_router(
         if params.tags:
             if params.tags.add:
                 for tag_id in params.tags.add:
-                    await fragment_store.add_tag(fragment_id, tag_id)
+                    _ = await tag_store.read_tag(tag_id=tag_id)
+                    await fragment_store.upsert_tag(fragment_id, tag_id)
             if params.tags.remove:
                 for tag_id in params.tags.remove:
                     await fragment_store.remove_tag(fragment_id, tag_id)

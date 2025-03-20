@@ -162,28 +162,24 @@ class Application:
 
     async def create_guidelines(
         self,
-        guideline_set: str,
         invoices: Sequence[Invoice],
     ) -> Iterable[GuidelineId]:
         async def _create_connection_with_existing_guideline(
             source_key: str,
             target_key: str,
             content_guidelines: dict[str, GuidelineId],
-            guideline_set: str,
             proposition: ConnectionProposition,
         ) -> None:
             if source_key in content_guidelines:
                 source_guideline_id = content_guidelines[source_key]
                 target_guideline_id = (
                     await self._guideline_store.find_guideline(
-                        guideline_set=guideline_set,
                         guideline_content=proposition.target,
                     )
                 ).id
             else:
                 source_guideline_id = (
                     await self._guideline_store.find_guideline(
-                        guideline_set=guideline_set,
                         guideline_content=proposition.source,
                     )
                 ).id
@@ -197,7 +193,6 @@ class Application:
         content_guidelines: dict[str, GuidelineId] = {
             f"{invoice.payload.content.condition}_{invoice.payload.content.action}": (
                 await self._guideline_store.create_guideline(
-                    guideline_set=guideline_set,
                     condition=invoice.payload.content.condition,
                     action=invoice.payload.content.action,
                 )
@@ -256,7 +251,6 @@ class Application:
                             source_key,
                             target_key,
                             content_guidelines,
-                            guideline_set,
                             proposition,
                         )
                     connections.add(proposition)

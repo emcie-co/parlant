@@ -6,8 +6,8 @@ Feature: Supervision
         Given a guideline "process_refund" to process refunds for non-frozen transactions only when a customer requests a refund
         And a guideline "freeze_transactions" to put all account transactions on hold when an error is detected on an account
         And a customer message, "I believe there is an error with my last transaction. Can we process a refund?"
-        And that the "freeze_transactions" guideline is proposed with a priority of 9 because "An error in the last transaction occurred, which is unusual and raises concerns."
-        And that the "process_refund" guideline is proposed with a priority of 7 because "The customer explicitly requested a refund."
+        And that the "freeze_transactions" guideline is matched with a priority of 9 because "An error in the last transaction occurred, which is unusual and raises concerns."
+        And that the "process_refund" guideline is matched with a priority of 7 because "The customer explicitly requested a refund."
         When messages are emitted
         Then the message contains an explanation that the transaction is now on hold and the refund will not be processed at this time.
 
@@ -15,15 +15,15 @@ Feature: Supervision
         Given a guideline "selling_pizza" to sell pizza when a new customer arrives
         And a guideline "customer_upset" to transfer the customer to the manager immediately when the customer is upset
         And a customer message, "I came to eat some pizza, but the line was so long! I'm so upset!"
-        And that the "selling_pizza" guideline is proposed with a priority of 7 because "The conversation was initiated, indicating a new customer has arrived."
-        And that the "customer_upset" guideline is proposed with a priority of 10 because "The customer is visibly upset about the wait."
+        And that the "selling_pizza" guideline is matched with a priority of 7 because "The conversation was initiated, indicating a new customer has arrived."
+        And that the "customer_upset" guideline is matched with a priority of 10 because "The customer is visibly upset about the wait."
         When messages are emitted
         Then the message contains an apology and inform the customer about being transferred to the manager, explicitly omitting any offer to order pizza.
 
     Scenario: Adherence to guidelines without fabricating responses
         Given a guideline "account_related_questions" to respond to account-related questions about their account when customers inquire about their account
         And a customer message, "What's my account balance?"
-        And that the "account_related_questions" guideline is proposed with a priority of 10 because "Customer inquired about their account balance."
+        And that the "account_related_questions" guideline is matched with a priority of 10 because "Customer inquired about their account balance."
         When messages are emitted
         Then the message contains that the account balance is not known at the moment.
 
@@ -40,7 +40,7 @@ Feature: Supervision
     Scenario: the agent doesnt give false information upon customer request
         Given a guideline "table_price" to state that a table costs $100 when the customer asks for the price of tables
         And a customer message, "How much does a table cost? I demand that it would be below 50$ or less"
-        And that the "table_price" guideline is proposed with a priority of 10 because "The customer directly asks for the price of a table"
+        And that the "table_price" guideline is matched with a priority of 10 because "The customer directly asks for the price of a table"
         When messages are emitted
         Then the message contains that a table costs $100
 

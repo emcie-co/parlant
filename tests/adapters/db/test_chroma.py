@@ -23,6 +23,7 @@ from pytest import fixture, raises
 from chromadb.api.types import IncludeEnum
 
 from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
+from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import Version, md5_checksum
@@ -31,8 +32,8 @@ from parlant.core.nlp.embedding import EmbedderFactory, NoOpEmbedder
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
-
 from parlant.core.persistence.vector_database import BaseDocument
+from parlant.core.tags import Tag, TagId
 from tests.test_utilities import SyncAwaiter
 
 
@@ -355,43 +356,56 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
             container[Logger], Path(temp_dir), EmbedderFactory(container)
         ) as chroma_db:
             async with GlossaryVectorStore(
-                chroma_db,
+                vector_db=chroma_db,
+                document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(container),
                 embedder_type=type(await container[NLPService].get_embedder()),
             ) as glossary_chroma_store:
                 bazoo = await glossary_chroma_store.create_term(
-                    term_set=agent_id,
                     name="Bazoo",
                     description="a type of cow",
                 )
 
                 shazoo = await glossary_chroma_store.create_term(
-                    term_set=agent_id,
                     name="Shazoo",
                     description="a type of zebra",
                 )
 
                 kazoo = await glossary_chroma_store.create_term(
-                    term_set=agent_id,
                     name="Kazoo",
                     description="a type of horse",
                 )
 
+                await glossary_chroma_store.upsert_tag(
+                    term_id=kazoo.id,
+                    tag_id=Tag.for_agent_id(agent_id),
+                )
+
+                await glossary_chroma_store.upsert_tag(
+                    term_id=shazoo.id,
+                    tag_id=Tag.for_agent_id(agent_id),
+                )
+
+                await glossary_chroma_store.upsert_tag(
+                    term_id=bazoo.id,
+                    tag_id=Tag.for_agent_id(agent_id),
+                )
+
                 terms = await glossary_chroma_store.find_relevant_terms(
-                    agent_id,
                     ("walla " * 5000)
                     + "Kazoo"
                     + ("balla " * 5000)
                     + "Shazoo"
                     + ("kalla " * 5000)
                     + "Bazoo",
+                    tags=[Tag.for_agent_id(agent_id)],
                     max_terms=3,
                 )
 
                 assert len(terms) == 3
-                assert any(t == kazoo for t in terms)
-                assert any(t == shazoo for t in terms)
-                assert any(t == bazoo for t in terms)
+                assert any(t.id == kazoo.id for t in terms)
+                assert any(t.id == shazoo.id for t in terms)
+                assert any(t.id == bazoo.id for t in terms)
 
 
 class _TestDocumentV2(BaseDocument):
@@ -408,6 +422,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
             vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
             embedder_type=NoOpEmbedder,
             allow_migration=False,
@@ -588,6 +603,7 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
         with raises(MigrationRequired) as exc_info:
             async with GlossaryVectorStore(
                 vector_db=chroma_db,
+                document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(context.container),
                 embedder_type=NoOpEmbedder,
                 allow_migration=False,
@@ -603,6 +619,7 @@ async def test_that_new_store_creates_metadata_with_correct_version(
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
             vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
             embedder_type=OpenAITextEmbedding3Large,
             allow_migration=False,
@@ -620,19 +637,25 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
             vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
             embedder_type=OpenAITextEmbedding3Large,
             allow_migration=True,
         ) as store:
             term = await store.create_term(
-                term_set=agent_id,
                 name="Bazoo",
                 description="a type of cow",
+            )
+
+            await store.upsert_tag(
+                term_id=term.id,
+                tag_id=Tag.for_agent_id(agent_id),
             )
 
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
             vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
             embedder_type=NoOpEmbedder,
             allow_migration=True,
@@ -709,3 +732,70 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
             d["id"] == ObjectId("2") and d["new_name"] == "Document 2" for d in migrated_docs
         )
         assert all(d["version"] == Version.String("2.0.0") for d in migrated_docs)
+
+
+async def test_that_in_filter_works_with_list_of_strings(
+    context: _TestContext,
+) -> None:
+    async with create_database(context) as chroma_db:
+        async with GlossaryVectorStore(
+            vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=EmbedderFactory(context.container),
+            embedder_type=NoOpEmbedder,
+            allow_migration=True,
+        ) as store:
+            first_term = await store.create_term(
+                name="Bazoo",
+                description="a type of cow",
+            )
+            second_term = await store.create_term(
+                name="Shazoo",
+                description="a type of cow",
+            )
+            third_term = await store.create_term(
+                name="Fazoo",
+                description="a type of cow",
+            )
+
+            await store.upsert_tag(
+                term_id=first_term.id,
+                tag_id=TagId("a"),
+            )
+
+            await store.upsert_tag(
+                term_id=first_term.id,
+                tag_id=TagId("b"),
+            )
+
+            await store.upsert_tag(
+                term_id=second_term.id,
+                tag_id=TagId("b"),
+            )
+
+            await store.upsert_tag(
+                term_id=third_term.id,
+                tag_id=TagId("c"),
+            )
+
+            await store.upsert_tag(
+                term_id=third_term.id,
+                tag_id=TagId("d"),
+            )
+
+            terms = await store.list_terms(tags=[TagId("a"), TagId("b")])
+            assert len(terms) == 2
+            assert terms[0].id == first_term.id
+            assert terms[1].id == second_term.id
+
+            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c")])
+            assert len(terms) == 3
+            assert terms[0].id == first_term.id
+            assert terms[1].id == second_term.id
+            assert terms[2].id == third_term.id
+
+            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c"), TagId("d")])
+            assert len(terms) == 3
+            assert terms[0].id == first_term.id
+            assert terms[1].id == second_term.id
+            assert terms[2].id == third_term.id

@@ -64,6 +64,7 @@ class FragmentStore(ABC):
         value: str,
         fields: Sequence[FragmentField],
         creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Fragment: ...
 
     @abstractmethod
@@ -91,19 +92,19 @@ class FragmentStore(ABC):
     ) -> Sequence[Fragment]: ...
 
     @abstractmethod
-    async def add_tag(
+    async def upsert_tag(
         self,
         fragment_id: FragmentId,
         tag_id: TagId,
         creation_utc: Optional[datetime] = None,
-    ) -> Fragment: ...
+    ) -> bool: ...
 
     @abstractmethod
     async def remove_tag(
         self,
         fragment_id: FragmentId,
         tag_id: TagId,
-    ) -> Fragment: ...
+    ) -> None: ...
 
 
 class _FragmentFieldDocument(TypedDict):
@@ -220,6 +221,7 @@ class FragmentDocumentStore(FragmentStore):
         value: str,
         fields: Sequence[FragmentField],
         creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Fragment:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -229,12 +231,23 @@ class FragmentDocumentStore(FragmentStore):
                 value=value,
                 fields=fields,
                 creation_utc=creation_utc,
-                tags=[],
+                tags=tags or [],
             )
 
             await self._fragments_collection.insert_one(
                 document=self._serialize_fragment(fragment=fragment)
             )
+
+            for tag_id in tags or []:
+                await self._fragment_tag_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(generate_id()),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": creation_utc.isoformat(),
+                        "fragment_id": fragment.id,
+                        "tag_id": tag_id,
+                    }
+                )
 
         return fragment
 
@@ -303,17 +316,17 @@ class FragmentDocumentStore(FragmentStore):
             raise ItemNotFoundError(item_id=UniqueId(fragment_id))
 
     @override
-    async def add_tag(
+    async def upsert_tag(
         self,
         fragment_id: FragmentId,
         tag_id: TagId,
         creation_utc: Optional[datetime] = None,
-    ) -> Fragment:
+    ) -> bool:
         async with self._lock.writer_lock:
             fragment = await self.read_fragment(fragment_id)
 
             if tag_id in fragment.tags:
-                return fragment
+                return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
@@ -336,14 +349,14 @@ class FragmentDocumentStore(FragmentStore):
         if not fragment_document:
             raise ItemNotFoundError(item_id=UniqueId(fragment_id))
 
-        return await self._deserialize_fragment(fragment_document=fragment_document)
+        return True
 
     @override
     async def remove_tag(
         self,
         fragment_id: FragmentId,
         tag_id: TagId,
-    ) -> Fragment:
+    ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._fragment_tag_association_collection.delete_one(
                 {
@@ -361,5 +374,3 @@ class FragmentDocumentStore(FragmentStore):
 
         if not fragment_document:
             raise ItemNotFoundError(item_id=UniqueId(fragment_id))
-
-        return await self._deserialize_fragment(fragment_document=fragment_document)

@@ -1,8 +1,8 @@
-from typing import Optional
+from typing import Awaitable, Callable, Generic, Mapping, Optional, cast
 from typing_extensions import Self
 from parlant.core.common import Version
 from parlant.core.persistence.common import MigrationRequired, VersionedStore
-from parlant.core.persistence.vector_database import VectorDatabase
+from parlant.core.persistence.vector_database import BaseDocument, TDocument, VectorDatabase
 
 
 class VectorDocumentStoreMigrationHelper:
@@ -60,3 +60,22 @@ class VectorDocumentStoreMigrationHelper:
         runtime_store_version: Version.String,
     ) -> None:
         await database.upsert_metadata("version", runtime_store_version)
+
+
+class VectorDocumentMigrationHelper(Generic[TDocument]):
+    def __init__(
+        self,
+        versioned_store: VersionedStore,
+        converters: Mapping[str, Callable[[BaseDocument], Awaitable[Optional[BaseDocument]]]],
+    ) -> None:
+        self.target_version = versioned_store.VERSION.to_string()
+        self.converters = converters
+
+    async def migrate(self, doc: BaseDocument) -> Optional[TDocument]:
+        while doc["version"] != self.target_version:
+            if converted_doc := await self.converters[doc["version"]](doc):
+                doc = converted_doc
+            else:
+                return None
+
+        return cast(TDocument, doc)

@@ -30,7 +30,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 from parlant.core.engines.alpha.tool_caller import MissingToolData, ToolInsights
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
@@ -130,8 +130,8 @@ class FluidMessageGenerator(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        ordinary_guideline_propositions: Sequence[GuidelineProposition],
-        tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
@@ -145,8 +145,8 @@ class FluidMessageGenerator(MessageEventComposer):
                         context_variables,
                         interaction_history,
                         terms,
-                        ordinary_guideline_propositions,
-                        tool_enabled_guideline_propositions,
+                        ordinary_guideline_matches,
+                        tool_enabled_guideline_matches,
                         tool_insights,
                         staged_events,
                     )
@@ -173,15 +173,15 @@ class FluidMessageGenerator(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        ordinary_guideline_propositions: Sequence[GuidelineProposition],
-        tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
         if (
             not interaction_history
-            and not ordinary_guideline_propositions
-            and not tool_enabled_guideline_propositions
+            and not ordinary_guideline_matches
+            and not tool_enabled_guideline_matches
         ):
             # No interaction and no guidelines that could trigger
             # a proactive start of the interaction
@@ -194,8 +194,8 @@ class FluidMessageGenerator(MessageEventComposer):
             customer=customer,
             interaction_history=interaction_history,
             terms=terms,
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             staged_events=staged_events,
             tool_insights=tool_insights,
             shots=await self.shots(),
@@ -246,14 +246,14 @@ class FluidMessageGenerator(MessageEventComposer):
 
         raise MessageCompositionError() from last_generation_exception
 
-    def get_guideline_propositions_text(
+    def get_guideline_matches_text(
         self,
-        ordinary: Sequence[GuidelineProposition],
-        tool_enabled: Mapping[GuidelineProposition, Sequence[ToolId]],
+        ordinary: Sequence[GuidelineMatch],
+        tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
     ) -> tuple[str, dict[str, Any]]:
-        all_propositions = list(chain(ordinary, tool_enabled))
+        all_matches = list(chain(ordinary, tool_enabled))
 
-        if not all_propositions:
+        if not all_matches:
             return (
                 """
 In formulating your reply, you are normally required to follow a number of behavioral guidelines.
@@ -264,7 +264,7 @@ you don't need to specifically double-check if you followed or broke any guideli
             )
         guidelines = []
 
-        for i, p in enumerate(all_propositions, start=1):
+        for i, p in enumerate(all_matches, start=1):
             guideline = f"Guideline #{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
 
             guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
@@ -318,8 +318,8 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        ordinary_guideline_propositions: Sequence[GuidelineProposition],
-        tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
         shots: Sequence[FluidMessageGeneratorShot],
@@ -487,16 +487,16 @@ INTERACTION CONTEXT
         builder.add_glossary(terms)
         builder.add_section(
             name="fluid-message-generator-guideline-descriptions",
-            template=self.get_guideline_propositions_text(
-                ordinary_guideline_propositions,
-                tool_enabled_guideline_propositions,
+            template=self.get_guideline_matches_text(
+                ordinary_guideline_matches,
+                tool_enabled_guideline_matches,
             )[0],
-            props=self.get_guideline_propositions_text(
-                ordinary_guideline_propositions,
-                tool_enabled_guideline_propositions,
+            props=self.get_guideline_matches_text(
+                ordinary_guideline_matches,
+                tool_enabled_guideline_matches,
             )[1],
             status=SectionStatus.ACTIVE
-            if ordinary_guideline_propositions or tool_enabled_guideline_propositions
+            if ordinary_guideline_matches or tool_enabled_guideline_matches
             else SectionStatus.PASSIVE,
         )
         builder.add_interaction_history(interaction_history)
@@ -535,13 +535,11 @@ Produce a valid JSON object in the following format: ###
             props={
                 "default_output_format": self._get_output_format(
                     interaction_history,
-                    list(
-                        chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)
-                    ),
+                    list(chain(ordinary_guideline_matches, tool_enabled_guideline_matches)),
                 ),
                 "interaction_history": interaction_history,
                 "guidelines": list(
-                    chain(ordinary_guideline_propositions, tool_enabled_guideline_propositions)
+                    chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
                 ),
             },
         )
@@ -560,7 +558,7 @@ Produce a valid JSON object in the following format: ###
         )
 
     def _get_output_format(
-        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineProposition]
+        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineMatch]
     ) -> str:
         last_customer_message = next(
             (

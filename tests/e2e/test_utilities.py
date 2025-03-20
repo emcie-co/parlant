@@ -35,33 +35,6 @@ class _ServiceDTO(TypedDict):
     url: str
 
 
-class _TermDTO(TypedDict):
-    id: str
-    name: str
-    description: str
-    synonyms: Optional[list[str]]
-
-
-class _ContextVariableDTO(TypedDict):
-    id: str
-    name: str
-    description: Optional[str]
-    tool_id: Optional[str]
-    freshness_rules: Optional[str]
-
-
-class _GuidelineDTO(TypedDict):
-    id: str
-    condition: str
-    action: str
-
-
-class _ContextVariableValueDTO(TypedDict):
-    id: str
-    last_modified: str
-    data: Any
-
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -294,14 +267,13 @@ class API:
 
     async def create_term(
         self,
-        agent_id: str,
         name: str,
         description: str,
         synonyms: str = "",
     ) -> Any:
         async with self.make_client() as client:
             response = await client.post(
-                f"/agents/{agent_id}/terms/",
+                "/terms",
                 json={
                     "name": name,
                     "description": description,
@@ -311,10 +283,10 @@ class API:
 
             return response.raise_for_status().json()
 
-    async def list_terms(self, agent_id: str) -> Any:
+    async def list_terms(self) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/terms/",
+                "/terms",
             )
             response.raise_for_status()
 
@@ -322,21 +294,20 @@ class API:
 
     async def read_term(
         self,
-        agent_id: str,
         term_id: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/terms/{term_id}",
+                f"/terms/{term_id}",
             )
             response.raise_for_status()
 
             return response.json()
 
-    async def list_guidelines(self, agent_id: str) -> Any:
+    async def list_guidelines(self) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/guidelines/",
+                "/guidelines",
             )
 
             response.raise_for_status()
@@ -345,12 +316,11 @@ class API:
 
     async def read_guideline(
         self,
-        agent_id: str,
         guideline_id: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/guidelines/{guideline_id}",
+                f"/guidelines/{guideline_id}",
             )
 
             response.raise_for_status()
@@ -359,62 +329,30 @@ class API:
 
     async def create_guideline(
         self,
-        agent_id: str,
         condition: str,
         action: str,
-        coherence_check: Optional[dict[str, Any]] = None,
-        connection_propositions: Optional[dict[str, Any]] = None,
-        operation: str = "add",
-        updated_id: Optional[str] = None,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.post(
-                f"/agents/{agent_id}/guidelines",
+                "/guidelines",
                 json={
-                    "invoices": [
-                        {
-                            "payload": {
-                                "kind": "guideline",
-                                "guideline": {
-                                    "content": {
-                                        "condition": condition,
-                                        "action": action,
-                                    },
-                                    "operation": operation,
-                                    "updated_id": updated_id,
-                                    "coherence_check": True,
-                                    "connection_proposition": True,
-                                },
-                            },
-                            "checksum": "checksum_value",
-                            "approved": True if coherence_check is None else False,
-                            "data": {
-                                "guideline": {
-                                    "coherence_checks": coherence_check if coherence_check else [],
-                                    "connection_propositions": connection_propositions
-                                    if connection_propositions
-                                    else None,
-                                }
-                            },
-                            "error": None,
-                        }
-                    ]
-                },  # type: ignore
+                    "condition": condition,
+                    "action": action,
+                },
             )
 
             response.raise_for_status()
 
-            return response.json()["items"][0]["guideline"]
+            return response.json()
 
     async def update_guideline(
         self,
-        agent_id: str,
         guideline_id: str,
         enabled: bool,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.patch(
-                f"/agents/{agent_id}/guidelines/{guideline_id}",
+                f"/guidelines/{guideline_id}",
                 json={"enabled": enabled},
             )
 
@@ -424,14 +362,13 @@ class API:
 
     async def add_association(
         self,
-        agent_id: str,
         guideline_id: str,
         service_name: str,
         tool_name: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.patch(
-                f"/agents/{agent_id}/guidelines/{guideline_id}",
+                f"/guidelines/{guideline_id}",
                 json={
                     "tool_associations": {
                         "add": [
@@ -450,13 +387,12 @@ class API:
 
     async def create_context_variable(
         self,
-        agent_id: str,
         name: str,
         description: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.post(
-                f"/agents/{agent_id}/context-variables",
+                "/context-variables",
                 json={
                     "name": name,
                     "description": description,
@@ -467,9 +403,9 @@ class API:
 
             return response.json()
 
-    async def list_context_variables(self, agent_id: str) -> Any:
+    async def list_context_variables(self) -> Any:
         async with self.make_client() as client:
-            response = await client.get(f"/agents/{agent_id}/context-variables/")
+            response = await client.get("/context-variables")
 
             response.raise_for_status()
 
@@ -477,26 +413,24 @@ class API:
 
     async def update_context_variable_value(
         self,
-        agent_id: str,
         variable_id: str,
         key: str,
         value: Any,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.put(
-                f"/agents/{agent_id}/context-variables/{variable_id}/{key}",
+                f"/context-variables/{variable_id}/{key}",
                 json={"data": value},
             )
             response.raise_for_status()
 
     async def read_context_variable(
         self,
-        agent_id: str,
         variable_id: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/context-variables/{variable_id}",
+                f"/context-variables/{variable_id}",
             )
 
             response.raise_for_status()
@@ -505,13 +439,12 @@ class API:
 
     async def read_context_variable_value(
         self,
-        agent_id: str,
         variable_id: str,
         key: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/agents/{agent_id}/context-variables/{variable_id}/{key}",
+                f"/context-variables/{variable_id}/{key}",
             )
 
             response.raise_for_status()

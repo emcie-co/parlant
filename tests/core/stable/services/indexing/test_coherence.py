@@ -23,6 +23,7 @@ from parlant.core.services.indexing.coherence_checker import (
     IncoherenceTest,
 )
 
+from parlant.core.tags import Tag
 from tests.core.common.utils import ContextOfTest
 from tests.test_utilities import nlp_test
 
@@ -45,8 +46,8 @@ async def nlp_test_action_contradiction(
     guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: "{incoherence.guideline_a.action}"}}"""
     guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: "{incoherence.guideline_b.action}"}}"""
     terms = await glossary_store.find_relevant_terms(
-        agent.id,
         query=guideline_a_text + guideline_b_text,
+        tags=[Tag.for_agent_id(agent.id)],
     )
     context = f"""Two guidelines are said to have contradicting 'then' statements if applying both of their 'then' statements would result in a contradiction or an illogical action.
 
@@ -72,8 +73,8 @@ async def nlp_test_condition_entailment(
     guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: {incoherence.guideline_a.action}"}}"""
     guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: {incoherence.guideline_b.action}"}}"""
     terms = await glossary_store.find_relevant_terms(
-        agent.id,
         query=guideline_a_text + guideline_b_text,
+        tags=[Tag.for_agent_id(agent.id)],
     )
     entailment_found_text = (
         "found" if incoherence.IncoherenceKind == IncoherenceKind.STRICT else "not found"
@@ -704,12 +705,18 @@ def test_that_a_glossary_based_incoherency_is_detected(
 ) -> None:
     glossary_store = context.container[GlossaryStore]
 
-    context.sync_await(
+    term = context.sync_await(
         glossary_store.create_term(
-            term_set=agent.id,
             name="PAP",
             description="Pineapple pizza - a pizza topped with pineapples",
             synonyms=["PP", "pap"],
+        )
+    )
+
+    context.sync_await(
+        glossary_store.upsert_tag(
+            term_id=term.id,
+            tag_id=Tag.for_agent_id(agent.id),
         )
     )
 
@@ -758,6 +765,7 @@ def test_that_an_agent_description_based_incoherency_is_detected(
         description="You are a helpful AI assistant for a sparkling water company. Our company sells sparkling water, but never sparkling juices. The philosophy of our company dictates that juices should never be carbonated.",
         creation_utc=datetime.now(timezone.utc),
         max_engine_iterations=3,
+        tags=[],
     )
 
     coherence_checker = context.container[CoherenceChecker]

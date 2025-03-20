@@ -35,6 +35,38 @@ async def test_that_a_fragment_can_be_created(
     assert "creation_utc" in fragment
 
 
+async def test_that_a_fragment_can_be_created_with_tags(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+
+    tag_1 = await tag_store.create_tag(name="VIP")
+    tag_2 = await tag_store.create_tag(name="Finance")
+
+    payload = {
+        "value": "Your account balance is {balance}",
+        "fields": [
+            {
+                "name": "balance",
+                "description": "Account's balance",
+                "examples": ["9000"],
+            }
+        ],
+        "tags": [tag_1.id, tag_2.id],
+    }
+
+    response = await async_client.post("/fragments", json=payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    fragment_dto = (
+        (await async_client.get(f"/fragments/{response.json()['id']}")).raise_for_status().json()
+    )
+
+    assert len(fragment_dto["tags"]) == 2
+    assert set(fragment_dto["tags"]) == {tag_1.id, tag_2.id}
+
+
 async def test_that_a_fragment_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -178,7 +210,7 @@ async def test_that_a_tag_can_be_removed_from_a_fragment(
 
     fragment = await fragment_store.create_fragment(value=value, fields=fields)
 
-    await fragment_store.add_tag(fragment_id=fragment.id, tag_id=tag.id)
+    await fragment_store.upsert_tag(fragment_id=fragment.id, tag_id=tag.id)
     response = await async_client.patch(
         f"/fragments/{fragment.id}", json={"tags": {"remove": [tag.id]}}
     )
@@ -205,7 +237,7 @@ async def test_that_fragments_can_be_filtered_by_tags(
             FragmentField(name="username", description="User's name", examples=["Alice", "Bob"])
         ],
     )
-    await fragment_store.add_tag(first_fragment.id, tag_greeting.id)
+    await fragment_store.upsert_tag(first_fragment.id, tag_greeting.id)
 
     second_fragment = await fragment_store.create_fragment(
         value="Your balance is {balance}",
@@ -213,13 +245,13 @@ async def test_that_fragments_can_be_filtered_by_tags(
             FragmentField(name="balance", description="Account balance", examples=["5000", "10000"])
         ],
     )
-    await fragment_store.add_tag(second_fragment.id, tag_finance.id)
+    await fragment_store.upsert_tag(second_fragment.id, tag_finance.id)
 
     third_fragment = await fragment_store.create_fragment(
         value="Exclusive VIP offer for {username}",
         fields=[FragmentField(name="username", description="VIP customer", examples=["Charlie"])],
     )
-    await fragment_store.add_tag(third_fragment.id, tag_vip.id)
+    await fragment_store.upsert_tag(third_fragment.id, tag_vip.id)
 
     response = await async_client.get(f"/fragments?tags={tag_greeting.id}")
     assert response.status_code == status.HTTP_200_OK

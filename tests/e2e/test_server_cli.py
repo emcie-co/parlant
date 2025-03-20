@@ -126,16 +126,12 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-
         first = await context.api.create_guideline(
-            agent_id=agent["id"],
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
         second = await context.api.create_guideline(
-            agent_id=agent["id"],
             condition="the customer say goodbye",
             action="say goodbye",
         )
@@ -147,9 +143,7 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-
-        guidelines = await context.api.list_guidelines(agent_id=agent["id"])
+        guidelines = await context.api.list_guidelines()
 
         assert any(first["condition"] == g["condition"] for g in guidelines)
         assert any(first["action"] == g["action"] for g in guidelines)
@@ -169,12 +163,8 @@ async def test_that_context_variable_values_load_after_server_restart(
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-
-        variable = await context.api.create_context_variable(
-            agent["id"], variable_name, variable_description
-        )
-        await context.api.update_context_variable_value(agent["id"], variable["id"], key, data)
+        variable = await context.api.create_context_variable(variable_name, variable_description)
+        await context.api.update_context_variable_value(variable["id"], key, data)
 
         server_process.send_signal(signal.SIGINT)
         server_process.wait(timeout=EXTENDED_AMOUNT_OF_TIME)
@@ -183,10 +173,7 @@ async def test_that_context_variable_values_load_after_server_restart(
     with run_server(context):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-        variable_value = await context.api.read_context_variable_value(
-            agent["id"], variable["id"], key
-        )
+        variable_value = await context.api.read_context_variable_value(variable["id"], key)
 
         assert variable_value["data"] == data
 
@@ -224,9 +211,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-
-        await context.api.create_term(agent["id"], term_name, description)
+        await context.api.create_term(term_name, description)
 
         server_process.send_signal(signal.SIGINT)
         server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
@@ -235,8 +220,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
     with run_server(context):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        agent = await context.api.get_first_agent()
-        terms = await context.api.list_terms(agent["id"])
+        terms = await context.api.list_terms()
 
         assert any(t["name"] == term_name for t in terms)
         assert any(t["description"] == description for t in terms)
@@ -249,12 +233,10 @@ async def test_that_server_starts_with_single_module(context: ContextOfTest) -> 
         agent = await context.api.get_first_agent()
 
         guideline = await context.api.create_guideline(
-            agent_id=agent["id"],
             condition="the user asks about product categories",
             action="tell them what product categories are available",
         )
         _ = await context.api.add_association(
-            agent_id=agent["id"],
             guideline_id=guideline["id"],
             service_name="tech-store",
             tool_name="list_categories",

@@ -22,7 +22,7 @@ from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
@@ -54,6 +54,7 @@ class CustomerStore(ABC):
         name: str,
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Customer: ...
 
     @abstractmethod
@@ -78,22 +79,23 @@ class CustomerStore(ABC):
     @abstractmethod
     async def list_customers(
         self,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Customer]: ...
 
     @abstractmethod
-    async def add_tag(
+    async def upsert_tag(
         self,
         customer_id: CustomerId,
         tag_id: TagId,
         creation_utc: Optional[datetime] = None,
-    ) -> Customer: ...
+    ) -> bool: ...
 
     @abstractmethod
     async def remove_tag(
         self,
         customer_id: CustomerId,
         tag_id: TagId,
-    ) -> Customer: ...
+    ) -> None: ...
 
     @abstractmethod
     async def add_extra(
@@ -132,9 +134,7 @@ class CustomerDocumentStore(CustomerStore):
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
         self._customers_collection: DocumentCollection[_CustomerDocument]
-        self._customer_tag_association_collection: DocumentCollection[
-            _CustomerTagAssociationDocument
-        ]
+        self._tag_association_collection: DocumentCollection[_CustomerTagAssociationDocument]
         self._allow_migration = allow_migration
         self._lock = ReaderWriterLock()
 
@@ -148,7 +148,18 @@ class CustomerDocumentStore(CustomerStore):
         self, doc: BaseDocument
     ) -> Optional[_CustomerTagAssociationDocument]:
         if doc["version"] == "0.1.0":
+            doc = cast(_CustomerTagAssociationDocument, doc)
+            return _CustomerTagAssociationDocument(
+                id=doc["id"],
+                version=Version.String("0.2.0"),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                tag_id=doc["tag_id"],
+            )
+
+        if doc["version"] == "0.2.0":
             return cast(_CustomerTagAssociationDocument, doc)
+
         return None
 
     async def __aenter__(self) -> Self:
@@ -163,12 +174,10 @@ class CustomerDocumentStore(CustomerStore):
                 document_loader=self._document_loader,
             )
 
-            self._customer_tag_association_collection = (
-                await self._database.get_or_create_collection(
-                    name="customer_tag_associations",
-                    schema=_CustomerTagAssociationDocument,
-                    document_loader=self._association_document_loader,
-                )
+            self._tag_association_collection = await self._database.get_or_create_collection(
+                name="customer_tag_associations",
+                schema=_CustomerTagAssociationDocument,
+                document_loader=self._association_document_loader,
             )
 
         return self
@@ -193,7 +202,7 @@ class CustomerDocumentStore(CustomerStore):
     async def _deserialize_customer(self, customer_document: _CustomerDocument) -> Customer:
         tags = [
             doc["tag_id"]
-            for doc in await self._customer_tag_association_collection.find(
+            for doc in await self._tag_association_collection.find(
                 {"customer_id": {"$eq": customer_document["id"]}}
             )
         ]
@@ -212,6 +221,7 @@ class CustomerDocumentStore(CustomerStore):
         name: str,
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Customer:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -221,12 +231,23 @@ class CustomerDocumentStore(CustomerStore):
                 name=name,
                 extra=extra,
                 creation_utc=creation_utc,
-                tags=[],
+                tags=tags or [],
             )
 
             await self._customers_collection.insert_one(
                 document=self._serialize_customer(customer=customer)
             )
+
+            for tag in tags or []:
+                await self._tag_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(generate_id()),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": creation_utc.isoformat(),
+                        "customer_id": customer.id,
+                        "tag_id": tag,
+                    }
+                )
 
         return customer
 
@@ -279,11 +300,37 @@ class CustomerDocumentStore(CustomerStore):
 
     async def list_customers(
         self,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Customer]:
+        filters: Where = {}
+
         async with self._lock.reader_lock:
+            if tags is not None:
+                if len(tags) == 0:
+                    customer_ids = {
+                        doc["customer_id"]
+                        for doc in await self._tag_association_collection.find(filters={})
+                    }
+                    filters = (
+                        {"$and": [{"id": {"$ne": id}} for id in customer_ids]}
+                        if customer_ids
+                        else {}
+                    )
+                else:
+                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_associations = await self._tag_association_collection.find(
+                        filters=tag_filters
+                    )
+                    customer_ids = {assoc["customer_id"] for assoc in tag_associations}
+
+                    if not customer_ids:
+                        return [await self.read_customer(CustomerStore.GUEST_ID)]
+
+                    filters = {"$or": [{"id": {"$eq": id}} for id in customer_ids]}
+
             return [await self.read_customer(CustomerStore.GUEST_ID)] + [
-                await self._deserialize_customer(e)
-                for e in await self._customers_collection.find({})
+                await self._deserialize_customer(c)
+                for c in await self._customers_collection.find(filters=filters)
             ]
 
     @override
@@ -301,17 +348,17 @@ class CustomerDocumentStore(CustomerStore):
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
     @override
-    async def add_tag(
+    async def upsert_tag(
         self,
         customer_id: CustomerId,
         tag_id: TagId,
         creation_utc: Optional[datetime] = None,
-    ) -> Customer:
+    ) -> bool:
         async with self._lock.writer_lock:
             customer = await self.read_customer(customer_id)
 
             if tag_id in customer.tags:
-                return customer
+                return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
@@ -323,9 +370,7 @@ class CustomerDocumentStore(CustomerStore):
                 "tag_id": tag_id,
             }
 
-            _ = await self._customer_tag_association_collection.insert_one(
-                document=association_document
-            )
+            _ = await self._tag_association_collection.insert_one(document=association_document)
 
             customer_document = await self._customers_collection.find_one(
                 {"id": {"$eq": customer_id}}
@@ -334,16 +379,16 @@ class CustomerDocumentStore(CustomerStore):
         if not customer_document:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
-        return await self._deserialize_customer(customer_document=customer_document)
+        return True
 
     @override
     async def remove_tag(
         self,
         customer_id: CustomerId,
         tag_id: TagId,
-    ) -> Customer:
+    ) -> None:
         async with self._lock.writer_lock:
-            delete_result = await self._customer_tag_association_collection.delete_one(
+            delete_result = await self._tag_association_collection.delete_one(
                 {
                     "customer_id": {"$eq": customer_id},
                     "tag_id": {"$eq": tag_id},
@@ -360,7 +405,7 @@ class CustomerDocumentStore(CustomerStore):
         if not customer_document:
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
-        return await self._deserialize_customer(customer_document=customer_document)
+        return None
 
     @override
     async def add_extra(

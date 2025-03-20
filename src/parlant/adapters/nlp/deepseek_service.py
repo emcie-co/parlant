@@ -109,7 +109,7 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
     @override
     async def generate(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.operation(f"DeepSeek LLM Request ({self.schema.__name__})"):

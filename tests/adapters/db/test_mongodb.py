@@ -61,6 +61,7 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
 )
 from parlant.core.loggers import Logger
+from parlant.core.tags import Tag
 from parlant.core.tools import ToolId
 
 from tests.test_utilities import SyncAwaiter
@@ -267,9 +268,9 @@ async def test_guideline_creation(
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Creating a guideline with MongoDB implementation",
                 action="Expecting it to be stored in the MongoDB database",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
     assert guideline
@@ -278,7 +279,7 @@ async def test_guideline_creation(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
-            guidelines = await guideline_store.list_guidelines(context.agent_id)
+            guidelines = await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
             guideline_list = list(guidelines)
 
             assert len(guideline_list) == 1
@@ -304,15 +305,15 @@ async def test_multiple_guideline_creation(
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             first_guideline = await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="First guideline creation",
                 action="Test entry in MongoDB",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
             second_guideline = await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Second guideline creation",
                 action="Additional test entry in MongoDB",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
     assert first_guideline
@@ -322,7 +323,9 @@ async def test_multiple_guideline_creation(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
-            guidelines = list(await guideline_store.list_guidelines(context.agent_id))
+            guidelines = list(
+                await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
+            )
 
             assert len(guidelines) == 2
 
@@ -353,12 +356,14 @@ async def test_guideline_retrieval(
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             created_guideline = await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Test condition for loading",
                 action="Test content for loading guideline",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
-            loaded_guidelines = await guideline_store.list_guidelines(context.agent_id)
+            loaded_guidelines = await guideline_store.list_guidelines(
+                [Tag.for_agent_id(context.agent_id)]
+            )
             loaded_guideline_list = list(loaded_guidelines)
 
             assert len(loaded_guideline_list) == 1
@@ -449,11 +454,11 @@ async def test_context_variable_creation(
         async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
-                variable_set=context.agent_id,
                 name="Sample Variable",
                 description="A test variable for persistence.",
                 tool_id=tool_id,
                 freshness_rules=None,
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
     assert variable
@@ -464,7 +469,9 @@ async def test_context_variable_creation(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
         async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
-            variables = list(await context_variable_store.list_variables(context.agent_id))
+            variables = list(
+                await context_variable_store.list_variables([Tag.for_agent_id(context.agent_id)])
+            )
 
             assert len(variables) == 1
             db_variable = variables[0]
@@ -491,23 +498,21 @@ async def test_context_variable_value_update_and_retrieval(
             tool_id = ToolId("local", "test_tool")
             customer_id = CustomerId("test_customer")
             variable = await context_variable_store.create_variable(
-                variable_set=context.agent_id,
                 name="Sample Variable",
                 description="A test variable for persistence.",
                 tool_id=tool_id,
                 freshness_rules=None,
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
             test_data = {"key": "value"}
             await context_variable_store.update_value(
-                variable_set=context.agent_id,
                 key=customer_id,
                 variable_id=variable.id,
                 data=test_data,
             )
 
             value = await context_variable_store.read_value(
-                variable_set=context.agent_id,
                 key=customer_id,
                 variable_id=variable.id,
             )
@@ -532,22 +537,24 @@ async def test_context_variable_listing(
         async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             var1 = await context_variable_store.create_variable(
-                variable_set=context.agent_id,
                 name="Variable One",
                 description="First test variable",
                 tool_id=tool_id,
                 freshness_rules=None,
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
             var2 = await context_variable_store.create_variable(
-                variable_set=context.agent_id,
                 name="Variable Two",
                 description="Second test variable",
                 tool_id=tool_id,
                 freshness_rules=None,
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
-            variables = list(await context_variable_store.list_variables(context.agent_id))
+            variables = list(
+                await context_variable_store.list_variables([Tag.for_agent_id(context.agent_id)])
+            )
             assert len(variables) == 2
 
             variable_ids = [v.id for v in variables]
@@ -570,38 +577,36 @@ async def test_context_variable_deletion(
         async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
-                variable_set=context.agent_id,
                 name="Deletable Variable",
                 description="A variable to be deleted.",
                 tool_id=tool_id,
                 freshness_rules=None,
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
             for k, d in [("k1", "d1"), ("k2", "d2"), ("k3", "d3")]:
                 await context_variable_store.update_value(
-                    variable_set=context.agent_id,
                     key=k,
                     variable_id=variable.id,
                     data=d,
                 )
 
             values = await context_variable_store.list_values(
-                variable_set=context.agent_id,
                 variable_id=variable.id,
             )
 
             assert len(values) == 3
 
             await context_variable_store.delete_variable(
-                variable_set=context.agent_id,
                 id=variable.id,
             )
 
-            variables = await context_variable_store.list_variables(context.agent_id)
+            variables = await context_variable_store.list_variables(
+                [Tag.for_agent_id(context.agent_id)]
+            )
             assert not any(variable.id == v.id for v in variables)
 
             values = await context_variable_store.list_values(
-                variable_set=context.agent_id,
                 variable_id=variable.id,
             )
             assert len(values) == 0
@@ -701,9 +706,9 @@ async def test_database_initialization(
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Create a guideline for initialization test",
                 action="Verify it's stored in MongoDB correctly",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
     collections = await test_mongo_client[test_database_name].list_collection_names()
@@ -1009,14 +1014,16 @@ async def test_delete_one_in_collection(
     ) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Guideline to be deleted",
                 action="This guideline will be deleted in the test",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
-            await guideline_store.delete_guideline(context.agent_id, guideline.id)
+            await guideline_store.delete_guideline(guideline.id)
 
-            guidelines = list(await guideline_store.list_guidelines(context.agent_id))
+            guidelines = list(
+                await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
+            )
             assert len(guidelines) == 0
 
 
@@ -1032,9 +1039,9 @@ async def test_delete_collection(
     ) as mongo_db:
         async with GuidelineDocumentStore(mongo_db) as guideline_store:
             await guideline_store.create_guideline(
-                guideline_set=context.agent_id,
                 condition="Test collection deletion",
                 action="This collection will be deleted",
+                tags=[Tag.for_agent_id(context.agent_id)],
             )
 
         collections = await test_mongo_client[test_database_name].list_collection_names()

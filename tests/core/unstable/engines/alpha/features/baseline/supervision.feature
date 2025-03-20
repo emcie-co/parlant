@@ -5,7 +5,7 @@ Feature: Supervision
     Scenario: Preference for customer request over guideline account_related_questions
         Given a guideline "discount_for_frustration" to offer a 20 percent discount when the customer expresses frustration
         And a customer message, "I'm not interested in any of your products, let alone your discounts. You are doing an awful job."
-        And that the "discount_for_frustration" guideline is proposed with a priority of 10 because "The customer is displeased with our service, and expresses frustration"
+        And that the "discount_for_frustration" guideline is matched with a priority of 10 because "The customer is displeased with our service, and expresses frustration"
         When messages are emitted
         Then a single message event is emitted
         And the message contains no discount offers.

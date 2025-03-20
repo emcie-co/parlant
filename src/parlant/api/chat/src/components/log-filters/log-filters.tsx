@@ -8,16 +8,16 @@ import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
 
-export type Type = 'GuidelineProposer' | 'MessageEventComposer' | 'ToolCaller';
+export type Type = 'GuidelineMatcher' | 'MessageEventComposer' | 'ToolCaller';
 export type Level = 'WARNING' | 'INFO' | 'DEBUG';
 
-const ALL_TYPES: Type[] = ['GuidelineProposer', 'ToolCaller', 'MessageEventComposer'];
+const ALL_TYPES: Type[] = ['GuidelineMatcher', 'ToolCaller', 'MessageEventComposer'];
 const ALL_LEVELS: Level[] = ['WARNING', 'INFO', 'DEBUG'];
 
 const typeOptions: {[key in Type]: {label: string; icon: string; color: string}} = {
-	GuidelineProposer: {
-		label: 'Guideline Proposer',
-		icon: 'icons/filters/guideline-proposer-color.svg',
+	GuidelineMatcher: {
+		label: 'Guideline Matcher',
+		icon: 'icons/filters/guideline-matcher-color.svg',
 		color: '#419480',
 	},
 	MessageEventComposer: {

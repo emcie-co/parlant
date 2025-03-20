@@ -32,11 +32,15 @@ from parlant.core.context_variables import ContextVariableDocumentStore, Context
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerDocumentStore, CustomerStore
-from parlant.core.engines.alpha import guideline_proposer
+from parlant.core.engines.alpha import guideline_matcher
 from parlant.core.engines.alpha import tool_caller
 from parlant.core.engines.alpha import fluid_message_generator
 from parlant.core.engines.alpha.hooks import LifecycleHooks
-from parlant.core.engines.alpha.message_assembler import MessageAssembler, AssembledMessageSchema
+from parlant.core.engines.alpha.message_assembler import (
+    MessageAssembler,
+    AssembledMessageSchema,
+    MessageCompositionSchema,
+)
 from parlant.core.evaluations import (
     EvaluationListener,
     PollingEvaluationListener,
@@ -66,10 +70,10 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
-from parlant.core.engines.alpha.guideline_proposer import (
-    GuidelineProposer,
-    GuidelinePropositionShot,
-    GuidelinePropositionsSchema,
+from parlant.core.engines.alpha.guideline_matcher import (
+    GuidelineMatcher,
+    GuidelineMatchingShot,
+    GuidelineMatchesSchema,
 )
 from parlant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
@@ -99,6 +103,7 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from parlant.core.shots import ShotCollection
+from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.core.tools import LocalToolService
 
@@ -252,18 +257,22 @@ async def container(
         embedder_factory = EmbedderFactory(container)
         container[GlossaryStore] = await stack.enter_async_context(
             GlossaryVectorStore(
-                await stack.enter_async_context(
+                vector_db=await stack.enter_async_context(
                     TransientVectorDatabase(container[Logger], embedder_factory)
                 ),
+                document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
                 embedder_type=embedder_type,
             )
         )
 
+        container[EntityQueries] = Singleton(EntityQueries)
+        container[EntityCommands] = Singleton(EntityCommands)
         for generation_schema in (
-            GuidelinePropositionsSchema,
+            GuidelineMatchesSchema,
             FluidMessageSchema,
             AssembledMessageSchema,
+            MessageCompositionSchema,
             ToolCallInferenceSchema,
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
@@ -275,13 +284,13 @@ async def container(
                 generation_schema,
             )
 
-        container[ShotCollection[GuidelinePropositionShot]] = guideline_proposer.shot_collection
+        container[ShotCollection[GuidelineMatchingShot]] = guideline_matcher.shot_collection
         container[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
         container[ShotCollection[FluidMessageGeneratorShot]] = (
             fluid_message_generator.shot_collection
         )
 
-        container[GuidelineProposer] = Singleton(GuidelineProposer)
+        container[GuidelineMatcher] = Singleton(GuidelineMatcher)
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
         container[CoherenceChecker] = Singleton(CoherenceChecker)
 
@@ -328,12 +337,12 @@ class NoCachedGenerations:
 @fixture
 def no_cache(container: Container) -> None:
     if isinstance(
-        container[SchematicGenerator[GuidelinePropositionsSchema]],
+        container[SchematicGenerator[GuidelineMatchesSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[GuidelinePropositionsSchema],
-            container[SchematicGenerator[GuidelinePropositionsSchema]],
+            CachedSchematicGenerator[GuidelineMatchesSchema],
+            container[SchematicGenerator[GuidelineMatchesSchema]],
         ).use_cache = False
 
     if isinstance(
@@ -352,6 +361,15 @@ def no_cache(container: Container) -> None:
         cast(
             CachedSchematicGenerator[AssembledMessageSchema],
             container[SchematicGenerator[AssembledMessageSchema]],
+        ).use_cache = False
+
+    if isinstance(
+        container[SchematicGenerator[MessageCompositionSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[MessageCompositionSchema],
+            container[SchematicGenerator[MessageCompositionSchema]],
         ).use_cache = False
 
     if isinstance(

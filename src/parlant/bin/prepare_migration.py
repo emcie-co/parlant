@@ -313,31 +313,6 @@ async def migrate_glossary_with_metadata() -> None:
         die(f"Error migrating glossary: {e}")
 
 
-async def upgrade_agents_to_0_2_0() -> None:
-    rich.print("[green]Starting agents migration from 0.1.0 to 0.2.0...")
-
-    with open(PARLANT_HOME_DIR / "agents.json", "r") as f:
-        raw_data = json.load(f)
-        agents = raw_data.get("agents")
-
-    if agents is None:
-        rich.print("[yellow]No agents found, skipping...")
-        return
-
-    for agent in agents:
-        agent["version"] = "0.2.0"
-
-    raw_data["agents"] = agents
-
-    if "metadata" in raw_data and len(raw_data["metadata"]) > 0:
-        raw_data["metadata"][0].update({"version": "0.2.0"})
-
-    with open(PARLANT_HOME_DIR / "agents.json", "w") as f:
-        json.dump(raw_data, f)
-
-    rich.print("[green]Successfully upgraded agents to version 0.2.0")
-
-
 @register_migration("agents", "0.1.0", "0.2.0")
 async def migrate_agents_0_1_0_to_0_2_0() -> None:
     rich.print("[green]Starting migration for agents 0.1.0 -> 0.2.0")
@@ -394,7 +369,7 @@ async def migrate_agents_0_1_0_to_0_2_0() -> None:
 
     await migrate_glossary_with_metadata()
 
-    await upgrade_agents_to_0_2_0()
+    await upgrade_document_database_metadata(agents_db, Version.String("0.2.0"))
 
 
 @register_migration("guidelines", "0.1.0", "0.3.0")
@@ -457,22 +432,9 @@ async def migrate_guidelines_0_1_0_to_0_3_0() -> None:
             }
         )
 
-    metadata_collection = await guidelines_db.get_or_create_collection(
-        "metadata",
-        BaseDocument,
-        identity_loader,
-    )
+    await upgrade_document_database_metadata(guidelines_db, Version.String("0.3.0"))
 
-    metadata_document = cast(dict[str, Any], await metadata_collection.find_one(filters={}))
-
-    await metadata_collection.update_one(
-        filters={"id": {"$eq": metadata_document["id"]}},
-        params={"version": Version.String("0.3.0")},
-    )
-
-    rich.print(
-        f"[green]Successfully migrated guidelines from {metadata_document['version']} to 0.3.0"
-    )
+    rich.print("[green]Successfully migrated guidelines to 0.3.0")
 
 
 @register_migration("context_variables", "0.1.0", "0.2.0")
@@ -487,7 +449,7 @@ async def migrate_context_variables_0_1_0_to_0_2_0() -> None:
     )
 
     context_variables_collection = await context_variables_db.get_or_create_collection(
-        "context_variables",
+        "variables",
         BaseDocument,
         identity_loader,
     )
@@ -527,22 +489,9 @@ async def migrate_context_variables_0_1_0_to_0_2_0() -> None:
             params={"version": Version.String("0.2.0")},
         )
 
-    metadata_collection = await context_variables_db.get_or_create_collection(
-        "metadata",
-        BaseDocument,
-        identity_loader,
-    )
+    await upgrade_document_database_metadata(context_variables_db, Version.String("0.2.0"))
 
-    metadata_document = cast(dict[str, Any], await metadata_collection.find_one(filters={}))
-
-    await metadata_collection.update_one(
-        filters={"id": {"$eq": metadata_document["id"]}},
-        params={"version": Version.String("0.2.0")},
-    )
-
-    rich.print(
-        f"[green]Successfully migrated context variables from {metadata_document['version']} to 0.2.0"
-    )
+    rich.print("[green]Successfully migrated context variables to 0.2.0")
 
 
 @register_migration("agents", "0.2.0", "0.3.0")
@@ -570,20 +519,9 @@ async def migrate_agents_0_2_0_to_0_3_0() -> None:
                 params={"version": Version.String("0.3.0")},
             )
 
-    metadata_collection = await agent_db.get_or_create_collection(
-        "metadata",
-        BaseDocument,
-        identity_loader,
-    )
+    await upgrade_document_database_metadata(agent_db, Version.String("0.3.0"))
 
-    metadata_document = cast(dict[str, Any], await metadata_collection.find_one(filters={}))
-
-    await metadata_collection.update_one(
-        filters={"id": {"$eq": metadata_document["id"]}},
-        params={"version": Version.String("0.3.0")},
-    )
-
-    rich.print(f"[green]Successfully migrated agents from {metadata_document['version']} to 0.3.0")
+    rich.print("[green]Successfully migrated agents from 0.2.0 to 0.3.0")
 
 
 @register_migration("glossary", "0.1.0", "0.2.0")
@@ -658,6 +596,30 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
     await db.upsert_metadata("version", Version.String("0.2.0"))
 
     rich.print("[green]Successfully migrated glossary from 0.1.0 to 0.2.0")
+
+
+async def upgrade_document_database_metadata(
+    db: DocumentDatabase,
+    to_version: Version.String,
+) -> None:
+    metadata_collection = await db.get_or_create_collection(
+        "metadata",
+        BaseDocument,
+        identity_loader,
+    )
+
+    if metadata_document := await metadata_collection.find_one(filters={}):
+        await metadata_collection.update_one(
+            filters={"id": {"$eq": metadata_document["id"]}},
+            params={"version": to_version},
+        )
+    else:
+        await metadata_collection.insert_one(
+            {
+                "id": ObjectId(generate_id()),
+                "version": to_version,
+            }
+        )
 
 
 async def detect_required_migrations() -> list[tuple[str, str, str]]:

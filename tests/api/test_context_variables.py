@@ -553,7 +553,7 @@ async def test_legacy_that_updating_context_variable_with_wrong_agent_id_returns
 
     await context_variable_store.add_variable_tag(
         variable_id=variable.id,
-        tag_id=TagId("agent_id:wrong_agent_id"),
+        tag_id=Tag.for_agent_id("wrong_agent_id"),
     )
 
     response = await async_client.patch(

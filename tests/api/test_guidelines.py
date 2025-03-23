@@ -1319,7 +1319,7 @@ async def test_legacy_that_updating_a_guideline_with_a_wrong_agent_id_returns_a_
 
     _ = await guideline_store.upsert_tag(
         guideline_id=guideline.id,
-        tag_id=TagId("agent_id:wrong_agent"),
+        tag_id=Tag.for_agent_id("wrong_agent"),
     )
 
     response = await async_client.patch(
@@ -1344,7 +1344,7 @@ async def test_legacy_that_deleting_a_guideline_with_a_wrong_agent_id_returns_a_
 
     _ = await guideline_store.upsert_tag(
         guideline_id=guideline.id,
-        tag_id=TagId("agent_id:wrong_agent"),
+        tag_id=Tag.for_agent_id("wrong_agent"),
     )
 
     response = await async_client.delete(f"/agents/{agent_id}/guidelines/{guideline.id}")

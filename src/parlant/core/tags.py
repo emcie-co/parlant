@@ -41,11 +41,11 @@ class Tag:
 
     @staticmethod
     def for_agent_id(agent_id: str) -> TagId:
-        return TagId(f"agent_id:{agent_id}")
+        return TagId(f"agent:{agent_id}")
 
     @staticmethod
     def extract_agent_id(tag_id: TagId) -> Optional[str]:
-        if not tag_id.startswith("agent_id:"):
+        if not tag_id.startswith("agent:"):
             return None
 
         return str(tag_id.split(":")[1])

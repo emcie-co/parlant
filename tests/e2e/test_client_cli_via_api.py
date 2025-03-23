@@ -1576,7 +1576,7 @@ async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
                 "tag",
                 "--id",
                 customer_id,
-                "--tag-id",
+                "--tag",
                 tag_id,
             )
             == os.EX_OK
@@ -1601,7 +1601,7 @@ async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> Non
                 "untag",
                 "--id",
                 customer_id,
-                "--tag-id",
+                "--tag",
                 tag_id,
             )
             == os.EX_OK

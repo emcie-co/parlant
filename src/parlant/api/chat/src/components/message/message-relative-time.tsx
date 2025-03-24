@@ -19,22 +19,23 @@ const MessageRelativeTime = ({event}: {event: EventInterface}) => {
 
 		if (diffMinutes < 60) {
 			intervalRef.current = setInterval(updateTime, 60000);
-		} else if (diffMinutes < 1440) {
-			const minutesPastHour = creationDate.getMinutes();
-			const nextFullHour = new Date(now);
-			nextFullHour.setMinutes(60 - minutesPastHour, 0, 0);
-			const timeUntilNextHour = nextFullHour.getTime() - now.getTime();
-
-			intervalRef.current = setTimeout(() => {
-				updateTime();
-				intervalRef.current = setInterval(updateTime, 3600000);
-			}, timeUntilNextHour);
-		} else {
-			const nextMidnight = new Date(now);
-			nextMidnight.setHours(24, 0, 0, 0);
-			const timeUntilMidnight = nextMidnight.getTime() - now.getTime();
-			intervalRef.current = setTimeout(updateTime, timeUntilMidnight);
 		}
+		// else if (diffMinutes < 1440) {
+		// 	const minutesPastHour = creationDate.getMinutes();
+		// 	const nextFullHour = new Date(now);
+		// 	nextFullHour.setMinutes(60 - minutesPastHour, 0, 0);
+		// 	const timeUntilNextHour = nextFullHour.getTime() - now.getTime();
+
+		// 	intervalRef.current = setTimeout(() => {
+		// 		updateTime();
+		// 		intervalRef.current = setInterval(updateTime, 3600000);
+		// 	}, timeUntilNextHour);
+		// } else {
+		// 	const nextMidnight = new Date(now);
+		// 	nextMidnight.setHours(24, 0, 0, 0);
+		// 	const timeUntilMidnight = nextMidnight.getTime() - now.getTime();
+		// 	intervalRef.current = setTimeout(updateTime, timeUntilMidnight);
+		// }
 
 		return () => {
 			if (intervalRef.current) clearInterval(intervalRef.current);
@@ -47,7 +48,7 @@ const MessageRelativeTime = ({event}: {event: EventInterface}) => {
 
 	useEffect(setMessageRelativeTime, [event.creation_utc]);
 
-	return <div className='text-[14px] text-[#A9A9A9]'>{time}</div>;
+	return <div className='text-[14px] text-[#A9A9A9] font-light'>{time}</div>;
 };
 
 export default MessageRelativeTime;

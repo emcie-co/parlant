@@ -26,7 +26,7 @@ from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolEventData
-from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller, ToolInsights
 from parlant.core.emissions import EmittedEvent, EventEmitter
@@ -63,11 +63,11 @@ class ToolEventGenerator:
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
-        ordinary_guideline_propositions: Sequence[GuidelineProposition],
-        tool_enabled_guideline_propositions: Mapping[GuidelineProposition, Sequence[ToolId]],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
     ) -> ToolEventGenerationResult:
-        if not tool_enabled_guideline_propositions:
+        if not tool_enabled_guideline_matches:
             self._logger.debug("Skipping tool calling; no tools associated with guidelines found")
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
@@ -76,8 +76,8 @@ class ToolEventGenerator:
             context_variables,
             interaction_history,
             terms,
-            ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions,
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
             staged_events,
         )
 

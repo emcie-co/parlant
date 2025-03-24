@@ -27,6 +27,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.glossary import GlossaryStore
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.tags import Tag
 
 
 class GuidelineConnectionPropositionSchema(DefaultBaseModel):
@@ -529,8 +530,8 @@ ADDITIONAL INFORMATION
         )
         test_guideline = f"{{id: 0, when: '{evaluated_guideline.condition}', then: '{evaluated_guideline.action}'}}"
         terms = await self._glossary_store.find_relevant_terms(
-            agent.id,
             query=test_guideline + causation_candidates,
+            tags=[Tag.for_agent_id(agent.id)],
         )
 
         builder.add_glossary(terms)

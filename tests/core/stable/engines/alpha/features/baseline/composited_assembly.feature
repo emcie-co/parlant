@@ -1,17 +1,17 @@
-Feature: Strict Assembly
+Feature: Composited Assembly
     Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the strict_assembly message composition mode
+        And that the agent uses the composited_assembly message composition mode
         And an empty session
 
-    Scenario: The agent has no option to greet the customer (strict assembly)
+    Scenario: The agent has no option to greet the customer (composited assembly)
         Given a guideline to greet with 'Howdy' when the session starts
         And a fragment, "Your account balance is {balance}"
         When processing is triggered
-        Then no message events are emitted
+        Then a no-match message is emitted
 
-    Scenario: The agent explains it cannot help the customer (strict assembly)
+    Scenario: The agent explains it cannot help the customer (composited assembly)
         Given a guideline to talk about savings options when the customer asks how to save money
         And a customer message, "Man it's hard to make ends meet. Do you have any advice?"
         And a fragment, "Your account balance is {balance}"
@@ -20,7 +20,7 @@ Feature: Strict Assembly
         Then a single message event is emitted
         And the message contains the text "I cannot help with this inquiry."
 
-    Scenario: Responding based on data the user is providing (strict assembly)
+    Scenario: Responding based on data the user is providing (composited assembly)
         Given a customer message, "I say that a banana is green, and an apple is purple. What did I say was the color of a banana?"
         And a fragment, "Sorry"
         And a fragment, "I do not know"
@@ -30,7 +30,7 @@ Feature: Strict Assembly
         And the message doesn't contain the text "I do not know"
         And the message contains the text "The answer is green"
 
-    Scenario: Assemble a message out of many fragments (strict assembly)
+    Scenario: Assemble a message out of many fragments (composited assembly)
         Given a customer message, "Please tell me a made up story about the origin of bananas. Whatever you imagine."
         And a fragment, "I'd love to"
         And a fragment, "a"

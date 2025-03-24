@@ -30,6 +30,7 @@ from parlant.core.loggers import Logger
 from parlant.core.glossary import GlossaryStore
 from parlant.core.agents import Agent
 from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.tags import Tag
 
 
 EVALUATION_BATCH_SIZE = 5
@@ -438,8 +439,8 @@ Expected Output:
 
         builder.add_agent_identity(agent)
         terms = await self._glossary_store.find_relevant_terms(
-            agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
+            tags=[Tag.for_agent_id(agent.id)],
         )
         builder.add_glossary(terms)
 
@@ -690,8 +691,8 @@ Expected Output:
         )
         builder.add_agent_identity(agent)
         terms = await self._glossary_store.find_relevant_terms(
-            agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
+            tags=[Tag.for_agent_id(agent.id)],
         )
         builder.add_glossary(terms)
 

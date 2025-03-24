@@ -23,7 +23,6 @@ from typing import (
     Sequence,
     TypeVar,
     TypedDict,
-    cast,
 )
 
 from parlant.core.persistence.common import ObjectId, Where
@@ -58,8 +57,8 @@ class DeleteResult(Generic[TDocument]):
     deleted_document: Optional[TDocument]
 
 
-async def identity_loader(doc: BaseDocument) -> TDocument:
-    return cast(TDocument, doc)
+async def identity_loader(doc: BaseDocument) -> BaseDocument:
+    return doc
 
 
 class DocumentDatabase(ABC):

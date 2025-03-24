@@ -133,7 +133,7 @@ Feature: Tools
         And a single message event is emitted
         And the tool calls event is correlated with the message event
 
-    Scenario: Relevant guidelines are not refreshed based on tool results if no second iteration of proposing a new guideline is made
+    Scenario: Relevant guidelines are not refreshed based on tool results if no second iteration of matching a new guideline is made
         Given an agent with a maximum of 1 engine iterations
         And a guideline "retrieve_account_information" to retrieve account information when customers inquire about account-related information
         And the tool "get_account_balance"
@@ -285,7 +285,7 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "pay_cc_bill" with date 18-01-2025
 
-    Scenario: Guideline proposer and tool caller understand that a Q&A tool needs to be called multiple times to answer different questions
+    Scenario: Guideline matcher and tool caller understand that a Q&A tool needs to be called multiple times to answer different questions
         Given an empty session
         And a guideline "answer_questions" to look up the answer and, if found, when the customer has a question related to the bank's services
         And the tool "find_answer"

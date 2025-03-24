@@ -53,7 +53,10 @@ from parlant.core.persistence.document_database import (
 )
 from parlant.core.glossary import TermId
 from parlant.core.fragments import Fragment, FragmentId
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
+    DocumentStoreMigrationHelper,
+)
 
 SessionId = NewType("SessionId", str)
 
@@ -148,7 +151,7 @@ class StatusEventData(TypedDict):
     data: JSONSerializable
 
 
-class GuidelineProposition(TypedDict):
+class GuidelineMatch(TypedDict):
     guideline_id: GuidelineId
     condition: str
     action: str
@@ -178,20 +181,20 @@ class MessageGenerationInspection:
 
 
 @dataclass(frozen=True)
-class GuidelinePropositionInspection:
+class GuidelineMatchingInspection:
     total_duration: float
     batches: Sequence[GenerationInfo]
 
 
 @dataclass(frozen=True)
 class PreparationIterationGenerations:
-    guideline_proposition: GuidelinePropositionInspection
+    guideline_matching: GuidelineMatchingInspection
     tool_calls: Sequence[GenerationInfo]
 
 
 @dataclass(frozen=True)
 class PreparationIteration:
-    guideline_propositions: Sequence[GuidelineProposition]
+    guideline_matches: Sequence[GuidelineMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
@@ -354,13 +357,18 @@ class _GenerationInfoDocument(TypedDict):
     usage: _UsageInfoDocument
 
 
-class _GuidelinePropositionInspectionDocument(TypedDict):
+class _GuidelineMatchInspectionDocument(TypedDict):
     total_duration: float
     batches: Sequence[_GenerationInfoDocument]
 
 
+class _PreparationIterationGenerationsDocument_V_0_2_0(TypedDict):
+    guideline_proposition: _GuidelineMatchInspectionDocument
+    tool_calls: Sequence[_GenerationInfoDocument]
+
+
 class _PreparationIterationGenerationsDocument(TypedDict):
-    guideline_proposition: _GuidelinePropositionInspectionDocument
+    guideline_match: _GuidelineMatchInspectionDocument
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
@@ -374,8 +382,19 @@ class _MessageGenerationInspectionDocument(TypedDict):
     messages: Sequence[Optional[str]]
 
 
+class _PreparationIterationDocument_V_0_2_0(TypedDict):
+    guideline_propositions: Sequence[GuidelineMatch]
+    tool_calls: Sequence[ToolCall]
+    terms: Sequence[Term]
+    context_variables: Sequence[ContextVariable]
+    generations: _PreparationIterationGenerationsDocument_V_0_2_0
+
+
+_PreparationIterationDocument_V_0_1_0: TypeAlias = _PreparationIterationDocument_V_0_2_0
+
+
 class _PreparationIterationDocument(TypedDict):
-    guideline_propositions: Sequence[GuidelineProposition]
+    guideline_matches: Sequence[GuidelineMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
@@ -388,7 +407,16 @@ class _InspectionDocument_V_0_1_0(TypedDict, total=False):
     session_id: SessionId
     correlation_id: str
     message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_1_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument]
+    preparation_iterations: Sequence[_PreparationIterationDocument_V_0_1_0]
+
+
+class _InspectionDocument_V_0_2_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    session_id: SessionId
+    correlation_id: str
+    message_generations: Sequence[_MessageGenerationInspectionDocument]
+    preparation_iterations: Sequence[_PreparationIterationDocument_V_0_2_0]
 
 
 class _InspectionDocument(TypedDict, total=False):
@@ -401,7 +429,7 @@ class _InspectionDocument(TypedDict, total=False):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -413,11 +441,11 @@ class SessionDocumentStore(SessionStore):
         self._lock = ReaderWriterLock()
 
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
-        if doc["version"] == "0.1.0":
+        if doc["version"] in ["0.1.0", "0.2.0"]:
             doc = cast(_SessionDocument, doc)
             return _SessionDocument(
                 id=doc["id"],
-                version=self.VERSION.to_string(),
+                version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 customer_id=doc["customer_id"],
                 agent_id=doc["agent_id"],
@@ -425,16 +453,16 @@ class SessionDocumentStore(SessionStore):
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
             )
-        if doc["version"] == "0.2.0":
+        if doc["version"] == "0.3.0":
             return cast(_SessionDocument, doc)
         return None
 
     async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
-        if doc["version"] == "0.1.0":
+        if doc["version"] in ["0.1.0", "0.2.0"]:
             doc = cast(_EventDocument, doc)
             return _EventDocument(
                 id=doc["id"],
-                version=self.VERSION.to_string(),
+                version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 session_id=doc["session_id"],
                 source=doc["source"],
@@ -444,16 +472,16 @@ class SessionDocumentStore(SessionStore):
                 data=doc["data"],
                 deleted=doc["deleted"],
             )
-        if doc["version"] == "0.2.0":
+        if doc["version"] == "0.3.0":
             return cast(_EventDocument, doc)
         return None
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_InspectionDocument_V_0_1_0, doc)
-            return _InspectionDocument(
+            return _InspectionDocument_V_0_2_0(
                 id=doc["id"],
-                version=self.VERSION.to_string(),
+                version=Version.String("0.2.0"),
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
@@ -468,9 +496,66 @@ class SessionDocumentStore(SessionStore):
                 ],
                 preparation_iterations=doc["preparation_iterations"],
             )
-        if doc["version"] == "0.2.0":
-            return cast(_InspectionDocument, doc)
-        return None
+
+        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument_V_0_2_0, doc)
+            return _InspectionDocument(
+                id=doc["id"],
+                version=Version.String("0.3.0"),
+                session_id=doc["session_id"],
+                correlation_id=doc["correlation_id"],
+                message_generations=[
+                    _MessageGenerationInspectionDocument(
+                        generation=mg["generation"],
+                        messages=[
+                            m if isinstance(m, str) else m["message"] if m else None
+                            for m in mg["messages"]
+                        ],
+                    )
+                    for mg in doc["message_generations"]
+                ],
+                preparation_iterations=[
+                    _PreparationIterationDocument(
+                        guideline_matches=i["guideline_propositions"],
+                        tool_calls=i["tool_calls"],
+                        terms=i["terms"],
+                        context_variables=i["context_variables"],
+                        generations=_PreparationIterationGenerationsDocument(
+                            guideline_match=_GuidelineMatchInspectionDocument(
+                                total_duration=i["generations"]["guideline_proposition"][
+                                    "total_duration"
+                                ],
+                                batches=[
+                                    _GenerationInfoDocument(
+                                        schema_name=g["schema_name"],
+                                        model=g["model"],
+                                        duration=g["duration"],
+                                        usage=_UsageInfoDocument(
+                                            input_tokens=g["usage"]["input_tokens"],
+                                            output_tokens=g["usage"]["output_tokens"],
+                                            extra={
+                                                k: v if v else 0
+                                                for k, v in g["usage"]["extra"].items()  # type: ignore  # fix bug where values were None
+                                            },
+                                        ),
+                                    )
+                                    for g in i["generations"]["guideline_proposition"]["batches"]
+                                ],
+                            ),
+                            tool_calls=i["generations"]["tool_calls"],
+                        ),
+                    )
+                    for i in doc["preparation_iterations"]
+                ],
+            )
+
+        return await DocumentMigrationHelper[_InspectionDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.2.0": v0_2_0_to_v_0_3_0,
+            },
+        ).migrate(doc)
 
     async def __aenter__(self) -> Self:
         async with DocumentStoreMigrationHelper(
@@ -598,16 +683,16 @@ class SessionDocumentStore(SessionStore):
             ],
             preparation_iterations=[
                 {
-                    "guideline_propositions": i.guideline_propositions,
+                    "guideline_matches": i.guideline_matches,
                     "tool_calls": i.tool_calls,
                     "terms": i.terms,
                     "context_variables": i.context_variables,
                     "generations": _PreparationIterationGenerationsDocument(
-                        guideline_proposition=_GuidelinePropositionInspectionDocument(
-                            total_duration=i.generations.guideline_proposition.total_duration,
+                        guideline_match=_GuidelineMatchInspectionDocument(
+                            total_duration=i.generations.guideline_matching.total_duration,
                             batches=[
                                 serialize_generation_info(g)
-                                for g in i.generations.guideline_proposition.batches
+                                for g in i.generations.guideline_matching.batches
                             ],
                         ),
                         tool_calls=[serialize_generation_info(g) for g in i.generations.tool_calls],
@@ -645,18 +730,16 @@ class SessionDocumentStore(SessionStore):
             ],
             preparation_iterations=[
                 PreparationIteration(
-                    guideline_propositions=i["guideline_propositions"],
+                    guideline_matches=i["guideline_matches"],
                     tool_calls=i["tool_calls"],
                     terms=i["terms"],
                     context_variables=i["context_variables"],
                     generations=PreparationIterationGenerations(
-                        guideline_proposition=GuidelinePropositionInspection(
-                            total_duration=i["generations"]["guideline_proposition"][
-                                "total_duration"
-                            ],
+                        guideline_matching=GuidelineMatchingInspection(
+                            total_duration=i["generations"]["guideline_match"]["total_duration"],
                             batches=[
                                 deserialize_generation_info(g)
-                                for g in i["generations"]["guideline_proposition"]["batches"]
+                                for g in i["generations"]["guideline_match"]["batches"]
                             ],
                         ),
                         tool_calls=[

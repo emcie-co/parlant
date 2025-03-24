@@ -48,7 +48,16 @@ WhereOperator = TypedDict(
     total=False,
 )
 
-WhereExpression = dict[FieldName, WhereOperator]
+InclusionExclusionOperator = TypedDict(
+    "InclusionExclusionOperator",
+    {
+        "$in": list[LiteralValue],
+        "$nin": list[LiteralValue],
+    },
+    total=False,
+)
+
+WhereExpression = dict[FieldName, Union[WhereOperator, InclusionExclusionOperator]]
 
 LogicalOperator = TypedDict(
     "LogicalOperator",
@@ -103,10 +112,23 @@ def matches_filters(
         field_filters = cast(WhereExpression, where)
         for field_name, field_filter in field_filters.items():
             for operator, filter_value in field_filter.items():
-                if not _evaluate_filter(
-                    operator, candidate[field_name], cast(LiteralValue, filter_value)
-                ):
-                    return False
+                if operator == "$in":
+                    if not any(
+                        candidate[field_name] == val
+                        for val in cast(list[LiteralValue], filter_value)
+                    ):
+                        return False
+                elif operator == "$nin":
+                    if any(
+                        candidate[field_name] == val
+                        for val in cast(list[LiteralValue], filter_value)
+                    ):
+                        return False
+                else:
+                    if not _evaluate_filter(
+                        operator, candidate[field_name], cast(LiteralValue, filter_value)
+                    ):
+                        return False
 
     return True
 

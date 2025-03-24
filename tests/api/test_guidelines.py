@@ -23,6 +23,7 @@ from parlant.core.guideline_connections import GuidelineConnectionStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
+from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import LocalToolService, ToolId
 
 from tests.test_utilities import (
@@ -40,12 +41,17 @@ async def create_and_connect(
 ) -> list[Guideline]:
     guidelines = [
         await container[GuidelineStore].create_guideline(
-            guideline_set=agent_id,
             condition=gc.condition,
             action=gc.action,
         )
         for gc in guideline_contents
     ]
+
+    for guideline in guidelines:
+        _ = await container[GuidelineStore].upsert_tag(
+            guideline_id=guideline.id,
+            tag_id=Tag.for_agent_id(agent_id),
+        )
 
     for source, target in zip(guidelines, guidelines[1:]):
         await container[GuidelineConnectionStore].create_connection(
@@ -55,7 +61,7 @@ async def create_and_connect(
     return guidelines
 
 
-async def test_that_a_guideline_can_be_created(
+async def test_legacy_that_a_guideline_can_be_created(
     async_client: httpx.AsyncClient,
     agent_id: AgentId,
 ) -> None:
@@ -96,7 +102,7 @@ async def test_that_a_guideline_can_be_created(
     assert items[0]["guideline"]["action"] == "greet them back with 'Hello'"
 
 
-async def test_that_a_guideline_can_be_deleted(
+async def test_legacy_that_a_guideline_can_be_deleted(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -104,9 +110,13 @@ async def test_that_a_guideline_can_be_deleted(
     guideline_store = container[GuidelineStore]
 
     guideline_to_delete = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to unsubscribe",
         action="ask for confirmation",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline_to_delete.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     (
@@ -114,12 +124,10 @@ async def test_that_a_guideline_can_be_deleted(
     ).raise_for_status()
 
     with raises(ItemNotFoundError):
-        await guideline_store.read_guideline(
-            guideline_set=agent_id, guideline_id=guideline_to_delete.id
-        )
+        await guideline_store.read_guideline(guideline_id=guideline_to_delete.id)
 
 
-async def test_that_an_unapproved_invoice_is_rejected(
+async def test_legacy_that_an_unapproved_invoice_is_rejected(
     async_client: httpx.AsyncClient,
 ) -> None:
     request_data = {
@@ -158,7 +166,7 @@ async def test_that_an_unapproved_invoice_is_rejected(
     assert response_data["detail"] == "Unapproved invoice"
 
 
-async def test_that_a_connection_between_two_introduced_guidelines_is_created(
+async def test_legacy_that_a_connection_between_two_introduced_guidelines_is_created(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -267,7 +275,7 @@ async def test_that_a_connection_between_two_introduced_guidelines_is_created(
     assert len(connections) == 1
 
 
-async def test_that_a_connection_to_an_existing_guideline_is_created(
+async def test_legacy_that_a_connection_to_an_existing_guideline_is_created(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -275,7 +283,6 @@ async def test_that_a_connection_to_an_existing_guideline_is_created(
     guideline_store = container[GuidelineStore]
 
     existing_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer asks about the weather",
         action="provide the current weather update",
     )
@@ -339,37 +346,41 @@ async def test_that_a_connection_to_an_existing_guideline_is_created(
     assert connections[0].target == introduced_guideline["id"]
 
 
-async def test_that_a_guideline_can_be_read_by_id(
+async def test_legacy_that_a_guideline_can_be_read_by_id(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
     guideline_store = container[GuidelineStore]
 
-    stored_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
+    guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
         action="provide the current weather update",
     )
 
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
+    )
+
     item = (
-        (await async_client.get(f"/agents/{agent_id}/guidelines/{stored_guideline.id}"))
+        (await async_client.get(f"/agents/{agent_id}/guidelines/{guideline.id}"))
         .raise_for_status()
         .json()
     )
 
-    assert item["guideline"]["id"] == stored_guideline.id
+    assert item["guideline"]["id"] == guideline.id
     assert item["guideline"]["condition"] == "the customer asks about the weather"
     assert item["guideline"]["action"] == "provide the current weather update"
     assert len(item["connections"]) == 0
 
 
-async def test_that_guidelines_can_be_listed_for_an_agent(
+async def test_legacy_that_guidelines_can_be_listed(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
-    stored_guidelines = await create_and_connect(
+    guideline = await create_and_connect(
         container,
         agent_id,
         [
@@ -383,11 +394,11 @@ async def test_that_guidelines_can_be_listed_for_an_agent(
     )
 
     assert len(response_guidelines) == 2
-    assert any(stored_guidelines[0].id == g["id"] for g in response_guidelines)
-    assert any(stored_guidelines[1].id == g["id"] for g in response_guidelines)
+    assert any(guideline[0].id == g["id"] for g in response_guidelines)
+    assert any(guideline[1].id == g["id"] for g in response_guidelines)
 
 
-async def test_that_a_connection_can_be_added_to_a_guideline(
+async def test_legacy_that_a_connection_can_be_added_to_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -437,7 +448,7 @@ async def test_that_a_connection_can_be_added_to_a_guideline(
     assert response_connections[0]["target"]["id"] == guidelines[1].id
 
 
-async def test_that_a_direct_target_connection_can_be_removed_from_a_guideline(
+async def test_legacy_that_a_direct_target_connection_can_be_removed_from_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -476,7 +487,7 @@ async def test_that_a_direct_target_connection_can_be_removed_from_a_guideline(
     assert len(stored_connections) == 0
 
 
-async def test_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
+async def test_legacy_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -510,7 +521,7 @@ async def test_that_an_indirect_connection_cannot_be_removed_from_a_guideline(
     assert len(stored_connections) == 2
 
 
-async def test_that_deleting_a_guideline_also_deletes_all_of_its_direct_connections(
+async def test_legacy_that_deleting_a_guideline_also_deletes_all_of_its_direct_connections(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -536,14 +547,15 @@ async def test_that_deleting_a_guideline_also_deletes_all_of_its_direct_connecti
     assert not stored_connections
 
 
-async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connections(
+async def test_legacy_that_reading_a_guideline_lists_both_direct_and_indirect_connections(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
 ) -> None:
+    guideline_store = container[GuidelineStore]
+
     guidelines = [
-        await container[GuidelineStore].create_guideline(
-            guideline_set=agent_id,
+        await guideline_store.create_guideline(
             condition=condition,
             action=action,
         )
@@ -555,6 +567,12 @@ async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connectio
             ("E", "F"),
         ]
     ]
+
+    for guideline in guidelines:
+        _ = await guideline_store.upsert_tag(
+            guideline_id=guideline.id,
+            tag_id=Tag.for_agent_id(agent_id),
+        )
 
     for source, target in zip(guidelines, guidelines[1:]):
         await container[GuidelineConnectionStore].create_connection(
@@ -594,7 +612,7 @@ async def test_that_reading_a_guideline_lists_both_direct_and_indirect_connectio
         assert c["indirect"] is not is_direct
 
 
-async def test_that_a_tool_association_can_be_added(
+async def test_legacy_that_a_tool_association_can_be_added(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -611,9 +629,13 @@ async def test_that_a_tool_association_can_be_added(
     )
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     service_name = "local"
@@ -671,7 +693,7 @@ async def test_that_a_tool_association_can_be_added(
     )
 
 
-async def test_that_a_tool_association_can_be_removed(
+async def test_legacy_that_a_tool_association_can_be_removed(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -689,9 +711,13 @@ async def test_that_a_tool_association_can_be_removed(
     )
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     service_name = "local"
@@ -740,7 +766,7 @@ async def test_that_a_tool_association_can_be_removed(
     assert tool_associations == []
 
 
-async def test_that_guideline_deletion_removes_tool_associations(
+async def test_legacy_that_guideline_deletion_removes_tool_associations(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -758,9 +784,13 @@ async def test_that_guideline_deletion_removes_tool_associations(
     )
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     service_name = "local"
@@ -777,7 +807,7 @@ async def test_that_guideline_deletion_removes_tool_associations(
     assert not any(assoc.guideline_id == guideline.id for assoc in associations_after)
 
 
-async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_local_tool_to_a_guideline(
+async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_local_tool_to_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -785,9 +815,13 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_lo
     guideline_store = container[GuidelineStore]
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     service_name = "local"
@@ -812,7 +846,7 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_lo
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_openapi_tool_to_a_guideline(
+async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_openapi_tool_to_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -821,9 +855,13 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_op
     service_registry = container[ServiceRegistry]
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     tool_name = "nonexistent_tool"
@@ -856,7 +894,7 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_op
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_sdk_tool_to_a_guideline(
+async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_sdk_tool_to_a_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -865,9 +903,13 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_sd
     service_registry = container[ServiceRegistry]
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer wants to get meeting details",
         action="get meeting event information",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     tool_name = "nonexistent_tool"
@@ -898,7 +940,7 @@ async def test_that_an_http_404_is_thrown_when_associating_with_a_nonexistent_sd
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_an_existing_guideline_can_be_updated(
+async def test_legacy_that_an_existing_guideline_can_be_updated(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -907,20 +949,33 @@ async def test_that_an_existing_guideline_can_be_updated(
     connection_store = container[GuidelineConnectionStore]
 
     existing_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer greets you",
         action="reply with 'Hello'",
     )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=existing_guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
+    )
+
     connected_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="reply with 'Hello'",
         action="finish with a smile",
     )
 
+    _ = await guideline_store.upsert_tag(
+        guideline_id=connected_guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
+    )
+
     connected_guideline_post_update = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="reply with 'Howdy!'",
         action="finish with a smile",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=connected_guideline_post_update.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     await connection_store.create_connection(
@@ -991,7 +1046,7 @@ async def test_that_an_existing_guideline_can_be_updated(
     assert updated_connections[0].target == connected_guideline_post_update.id
 
 
-async def test_that_an_updated_guideline_can_entail_an_added_guideline(
+async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -1000,9 +1055,13 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
     connection_store = container[GuidelineConnectionStore]
 
     existing_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer greets you",
         action="reply with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=existing_guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     new_aciton = "reply with 'Howdy!'"
@@ -1091,7 +1150,7 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
 
     assert len(items) == 2
 
-    updated_guideline = await guideline_store.read_guideline(agent_id, existing_guideline.id)
+    updated_guideline = await guideline_store.read_guideline(existing_guideline.id)
 
     added_guideline_id = (
         items[1]["guideline"]["id"]
@@ -1099,7 +1158,7 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
         else items[0]["guideline"]["id"]
     )
 
-    added_guideline = await guideline_store.read_guideline(agent_id, added_guideline_id)
+    added_guideline = await guideline_store.read_guideline(added_guideline_id)
 
     updated_connections = await connection_store.list_connections(
         indirect=False, source=updated_guideline.id
@@ -1110,7 +1169,7 @@ async def test_that_an_updated_guideline_can_entail_an_added_guideline(
     assert updated_connections[0].target == added_guideline.id
 
 
-async def test_that_guideline_update_retains_existing_connections_with_disabled_connection_proposition(
+async def test_legacy_that_guideline_update_retains_existing_connections_with_disabled_connection_proposition(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -1119,14 +1178,23 @@ async def test_that_guideline_update_retains_existing_connections_with_disabled_
     connection_store = container[GuidelineConnectionStore]
 
     existing_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer greets you",
         action="reply with 'Hello'",
     )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=existing_guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
+    )
+
     connected_guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="reply with 'Hello'",
         action="finish with a smile",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=connected_guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     await connection_store.create_connection(
@@ -1185,7 +1253,7 @@ async def test_that_guideline_update_retains_existing_connections_with_disabled_
     assert updated_connections[0].target == connected_guideline.id
 
 
-async def test_that_a_guideline_can_be_disabled(
+async def test_legacy_that_a_guideline_can_be_disabled(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -1193,9 +1261,13 @@ async def test_that_a_guideline_can_be_disabled(
     guideline_store = container[GuidelineStore]
 
     guideline = await guideline_store.create_guideline(
-        guideline_set=agent_id,
         condition="the customer greets you",
         action="reply with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id(agent_id),
     )
 
     response = (
@@ -1209,3 +1281,549 @@ async def test_that_a_guideline_can_be_disabled(
 
     updated_guideline = response.json()["guideline"]
     assert not updated_guideline["enabled"]
+
+
+async def test_legacy_that_retrieving_a_guideline_associated_with_a_wrong_agent_id_returns_a_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer greets you",
+        action="reply with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_agent_id("wrong_agent"),
+    )
+
+    response = await async_client.get(f"/agents/{agent_id}/guidelines/{guideline.id}")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_legacy_that_updating_a_guideline_with_a_wrong_agent_id_returns_a_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer greets you",
+        action="reply with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=TagId("agent_id:wrong_agent"),
+    )
+
+    response = await async_client.patch(
+        f"/agents/{agent_id}/guidelines/{guideline.id}",
+        json={"enabled": False},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_legacy_that_deleting_a_guideline_with_a_wrong_agent_id_returns_a_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer greets you",
+        action="reply with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=TagId("agent_id:wrong_agent"),
+    )
+
+    response = await async_client.delete(f"/agents/{agent_id}/guidelines/{guideline.id}")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_a_guideline_can_be_created(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about pricing",
+            "action": "provide current pricing information",
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "the customer asks about pricing"
+    assert guideline["action"] == "provide current pricing information"
+    assert guideline["enabled"] is True
+    assert guideline["tags"] == []
+
+
+async def test_that_a_guideline_can_be_created_with_tags(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+
+    tag_1 = await tag_store.create_tag(name="pricing")
+    tag_2 = await tag_store.create_tag(name="sales")
+
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about pricing",
+            "action": "provide current pricing information",
+            "tags": [tag_1.id, tag_1.id, tag_2.id],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline_dto = (
+        (await async_client.get(f"/guidelines/{response.json()['id']}")).raise_for_status().json()
+    )
+
+    assert guideline_dto["guideline"]["condition"] == "the customer asks about pricing"
+    assert guideline_dto["guideline"]["action"] == "provide current pricing information"
+
+    assert len(guideline_dto["guideline"]["tags"]) == 2
+    assert set(guideline_dto["guideline"]["tags"]) == {tag_1.id, tag_2.id}
+
+
+async def test_that_guidelines_can_be_listed(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    first_guideline = [
+        await guideline_store.create_guideline(
+            condition=f"condition {i}",
+            action=f"action {i}",
+        )
+        for i in range(2)
+    ]
+    second_guideline = await guideline_store.create_guideline(
+        condition="condition 2",
+        action="action 2",
+    )
+
+    response_guidelines = (await async_client.get("/guidelines")).raise_for_status().json()
+
+    assert len(response_guidelines) >= 2
+    assert any(first_guideline[0].id == g["id"] for g in response_guidelines)
+    assert any(first_guideline[1].id == g["id"] for g in response_guidelines)
+    assert any(second_guideline.id == g["id"] for g in response_guidelines)
+
+
+async def test_that_guidelines_can_be_listed_by_tag(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    first_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+        action="action 1",
+    )
+
+    second_guideline = await guideline_store.create_guideline(
+        condition="condition 2",
+        action="action 2",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=first_guideline.id,
+        tag_id=TagId("tag_1"),
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=second_guideline.id,
+        tag_id=TagId("tag_2"),
+    )
+
+    response_guidelines = (
+        (await async_client.get("/guidelines?tag_id=tag_1")).raise_for_status().json()
+    )
+
+    assert len(response_guidelines) == 1
+    assert response_guidelines[0]["id"] == first_guideline.id
+
+    response_guidelines = (
+        (await async_client.get("/guidelines?tag_id=tag_2")).raise_for_status().json()
+    )
+
+
+async def test_that_a_guideline_can_be_read(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    item = (await async_client.get(f"/guidelines/{guideline.id}")).raise_for_status().json()
+
+    assert item["guideline"]["id"] == guideline.id
+    assert item["guideline"]["condition"] == "the customer asks about the weather"
+    assert item["guideline"]["action"] == "provide the current weather update"
+    assert len(item["connections"]) == 0
+    assert len(item["tool_associations"]) == 0
+
+
+async def test_that_a_guideline_condition_can_be_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "condition": "the customer inquires about weather",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["condition"] == "the customer inquires about weather"
+    assert updated_guideline["action"] == guideline.content.action
+
+
+async def test_that_a_guideline_action_can_be_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "action": "give current weather information",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["condition"] == guideline.content.condition
+    assert updated_guideline["action"] == "give current weather information"
+
+
+async def test_that_a_guideline_can_be_disabled(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "enabled": False,
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["enabled"] is False
+
+
+async def test_that_a_tag_can_be_added_to_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    tag_store = container[TagStore]
+
+    tag = await tag_store.create_tag("test_tag")
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "tags": {
+                "add": [tag.id],
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert tag.id in updated_guideline["tags"]
+
+
+async def test_that_a_tag_can_be_removed_from_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    # First add a tag
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=TagId("test_tag"),
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "tags": {
+                "remove": ["test_tag"],
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert "test_tag" not in updated_guideline["tags"]
+
+
+async def test_that_a_guideline_can_be_deleted(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to unsubscribe",
+        action="ask for confirmation",
+    )
+
+    (await async_client.delete(f"/guidelines/{guideline.id}")).raise_for_status()
+
+    response = await async_client.get(f"/guidelines/{guideline.id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_a_connection_can_be_added_to_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="the customer asks about nearby restaurants",
+        action="provide a list of restaurants",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="highlight the best-reviewed restaurant",
+        action="recommend the top choice",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{source_guideline.id}",
+        json={
+            "connections": {
+                "add": [
+                    {
+                        "source": source_guideline.id,
+                        "target": target_guideline.id,
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    connections = response.json()["connections"]
+
+    assert len(connections) == 1
+    assert connections[0]["source"]["id"] == source_guideline.id
+    assert connections[0]["target"]["id"] == target_guideline.id
+    assert connections[0]["indirect"] is False
+
+
+async def test_that_a_tool_association_can_be_added_to_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="fetch_event_data",
+        module_path="some.module",
+        description="",
+        parameters={},
+        required=[],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    service_name = "local"
+    tool_name = "fetch_event_data"
+
+    request_data = {
+        "tool_associations": {
+            "add": [
+                {
+                    "service_name": service_name,
+                    "tool_name": tool_name,
+                }
+            ]
+        }
+    }
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json=request_data,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    tool_associations = response.json()["tool_associations"]
+
+    assert any(
+        a["guideline_id"] == guideline.id
+        and a["tool_id"]["service_name"] == service_name
+        and a["tool_id"]["tool_name"] == tool_name
+        for a in tool_associations
+    )
+
+
+async def test_that_a_tag_can_be_added_to_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    tag_store = container[TagStore]
+
+    tag = await tag_store.create_tag("test_tag")
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"tags": {"add": [tag.id]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert tag.id in updated_guideline["tags"]
+
+
+async def test_that_a_tag_can_be_removed_from_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    tag_store = container[TagStore]
+
+    tag = await tag_store.create_tag("test_tag")
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=tag.id,
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"tags": {"remove": [tag.id]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["tags"] == []
+
+
+async def test_that_adding_nonexistent_agent_tag_to_guideline_returns_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"tags": {"add": ["agent-id:nonexistent_agent"]}},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_adding_nonexistent_tag_to_guideline_returns_404(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"tags": {"add": ["nonexistent_tag"]}},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

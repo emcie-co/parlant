@@ -74,6 +74,7 @@ from parlant.core.sessions import (
     SessionId,
     SessionStore,
 )
+from parlant.core.tags import Tag, TagId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import BaseDocument, DocumentCollection
@@ -211,22 +212,27 @@ async def create_term(
     description: str,
     synonyms: list[str],
 ) -> Term:
-    return await container[GlossaryStore].create_term(
-        term_set=agent_id,
+    term = await container[GlossaryStore].create_term(
         name=name,
         description=description,
         synonyms=synonyms,
     )
 
+    await container[GlossaryStore].upsert_tag(
+        term_id=term.id,
+        tag_id=Tag.for_agent_id(agent_id),
+    )
+
+    return term
+
 
 async def create_context_variable(
     container: Container,
-    agent_id: AgentId,
     name: str,
+    tags: list[TagId],
     description: str = "",
 ) -> ContextVariable:
     return await container[ContextVariableStore].create_variable(
-        variable_set=agent_id,
         name=name,
         description=description,
         tool_id=None,
@@ -236,13 +242,11 @@ async def create_context_variable(
 
 async def set_context_variable_value(
     container: Container,
-    agent_id: AgentId,
     variable_id: ContextVariableId,
     key: str,
     data: JSONSerializable,
 ) -> ContextVariableValue:
     return await container[ContextVariableStore].update_value(
-        variable_set=agent_id,
         key=key,
         variable_id=variable_id,
         data=data,
@@ -257,9 +261,13 @@ async def create_guideline(
     tool_function: Optional[Callable[[], ToolResult]] = None,
 ) -> Guideline:
     guideline = await container[GuidelineStore].create_guideline(
-        guideline_set=agent_id,
         condition=condition,
         action=action,
+    )
+
+    _ = await container[GuidelineStore].upsert_tag(
+        guideline.id,
+        Tag.for_agent_id(agent_id),
     )
 
     if tool_function:
@@ -396,7 +404,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 
     def _generate_id(
         self,
-        prompt: str,
+        prompt: str | PromptBuilder,
         hints: Mapping[str, Any],
     ) -> str:
         sorted_hints = json.dumps(dict(sorted(hints.items())), sort_keys=True)

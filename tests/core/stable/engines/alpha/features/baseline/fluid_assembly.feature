@@ -18,7 +18,7 @@ Feature: Fluid Assembly
     Scenario: Adherence to guidelines without fabricating responses (fluid assembly)
         Given a guideline "account_related_questions" to respond to the best of your knowledge when customers inquire about their account
         And a customer message, "What's my account balance?"
-        And that the "account_related_questions" guideline is proposed with a priority of 10 because "Customer inquired about their account balance."
+        And that the "account_related_questions" guideline is matched with a priority of 10 because "Customer inquired about their account balance."
         And a fragment, "Sorry"
         And a fragment, "I do not know"
         And a fragment, "Your account balance is {balance}"

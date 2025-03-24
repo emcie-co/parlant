@@ -84,14 +84,14 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         if self.file_path.stat().st_size == 0:
             return {}
 
-        async with aiofiles.open(self.file_path, "r") as file:
+        async with aiofiles.open(self.file_path, "r", encoding="utf-8") as file:
             return cast(dict[str, Any], json.loads(await file.read()))
 
     async def _save_data(
         self,
         data: Mapping[str, Sequence[Mapping[str, Any]]],
     ) -> None:
-        async with aiofiles.open(self.file_path, mode="w") as file:
+        async with aiofiles.open(self.file_path, mode="w", encoding="utf-8") as file:
             json_string = json.dumps(
                 {
                     **self._raw_data,

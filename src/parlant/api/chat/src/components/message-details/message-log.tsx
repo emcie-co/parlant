@@ -6,6 +6,7 @@ import {Log} from '@/utils/interfaces';
 import {useRef} from 'react';
 import Tooltip from '../ui/custom/tooltip';
 import {useDialog} from '@/hooks/useDialog';
+import CodeEditor from '../ui/custom/line-no-div';
 
 const MessageLog = ({log}: {log: Log}) => {
 	const {openDialog, DialogComponent, closeDialog} = useDialog();
@@ -13,9 +14,9 @@ const MessageLog = ({log}: {log: Log}) => {
 
 	const openLogs = (text: string) => {
 		const element = (
-			<pre ref={ref} className='group font-light font-ibm-plex-mono px-[30px] py-[10px] text-wrap text-[#333] relative overflow-auto h-[100%]'>
-				<div className='invisble group-hover:visible flex sticky top-[10px] right-[20px] justify-end'>
-					<div className='flex justify-end bg-white p-[10px] gap-[20px] rounded-lg'>
+			<pre ref={ref} className='group rounded-[12px] fixed-scroll font-light font-ibm-plex-mono  border-y-[10px] border-white text-wrap text-[#333] relative overflow-auto h-[100%]'>
+				<div className='invisble w-fit [justify-self:end] z-[999] group-hover:visible flex sticky top-[-4px] -mt-[4px] right-[10px] justify-end'>
+					<div className='flex justify-end bg-white p-[10px] gap-[20px] rounded-lg w-fit'>
 						<Tooltip value='Copy' side='top'>
 							<img src='icons/copy.svg' alt='' onClick={() => copy(text, ref?.current || undefined)} className='cursor-pointer' />
 						</Tooltip>
@@ -24,10 +25,11 @@ const MessageLog = ({log}: {log: Log}) => {
 						</Tooltip>
 					</div>
 				</div>
-				<div>{text}</div>
+				{/* <div className='[word-break:break-all]'>{text}</div> */}
+				<CodeEditor text={text}></CodeEditor>
 			</pre>
 		);
-		openDialog('', element, {height: '90vh', width: '90vw'});
+		openDialog('', element, {height: '90vh', width: 'min(90vw, 1200px)'});
 	};
 
 	return (
@@ -44,10 +46,7 @@ const MessageLog = ({log}: {log: Log}) => {
 					</div>
 				</Tooltip>
 			</div>
-			<pre className={clsx('max-w-[-webkit-fill-available] border-y-[10px] border-white group-hover:border-[#FAFAFA] font-light font-ibm-plex-mono pe-[10px] text-wrap')}>
-				{log?.level ? `[${log.level}]` : ''}
-				{log?.message}
-			</pre>
+			<pre className={clsx('max-w-[-webkit-fill-available] border-y-[10px] border-white group-hover:border-[#FAFAFA] font-light font-ibm-plex-mono pe-[10px] text-wrap')}>{log?.message?.trim()}</pre>
 			<DialogComponent />
 		</div>
 	);

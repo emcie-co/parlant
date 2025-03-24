@@ -85,6 +85,15 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
+        with self._logger.scope("CerebrasSchematicGenerator"):
+            with self._logger.operation(f"LLM Request ({self.schema.__name__})"):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
@@ -95,7 +104,13 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
             response = await self._client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
                 model=self.model_name,
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "schema": self.schema.model_json_schema(),
+                        "name": self.schema.__name__,
+                    },
+                },
                 **cerebras_api_arguments,
             )
         except RateLimitError:
@@ -107,6 +122,9 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
             raise
 
         t_end = time.time()
+
+        if response.usage:
+            self._logger.debug(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"  # type: ignore
 
@@ -124,7 +142,6 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
 
             return SchematicGenerationResult(
                 content=model_content,
-                prompt=prompt,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,
@@ -189,7 +206,7 @@ class Llama3_3_70B(CerebrasSchematicGenerator[T]):
     @property
     @override
     def max_tokens(self) -> int:
-        return 8192
+        return 32 * 1024
 
 
 class CerebrasService(NLPService):

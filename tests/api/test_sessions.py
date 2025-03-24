@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
 from parlant.core.fragments import FragmentStore
 from parlant.core.nlp.service import NLPService
+from parlant.core.tags import Tag
 from parlant.core.tools import ToolResult
 from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
 from parlant.core.async_utils import Timeout
@@ -823,13 +824,12 @@ async def test_that_a_message_can_be_inspected(
 
     context_variable = await create_context_variable(
         container=container,
-        agent_id=agent_id,
         name="Customer full name",
+        tags=[Tag.for_agent_id(agent_id)],
     )
 
     await set_context_variable_value(
         container=container,
-        agent_id=agent_id,
         variable_id=context_variable.id,
         key=session.customer_id,
         data=customer.name,
@@ -859,10 +859,10 @@ async def test_that_a_message_can_be_inspected(
     iterations = trace["preparation_iterations"]
     assert len(iterations) >= 1
 
-    assert len(iterations[0]["guideline_propositions"]) == 1
-    assert iterations[0]["guideline_propositions"][0]["guideline_id"] == guideline.id
-    assert iterations[0]["guideline_propositions"][0]["condition"] == guideline.content.condition
-    assert iterations[0]["guideline_propositions"][0]["action"] == guideline.content.action
+    assert len(iterations[0]["guideline_matches"]) == 1
+    assert iterations[0]["guideline_matches"][0]["guideline_id"] == guideline.id
+    assert iterations[0]["guideline_matches"][0]["condition"] == guideline.content.condition
+    assert iterations[0]["guideline_matches"][0]["action"] == guideline.content.action
 
     assert len(iterations[0]["tool_calls"]) == 1
     assert "get_cow_uttering" in iterations[0]["tool_calls"][0]["tool_id"]

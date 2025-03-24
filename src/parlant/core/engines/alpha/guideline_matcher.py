@@ -27,8 +27,8 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.engines.alpha.guideline_proposition import (
-    GuidelineProposition,
+from parlant.core.engines.alpha.guideline_match import (
+    GuidelineMatch,
     PreviouslyAppliedType,
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
@@ -46,12 +46,12 @@ class SegmentPreviouslyAppliedRationale(DefaultBaseModel):
     rationale: str
 
 
-class GuidelinePropositionSchema(DefaultBaseModel):
+class GuidelineMatchSchema(DefaultBaseModel):
     guideline_id: str
     condition: str
-    action: Optional[str] = None
     condition_application_rationale: str
     condition_applies: bool
+    action: Optional[str] = None
     guideline_is_continuous: Optional[bool] = None
     capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls: Optional[
         bool
@@ -61,20 +61,20 @@ class GuidelinePropositionSchema(DefaultBaseModel):
     ] = None
     guideline_previously_applied_rationale: Optional[list[SegmentPreviouslyAppliedRationale]] = None
     guideline_previously_applied: Optional[str] = None
-    is_missing_part_cosmetic_or_functional: Optional[Literal["cosmetic", "functional"]] = None
+    is_missing_part_cosmetic_or_functional: Optional[Literal["cosmetic", "functional", ""]] = None
     guideline_should_reapply: Optional[bool] = None
     applies_score: int
 
 
-class GuidelinePropositionsSchema(DefaultBaseModel):
-    checks: Sequence[GuidelinePropositionSchema]
+class GuidelineMatchesSchema(DefaultBaseModel):
+    checks: Sequence[GuidelineMatchSchema]
 
 
 @dataclass
-class GuidelinePropositionShot(Shot):
+class GuidelineMatchingShot(Shot):
     interaction_events: Sequence[Event]
     guidelines: Sequence[GuidelineContent]
-    expected_result: GuidelinePropositionsSchema
+    expected_result: GuidelineMatchesSchema
 
 
 @dataclass(frozen=True)
@@ -91,27 +91,27 @@ class ConditionApplicabilityEvaluation:
 
 
 @dataclass(frozen=True)
-class GuidelinePropositionResult:
+class GuidelineMatchingResult:
     total_duration: float
     batch_count: int
     batch_generations: Sequence[GenerationInfo]
-    batches: Sequence[Sequence[GuidelineProposition]]
+    batches: Sequence[Sequence[GuidelineMatch]]
 
     @cached_property
-    def propositions(self) -> Sequence[GuidelineProposition]:
+    def matches(self) -> Sequence[GuidelineMatch]:
         return list(chain.from_iterable(self.batches))
 
 
-class GuidelineProposer:
+class GuidelineMatcher:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[GuidelinePropositionsSchema],
+        schematic_generator: SchematicGenerator[GuidelineMatchesSchema],
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
 
-    async def propose_guidelines(
+    async def match_guidelines(
         self,
         agent: Agent,
         customer: Customer,
@@ -120,9 +120,9 @@ class GuidelineProposer:
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         staged_events: Sequence[EmittedEvent],
-    ) -> GuidelinePropositionResult:
-        with self._logger.scope("GuidelineProposer"):
-            return await self._do_propose_guidelines(
+    ) -> GuidelineMatchingResult:
+        with self._logger.scope("GuidelineMatcher"):
+            return await self._do_match_guidelines(
                 agent,
                 customer,
                 guidelines,
@@ -132,7 +132,7 @@ class GuidelineProposer:
                 staged_events,
             )
 
-    async def _do_propose_guidelines(
+    async def _do_match_guidelines(
         self,
         agent: Agent,
         customer: Customer,
@@ -141,9 +141,9 @@ class GuidelineProposer:
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         staged_events: Sequence[EmittedEvent],
-    ) -> GuidelinePropositionResult:
+    ) -> GuidelineMatchingResult:
         if not guidelines:
-            return GuidelinePropositionResult(
+            return GuidelineMatchingResult(
                 total_duration=0.0, batch_count=0, batch_generations=[], batches=[]
             )
 
@@ -174,15 +174,15 @@ class GuidelineProposer:
                 *(await async_utils.safe_gather(*batch_tasks))
             )
 
-        proposition_batches: list[list[GuidelineProposition]] = []
+        match_batches: list[list[GuidelineMatch]] = []
 
         for batch in cast(
             tuple[list[ConditionApplicabilityEvaluation]], condition_evaluations_batches
         ):
-            guideline_propositions = []
+            guideline_matches = []
             for evaluation in batch:
-                guideline_propositions.append(
-                    GuidelineProposition(
+                guideline_matches.append(
+                    GuidelineMatch(
                         guideline=guidelines_dict[GuidelineId(evaluation.guideline_id)],
                         score=evaluation.score,
                         guideline_previously_applied=PreviouslyAppliedType(
@@ -193,15 +193,15 @@ class GuidelineProposer:
                         should_reapply=evaluation.guideline_should_reapply or False,
                     )
                 )
-            proposition_batches.append(guideline_propositions)
+            match_batches.append(guideline_matches)
 
         t_end = time.time()
 
-        return GuidelinePropositionResult(
+        return GuidelineMatchingResult(
             total_duration=t_end - t_start,
             batch_count=len(batches),
             batch_generations=list(cast(tuple[GenerationInfo], batch_generations)),
-            batches=proposition_batches,
+            batches=match_batches,
         )
 
     def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
@@ -265,55 +265,49 @@ class GuidelineProposer:
         else:
             self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-        propositions = []
+        matches = []
 
-        for proposition in inference.content.checks:
-            if (proposition.applies_score >= 6) and (
-                (proposition.guideline_previously_applied in [None, "no"])
-                or proposition.guideline_should_reapply
+        for match in inference.content.checks:
+            if (match.applies_score >= 6) and (
+                (match.guideline_previously_applied in [None, "no"])
+                or match.guideline_should_reapply
             ):
-                self._logger.debug(
-                    f"Completion::Activated:\n{proposition.model_dump_json(indent=2)}"
-                )
+                self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
 
-                propositions.append(
+                matches.append(
                     ConditionApplicabilityEvaluation(
-                        guideline_id=GuidelineId(proposition.guideline_id),
+                        guideline_id=GuidelineId(match.guideline_id),
                         condition=guidelines_dict[
-                            GuidelineId(proposition.guideline_id)
+                            GuidelineId(match.guideline_id)
                         ].content.condition,
-                        action=guidelines_dict[GuidelineId(proposition.guideline_id)].content.action
+                        action=guidelines_dict[GuidelineId(match.guideline_id)].content.action
                         or "",
-                        score=proposition.applies_score,
-                        condition_application_rationale=proposition.condition_application_rationale,
-                        guideline_previously_applied=proposition.guideline_previously_applied
-                        or "no",
+                        score=match.applies_score,
+                        condition_application_rationale=match.condition_application_rationale,
+                        guideline_previously_applied=match.guideline_previously_applied or "no",
                         guideline_previously_applied_rationale="; ".join(
-                            [
-                                r.rationale
-                                for r in proposition.guideline_previously_applied_rationale
-                            ]
+                            [r.rationale for r in match.guideline_previously_applied_rationale]
                         )
-                        if proposition.guideline_previously_applied_rationale
+                        if match.guideline_previously_applied_rationale
                         else "",
-                        guideline_should_reapply=proposition.guideline_should_reapply or False,
-                        guideline_is_continuous=proposition.guideline_is_continuous or False,
+                        guideline_should_reapply=match.guideline_should_reapply or False,
+                        guideline_is_continuous=match.guideline_is_continuous or False,
                     )
                 )
             else:
-                self._logger.debug(f"Completion::Skipped:\n{proposition.model_dump_json(indent=2)}")
+                self._logger.debug(f"Completion::Skipped:\n{match.model_dump_json(indent=2)}")
 
-        return inference.info, propositions
+        return inference.info, matches
 
-    async def shots(self) -> Sequence[GuidelinePropositionShot]:
+    async def shots(self) -> Sequence[GuidelineMatchingShot]:
         return await shot_collection.list()
 
-    def _format_shots(self, shots: Sequence[GuidelinePropositionShot]) -> str:
+    def _format_shots(self, shots: Sequence[GuidelineMatchingShot]) -> str:
         return "\n".join(
             f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, shot: GuidelinePropositionShot) -> str:
+    def _format_shot(self, shot: GuidelineMatchingShot) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 "customer": "user",
@@ -366,7 +360,7 @@ class GuidelineProposer:
         staged_events: Sequence[EmittedEvent],
         terms: Sequence[Term],
         guidelines: dict[GuidelineId, Guideline],
-        shots: Sequence[GuidelinePropositionShot],
+        shots: Sequence[GuidelineMatchingShot],
     ) -> PromptBuilder:
         result_structure = [
             {
@@ -399,7 +393,7 @@ class GuidelineProposer:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-proposer-general-instructions",
+            name="guideline-matcher-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -455,7 +449,7 @@ In such cases, re-apply the guideline only if its condition becomes true again l
             props={},
         )
         builder.add_section(
-            name="guideline-proposer-examples-of-condition-evaluations",
+            name="guideline-matcher-examples-of-condition-evaluations",
             template="""
 Examples of Condition Evaluations:
 -------------------
@@ -483,7 +477,7 @@ Examples of Condition Evaluations:
         )
 
         builder.add_section(
-            name="guideline-proposer-expected-output",
+            name="guideline-matcher-expected-output",
             template="""
 IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 
@@ -561,16 +555,16 @@ example_1_guidelines = [
     ),
 ]
 
-example_1_expected = GuidelinePropositionsSchema(
+example_1_expected = GuidelineMatchesSchema(
     checks=[
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer initiates a purchase",
             condition_application_rationale="The purchase-related guideline was initiated earlier, but is currently irrelevant since the customer completed the purchase and the conversation has moved to a new topic.",
             condition_applies=False,
             applies_score=3,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about data security",
             condition_applies=True,
@@ -589,7 +583,7 @@ example_1_expected = GuidelinePropositionsSchema(
             guideline_should_reapply=True,
             applies_score=9,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asked to subscribe to our pro plan",
             condition_applies=True,
@@ -646,9 +640,9 @@ example_2_guidelines = [
     ),
 ]
 
-example_2_expected = GuidelinePropositionsSchema(
+example_2_expected = GuidelineMatchesSchema(
     checks=[
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer indicates that they are looking for a job.",
             condition_application_rationale="The current discussion is about the type of job the customer is looking for",
@@ -667,7 +661,7 @@ example_2_expected = GuidelinePropositionsSchema(
             guideline_should_reapply=False,
             applies_score=3,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about job openings.",
             condition_applies=True,
@@ -691,7 +685,7 @@ example_2_expected = GuidelinePropositionsSchema(
             guideline_should_reapply=True,
             applies_score=7,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="discussing job opportunities.",
             condition_applies=True,
@@ -739,9 +733,9 @@ example_3_guidelines = [
     ),
 ]
 
-example_3_expected = GuidelinePropositionsSchema(
+example_3_expected = GuidelineMatchesSchema(
     checks=[
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about the value of a stock.",
             condition_application_rationale="The customer asked what does the S&P500 trade at",
@@ -760,14 +754,14 @@ example_3_expected = GuidelinePropositionsSchema(
             guideline_should_reapply=True,
             applies_score=9,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the weather at a certain location is discussed.",
             condition_application_rationale="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
             condition_applies=False,
             applies_score=3,
         ),
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asked about the weather.",
             condition_application_rationale="The customer asked about the weather earlier, though the conversation has somewhat moved on to a new topic",
@@ -807,9 +801,9 @@ example_4_guidelines = [
     ),
 ]
 
-example_4_expected = GuidelinePropositionsSchema(
+example_4_expected = GuidelineMatchesSchema(
     checks=[
-        GuidelinePropositionSchema(
+        GuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer wants to book an appointment",
             condition_application_rationale="The customer has specifically asked to book an appointment",
@@ -837,26 +831,26 @@ example_4_expected = GuidelinePropositionsSchema(
 )
 
 
-_baseline_shots: Sequence[GuidelinePropositionShot] = [
-    GuidelinePropositionShot(
+_baseline_shots: Sequence[GuidelineMatchingShot] = [
+    GuidelineMatchingShot(
         description="",
         interaction_events=example_1_events,
         guidelines=example_1_guidelines,
         expected_result=example_1_expected,
     ),
-    GuidelinePropositionShot(
+    GuidelineMatchingShot(
         description="",
         interaction_events=example_2_events,
         guidelines=example_2_guidelines,
         expected_result=example_2_expected,
     ),
-    GuidelinePropositionShot(
+    GuidelineMatchingShot(
         description="",
         interaction_events=example_3_events,
         guidelines=example_3_guidelines,
         expected_result=example_3_expected,
     ),
-    GuidelinePropositionShot(
+    GuidelineMatchingShot(
         description="",
         interaction_events=example_4_events,
         guidelines=example_4_guidelines,
@@ -864,4 +858,4 @@ _baseline_shots: Sequence[GuidelinePropositionShot] = [
     ),
 ]
 
-shot_collection = ShotCollection[GuidelinePropositionShot](_baseline_shots)
+shot_collection = ShotCollection[GuidelineMatchingShot](_baseline_shots)

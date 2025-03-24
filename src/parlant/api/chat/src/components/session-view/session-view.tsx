@@ -234,23 +234,19 @@ const SessionView = (): ReactElement => {
 
 	return (
 		<>
-			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white transition-all gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
-				<div
-					className={twMerge(
-						'h-full min-w-[calc(100%-350px)] pb-[14px] pt-[8px] rounded-[10px] flex flex-col transition-all  duration-500 bg-white [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
-						showLogsForMessage && 'min-w-[calc(100%-min(700px,40vw))] max-w-[calc(100%-min(700px,40vw))]'
-					)}>
-					<div className='h-full flex flex-col border border-[#F6F8FA] rounded-[10px] max-w-[min(1020px,100%)] m-auto w-[1020px] min-w-[unset]'>
+			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
+				<div className={twMerge('h-full w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all duration-500 bg-white', showLogsForMessage && 'w-[calc(100%-min(700px,35vw))]')}>
+					<div className='h-full flex flex-col rounded-[10px] m-auto w-full min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
 						<SessoinViewHeader />
 						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
-						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-auto')}>
-							<div className='messages fixed-scroll flex-1 flex flex-col w-full pb-4 max-w-[1020px]' aria-live='polite' role='log' aria-label='Chat messages'>
+						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-hidden')}>
+							<div className='messages [scroll-snap-type:y_mandatory] fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={i}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
-										<div ref={lastMessageRef} className='flex flex-col'>
+										<div ref={lastMessageRef} className='flex snap-end flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
 											<Message
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
@@ -267,7 +263,7 @@ const SessionView = (): ReactElement => {
 							</div>
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
-								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px] hover:bg-main'>
+								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px]'>
 									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
 											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-[#f5f6f8]')}>
@@ -279,18 +275,20 @@ const SessionView = (): ReactElement => {
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(false)}
-												className={twMerge('gap-0 font-normal text-[14px] px-[10px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												className={twMerge('gap-0  cursor-pointer font-normal text-[14px] px-[10px] font-inter capitalize hover:!bg-[#FAF9FF]', !useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
 												<img src='icons/edit.svg' alt='' className={twMerge('me-[8px] size-[15px]')} />
 												Direct (No Moderation)
 											</DropdownMenuItem>
 											<DropdownMenuItem
 												tabIndex={0}
 												onClick={() => setUseContentFiltering(true)}
-												className={twMerge('gap-0 font-normal text-[14px] items-start px-[10px] font-inter  hover:!bg-[#FAF9FF]', useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
+												className={twMerge('gap-0 !cursor-pointer font-normal text-[14px] items-start px-[10px] font-inter  hover:!bg-[#FAF9FF]', useContentFiltering && '!bg-[#f5f6f8] hover:!bg-[#f5f6f8]')}>
 												<ShieldEllipsis className='me-[8px] !size-[17px] mt-[3px]' />
 												<div>
 													<div>Content Moderation</div>
-													<small>Messages will be flagged for harmful or illicit content and censored accordingly. The agent will see such messages were sent and the reason why they were censored, but it won't see their content.</small>
+													<small className='font-light'>
+														Messages will be flagged for harmful or illicit content and censored accordingly. The agent will see such messages were sent and the reason why they were censored, but it won't see their content.
+													</small>
 												</div>
 											</DropdownMenuItem>
 										</DropdownMenuContent>
@@ -303,9 +301,11 @@ const SessionView = (): ReactElement => {
 										onKeyDown={handleTextareaKeydown}
 										onChange={(e) => setMessage(e.target.value)}
 										rows={1}
-										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white group-hover:bg-main'
+										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
 									/>
-									{(showTyping || showThinking) && <p className='absolute left-0 -bottom-[26px] font-normal text-[#A9AFB7] text-[14px] font-inter'>{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}</p>}
+									<p className={twMerge('absolute invisible left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter', (showTyping || showThinking) && 'visible')}>
+										{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}
+									</p>
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 									</Button>
@@ -323,7 +323,7 @@ const SessionView = (): ReactElement => {
 				<ErrorBoundary component={<div className='flex h-full min-w-[50%] justify-center items-center text-[20px]'>Failed to load logs</div>}>
 					<div
 						className={twMerge(
-							'fixed top-0 left-[unset] h-full right-0 bg-white translate-x-[100%] max-w-[min(700px,40vw)] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,40vw)] duration-500 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)]',
+							'fixed top-0 left-[unset] h-full right-0 z-[99] bg-white translate-x-[100%] max-w-[min(700px,35vw)] [box-shadow:0px_0px_30px_0px_#0000001F] w-[min(700px,35vw)] [transition-duration:600ms]',
 							showLogsForMessage && 'translate-x-0'
 						)}>
 						{showLogsForMessage && (

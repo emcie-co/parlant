@@ -157,7 +157,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     agent_router = APIRouter(prefix="/agents")
 
     agent_router.include_router(
-        guidelines.create_router(
+        guidelines.create_legacy_router(
             application=application,
             guideline_store=guideline_store,
             guideline_connection_store=guideline_connection_store,
@@ -166,12 +166,12 @@ async def create_api_app(container: Container) -> ASGIApplication:
         ),
     )
     agent_router.include_router(
-        glossary.create_router(
+        glossary.create_legacy_router(
             glossary_store=glossary_store,
         ),
     )
     agent_router.include_router(
-        variables.create_router(
+        variables.create_legacy_router(
             context_variable_store=context_variable_store,
             service_registry=service_registry,
         ),
@@ -180,6 +180,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         router=agents.create_router(
             agent_store=agent_store,
+            tag_store=tag_store,
         ),
         prefix="/agents",
     )
@@ -226,9 +227,20 @@ async def create_api_app(container: Container) -> ASGIApplication:
     )
 
     api_app.include_router(
+        prefix="/terms",
+        router=glossary.create_router(
+            glossary_store=glossary_store,
+            agent_store=agent_store,
+            tag_store=tag_store,
+        ),
+    )
+
+    api_app.include_router(
         prefix="/customers",
         router=customers.create_router(
             customer_store=customer_store,
+            tag_store=tag_store,
+            agent_store=agent_store,
         ),
     )
 
@@ -236,6 +248,29 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/fragments",
         router=fragments.create_router(
             fragment_store=fragment_store,
+            tag_store=tag_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/context-variables",
+        router=variables.create_router(
+            context_variable_store=context_variable_store,
+            service_registry=service_registry,
+            agent_store=agent_store,
+            tag_store=tag_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/guidelines",
+        router=guidelines.create_router(
+            guideline_store=guideline_store,
+            guideline_connection_store=guideline_connection_store,
+            service_registry=service_registry,
+            guideline_tool_association_store=guideline_tool_association_store,
+            agent_store=agent_store,
+            tag_store=tag_store,
         ),
     )
 

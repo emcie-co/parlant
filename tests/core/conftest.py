@@ -68,7 +68,7 @@ def context(
         container,
         events=list(),
         guidelines=dict(),
-        guideline_propositions=dict(),
+        guideline_matches=dict(),
         tools=dict(),
         actions=list(),
     )

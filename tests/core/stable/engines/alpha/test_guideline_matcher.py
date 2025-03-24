@@ -33,18 +33,19 @@ from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.glossary import Term
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.engines.alpha.guideline_proposer import (
-    GuidelineProposer,
-    GuidelinePropositionsSchema,
+from parlant.core.engines.alpha.guideline_matcher import (
+    GuidelineMatcher,
+    GuidelineMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_proposition import (
-    GuidelineProposition,
+from parlant.core.engines.alpha.guideline_match import (
+    GuidelineMatch,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.sessions import EventSource
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId
 
+from parlant.core.tags import TagId, Tag
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -196,7 +197,7 @@ class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    schematic_generator: SchematicGenerator[GuidelinePropositionsSchema]
+    schematic_generator: SchematicGenerator[GuidelineMatchesSchema]
     logger: Logger
 
 
@@ -210,11 +211,11 @@ def context(
         sync_await,
         guidelines=list(),
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[GuidelinePropositionsSchema]],
+        schematic_generator=container[SchematicGenerator[GuidelineMatchesSchema]],
     )
 
 
-def propose_guidelines(
+def match_guidelines(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -222,8 +223,8 @@ def propose_guidelines(
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
     staged_events: Sequence[EmittedEvent] = [],
-) -> Sequence[GuidelineProposition]:
-    guideline_proposer = GuidelineProposer(
+) -> Sequence[GuidelineMatch]:
+    guideline_matcher = GuidelineMatcher(
         context.logger,
         context.schematic_generator,
     )
@@ -237,8 +238,8 @@ def propose_guidelines(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    guideline_proposition_result = context.sync_await(
-        guideline_proposer.propose_guidelines(
+    guideline_matching_result = context.sync_await(
+        guideline_matcher.match_guidelines(
             agent=agent,
             customer=customer,
             guidelines=context.guidelines,
@@ -249,10 +250,15 @@ def propose_guidelines(
         )
     )
 
-    return list(chain.from_iterable(guideline_proposition_result.batches))
+    return list(chain.from_iterable(guideline_matching_result.batches))
 
 
-def create_guideline(context: ContextOfTest, condition: str, action: str) -> Guideline:
+def create_guideline(
+    context: ContextOfTest,
+    condition: str,
+    action: str,
+    tags: list[TagId] = [],
+) -> Guideline:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
@@ -261,6 +267,7 @@ def create_guideline(context: ContextOfTest, condition: str, action: str) -> Gui
             action=action,
         ),
         enabled=True,
+        tags=tags,
     )
 
     context.guidelines.append(guideline)
@@ -268,22 +275,31 @@ def create_guideline(context: ContextOfTest, condition: str, action: str) -> Gui
     return guideline
 
 
-def create_term(name: str, description: str, synonyms: list[str] = []) -> Term:
+def create_term(
+    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
+) -> Term:
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
+        tags=tags,
     )
 
 
 def create_context_variable(
     name: str,
     data: JSONSerializable,
+    tags: list[TagId],
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
-        id=ContextVariableId("-"), name=name, description="", tool_id=None, freshness_rules=None
+        id=ContextVariableId("-"),
+        name=name,
+        description="",
+        tool_id=None,
+        freshness_rules=None,
+        tags=tags,
     ), ContextVariableValue(
         ContextVariableValueId("-"), last_modified=datetime.now(timezone.utc), data=data
     )
@@ -301,7 +317,7 @@ def create_guideline_by_name(
     return guideline
 
 
-def base_test_that_correct_guidelines_are_proposed(
+def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -321,7 +337,7 @@ def base_test_that_correct_guidelines_are_proposed(
         if name in relevant_guideline_names
     ]
 
-    guideline_propositions = propose_guidelines(
+    guideline_matches = match_guidelines(
         context,
         agent,
         customer,
@@ -330,12 +346,12 @@ def base_test_that_correct_guidelines_are_proposed(
         terms=terms,
         staged_events=staged_events,
     )
-    proposed_guidelines = [p.guideline for p in guideline_propositions]
+    matched_guidelines = [p.guideline for p in guideline_matches]
 
-    assert set(proposed_guidelines) == set(relevant_guidelines)
+    assert set(matched_guidelines) == set(relevant_guidelines)
 
 
-def test_that_relevant_guidelines_are_proposed_parametrized_2(
+def test_that_relevant_guidelines_are_matched_parametrized_2(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -379,7 +395,7 @@ def test_that_relevant_guidelines_are_proposed_parametrized_2(
     ]
 
     relevant_guideline_names: list[str] = ["issue_resolved"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -389,7 +405,7 @@ def test_that_relevant_guidelines_are_proposed_parametrized_2(
     )
 
 
-def test_that_irrelevant_guidelines_are_not_proposed_parametrized_1(
+def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -414,7 +430,7 @@ def test_that_irrelevant_guidelines_are_not_proposed_parametrized_1(
     ]
 
     conversation_guideline_names: list[str] = ["check_toppings_in_stock", "check_drinks_in_stock"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context, agent, customer, conversation_context, conversation_guideline_names, []
     )
 
@@ -450,19 +466,17 @@ def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
         ),
     ]
 
-    guideline_propositions = propose_guidelines(
-        context, agent, customer, [("customer", "Hello there")]
+    guideline_matches = match_guidelines(context, agent, customer, [("customer", "Hello there")])
+
+    assert len(guideline_matches) == len(relevant_guidelines)
+    assert all(gp.guideline in relevant_guidelines for gp in guideline_matches)
+    matches_scores = list(unique(gp.score for gp in guideline_matches))
+    assert len(matches_scores) == 1 or (
+        len(matches_scores) == 2 and abs(matches_scores[0] - matches_scores[1]) <= 1
     )
 
-    assert len(guideline_propositions) == len(relevant_guidelines)
-    assert all(gp.guideline in relevant_guidelines for gp in guideline_propositions)
-    proposition_scores = list(unique(gp.score for gp in guideline_propositions))
-    assert len(proposition_scores) == 1 or (
-        len(proposition_scores) == 2 and abs(proposition_scores[0] - proposition_scores[1]) <= 1
-    )
 
-
-def test_that_guidelines_are_proposed_based_on_agent_description(
+def test_that_guidelines_are_matched_based_on_agent_description(
     context: ContextOfTest,
     customer: Customer,
 ) -> None:
@@ -473,6 +487,7 @@ def test_that_guidelines_are_proposed_based_on_agent_description(
         description="You are an agent working for a skateboarding manufacturer. You help customers by discussing and recommending our products."
         "Your role is only to consult customers, and not to actually sell anything, as we sell our products in-store.",
         max_engine_iterations=3,
+        tags=[],
     )
 
     conversation_context: list[tuple[str, str]] = [
@@ -501,7 +516,7 @@ def test_that_guidelines_are_proposed_based_on_agent_description(
 
     conversation_guideline_names: list[str] = ["cant_perform_request"]
     relevant_guideline_names = ["cant_perform_request"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -511,7 +526,7 @@ def test_that_guidelines_are_proposed_based_on_agent_description(
     )
 
 
-def test_that_guidelines_are_proposed_based_on_glossary(
+def test_that_guidelines_are_matched_based_on_glossary(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -520,11 +535,13 @@ def test_that_guidelines_are_proposed_based_on_glossary(
         create_term(
             name="skateboard",
             description="a time-travelling device",
+            tags=[Tag.for_agent_id(agent.id)],
         ),
         create_term(
             name="Pinewood Rash Syndrome",
             description="allergy to pinewood trees",
             synonyms=["Pine Rash", "PRS"],
+            tags=[Tag.for_agent_id(agent.id)],
         ),
     ]
     conversation_context: list[tuple[str, str]] = [
@@ -547,7 +564,7 @@ def test_that_guidelines_are_proposed_based_on_glossary(
     ]
     conversation_guideline_names: list[str] = ["tree_allergies"]
     relevant_guideline_names = ["tree_allergies"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -600,7 +617,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
     ]
     conversation_guideline_names: list[str] = ["credit_payment1", "credit_payment2"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -610,7 +627,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
     )
 
 
-def test_that_guidelines_are_proposed_based_on_staged_tool_calls_and_context_variables(
+def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_variables(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -659,19 +676,22 @@ def test_that_guidelines_are_proposed_based_on_staged_tool_calls_and_context_var
         create_context_variable(
             name="user_id_1",
             data={"name": "Jimmy McGill", "ID": 566317},
+            tags=[Tag.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="user_id_2",
             data={"name": "Bob Bobberson", "ID": 199877},
+            tags=[Tag.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="user_id_3",
             data={"name": "Dorothy Dortmund", "ID": 816779},
+            tags=[Tag.for_agent_id(agent.id)],
         ),
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
     relevant_guideline_names = ["suggest_drink_underage"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -683,7 +703,7 @@ def test_that_guidelines_are_proposed_based_on_staged_tool_calls_and_context_var
     )
 
 
-def test_that_guidelines_are_proposed_based_on_staged_tool_calls_without_context_variables(
+def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_variables(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -731,7 +751,7 @@ def test_that_guidelines_are_proposed_based_on_staged_tool_calls_without_context
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
     relevant_guideline_names = ["suggest_drink_underage"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -742,7 +762,7 @@ def test_that_guidelines_are_proposed_based_on_staged_tool_calls_without_context
     )
 
 
-def test_that_already_addressed_guidelines_arent_proposed(
+def test_that_already_addressed_guidelines_arent_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -761,7 +781,7 @@ def test_that_already_addressed_guidelines_arent_proposed(
         ("customer", "Ship it to my address please"),
     ]
     conversation_guideline_names: list[str] = ["cheese_pizza"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context, agent, customer, conversation_context, conversation_guideline_names, []
     )
 
@@ -786,7 +806,7 @@ def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_
     ]
     conversation_guideline_names: list[str] = ["cheese_pizza_process"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -796,7 +816,7 @@ def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_
     )
 
 
-def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_is_proposed(
+def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_is_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -816,7 +836,7 @@ def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_
     ]
     conversation_guideline_names: list[str] = ["frustrated_customer"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -839,7 +859,7 @@ def test_that_guideline_isnt_detected_based_on_its_action(
     ]
     conversation_guideline_names: list[str] = ["announce_deals"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -870,7 +890,7 @@ def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_rea
     ]
     conversation_guideline_names: list[str] = ["add_to_count"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -880,7 +900,7 @@ def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_rea
     )
 
 
-def test_that_guideline_with_initial_response_is_proposed(
+def test_that_guideline_with_initial_response_is_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -893,7 +913,7 @@ def test_that_guideline_with_initial_response_is_proposed(
     ]
     conversation_guideline_names: list[str] = ["cow_response"]
     relevant_guideline_names = conversation_guideline_names
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,
@@ -920,7 +940,7 @@ def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_a_few_
         ("customer", "That's shorter than I expected, thank you!"),
     ]
     conversation_guideline_names: list[str] = ["many_actions"]
-    base_test_that_correct_guidelines_are_proposed(
+    base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         customer,

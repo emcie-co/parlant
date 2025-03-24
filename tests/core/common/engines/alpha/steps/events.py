@@ -20,6 +20,7 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import JSONSerializable
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.message_assembler import DEFAULT_NO_MATCH_MESSAGE
 from parlant.core.nlp.moderation import ModerationTag
 from parlant.core.sessions import (
     MessageEventData,
@@ -331,6 +332,18 @@ def then_no_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
     assert len([e for e in emitted_events if e.kind == "message"]) == 0
+
+
+@step(then, "a no-match message is emitted")
+def then_a_no_match_message_is_emitted(
+    emitted_events: list[EmittedEvent],
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert (
+        message == DEFAULT_NO_MATCH_MESSAGE
+    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_MESSAGE}'"
 
 
 def _has_status_event(

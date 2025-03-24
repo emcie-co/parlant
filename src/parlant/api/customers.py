@@ -19,9 +19,10 @@ from pydantic import Field
 from typing import Annotated, Mapping, Optional, Sequence, TypeAlias
 
 from parlant.api.common import apigen_config, ExampleJson, example_json_content
+from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.tags import TagId
+from parlant.core.tags import Tag, TagId, TagStore
 
 API_GROUP = "customers"
 
@@ -51,16 +52,6 @@ customer_creation_params_example: ExampleJson = {
         "VIP": "Yes",
     },
 }
-
-
-class CustomerCreationParamsDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": customer_creation_params_example},
-):
-    """Parameters for creating a new customer."""
-
-    name: CustomerNameField
-    extra: Optional[CustomerExtra] = None
 
 
 CustomerIdPath: TypeAlias = Annotated[
@@ -144,6 +135,17 @@ customer_extra_update_params_example: ExampleJson = {
 }
 
 
+class CustomerCreationParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": customer_creation_params_example},
+):
+    """Parameters for creating a new customer."""
+
+    name: CustomerNameField
+    extra: Optional[CustomerExtra] = None
+    tags: Optional[TagIdSequenceField] = None
+
+
 class CustomerExtraUpdateParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": customer_extra_update_params_example},
@@ -215,6 +217,8 @@ class CustomerUpdateParamsDTO(
 
 def create_router(
     customer_store: CustomerStore,
+    tag_store: TagStore,
+    agent_store: AgentStore,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -243,9 +247,21 @@ def create_router(
         A customer may be created with as little as a `name`.
         `extra` key-value pairs and additional `tags` may be attached to a customer.
         """
+        tags = []
+
+        if params.tags:
+            for tag_id in params.tags:
+                if agent_id := Tag.extract_agent_id(tag_id):
+                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
+                else:
+                    _ = await tag_store.read_tag(tag_id=tag_id)
+
+            tags = list(set(params.tags))
+
         customer = await customer_store.create_customer(
             name=params.name,
             extra=params.extra if params.extra else {},
+            tags=tags or None,
         )
 
         return CustomerDTO(
@@ -366,7 +382,8 @@ def create_router(
         if params.tags:
             if params.tags.add:
                 for tag_id in params.tags.add:
-                    await customer_store.add_tag(customer_id, tag_id)
+                    _ = await tag_store.read_tag(tag_id)
+                    await customer_store.upsert_tag(customer_id, tag_id)
             if params.tags.remove:
                 for tag_id in params.tags.remove:
                     await customer_store.remove_tag(customer_id, tag_id)

@@ -119,7 +119,7 @@ const MessageDetails = ({
 	const isError = event?.serverStatus === 'error';
 
 	return (
-		<div className={twJoin('w-full h-full animate-fade-in duration-500 overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
+		<div className={twJoin('w-full h-full animate-fade-in duration-200 overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 			<MessageDetailsHeader
 				event={event || null}
 				closeLogs={closeLogs}
@@ -134,7 +134,7 @@ const MessageDetails = ({
 				<ResizableHandle withHandle className={twJoin(!isError && 'hidden')} />
 				<ResizablePanel minSize={isError ? 0 : 100} maxSize={isError ? 99 : 100} defaultSize={isError ? 50 : 100} className='flex flex-col bg-white'>
 					{!!fragmentEntries.length && <MessageFragments fragments={fragmentEntries} />}
-					<div className='flex justify-between items-center min-h-[58px] h-[58px] p-[10px] pb-[4px] pe-0'>
+					<div className='flex justify-between bg-white z-[1] items-center min-h-[58px] h-[58px] p-[10px] pb-[4px] pe-0'>
 						<div className='ps-[14px] text-[#282828]'>Logs</div>
 						{!shouldRenderTabs && (
 							<LogFilters

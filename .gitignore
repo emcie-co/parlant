@@ -12,6 +12,7 @@ cache/
 .DS_STORE
 .vscode
 .venv
+.cursor
 logs
 runtime-data
 parlant-data

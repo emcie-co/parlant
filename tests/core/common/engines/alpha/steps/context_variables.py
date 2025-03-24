@@ -22,7 +22,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import CustomerStore
 from parlant.core.sessions import SessionId, SessionStore
-from parlant.core.tags import TagStore
+from parlant.core.tags import Tag, TagStore
 from parlant.core.tools import ToolId
 
 from tests.core.common.engines.alpha.utils import step
@@ -35,7 +35,9 @@ def get_or_create_variable(
     context_variable_store: ContextVariableStore,
     variable_name: str,
 ) -> ContextVariable:
-    variables = context.sync_await(context_variable_store.list_variables(agent_id))
+    variables = context.sync_await(
+        context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id)])
+    )
     if variable := next(
         (variable for variable in variables if variable.name == variable_name), None
     ):
@@ -43,11 +45,17 @@ def get_or_create_variable(
 
     variable = context.sync_await(
         context_variable_store.create_variable(
-            variable_set=agent_id,
             name=variable_name,
             description="",
             tool_id=None,
             freshness_rules=None,
+        )
+    )
+
+    context.sync_await(
+        context_variable_store.add_variable_tag(
+            variable_id=variable.id,
+            tag_id=Tag.for_agent_id(agent_id),
         )
     )
     return variable
@@ -68,7 +76,6 @@ def given_a_context_variable(
 
     variable = context.sync_await(
         context_variable_store.create_variable(
-            variable_set=agent_id,
             name=variable_name,
             description="",
             tool_id=None,
@@ -76,9 +83,15 @@ def given_a_context_variable(
         )
     )
 
+    context.sync_await(
+        context_variable_store.add_variable_tag(
+            variable_id=variable.id,
+            tag_id=Tag.for_agent_id(agent_id),
+        )
+    )
+
     return context.sync_await(
         context_variable_store.update_value(
-            variable_set=agent_id,
             key=customer_id,
             variable_id=variable.id,
             data=variable_value,
@@ -110,7 +123,6 @@ def given_a_context_variable_to_specific_customer(
 
     return context.sync_await(
         context_variable_store.update_value(
-            variable_set=agent_id,
             key=customer.id,
             variable_id=variable.id,
             data=variable_value,
@@ -138,7 +150,6 @@ def given_a_context_variable_for_a_tag(
 
     variable = context.sync_await(
         context_variable_store.create_variable(
-            variable_set=agent_id,
             name=variable_name,
             description="",
             tool_id=None,
@@ -148,7 +159,6 @@ def given_a_context_variable_for_a_tag(
 
     return context.sync_await(
         context_variable_store.update_value(
-            variable_set=agent_id,
             key=f"tag:{tag.id}",
             variable_id=variable.id,
             data=variable_value,
@@ -174,7 +184,6 @@ def given_a_context_variable_with_freshness_rules(
 
     return context.sync_await(
         context_variable_store.update_variable(
-            variable_set=agent_id,
             id=variable.id,
             params={"freshness_rules": freshness_rules},
         )
@@ -197,7 +206,6 @@ def given_a_context_variable_with_tool(
 
     return context.sync_await(
         context_variable_store.update_variable(
-            variable_set=agent_id,
             id=variable.id,
             params={"tool_id": ToolId(service_name="local", tool_name=tool_name)},
         )

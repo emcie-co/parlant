@@ -3,21 +3,21 @@ import {Button} from '../ui/button';
 import {Checkbox} from '../ui/checkbox';
 import {Input} from '../ui/input';
 import {Dialog, DialogClose, DialogContent, DialogDescription, DialogPortal, DialogTitle, DialogTrigger} from '../ui/dialog';
-import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
+import {ClassNameValue, twMerge} from 'tailwind-merge';
 import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
 
-export type Type = 'GuidelineProposer' | 'MessageEventComposer' | 'ToolCaller';
+export type Type = 'GuidelineMatcher' | 'MessageEventComposer' | 'ToolCaller';
 export type Level = 'WARNING' | 'INFO' | 'DEBUG';
 
-const ALL_TYPES: Type[] = ['GuidelineProposer', 'ToolCaller', 'MessageEventComposer'];
+const ALL_TYPES: Type[] = ['GuidelineMatcher', 'ToolCaller', 'MessageEventComposer'];
 const ALL_LEVELS: Level[] = ['WARNING', 'INFO', 'DEBUG'];
 
 const typeOptions: {[key in Type]: {label: string; icon: string; color: string}} = {
-	GuidelineProposer: {
-		label: 'Guideline Proposer',
-		icon: 'icons/filters/guideline-proposer-color.svg',
+	GuidelineMatcher: {
+		label: 'Guideline Matcher',
+		icon: 'icons/filters/guideline-matcher-color.svg',
 		color: '#419480',
 	},
 	MessageEventComposer: {
@@ -35,9 +35,10 @@ const typeOptions: {[key in Type]: {label: string; icon: string; color: string}}
 const AddFilterChip = ({className}: {className?: ClassNameValue}) => {
 	return (
 		<div className={twMerge('group cursor-pointer bg-white border-[#eeeeee] hover:bg-[#F3F5F9] hover:border-[#E4E6EA] border h-[30px] rounded-[6px] flex items-center w-full shadow-main', className)}>
-			<div className='flex items-center justify-center rounded-[3px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
-				<p className='me-[5px] text-[14px]'>+</p>
-				<p className='text-nowrap font-normal text-[14px]'>Add Custom Filter</p>
+			<div className='flex items-center justify-center rounded-[3px] leading-[16px] h-[calc(100%-4px)] w-[calc(100%-4px)] py-[5px] px-[8px] pe-[6px]'>
+				{/* <p className='me-[5px] text-[14px]'>+</p> */}
+				<img src='icons/text.svg' alt='' className='me-[5px]' />
+				<p className='text-nowrap font-normal text-[14px]'>Add Content Filter</p>
 			</div>
 		</div>
 	);
@@ -72,7 +73,7 @@ const FilterDialog = ({contentChanged, content, children, className}: {contentCh
 		<Dialog>
 			<DialogTrigger className='w-full'>{children || <AddFilterChip className={className} />}</DialogTrigger>
 			<DialogPortal aria-hidden={false}>
-				<DialogContent aria-hidden={false} className='p-0 [&>button]:hidden'>
+				<DialogContent aria-hidden={false} className='p-0 [&>button]:hidden z-[99]'>
 					<DialogTitle className='hidden'>Filter by content</DialogTitle>
 					<DialogDescription className='hidden'>Filter by content</DialogDescription>
 					<FilterDialogContent contentChanged={contentChanged} defaultValue={content || ''} />
@@ -137,7 +138,7 @@ const LogFilters = ({
 
 	const TypeChip = ({type, className}: {type: Type; className?: ClassNameValue}) => {
 		return (
-			<div key={type} className={twMerge('group border border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
+			<div key={type} className={twMerge('group border cursor-default border-[#EEEEEE] h-[30px] flex items-center gap-[8px] pt-[6px] pb-[5px] ps-[6px] rounded-[5px] pe-[6px] hover:bg-white', className)}>
 				<img src={typeOptions[type].icon} alt={type} />
 				<p className='text-nowrap font-normal text-[14px]'>{typeOptions[type].label}</p>
 				{/* <X role='button' className='invisible size-[18px] group-hover:visible rounded-[3px]' onClick={() => changeSource(type, false, applyFn)} /> */}
@@ -164,11 +165,11 @@ const LogFilters = ({
 	}) => {
 		return (
 			<Tooltip value={text} side='top' delayDuration={1000}>
-				<div key={text} className={twMerge('group px-[2px] max-w-[320px] cursor-pointer bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
+				<div key={text} className={twMerge('group px-[2px] cursor-default max-w-[320px] bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
 					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[5px] pe-[6px] gap-[8px]', className)}>
-						<div className='flex items-center gap-[8px]'>
+						<div className='flex items-center gap-[8px] leading-[16px]'>
 							<img src='icons/text.svg' alt='' />
-							<p className='text-nowrap max-w-full overflow-hidden text-ellipsis font-normal text-[14px]'>{text}</p>
+							<p className='text-nowrap cursor-default max-w-full overflow-hidden text-ellipsis font-light text-[14px]'>{text}</p>
 						</div>
 						{deleted && (
 							<X
@@ -193,8 +194,8 @@ const LogFilters = ({
 
 	const DropDownFilter = () => {
 		const [dropdownOpen, setDropdownOpen] = useState(false);
-		const [sources, setSources] = useState<Type[]>(def?.types || []);
-		const [content, setContent] = useState<string[]>(def?.content || []);
+		const [sources, setSources] = useState<Type[]>(structuredClone(def?.types || []));
+		const [content, setContent] = useState<string[]>(structuredClone(def?.content || []));
 		const wrapperRef = useRef<HTMLDivElement>(null);
 		const [usePopupToLeft, setUsePopupToLeft] = useState(false);
 
@@ -221,12 +222,18 @@ const LogFilters = ({
 			}
 		}, [wrapperRef?.current?.scrollWidth, dropdownOpen]);
 
+		const changeMenuOpen = () => {
+			setDropdownOpen(!dropdownOpen);
+			setSources(structuredClone(def?.types || []));
+			setContent(structuredClone(def?.content || []));
+		};
+
 		return (
 			<div className='wrapper relative flex items-center h-[30px]' ref={wrapperRef}>
 				<div>
-					<div onClick={() => setDropdownOpen(true)} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
+					<div onClick={changeMenuOpen} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
 						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
-						<p className='text-[14px] group-hover:underline font-medium'>Edit Filters</p>
+						<p className='text-[14px] group-hover:underline font-medium select-none'>Edit Filters</p>
 					</div>
 				</div>
 				<div className={twMerge('hidden border rounded-[7px] absolute top-[38px] left-0 w-[246px] z-50 bg-white', dropdownOpen && 'block', usePopupToLeft ? 'right-0 left-[unset]' : '')}>
@@ -235,17 +242,17 @@ const LogFilters = ({
 							{/* <ListFilter className='[stroke-width:2px] size-[16px]' /> */}
 							<p className='text-[14px] font-normal'>Filter</p>
 						</div>
-						<div role='button' onClick={() => setDropdownOpen(false)} className='flex h-[24px] w-[24px] items-center me-[2px] justify-center'>
+						<div role='button' onClick={changeMenuOpen} className='flex h-[24px] w-[24px] items-center me-[2px] justify-center'>
 							<img src='icons/close.svg' alt='close' />
 						</div>
 					</div>
 					<hr className='bg-[#EBECF0]' />
 					<div className='flex flex-col gap-[4px] mt-[9px] pb-[11px] px-[8px]'>
 						{ALL_TYPES.map((type) => (
-							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-[#F5F6F8]', sources.includes(type) && '!bg-green-main !text-white')}>
-								<Checkbox id={type} defaultChecked={def?.types?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
+							<div key={type} className={twMerge('flex items-center rounded-[3px] h-[24px] py-[4px] ps-[4px] space-x-2 hover:bg-main', sources.includes(type) && '!bg-gray-4')}>
+								<Checkbox id={type} checked={sources?.includes(type)} className='[&_svg]:[stroke:#006E53] border-black rounded-[2px] !bg-white' onCheckedChange={(isChecked) => changeSource(type, !!isChecked)} />
 								<label className='text-[14px] font-light w-full cursor-pointer flex gap-[8px] !ms-[12px]' htmlFor={type}>
-									<img src={typeOptions[type].icon} alt={type} className={twJoin(sources.includes(type) && 'brightness-[5]')} />
+									<img src={typeOptions[type].icon} alt={type} />
 									{typeOptions[type].label}
 								</label>
 							</div>
@@ -300,7 +307,7 @@ const LogFilters = ({
 	};
 
 	return (
-		<div className='flex items-center justify-between pe-[14px]'>
+		<div className='flex items-center justify-between pe-[14px] z-[1] bg-white'>
 			<div className={twMerge('flex z-[1] pt-[10px] pb-[8px] pe-[12px] ps-[14px] gap-[8px] h-fit min-h-[58px]', (!!def?.types?.length || !!def?.content?.length) && 'min-h-[50px]', className)}>
 				<div className='filters-button flex items-start gap-[10px] flex-wrap'>
 					{showTags && !!def?.types?.length && def.types.map((type) => <TypeChip key={type} type={type} />)}
@@ -309,7 +316,7 @@ const LogFilters = ({
 				</div>
 			</div>
 			{deleteFilterTab && (
-				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[8px] min-h-[28px] min-w-[28px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
+				<Button onClick={() => deleteFilterTab(filterId)} variant='outline' className='self-start mt-[10px] min-h-[28px] min-w-[28px] size-[28px] p-0 border border-[#EEEEEE] rounded-[6px] shadow-main'>
 					<X className='size-[14px] min-h-[14px] min-w-[14px]' />
 				</Button>
 			)}

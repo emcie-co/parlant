@@ -40,3 +40,7 @@ body {
 	color: revert;
 	text-decoration: revert;
 }
+
+img {
+	user-select: none;
+}

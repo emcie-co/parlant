@@ -177,41 +177,6 @@ async def test_that_an_agent_can_be_deleted(
         assert not any(a["name"] == name for a in await context.api.list_agents())
 
 
-async def test_that_an_agent_can_be_viewed(
-    context: ContextOfTest,
-) -> None:
-    name = "Test Agent"
-    description = "Bananas"
-    max_engine_iterations = 2
-
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        agent = await context.api.create_agent(
-            name=name,
-            description=description,
-            max_engine_iterations=max_engine_iterations,
-        )
-
-        process = await run_cli(
-            "agent",
-            "view",
-            "--id",
-            agent["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert process.returncode == os.EX_OK
-
-        assert agent["id"] in output_view
-        assert name in output_view
-        assert description in output_view
-        assert str(max_engine_iterations) in output_view
-
-
 async def test_that_sessions_can_be_listed(
     context: ContextOfTest,
 ) -> None:
@@ -309,13 +274,9 @@ async def test_that_a_term_can_be_created_with_synonyms(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         process = await run_cli(
             "glossary",
             "create",
-            "--agent-id",
-            agent_id,
             "--name",
             term_name,
             "--description",
@@ -341,13 +302,9 @@ async def test_that_a_term_can_be_created_without_synonyms(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         process = await run_cli(
             "glossary",
             "create",
-            "--agent-id",
-            agent_id,
             "--name",
             term_name,
             "--description",
@@ -360,7 +317,7 @@ async def test_that_a_term_can_be_created_without_synonyms(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        terms = await context.api.list_terms(agent_id)
+        terms = await context.api.list_terms()
         assert any(t["name"] == term_name for t in terms)
         assert any(t["description"] == description for t in terms)
         assert any(t["synonyms"] == [] for t in terms)
@@ -381,15 +338,11 @@ async def test_that_a_term_can_be_updated(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        term_to_update = await context.api.create_term(agent_id, name, description, synonyms)
+        term_to_update = await context.api.create_term(name, description, synonyms)
 
         process = await run_cli(
             "glossary",
             "update",
-            "--agent-id",
-            agent_id,
             "--id",
             term_to_update["id"],
             "--name",
@@ -406,7 +359,7 @@ async def test_that_a_term_can_be_updated(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        updated_term = await context.api.read_term(agent_id=agent_id, term_id=term_to_update["id"])
+        updated_term = await context.api.read_term(term_id=term_to_update["id"])
         assert updated_term["name"] == new_name
         assert updated_term["description"] == new_description
         assert updated_term["synonyms"] == [new_synonyms]
@@ -423,15 +376,11 @@ async def test_that_a_term_can_be_deleted(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        term = await context.api.create_term(agent_id, name, description, synonyms)
+        term = await context.api.create_term(name, description, synonyms)
 
         process = await run_cli(
             "glossary",
             "delete",
-            "--agent-id",
-            agent_id,
             "--id",
             term["id"],
             stdout=asyncio.subprocess.PIPE,
@@ -442,7 +391,7 @@ async def test_that_a_term_can_be_deleted(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        terms = await context.api.list_terms(agent_id)
+        terms = await context.api.list_terms()
         assert len(terms) == 0
 
 
@@ -456,13 +405,9 @@ async def test_that_a_guideline_can_be_added(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         process = await run_cli(
             "guideline",
             "create",
-            "--agent-id",
-            agent_id,
             "--condition",
             condition,
             "--action",
@@ -475,7 +420,7 @@ async def test_that_a_guideline_can_be_added(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines(agent_id)
+        guidelines = await context.api.list_guidelines()
         assert any(g["condition"] == condition and g["action"] == action for g in guidelines)
 
 
@@ -490,17 +435,11 @@ async def test_that_a_guideline_can_be_updated(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        guideline = await context.api.create_guideline(
-            agent_id=agent_id, condition=condition, action=initial_action
-        )
+        guideline = await context.api.create_guideline(condition=condition, action=initial_action)
 
         process = await run_cli(
             "guideline",
             "update",
-            "--agent-id",
-            agent_id,
             "--id",
             guideline["id"],
             "--condition",
@@ -515,208 +454,12 @@ async def test_that_a_guideline_can_be_updated(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        updated_guideline = (
-            await context.api.read_guideline(agent_id=agent_id, guideline_id=guideline["id"])
-        )["guideline"]
+        updated_guideline = (await context.api.read_guideline(guideline_id=guideline["id"]))[
+            "guideline"
+        ]
 
         assert updated_guideline["condition"] == condition
         assert updated_guideline["action"] == updated_action
-
-
-async def test_that_adding_a_contradictory_guideline_shows_coherence_errors(
-    context: ContextOfTest,
-) -> None:
-    condition = "the customer greets you"
-    action = "greet them back with 'Hello'"
-
-    conflicting_action = "ignore the customer"
-
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        process = await run_cli(
-            "guideline",
-            "create",
-            "--agent-id",
-            agent_id,
-            "--condition",
-            condition,
-            "--action",
-            action,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
-
-        process = await run_cli(
-            "guideline",
-            "create",
-            "--agent-id",
-            agent_id,
-            "--condition",
-            condition,
-            "--action",
-            conflicting_action,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, stderr = await process.communicate()
-        output = stdout.decode() + stderr.decode()
-
-        assert "Detected potential incoherence with other guidelines" in output
-
-        guidelines = await context.api.list_guidelines(agent_id)
-
-        assert not any(
-            g["condition"] == condition and g["action"] == conflicting_action for g in guidelines
-        )
-
-
-async def test_that_adding_connected_guidelines_creates_connections(
-    context: ContextOfTest,
-) -> None:
-    condition1 = "the customer asks about the weather"
-    action1 = "provide a weather update"
-
-    condition2 = "providing a weather update"
-    action2 = "include temperature and humidity"
-
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        process = await run_cli(
-            "guideline",
-            "create",
-            "--agent-id",
-            agent_id,
-            "--condition",
-            condition1,
-            "--action",
-            action1,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
-
-        process = await run_cli(
-            "guideline",
-            "create",
-            "--agent-id",
-            agent_id,
-            "--condition",
-            condition2,
-            "--action",
-            action2,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
-
-        guidelines = await context.api.list_guidelines(agent_id)
-
-        assert len(guidelines) == 2
-        source = guidelines[0]
-        target = guidelines[1]
-
-        source_guideline = await context.api.read_guideline(agent_id, source["id"])
-        source_connections = source_guideline["connections"]
-
-        assert len(source_connections) == 1
-        connection = source_connections[0]
-
-        assert connection["source"] == source
-        assert connection["target"] == target
-
-
-async def test_that_a_guideline_can_be_viewed(
-    context: ContextOfTest,
-) -> None:
-    condition = "the customer says goodbye"
-    action = "say 'Goodbye' back"
-
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        guideline = await context.api.create_guideline(
-            agent_id=agent_id, condition=condition, action=action
-        )
-
-        process = await run_cli(
-            "guideline",
-            "view",
-            "--agent-id",
-            agent_id,
-            "--id",
-            guideline["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        output = stdout.decode() + stderr.decode()
-        assert process.returncode == os.EX_OK
-
-        assert guideline["id"] in output
-        assert condition in output
-        assert action in output
-
-
-async def test_that_guidelines_can_be_listed(
-    context: ContextOfTest,
-) -> None:
-    condition1 = "the customer asks for help"
-    action1 = "provide assistance"
-
-    condition2 = "the customer needs support"
-    action2 = "offer support"
-
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        _ = await context.api.create_guideline(
-            agent_id=agent_id, condition=condition1, action=action1
-        )
-        _ = await context.api.create_guideline(
-            agent_id=agent_id, condition=condition2, action=action2
-        )
-
-        process = await run_cli(
-            "guideline",
-            "list",
-            "--agent-id",
-            agent_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        output_list = stdout.decode() + stderr.decode()
-        assert process.returncode == os.EX_OK
-
-        assert condition1 in output_list
-        assert action1 in output_list
-        assert condition2 in output_list
-        assert action2 in output_list
 
 
 async def test_that_guidelines_can_be_entailed(
@@ -732,15 +475,9 @@ async def test_that_guidelines_can_be_entailed(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         process = await run_cli(
             "guideline",
             "create",
-            "--agent-id",
-            agent_id,
-            "--no-check",
-            "--no-connect",
             "--condition",
             condition1,
             "--action",
@@ -756,10 +493,6 @@ async def test_that_guidelines_can_be_entailed(
         process = await run_cli(
             "guideline",
             "create",
-            "--agent-id",
-            agent_id,
-            "--no-check",
-            "--no-connect",
             "--condition",
             condition2,
             "--action",
@@ -772,7 +505,7 @@ async def test_that_guidelines_can_be_entailed(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines(agent_id)
+        guidelines = await context.api.list_guidelines()
 
         first_guideline = next(
             g for g in guidelines if g["condition"] == condition1 and g["action"] == action1
@@ -784,8 +517,6 @@ async def test_that_guidelines_can_be_entailed(
         process = await run_cli(
             "guideline",
             "entail",
-            "--agent-id",
-            agent_id,
             "--source",
             first_guideline["id"],
             "--target",
@@ -797,7 +528,7 @@ async def test_that_guidelines_can_be_entailed(
         await process.wait()
         assert process.returncode == os.EX_OK
 
-        guideline = await context.api.read_guideline(agent_id, first_guideline["id"])
+        guideline = await context.api.read_guideline(guideline_id=first_guideline["id"])
         assert "connections" in guideline and len(guideline["connections"]) == 1
         connection = guideline["connections"][0]
         assert connection["source"] == first_guideline and connection["target"] == second_guideline
@@ -810,17 +541,13 @@ async def test_that_a_guideline_can_be_deleted(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         guideline = await context.api.create_guideline(
-            agent_id, condition="the customer greets you", action="greet them back with 'Hello'"
+            condition="the customer greets you", action="greet them back with 'Hello'"
         )
 
         process = await run_cli(
             "guideline",
             "delete",
-            "--agent-id",
-            agent_id,
             "--id",
             guideline["id"],
             stdout=asyncio.subprocess.PIPE,
@@ -831,7 +558,7 @@ async def test_that_a_guideline_can_be_deleted(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines(agent_id)
+        guidelines = await context.api.list_guidelines()
         assert len(guidelines) == 0
 
 
@@ -842,99 +569,53 @@ async def test_that_a_connection_can_be_deleted(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         async with httpx.AsyncClient(
             follow_redirects=True,
             timeout=httpx.Timeout(30),
         ) as client:
             guidelines_response = await client.post(
-                f"{SERVER_ADDRESS}/agents/{agent_id}/guidelines/",
+                f"{SERVER_ADDRESS}/guidelines/",
                 json={
-                    "invoices": [
-                        {
-                            "payload": {
-                                "kind": "guideline",
-                                "guideline": {
-                                    "content": {
-                                        "condition": "the customer greets you",
-                                        "action": "greet them back with 'Hello'",
-                                    },
-                                    "operation": "add",
-                                    "coherence_check": True,
-                                    "connection_proposition": True,
-                                },
-                            },
-                            "checksum": "checksum_value",
-                            "approved": True,
-                            "data": {
-                                "guideline": {
-                                    "coherence_checks": [],
-                                    "connection_propositions": [
-                                        {
-                                            "check_kind": "connection_with_another_evaluated_guideline",
-                                            "source": {
-                                                "condition": "the customer greets you",
-                                                "action": "greet them back with 'Hello'",
-                                            },
-                                            "target": {
-                                                "condition": "greeting the customer",
-                                                "action": "ask for his health condition",
-                                            },
-                                        }
-                                    ],
-                                },
-                            },
-                            "error": None,
-                        },
-                        {
-                            "payload": {
-                                "kind": "guideline",
-                                "guideline": {
-                                    "content": {
-                                        "condition": "greeting the customer",
-                                        "action": "ask for his health condition",
-                                    },
-                                    "operation": "add",
-                                    "coherence_check": True,
-                                    "connection_proposition": True,
-                                },
-                            },
-                            "checksum": "checksum_value",
-                            "approved": True,
-                            "data": {
-                                "guideline": {
-                                    "coherence_checks": [],
-                                    "connection_propositions": [
-                                        {
-                                            "check_kind": "connection_with_another_evaluated_guideline",
-                                            "source": {
-                                                "condition": "the customer greets you",
-                                                "action": "greet them back with 'Hello'",
-                                            },
-                                            "target": {
-                                                "condition": "greeting the customer",
-                                                "action": "ask for his health condition",
-                                            },
-                                        }
-                                    ],
-                                },
-                            },
-                            "error": None,
-                        },
-                    ]
-                },  # type: ignore
+                    "condition": "the customer greets you",
+                    "action": "greet them back with 'Hello'",
+                },
             )
-
             guidelines_response.raise_for_status()
-            first = guidelines_response.json()["items"][0]["guideline"]["id"]
-            second = guidelines_response.json()["items"][1]["guideline"]["id"]
+
+            first = guidelines_response.json()
+
+            guidelines_response = await client.post(
+                f"{SERVER_ADDRESS}/guidelines/",
+                json={
+                    "condition": "greeting the customer",
+                    "action": "ask for his health condition",
+                },
+            )
+            guidelines_response.raise_for_status()
+
+            second = guidelines_response.json()
+
+            first = first["id"]
+            second = second["id"]
+
+            connection_response = await client.patch(
+                f"{SERVER_ADDRESS}/guidelines/{first}",
+                json={
+                    "connections": {
+                        "add": [
+                            {
+                                "source": first,
+                                "target": second,
+                            }
+                        ],
+                    },
+                },
+            )
+            connection_response.raise_for_status()
 
         process = await run_cli(
             "guideline",
             "disentail",
-            "--agent-id",
-            agent_id,
             "--source",
             first,
             "--target",
@@ -947,7 +628,7 @@ async def test_that_a_connection_can_be_deleted(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guideline = await context.api.read_guideline(agent_id, first)
+        guideline = await context.api.read_guideline(guideline_id=first)
         assert len(guideline["connections"]) == 0
 
 
@@ -958,10 +639,7 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer wants to get meeting details",
             action="get meeting event information",
         )
@@ -994,8 +672,6 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
                 await run_cli_and_get_exit_status(
                     "guideline",
                     "tool-enable",
-                    "--agent-id",
-                    agent_id,
                     "--id",
                     guideline["id"],
                     "--service",
@@ -1006,9 +682,7 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(
-                agent_id=agent_id, guideline_id=guideline["id"]
-            )
+            guideline = await context.api.read_guideline(guideline_id=guideline["id"])
 
             assert any(
                 assoc["tool_id"]["service_name"] == service_name
@@ -1024,10 +698,7 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer wants to get meeting details",
             action="get meeting event information",
         )
@@ -1056,16 +727,12 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            _ = await context.api.add_association(
-                agent_id, guideline["id"], service_name, tool_name
-            )
+            _ = await context.api.add_association(guideline["id"], service_name, tool_name)
 
             assert (
                 await run_cli_and_get_exit_status(
                     "guideline",
                     "tool-disable",
-                    "--agent-id",
-                    agent_id,
                     "--id",
                     guideline["id"],
                     "--service",
@@ -1076,9 +743,7 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(
-                agent_id=agent_id, guideline_id=guideline["id"]
-            )
+            guideline = await context.api.read_guideline(guideline_id=guideline["id"])
 
             assert guideline["tool_associations"] == []
 
@@ -1096,15 +761,12 @@ async def test_that_variables_can_be_listed(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-        _ = await context.api.create_context_variable(agent_id, name1, description1)
-        _ = await context.api.create_context_variable(agent_id, name2, description2)
+        _ = await context.api.create_context_variable(name1, description1)
+        _ = await context.api.create_context_variable(name2, description2)
 
         process = await run_cli(
             "variable",
             "list",
-            "--agent-id",
-            agent_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1128,8 +790,6 @@ async def test_that_a_variable_can_be_added(
     with run_server(context):
         while not is_server_responsive(SERVER_PORT):
             pass
-
-        agent_id = (await context.api.get_first_agent())["id"]
 
         service_name = "local_service"
         tool_name = "fetch_event_data"
@@ -1160,8 +820,6 @@ async def test_that_a_variable_can_be_added(
                 await run_cli_and_get_exit_status(
                     "variable",
                     "create",
-                    "--agent-id",
-                    agent_id,
                     "--description",
                     description,
                     "--name",
@@ -1176,7 +834,7 @@ async def test_that_a_variable_can_be_added(
                 == os.EX_OK
             )
 
-        variables = await context.api.list_context_variables(agent_id)
+        variables = await context.api.list_context_variables()
 
         variable = next(
             (
@@ -1210,8 +868,7 @@ async def test_that_a_variable_can_be_updated(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-        variable = await context.api.create_context_variable(agent_id, name, description)
+        variable = await context.api.create_context_variable(name, description)
 
         service_name = "local_service"
         tool_name = "fetch_event_data"
@@ -1242,8 +899,6 @@ async def test_that_a_variable_can_be_updated(
                 await run_cli_and_get_exit_status(
                     "variable",
                     "update",
-                    "--agent-id",
-                    agent_id,
                     "--id",
                     variable["id"],
                     "--description",
@@ -1258,7 +913,7 @@ async def test_that_a_variable_can_be_updated(
                 == os.EX_OK
             )
 
-        updated_variable = await context.api.read_context_variable(agent_id, variable["id"])
+        updated_variable = await context.api.read_context_variable(variable_id=variable["id"])
         assert updated_variable["context_variable"]["name"] == name
         assert updated_variable["context_variable"]["description"] == new_description
         assert updated_variable["context_variable"]["tool_id"] == {
@@ -1278,15 +933,11 @@ async def test_that_a_variable_can_be_deleted(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        variable = await context.api.create_context_variable(agent_id, name, description)
+        variable = await context.api.create_context_variable(name, description)
 
         process = await run_cli(
             "variable",
             "delete",
-            "--agent-id",
-            agent_id,
             "--id",
             variable["id"],
             stdout=asyncio.subprocess.PIPE,
@@ -1297,14 +948,14 @@ async def test_that_a_variable_can_be_deleted(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        variables = await context.api.list_context_variables(agent_id)
+        variables = await context.api.list_context_variables()
         assert len(variables) == 0
 
 
 async def test_that_a_variable_value_can_be_set_with_json(
     context: ContextOfTest,
 ) -> None:
-    variable_name = "test_variable_set"
+    variable_name = "test_variable"
     variable_description = "Variable to test setting value via CLI"
     key = "test_key"
     data: dict[str, Any] = {"test": "data", "type": 27}
@@ -1313,16 +964,11 @@ async def test_that_a_variable_value_can_be_set_with_json(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-        variable = await context.api.create_context_variable(
-            agent_id, variable_name, variable_description
-        )
+        variable = await context.api.create_context_variable(variable_name, variable_description)
 
         process = await run_cli(
             "variable",
             "set",
-            "--agent-id",
-            agent_id,
             "--id",
             variable["id"],
             "--key",
@@ -1337,14 +983,14 @@ async def test_that_a_variable_value_can_be_set_with_json(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        value = await context.api.read_context_variable_value(agent_id, variable["id"], key)
+        value = await context.api.read_context_variable_value(variable_id=variable["id"], key=key)
         assert json.loads(value["data"]) == data
 
 
 async def test_that_a_variable_value_can_be_set_with_string(
     context: ContextOfTest,
 ) -> None:
-    variable_name = "test_variable_set"
+    variable_name = "test_variable"
     variable_description = "Variable to test setting value via CLI"
     key = "test_key"
     data = "test_string"
@@ -1353,16 +999,11 @@ async def test_that_a_variable_value_can_be_set_with_string(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-        variable = await context.api.create_context_variable(
-            agent_id, variable_name, variable_description
-        )
+        variable = await context.api.create_context_variable(variable_name, variable_description)
 
         process = await run_cli(
             "variable",
             "set",
-            "--agent-id",
-            agent_id,
             "--id",
             variable["id"],
             "--key",
@@ -1377,7 +1018,7 @@ async def test_that_a_variable_value_can_be_set_with_string(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        value = await context.api.read_context_variable_value(agent_id, variable["id"], key)
+        value = await context.api.read_context_variable_value(variable_id=variable["id"], key=key)
 
         assert value["data"] == data
 
@@ -1397,19 +1038,16 @@ async def test_that_a_variables_values_can_be_retrieved(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-        variable = await context.api.create_context_variable(
-            agent_id, variable_name, variable_description
-        )
+        variable = await context.api.create_context_variable(variable_name, variable_description)
 
         for key, data in values.items():
-            await context.api.update_context_variable_value(agent_id, variable["id"], key, data)
+            await context.api.update_context_variable_value(
+                variable_id=variable["id"], key=key, value=data
+            )
 
         process = await run_cli(
             "variable",
             "get",
-            "--agent-id",
-            agent_id,
             "--id",
             variable["id"],
             stdout=asyncio.subprocess.PIPE,
@@ -1429,8 +1067,6 @@ async def test_that_a_variables_values_can_be_retrieved(
         process = await run_cli(
             "variable",
             "get",
-            "--agent-id",
-            agent_id,
             "--id",
             variable["id"],
             "--key",
@@ -1457,11 +1093,8 @@ async def test_that_a_variable_value_can_be_deleted(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        variable = await context.api.create_context_variable(agent_id, name, description="")
+        variable = await context.api.create_context_variable(name, description="")
         _ = await context.api.update_context_variable_value(
-            agent_id=agent_id,
             variable_id=variable["id"],
             key=key,
             value=value,
@@ -1471,8 +1104,6 @@ async def test_that_a_variable_value_can_be_deleted(
             await run_cli_and_get_exit_status(
                 "variable",
                 "delete-value",
-                "--agent-id",
-                agent_id,
                 "--id",
                 variable["id"],
                 "--key",
@@ -1481,7 +1112,7 @@ async def test_that_a_variable_value_can_be_deleted(
             == os.EX_OK
         )
 
-        variable = await context.api.read_context_variable(agent_id, variable["id"])
+        variable = await context.api.read_context_variable(variable_id=variable["id"])
         assert len(variable["key_value_pairs"]) == 0
 
 
@@ -1492,22 +1123,17 @@ async def test_that_a_message_can_be_inspected(
         while not is_server_responsive(SERVER_PORT):
             pass
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         guideline = await context.api.create_guideline(
-            agent_id=agent_id,
             condition="the customer talks about cows",
             action="address the customer by his first name and say you like Pepsi",
         )
 
         term = await context.api.create_term(
-            agent_id=agent_id,
             name="Bazoo",
             description="a type of cow",
         )
 
         variable = await context.api.create_context_variable(
-            agent_id=agent_id,
             name="Customer first name",
             description="",
         )
@@ -1515,13 +1141,14 @@ async def test_that_a_message_can_be_inspected(
         customer = await context.api.create_customer("John Smith")
 
         await context.api.update_context_variable_value(
-            agent_id=agent_id,
             variable_id=variable["id"],
             key=customer["id"],
             value="Johnny",
         )
 
-        session = await context.api.create_session(agent_id, customer["id"])
+        agent = await context.api.create_agent(name="test_agent")
+
+        session = await context.api.create_session(agent_id=agent["id"], customer_id=customer["id"])
 
         reply_event = await context.api.get_agent_reply(session["id"], "Oh do I like bazoos")
 
@@ -2166,28 +1793,22 @@ async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
         while not is_server_responsive(SERVER_PORT):
             await asyncio.sleep(0.05)
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         first_guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
         second_guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer greets you",
             action="greet them back with 'Goodbye'",
         )
 
         disabled_first_guideline = await context.api.update_guideline(
-            agent_id,
             first_guideline["id"],
             enabled=False,
         )
 
         disabled_second_guideline = await context.api.update_guideline(
-            agent_id,
             second_guideline["id"],
             enabled=False,
         )
@@ -2206,12 +1827,10 @@ async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
             )
         ) == os.EX_OK
 
-        enabled_first_guideline = await context.api.read_guideline(agent_id, first_guideline["id"])
+        enabled_first_guideline = await context.api.read_guideline(first_guideline["id"])
         assert enabled_first_guideline["guideline"]["enabled"] is True
 
-        enabled_second_guideline = await context.api.read_guideline(
-            agent_id, second_guideline["id"]
-        )
+        enabled_second_guideline = await context.api.read_guideline(second_guideline["id"])
         assert enabled_second_guideline["guideline"]["enabled"] is True
 
 
@@ -2220,16 +1839,12 @@ async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
         while not is_server_responsive(SERVER_PORT):
             await asyncio.sleep(0.05)
 
-        agent_id = (await context.api.get_first_agent())["id"]
-
         first_guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
         second_guideline = await context.api.create_guideline(
-            agent_id,
             condition="the customer greets you",
             action="greet them back with 'Goodbye'",
         )
@@ -2245,8 +1860,8 @@ async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
             )
         ) == os.EX_OK
 
-        disabled_guideline = await context.api.read_guideline(agent_id, first_guideline["id"])
+        disabled_guideline = await context.api.read_guideline(first_guideline["id"])
         assert disabled_guideline["guideline"]["enabled"] is False
 
-        disabled_guideline = await context.api.read_guideline(agent_id, second_guideline["id"])
+        disabled_guideline = await context.api.read_guideline(second_guideline["id"])
         assert disabled_guideline["guideline"]["enabled"] is False

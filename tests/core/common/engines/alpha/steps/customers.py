@@ -59,7 +59,7 @@ def given_a_customer_tag(
     customer_id = context.sync_await(session_store.read_session(session_id)).customer_id
 
     context.sync_await(
-        customer_store.add_tag(
+        customer_store.upsert_tag(
             customer_id=customer_id,
             tag_id=tag.id,
         )

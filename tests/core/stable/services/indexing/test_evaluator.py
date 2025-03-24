@@ -31,7 +31,7 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,
 )
-
+from parlant.core.tags import Tag
 from tests.conftest import NoCachedGenerations
 
 AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING = 0.3
@@ -117,10 +117,14 @@ async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_appr
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
-    await guideline_store.create_guideline(
-        guideline_set=agent.id,
+    guideline = await guideline_store.create_guideline(
         condition="a customer inquires about upgrading their service package",
         action="provide information on available upgrade options and benefits",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline.id,
+        Tag.for_agent_id(agent.id),
     )
 
     evaluation_id = await evaluation_service.create_evaluation_task(
@@ -165,10 +169,14 @@ async def test_that_an_evaluation_of_an_incoherent_guideline_completes_with_an_u
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
-    await guideline_store.create_guideline(
-        guideline_set=agent.id,
+    guideline = await guideline_store.create_guideline(
         condition="A VIP customer requests a specific feature that aligns with their business needs but is not on the current product roadmap",
         action="Escalate the request to product management for special consideration",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline.id,
+        Tag.for_agent_id(agent.id),
     )
 
     evaluation_id = await evaluation_service.create_evaluation_task(
@@ -418,10 +426,14 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
     evaluation_service = container[BehavioralChangeEvaluator]
     guideline_store = container[GuidelineStore]
 
-    await guideline_store.create_guideline(
-        guideline_set=agent.id,
+    guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
         action="greet them back with 'Hello'",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline.id,
+        Tag.for_agent_id(agent.id),
     )
 
     with raises(EvaluationValidationError) as exc:
@@ -459,10 +471,14 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
-    await guideline_store.create_guideline(
-        guideline_set=agent.id,
+    guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
         action="provide the current weather update",
+    )
+
+    _ = await guideline_store.upsert_tag(
+        guideline.id,
+        Tag.for_agent_id(agent.id),
     )
 
     evaluation_id = await evaluation_service.create_evaluation_task(

@@ -22,7 +22,7 @@ from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer, CustomerStore, CustomerId
-from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
+from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.loggers import Logger
@@ -30,6 +30,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventSource
+from parlant.core.tags import TagId, Tag
 from parlant.core.tools import (
     LocalToolService,
     Tool,
@@ -77,12 +78,13 @@ def create_interaction_history(
     ]
 
 
-def create_guideline_proposition(
+def create_guideline_match(
     condition: str,
     action: str,
     score: int,
     rationale: str,
-) -> GuidelineProposition:
+    tags: list[TagId],
+) -> GuidelineMatch:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
@@ -91,9 +93,10 @@ def create_guideline_proposition(
             action=action,
         ),
         enabled=True,
+        tags=tags,
     )
 
-    return GuidelineProposition(guideline=guideline, score=score, rationale=rationale)
+    return GuidelineMatch(guideline=guideline, score=score, rationale=rationale)
 
 
 async def create_local_tool(
@@ -138,21 +141,23 @@ async def test_that_a_tool_from_a_local_service_gets_called_with_an_enum_paramet
 
     interaction_history = create_interaction_history(conversation_context)
 
-    ordinary_guideline_propositions = [
-        create_guideline_proposition(
+    ordinary_guideline_matches = [
+        create_guideline_match(
             condition="customer asking a question",
             action="response in concise and breif answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
+            tags=[Tag.for_agent_id(agent.id)],
         )
     ]
 
-    tool_enabled_guideline_propositions = {
-        create_guideline_proposition(
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
             score=9,
             rationale="customer asks for keyboards availability",
+            tags=[Tag.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -161,8 +166,8 @@ async def test_that_a_tool_from_a_local_service_gets_called_with_an_enum_paramet
         context_variables=[],
         interaction_history=interaction_history,
         terms=[],
-        ordinary_guideline_propositions=ordinary_guideline_propositions,
-        tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+        ordinary_guideline_matches=ordinary_guideline_matches,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
         staged_events=[],
     )
 
@@ -204,21 +209,23 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_parameter(
 
     interaction_history = create_interaction_history(conversation_context)
 
-    ordinary_guideline_propositions = [
-        create_guideline_proposition(
+    ordinary_guideline_matches = [
+        create_guideline_match(
             condition="customer asking a question",
             action="response in concise and breif answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
+            tags=[Tag.for_agent_id(agent.id)],
         )
     ]
 
-    tool_enabled_guideline_propositions = {
-        create_guideline_proposition(
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
             score=9,
             rationale="customer asks for keyboards availability",
+            tags=[Tag.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -234,8 +241,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_parameter(
             context_variables=[],
             interaction_history=interaction_history,
             terms=[],
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             staged_events=[],
         )
 
@@ -277,21 +284,23 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
 
     interaction_history = create_interaction_history(conversation_context)
 
-    ordinary_guideline_propositions = [
-        create_guideline_proposition(
+    ordinary_guideline_matches = [
+        create_guideline_match(
             condition="customer asking a question",
             action="response in concise and breif answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
+            tags=[Tag.for_agent_id(agent.id)],
         )
     ]
 
-    tool_enabled_guideline_propositions = {
-        create_guideline_proposition(
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
             score=9,
             rationale="customer asks for keyboards availability",
+            tags=[Tag.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -307,8 +316,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
             context_variables=[],
             interaction_history=interaction_history,
             terms=[],
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             staged_events=[],
         )
 
@@ -353,21 +362,23 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
 
     interaction_history = create_interaction_history(conversation_context)
 
-    ordinary_guideline_propositions = [
-        create_guideline_proposition(
+    ordinary_guideline_matches = [
+        create_guideline_match(
             condition="customer asking a question",
             action="response in concise and breif answer",
             score=9,
             rationale="customer ask a question of what available keyboard do we have",
+            tags=[Tag.for_agent_id(agent.id)],
         )
     ]
 
-    tool_enabled_guideline_propositions = {
-        create_guideline_proposition(
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
             score=9,
             rationale="customer asks for keyboards availability",
+            tags=[Tag.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -383,8 +394,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
             context_variables=[],
             interaction_history=interaction_history,
             terms=[],
-            ordinary_guideline_propositions=ordinary_guideline_propositions,
-            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             staged_events=[],
         )
 

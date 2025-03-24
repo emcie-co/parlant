@@ -28,7 +28,11 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     DocumentCollection,
 )
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
+    DocumentStoreMigrationHelper,
+)
+from parlant.core.tags import TagId
 
 AgentId = NewType("AgentId", str)
 
@@ -54,6 +58,7 @@ class Agent:
     description: Optional[str]
     creation_utc: datetime
     max_engine_iterations: int
+    tags: Sequence[TagId]
     composition_mode: CompositionMode = "fluid"
 
 
@@ -65,6 +70,8 @@ class AgentStore(ABC):
         description: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
         max_engine_iterations: Optional[int] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Agent: ...
 
     @abstractmethod
@@ -91,6 +98,21 @@ class AgentStore(ABC):
         agent_id: AgentId,
     ) -> None: ...
 
+    @abstractmethod
+    async def upsert_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def remove_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+    ) -> None: ...
+
 
 class _AgentDocument(TypedDict, total=False):
     id: ObjectId
@@ -102,22 +124,49 @@ class _AgentDocument(TypedDict, total=False):
     composition_mode: CompositionMode
 
 
+class _AgentTagAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    agent_id: AgentId
+    tag_id: TagId
+
+
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
-        self._collection: DocumentCollection[_AgentDocument]
+        self._agents_collection: DocumentCollection[_AgentDocument]
+        self._tag_association_collection: DocumentCollection[_AgentTagAssociationDocument]
         self._allow_migration = allow_migration
 
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_AgentDocument]:
-        if doc["version"] == "0.1.0":
-            return cast(_AgentDocument, doc)
+        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
 
-        if doc["version"] == "0.2.0":
-            return cast(_AgentDocument, doc)
+        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+
+        return await DocumentMigrationHelper[_AgentDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.2.0": v0_2_0_to_v_0_3_0,
+            },
+        ).migrate(doc)
+
+    async def _association_document_loader(
+        self, doc: BaseDocument
+    ) -> Optional[_AgentTagAssociationDocument]:
+        if doc["version"] == "0.3.0":
+            return cast(_AgentTagAssociationDocument, doc)
 
         return None
 
@@ -127,10 +176,16 @@ class AgentDocumentStore(AgentStore):
             database=self._database,
             allow_migration=self._allow_migration,
         ):
-            self._collection = await self._database.get_or_create_collection(
+            self._agents_collection = await self._database.get_or_create_collection(
                 name="agents",
                 schema=_AgentDocument,
                 document_loader=self._document_loader,
+            )
+
+            self._tag_association_collection = await self._database.get_or_create_collection(
+                name="agent_tags",
+                schema=_AgentTagAssociationDocument,
+                document_loader=self._association_document_loader,
             )
 
         return self
@@ -143,7 +198,7 @@ class AgentDocumentStore(AgentStore):
     ) -> bool:
         return False
 
-    def _serialize(self, agent: Agent) -> _AgentDocument:
+    def _serialize_agent(self, agent: Agent) -> _AgentDocument:
         return _AgentDocument(
             id=ObjectId(agent.id),
             version=self.VERSION.to_string(),
@@ -154,13 +209,21 @@ class AgentDocumentStore(AgentStore):
             composition_mode=agent.composition_mode,
         )
 
-    def _deserialize(self, agent_document: _AgentDocument) -> Agent:
+    async def _deserialize_agent(self, agent_document: _AgentDocument) -> Agent:
+        tags = [
+            d["tag_id"]
+            for d in await self._tag_association_collection.find(
+                {"agent_id": {"$eq": agent_document["id"]}}
+            )
+        ]
+
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
             name=agent_document["name"],
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
+            tags=tags,
             composition_mode=cast(CompositionMode, agent_document.get("composition_mode", "fluid")),
         )
 
@@ -172,6 +235,7 @@ class AgentDocumentStore(AgentStore):
         creation_utc: Optional[datetime] = None,
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -183,10 +247,22 @@ class AgentDocumentStore(AgentStore):
                 description=description,
                 creation_utc=creation_utc,
                 max_engine_iterations=max_engine_iterations,
+                tags=tags or [],
                 composition_mode=composition_mode or "fluid",
             )
 
-            await self._collection.insert_one(document=self._serialize(agent=agent))
+            await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
+
+            for tag in tags or []:
+                await self._tag_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(generate_id()),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": creation_utc.isoformat(),
+                        "agent_id": agent.id,
+                        "tag_id": tag,
+                    }
+                )
 
         return agent
 
@@ -195,12 +271,15 @@ class AgentDocumentStore(AgentStore):
         self,
     ) -> Sequence[Agent]:
         async with self._lock.reader_lock:
-            return [self._deserialize(d) for d in await self._collection.find(filters={})]
+            return [
+                await self._deserialize_agent(d)
+                for d in await self._agents_collection.find(filters={})
+            ]
 
     @override
     async def read_agent(self, agent_id: AgentId) -> Agent:
         async with self._lock.reader_lock:
-            agent_document = await self._collection.find_one(
+            agent_document = await self._agents_collection.find_one(
                 filters={
                     "id": {"$eq": agent_id},
                 }
@@ -209,7 +288,7 @@ class AgentDocumentStore(AgentStore):
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
-        return self._deserialize(agent_document)
+        return await self._deserialize_agent(agent_document=agent_document)
 
     @override
     async def update_agent(
@@ -218,7 +297,7 @@ class AgentDocumentStore(AgentStore):
         params: AgentUpdateParams,
     ) -> Agent:
         async with self._lock.writer_lock:
-            agent_document = await self._collection.find_one(
+            agent_document = await self._agents_collection.find_one(
                 filters={
                     "id": {"$eq": agent_id},
                 }
@@ -227,14 +306,14 @@ class AgentDocumentStore(AgentStore):
             if not agent_document:
                 raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
-            result = await self._collection.update_one(
+            result = await self._agents_collection.update_one(
                 filters={"id": {"$eq": agent_id}},
                 params=cast(_AgentDocument, params),
             )
 
         assert result.updated_document
 
-        return self._deserialize(agent_document=result.updated_document)
+        return await self._deserialize_agent(agent_document=result.updated_document)
 
     @override
     async def delete_agent(
@@ -242,7 +321,70 @@ class AgentDocumentStore(AgentStore):
         agent_id: AgentId,
     ) -> None:
         async with self._lock.writer_lock:
-            result = await self._collection.delete_one({"id": {"$eq": agent_id}})
+            result = await self._agents_collection.delete_one({"id": {"$eq": agent_id}})
+
+            for doc in await self._tag_association_collection.find(
+                filters={
+                    "agent_id": {"$eq": agent_id},
+                }
+            ):
+                await self._tag_association_collection.delete_one(
+                    filters={"id": {"$eq": doc["id"]}}
+                )
 
         if result.deleted_count == 0:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+    @override
+    async def upsert_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        async with self._lock.writer_lock:
+            agent = await self.read_agent(agent_id)
+
+            if tag_id in agent.tags:
+                return False
+
+            creation_utc = creation_utc or datetime.now(timezone.utc)
+
+            association_document: _AgentTagAssociationDocument = {
+                "id": ObjectId(generate_id()),
+                "version": self.VERSION.to_string(),
+                "creation_utc": creation_utc.isoformat(),
+                "agent_id": agent_id,
+                "tag_id": tag_id,
+            }
+
+            _ = await self._tag_association_collection.insert_one(document=association_document)
+
+            agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+        if not agent_document:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+        return True
+
+    @override
+    async def remove_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+    ) -> None:
+        async with self._lock.writer_lock:
+            delete_result = await self._tag_association_collection.delete_one(
+                {
+                    "agent_id": {"$eq": agent_id},
+                    "tag_id": {"$eq": tag_id},
+                }
+            )
+
+            if delete_result.deleted_count == 0:
+                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+
+            agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+        if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))

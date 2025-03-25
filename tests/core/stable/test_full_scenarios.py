@@ -3,17 +3,24 @@ from datetime import datetime, timezone
 from itertools import chain  # noqa
 import json
 from typing import Any, Optional, Sequence, cast  # noqa
-from pytest import mark
+from pytest import Session, mark
 
 from lagom import Container  # noqa
 from parlant.core.agents import Agent, AgentId, AgentStore  # noqa
 from parlant.core.common import DefaultBaseModel, generate_id, JSONSerializable  # noqa
 from parlant.core.context_variables import (
+    ContextVariable,
     ContextVariableStore,
+    ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore  # noqa
+from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.engine import AlphaEngine  # noqa
+from parlant.core.engines.alpha.message_assembler import MessageAssembler
+from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
+from parlant.core.engines.alpha.tool_caller import ToolInsights
+from parlant.core.engines.types import Context
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.nlp.generation import SchematicGenerator  # noqa
@@ -25,13 +32,13 @@ from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,  # noqa
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore  # noqa
-from parlant.core.sessions import EventSource, MessageEventData, SessionStore  # noqa
+from parlant.core.sessions import EventSource, MessageEventData, SessionId, SessionStore  # noqa
 from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
 from parlant.core.tools import LocalToolService, Tool, ToolId, ToolParameterOptions
 from tests.core.common.utils import ContextOfTest, create_event_message  # noqa
-from tests.test_utilities import SyncAwaiter  # noqa
+from tests.test_utilities import nlp_test, SyncAwaiter  # noqa
 
 # TODO remove noqas
 
@@ -89,6 +96,27 @@ tools: dict[str, dict[str, Any]] = {
             "account_name": {"type": "string", "description": "The name of the account"}
         },
         "required": ["account_name"],
+    },
+    "transfer_coins": {
+        "name": "transfer_coins",
+        "description": "Transfer coins from one account to another",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "amount": {"type": "int", "description": "the number of coins to transfer"},
+            "from_account": {
+                "type": "string",
+                "description": "The account from which coins will be transferred",
+            },
+            "to_account": {
+                "type": "string",
+                "description": "The account to which money will be transferred",
+            },
+            "pincode": {
+                "type": "string",
+                "description": "the pincode for the account the coins are transfered from",
+            },
+        },
+        "required": ["amount", "from_account", "to_account", "pincode"],
     },
     "transfer_money": {
         "name": "transfer_money",
@@ -363,6 +391,20 @@ class _ToolCallVerification:
     expected_tool_arguments: Optional[dict[str, str]] = None
 
 
+class _ResponsePreparationState:  # TODO duplicate, should I keep it here?
+    """Helper class to access and update the state needed for responding properly"""
+
+    context_variables: list[tuple[ContextVariable, ContextVariableValue]]
+    glossary_terms: set[Term]
+    ordinary_guideline_propositions: list[GuidelineProposition]
+    tool_enabled_guideline_propositions: dict[GuidelineProposition, list[ToolId]]
+    tool_events: list[EmittedEvent]
+    tool_insights: ToolInsights
+    iterations_completed: int
+    prepared_to_respond: bool
+    message_events: list[EmittedEvent]
+
+
 @dataclass(frozen=True)
 class ScenarioTurn:
     customer_message: str
@@ -374,6 +416,7 @@ class ScenarioTurn:
 
 @dataclass(frozen=True)
 class _GuidelineAndTool:
+    name: str
     guideline: GuidelineContent
     associated_tools: Sequence[Tool] = None
 
@@ -386,12 +429,19 @@ class _ContextVariableData:
 
 
 @dataclass(frozen=True)
+class _TermData:
+    name: str
+    description: str
+    synonyms: Optional[Sequence[str]] = None
+
+
+@dataclass(frozen=True)
 class InteractionScenario:
     messages: Sequence[ScenarioTurn]
     agent_description: Optional[str] = ""
     guidelines_and_tools: Optional[Sequence[_GuidelineAndTool]] = None
     context_variables: Optional[Sequence[_ContextVariableData]] = None
-    glossary: Optional[Sequence[Term]] = None
+    glossary: Optional[Sequence[_TermData]] = None
 
 
 def get_tool(
@@ -417,68 +467,154 @@ def get_tool(
 BANKING_SCENARIO = InteractionScenario(
     messages=[
         ScenarioTurn(
-            customer_message="I want to transfer 20$ to Alan Johnson",
-            agent_message="It seems the PIN code you provided is incorrect, so the transfer could not be completed. Could you please double-check your PIN code?",
-            expected_agent_message_content="",
-            expected_tool_results=[
-                # ToolCallVerification(
-                #    expected_tool_id="open_account",
-                #    expected_tool_arguments={"account_type": "savings"},
-                # )
-            ],
+            customer_message="Hello! I want to coinmove to Alan Johnson",
+            agent_message="Welcome to Parlant Bank! How many coins would you like to transfer?",
+            expected_agent_message_content="Asking how many coins the agent would like to transfer",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_recipient_amount"),
+        ),
+        ScenarioTurn(
+            customer_message="500 coins",
+            agent_message="Got it. To confirm the transaction, please provide your PIN code.",
+            expected_agent_message_content="asking for the customer's pin code",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_pin_code"),
+        ),
+        ScenarioTurn(
+            customer_message="I don't have it. How can I get it?",
+            agent_message="Your pincode was emailed to your address at jez@parlant.io",
+            expected_agent_message_content="that the customer's pincode was sent to jez@parlant.io",
+            expected_tool_results=[],
+            expected_active_guidelines=set("email_pincode"),
+        ),
+        ScenarioTurn(
+            customer_message="Got it! it's 5432",
+            agent_message="Thank you! Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 500 coins to Alan Johnson, and your pincode is 5432",
+            expected_agent_message_content="asking the customer for confirmation about the following transaction: transferring 500 coins to Alan Johnson, with pin / pincode 5432",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_reiterate"),
+        ),
+        ScenarioTurn(
+            customer_message="that's right",
+            agent_message="The transaction was rejected due to an invalid pincode. Can you please double check the provided pin?",
+            expected_agent_message_content="informing the customer that the transaction was rejected due to an invalid pincode",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_execute"),
+        ),
+        ScenarioTurn(
+            customer_message="Oh sorry! it's actually 6543",
+            agent_message="The transaction was rejected because your account is blocked. Would you like me to unlock your account?",
+            expected_agent_message_content="informing the customer that the transaction was rejected because the account is blocked",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_execute"),
+        ),
+        ScenarioTurn(
+            customer_message="Got it! it's 5432",
+            agent_message="Thank you! Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 500 coins to Alan Johnson, and your pincode is 6543",
+            expected_agent_message_content="asking the customer for confirmation about the following transaction: transferring 500 coins to Alan Johnson, with pin / pincode 6543",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_reiterate"),
+        ),
+        ScenarioTurn(
+            customer_message="Can you reroute it to a different branch instead",
+            agent_message="I apologize, but I cannot assist you with this request through this chat. Is there anything else I could do for you instead?",
+            expected_agent_message_content="informing the customer that the agent can't help it rerouting to a different branch",
+            expected_tool_results=[],
             expected_active_guidelines=set(),
         ),
+        ScenarioTurn(
+            customer_message="Then yes, just unblock my account...",
+            agent_message="Your account has been succesfully unblocked",
+            expected_agent_message_content="informing the customer that the transaction was rejected because the account is blocked",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_execute"),
+        ),
+        ScenarioTurn(
+            customer_message="great, can I transfer the money to Alan now?",
+            agent_message="500 coins were succesfully transferred to Alan Johnson. The transaction number is 9911827",
+            expected_agent_message_content="informing the customer that the transaction succesful, and its number is 9911827",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_execute"),
+        ),
+        ScenarioTurn(
+            customer_message="nice. Now let's give Sophie Chapman 100 coins as well",
+            agent_message="Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 100 coins to Sophie Chapman, and your pincode is 6543",
+            expected_agent_message_content="asking for confirmation that the customer wishes to transfer 100 coins to Sophie Chapman, using pincode is 6543",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_reiterate"),
+        ),
+        ScenarioTurn(
+            customer_message="make that only 50 actually, she's been rude about my paintings lately",
+            agent_message="Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 50 coins to Sophie Chapman, and your pincode is 6543",
+            expected_agent_message_content="asking for confirmation that the customer wishes to transfer 50 coins to Sophie Chapman, using pincode is 6543",
+            expected_tool_results=[],
+            expected_active_guidelines=set("transfer_funds_execute"),
+        ),
     ],
+    agent_description="You are an AI customer assistant for Parlant Bank. Your role is to assist clients with their banking related needs.",
     guidelines_and_tools=[
         _GuidelineAndTool(
+            name="transfer_funds_recipient_amount",
             guideline=GuidelineContent(
-                condition="customer needs help unlocking their card",
-                action="ask for the card's last 6 digits, try to unlock the card and report the result to the customer",
-            ),
-            associated_tools=[get_tool("try_unlock_card")],
-        ),
-        _GuidelineAndTool(
-            guideline=GuidelineContent(
-                condition="customer wants to transfer money and hasn't specified to whom or how much",
-                action="ask them to whom and how much",
+                condition="The customer wants to transfer funds and hasn’t specified either to whom or how much",
+                action="Get the recipient’s name and transfer amount from the customer",
             ),
             associated_tools=[],
         ),
         _GuidelineAndTool(
+            name="transfer_funds_pin_code",
             guideline=GuidelineContent(
-                condition="customer wants to transfer money and has specified both how much and to whom",
-                action="double-check the recipients' name and account number and confirm with the user",
+                condition="The customer wants to transfer funds, has specified to whom and how much but have yet to provide a confirmed pincode",
+                action="Ask for the customer’s pincode",
             ),
             associated_tools=[],
         ),
         _GuidelineAndTool(
+            name="transfer_funds_reiterate",
             guideline=GuidelineContent(
-                condition="user wants to transfer money and has specified both how much and to whom and has confirmed it once and not yet specified or successfully confirmed their PIN Code",
-                action="ask for their PIN Code and confirm it",
+                condition="The customer wants to transfer funds, has specified to whom, how much to transfer and has provided a pin code",
+                action="Reitirate the details of the transfer to the customer and ask for confirmation",
             ),
-            associated_tools=[],  # TODO get_tool("pin_code_verification")
+            associated_tools=[],
         ),
         _GuidelineAndTool(
+            name="transfer_funds_execute",
             guideline=GuidelineContent(
-                condition="user wants to transfer money and has successfully confirmed their PIN code",
-                action="transfer money to the recipient and confirm the transaction providing its ID",
+                condition="The customer wants to transfer funds, and has confirmed the transfer details which the agent re-iterated, including the recipient, amount and the pincode",
+                action="Try to execute the transfer and report the results to the customer",
             ),
-            associated_tools=[],  # TODO get_tool("transfer_money")
+            associated_tools=[],  # TODO get_tool("transfer_funds")
         ),
         _GuidelineAndTool(
+            name="unlock_account",
             guideline=GuidelineContent(
-                condition="user wants to know their account balance",
-                action="find it and provide it to them",
+                condition="User asks to unlock their account",
+                action="Use the customer’s account number to unlock the account",
             ),
-            associated_tools=[get_tool("get_account_balance")],
+            associated_tools=[],  # TODO get_tool("unlock_account")
         ),
         _GuidelineAndTool(
+            name="email_pincode",
             guideline=GuidelineContent(
-                condition="user wants to know their transactions",
-                action="find the transactions and show it to them",
+                condition="The customer asks for their pin code",
+                action="Email the pincode to the customer and inform them that it has been emailed to their address",
             ),
-            associated_tools=[],  # TODO get_tool("show_transactions")
+            associated_tools=[],  # TODO get_tool("email_pinocde")
         ),
+    ],
+    glossary=[
+        _TermData(
+            name="coinmove", description="The act of transferring funds from one account to another"
+        ),
+        _TermData(
+            name="coin++",
+            description="The act of adding funds to an account from an external source",
+            synonyms=["coinadd", "coinincrease"],
+        ),
+    ],
+    context_variables=[
+        _ContextVariableData(name="Account Number", data="819663"),
+        _ContextVariableData(name="Customer Email", data="jez@parlant.co"),
     ],
 )
 model_config = {"arbitrary_types_allowed": True}
@@ -540,7 +676,7 @@ def register_context_variables(
     context_variables: Sequence[_ContextVariableData],
     agent_id: AgentId,
     customer_id: CustomerId,
-) -> None:
+) -> ContextVariableStore:
     context_variable_store = context.container[ContextVariableStore]
     for context_variable in context_variables:
         variable = context.sync_await(
@@ -560,6 +696,11 @@ def register_context_variables(
                 data=context_variable.data,
             )
         )
+    return context.sync_await(
+        context_variable_store.list_variables(
+            variable_set=agent_id,
+        )
+    )
 
 
 def register_events(
@@ -609,33 +750,33 @@ def register_events(
             )
             context.events.append(agent_message_event)
 
-            for tool_result in turn.tool_results:
-                context.sync_await(
-                    session_store.create_event(
-                        session_id=session.id,
-                        source="ai_agent",
-                        kind="tool",
-                        correlation_id="test_correlation_id",
-                        data=json.loads(tool_result),
-                    )
+            context.sync_await(
+                session_store.create_event(
+                    session_id=session.id,
+                    source="ai_agent",
+                    kind="tool",
+                    correlation_id="test_correlation_id",
+                    data=json.loads(turn.tool_results),
                 )
+            )
 
 
 def build_test_context(
     context: ContextOfTest, scenario: InteractionScenario, message_n: int
-) -> None:
+) -> tuple[SessionId, AgentId]:
     # Get relevant stores
     session_store = context.container[SessionStore]
     customer_store = context.container[CustomerStore]
     glossary_store = context.container[GlossaryStore]
+    session_store = context.container[SessionStore]
 
     # Create agent, customer & session
-    # engine = context.container[AlphaEngine]
     agent = context.sync_await(
         context.container[AgentStore].create_agent(
             name="test-agent",
             description=scenario.agent_description,
             max_engine_iterations=2,
+            composition_mode="strict_assembly",
         )
     )
     utc_now = datetime.now(timezone.utc)
@@ -646,39 +787,129 @@ def build_test_context(
             customer_id=customer.id,
             agent_id=agent.id,
         )
-    )  # TODO I was here
+    )
 
     # Create guidelines, tools and their associations
-    register_guidelines_and_tools(context, agent.id, scenario.guidelines_and_tools)
+    if scenario.guidelines_and_tools:
+        register_guidelines_and_tools(context, agent.id, scenario.guidelines_and_tools)
 
     # Create glossary
-    for term in scenario.glossary:
-        context.sync_await(
-            glossary_store.create_term(
-                term_set=agent.id,
-                name=term.name,
-                description=term.description,
-                synonyms=term.synonyms,
+    if scenario.glossary:
+        for term in scenario.glossary:
+            context.sync_await(
+                glossary_store.create_term(
+                    term_set=agent.id,
+                    name=term.name,
+                    description=term.description,
+                    synonyms=term.synonyms,
+                )
             )
-        )
+        context.terms = context.sync_await(glossary_store.list_terms(term_set=agent.id))
 
     # Create context variables
-    register_context_variables(
-        context,
-        scenario.context_variables,
-        agent.id,
-        customer.id,
-    )
+    if scenario.context_variables:
+        context.context_variables = register_context_variables(
+            context,
+            scenario.context_variables,
+            agent.id,
+            customer.id,
+        )
 
     # Create message events
     register_events(context, agent, customer, session, scenario.messages[:message_n])
+    return session.id, agent.id
+
+
+def assmble_message(
+    context: ContextOfTest,
+    agent: Agent,
+    session: Session,
+):
+    customer = context.sync_await(
+        context.container[CustomerStore].read_customer(session.customer_id)
+    )
+
+    event_buffer = EventBuffer(
+        context.sync_await(
+            context.container[AgentStore].read_agent(agent.id),
+        )
+    )
+
+    message_event_composer: MessageEventComposer = context.container[MessageAssembler]
+    result = context.sync_await(
+        message_event_composer.generate_events(
+            event_emitter=event_buffer,
+            agent=agent,
+            customer=customer,
+            context_variables=[],
+            interaction_history=context.events,
+            terms=context.glossary,
+            ordinary_guideline_propositions=list(context.guideline_propositions.values()),
+            tool_enabled_guideline_propositions={},
+            tool_insights=ToolInsights(),
+            staged_events=[],
+        )
+    )
+
+    assert len(result) > 0
+    assert all(e is not None for e in result[0].events)
+
+    return list(cast(list[EmittedEvent], result[0].events))
 
 
 @mark.parametrize("n", range(1, 11))
-def test_banking_scenario(context: ContextOfTest, n: int) -> None:
-    build_test_context(context, BANKING_SCENARIO, n)
+def test_engine_banking_scenario(context: ContextOfTest, n: int) -> None:
+    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+    engine = context.container[AlphaEngine]
+
     # run engine
+    buffer = EventBuffer(
+        context.sync_await(
+            context.container[AgentStore].read_agent(agent_id),
+        )
+    )
+    context.sync_await(
+        engine.process(
+            Context(
+                session_id=session_id,
+                agent_id=agent_id,
+            ),
+            buffer,
+        )
+    )
+    emitted_events = buffer.events
+
+    message_event = next(e for e in emitted_events if e.kind == "message")
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
+            condition=f"The message contains {message}",
+        )
+    ), f"message: '{message}', expected to contain: '{BANKING_SCENARIO.messages[n].expected_agent_message_content}'"
     # analyze guidelines
     # analyze tool calls
     # analyze message generator
     assert True
+
+
+@mark.parametrize("n", range(1, 11))
+def test_tool_caller_banking_scenario(context: ContextOfTest, n: int) -> None:
+    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+
+    assert True
+
+
+@mark.parametrize("n", range(1, 11))
+def test_assembler_banking_scenario(context: ContextOfTest, n: int) -> None:
+    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+    message_composer = context.container[MessageAssembler]
+    message_composer.generate_events()
+    assert True
+
+
+# TODO create tool test
+# TODO create assembler test
+# TODO add fragments
+# TODO create full test

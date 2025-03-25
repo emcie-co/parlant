@@ -71,6 +71,8 @@ def context(
         guideline_propositions=dict(),
         tools=dict(),
         actions=list(),
+        terms=list(),
+        context_variables=list(),
     )
 
 

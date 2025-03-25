@@ -413,6 +413,15 @@ async def get_menu() -> ToolResult:
     return ToolResult({"menu": menu})
 
 
+def transfer_coins(amount: int, from_account: str, to_account: str, pincode: str) -> ToolResult:
+    if from_account == "Mark Corrigan" and to_account == "Sophie Chapman":
+        if pincode == "1234":
+            return ToolResult(data="Transaction succesful: Transaction number: #83933")
+        else:
+            return ToolResult(data="Transaction failed: incorrect pincode")
+    return ToolResult(data="Transaction failed: one of the provided accounts does not exist")
+
+
 async def process_order(product_type: PizzaType, amount: int) -> ToolResult:
     for item in pizza_menu:
         if item["type"] == product_type.value and item["amount"] >= amount:

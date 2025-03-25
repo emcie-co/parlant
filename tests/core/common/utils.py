@@ -20,8 +20,10 @@ from lagom import Container
 
 
 from parlant.core.common import generate_id, JSONSerializable
+from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
+from parlant.core.glossary import Term
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_proposition import GuidelineProposition
 from parlant.core.guidelines import Guideline
@@ -39,6 +41,8 @@ class ContextOfTest:
     guideline_propositions: dict[str, GuidelineProposition]
     tools: dict[str, Tool]
     actions: list[UtteranceRequest]
+    terms: list[Term]
+    context_variables: list[tuple[ContextVariable, ContextVariableValue]]
 
 
 def create_event_message(

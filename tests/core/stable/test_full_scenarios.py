@@ -9,9 +9,7 @@ from lagom import Container  # noqa
 from parlant.core.agents import Agent, AgentId, AgentStore  # noqa
 from parlant.core.common import DefaultBaseModel, generate_id, JSONSerializable  # noqa
 from parlant.core.context_variables import (
-    ContextVariable,
     ContextVariableStore,
-    ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore  # noqa
 from parlant.core.emission.event_buffer import EventBuffer
@@ -19,9 +17,9 @@ from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.engine import AlphaEngine  # noqa
 from parlant.core.engines.alpha.message_assembler import MessageAssembler
 from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
-from parlant.core.engines.alpha.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tool_caller import ToolCaller, ToolInsights
 from parlant.core.engines.types import Context
-from parlant.core.glossary import GlossaryStore, Term
+from parlant.core.glossary import GlossaryStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.nlp.generation import SchematicGenerator  # noqa
 from parlant.core.engines.alpha.guideline_proposer import (
@@ -38,78 +36,25 @@ from parlant.core.glossary import TermId  # noqa
 
 from parlant.core.tools import LocalToolService, Tool, ToolId, ToolParameterOptions
 from tests.core.common.utils import ContextOfTest, create_event_message  # noqa
+from tests.core.stable.engines.alpha.test_tool_caller import create_guideline_proposition
 from tests.test_utilities import nlp_test, SyncAwaiter  # noqa
 
 # TODO remove noqas
 
 tools: dict[str, dict[str, Any]] = {
-    "get_available_drinks": {
-        "name": "get_available_drinks",
-        "description": "Get the drinks available in stock",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "get_available_toppings": {
-        "name": "get_available_toppings",
-        "description": "Get the toppings available in stock",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "expert_answer": {
-        "name": "expert_answer",
-        "description": "Get answers to questions by consulting documentation",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "user_query": {"type": "string", "description": "The query from the customer"}
-        },
-        "required": ["user_query"],
-    },
-    "get_available_product_by_type": {
-        "name": "get_available_product_by_type",
-        "description": "Get the products available in stock by type",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "product_type": {
-                "type": "string",
-                "description": "The type of product (either 'drinks' or 'toppings')",
-                "enum": ["drinks", "toppings"],
-            }
-        },
-        "required": ["product_type"],
-    },
-    "get_account_balance": {
-        "name": "get_account_balance",
-        "description": "Get the account balance by given name",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "account_name": {"type": "string", "description": "The name of the account"}
-        },
-        "required": ["account_name"],
-    },
-    "get_account_loans": {
-        "name": "get_account_loans",
-        "description": "Get the account loans by given name",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "account_name": {"type": "string", "description": "The name of the account"}
-        },
-        "required": ["account_name"],
-    },
     "transfer_coins": {
         "name": "transfer_coins",
         "description": "Transfer coins from one account to another",
         "module_path": "tests.tool_utilities",
         "parameters": {
-            "amount": {"type": "int", "description": "the number of coins to transfer"},
+            "amount": {"type": "number", "description": "the number of coins to transfer"},
             "from_account": {
                 "type": "string",
-                "description": "The account from which coins will be transferred",
+                "description": "The number of the account from which coins will be transferred",
             },
             "to_account": {
                 "type": "string",
-                "description": "The account to which money will be transferred",
+                "description": "The name of the account owner to which money will be transferred",
             },
             "pincode": {
                 "type": "string",
@@ -118,267 +63,30 @@ tools: dict[str, dict[str, Any]] = {
         },
         "required": ["amount", "from_account", "to_account", "pincode"],
     },
-    "transfer_money": {
-        "name": "transfer_money",
-        "description": "Transfer money from one account to another",
+    "email_pincode": {
+        "name": "email_pincode",
+        "description": "Email the customer's pincode to a specified email address",
         "module_path": "tests.tool_utilities",
         "parameters": {
-            "from_account": {
-                "type": "string",
-                "description": "The account from which money will be transferred",
+            "account_number": {
+                "type": "str",
+                "description": "The account whose pin should be emailed",
             },
-            "to_account": {
+            "email": {
                 "type": "string",
-                "description": "The account to which money will be transferred",
-            },
-        },
-        "required": ["from_account", "to_account"],
-    },
-    "check_fruit_price": {
-        "name": "check_fruit_price",
-        "description": "Reports the price of 1 kg of a certain fruit",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "fruit": {
-                "type": "string",
-                "description": "Fruit to check for",
+                "description": "The email adderss to send the pincode to",
             },
         },
-        "required": ["fruit"],
+        "required": ["account_number", "email"],
     },
-    "check_vegetable_price": {
-        "name": "check_vegetable_price",
-        "description": "Reports the price of 1 kg of a certain vegetable",
+    "unlock_account": {
+        "name": "unlock_account",
+        "description": "Unlocks a provided account, allowing it to perform monetary transfers",
         "module_path": "tests.tool_utilities",
         "parameters": {
-            "vegetable": {
-                "type": "string",
-                "description": "Vegetable to check for",
-            },
+            "account_number": {"type": "str", "description": "The number of the account to unlock"},
         },
-        "required": ["vegetable"],
-    },
-    "recommend_drink": {
-        "name": "recommend_drink",
-        "description": "Recommends a drink based on the user's age",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "user_is_adult": {
-                "type": "boolean",
-            },
-        },
-        "required": ["user_is_adult"],
-    },
-    "check_username_validity": {
-        "name": "check_username_validity",
-        "description": "Checks if the user's name is valid for our service",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "name": {
-                "type": "string",
-            },
-        },
-        "required": ["name"],
-    },
-    "get_available_soups": {
-        "name": "get_available_soups",
-        "description": "Checks which soups are currently in stock",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "get_keyleth_stamina": {
-        "name": "get_keyleth_stamina",
-        "description": "",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "consult_policy": {
-        "name": "consult_policy",
-        "description": "",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "other_inquiries": {
-        "name": "other_inquiries",
-        "description": "This tool needs to be run when looking for answers that are not covered by other resources",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
-    },
-    "try_unlock_card": {
-        "name": "try_unlock_card",
-        "description": "This tool unlocks a credit card",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "last_6_digits": {
-                "type": "string",
-            },
-        },
-        "required": [],
-    },
-    "pay_cc_bill": {
-        "name": "pay_cc_bill",
-        "description": "Pay credit bard bill. Payment date is given in format DD-MM-YYYY",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "payment_date": {
-                "type": "string",
-            },
-        },
-        "required": ["payment_date"],
-    },
-    "get_products_by_type": {
-        "name": "get_products_by_type",
-        "description": "Get all products that match the specified product type ",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "product_type": {
-                "type": "string",
-                "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
-            }
-        },
-        "required": ["product_type"],
-    },
-    "get_bookings": {
-        "name": "get_bookings",
-        "description": "Gets all flight bookings for a customer",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "customer_id": {
-                "type": "string",
-            }
-        },
-        "required": ["customer_id"],
-    },
-    "get_products_by_ingredient": {
-        "name": "get_products_by_ingredient",
-        "description": "Get all pizza types that contain a specific ingredient",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "ingredient": {
-                "type": "string",
-                "enum": [
-                    "tomato sauce",
-                    "mozzarella cheese",
-                    "fresh basil",
-                    "olive oil",
-                    "pepperoni slices",
-                    "bbq sauce",
-                    "grilled chicken",
-                    "red onions",
-                    "cilantro",
-                    "bell peppers",
-                    "mushrooms",
-                    "black olives",
-                    "spinach",
-                    "ham",
-                    "pineapple",
-                    "pepperoni",
-                    "sausage",
-                    "bacon",
-                    "ground beef",
-                    "buffalo sauce",
-                    "chicken",
-                    "blue cheese crumbles",
-                    "parmesan cheese",
-                    "gorgonzola cheese",
-                    "ricotta cheese",
-                    "feta cheese",
-                    "sun-dried tomatoes",
-                    "kalamata olives",
-                    "artichoke hearts",
-                    "onions",
-                ],
-            }
-        },
-        "required": ["ingredient"],
-    },
-    "get_availability_by_type_and_amount": {
-        "name": "get_availability_by_type_and_amount",
-        "description": "Check if a specific pizza type is available in the requested amount",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "product_type": {
-                "type": "string",
-                "enum": [
-                    "Margherita",
-                    "Pepperoni",
-                    "BBQ Chicken",
-                    "Veggie Supreme",
-                    "Hawaiian",
-                    "Meat Lovers",
-                    "Buffalo Chicken",
-                    "Four Cheese",
-                    "Mediterranean",
-                    "Supreme",
-                ],
-            },
-            "amount": {
-                "type": "number",
-                "description": "The amount of pizzas requested",
-            },
-        },
-        "required": ["product_type", "amount"],
-    },
-    "get_availability_by_type": {
-        "name": "get_availability_by_type",
-        "description": "Check if a specific pizza type is available",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "product_type": {
-                "type": "string",
-                "enum": [
-                    "Margherita",
-                    "Pepperoni",
-                    "BBQ Chicken",
-                    "Veggie Supreme",
-                    "Hawaiian",
-                    "Meat Lovers",
-                    "Buffalo Chicken",
-                    "Four Cheese",
-                    "Mediterranean",
-                    "Supreme",
-                ],
-            }
-        },
-        "required": ["product_type"],
-    },
-    "process_order": {
-        "name": "process_order",
-        "description": "Process an order for a specific pizza type and amount",
-        "module_path": "tests.tool_utilities",
-        "parameters": {
-            "product_type": {
-                "type": "string",
-                "enum": [
-                    "Margherita",
-                    "Pepperoni",
-                    "BBQ Chicken",
-                    "Veggie Supreme",
-                    "Hawaiian",
-                    "Meat Lovers",
-                    "Buffalo Chicken",
-                    "Four Cheese",
-                    "Mediterranean",
-                    "Supreme",
-                ],
-            },
-            "amount": {
-                "type": "number",
-                "description": "The amount of pizzas to order",
-            },
-        },
-        "required": ["product_type", "amount"],
-    },
-    "get_menu": {
-        "name": "get_menu",
-        "description": "Get the current pizza menu with available items",
-        "module_path": "tests.tool_utilities",
-        "parameters": {},
-        "required": [],
+        "required": ["account_number"],
     },
 }
 
@@ -388,21 +96,8 @@ created_tools: dict[str, Tool] = {}
 @dataclass(frozen=True)
 class _ToolCallVerification:
     expected_tool_id: str
+    expected_tool_result: str
     expected_tool_arguments: Optional[dict[str, str]] = None
-
-
-class _ResponsePreparationState:  # TODO duplicate, should I keep it here?
-    """Helper class to access and update the state needed for responding properly"""
-
-    context_variables: list[tuple[ContextVariable, ContextVariableValue]]
-    glossary_terms: set[Term]
-    ordinary_guideline_propositions: list[GuidelineProposition]
-    tool_enabled_guideline_propositions: dict[GuidelineProposition, list[ToolId]]
-    tool_events: list[EmittedEvent]
-    tool_insights: ToolInsights
-    iterations_completed: int
-    prepared_to_respond: bool
-    message_events: list[EmittedEvent]
 
 
 @dataclass(frozen=True)
@@ -471,84 +166,100 @@ BANKING_SCENARIO = InteractionScenario(
             agent_message="Welcome to Parlant Bank! How many coins would you like to transfer?",
             expected_agent_message_content="Asking how many coins the agent would like to transfer",
             expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_recipient_amount"),
+            expected_active_guidelines={"transfer_funds_recipient_amount"},
         ),
         ScenarioTurn(
             customer_message="500 coins",
             agent_message="Got it. To confirm the transaction, please provide your PIN code.",
             expected_agent_message_content="asking for the customer's pin code",
             expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_pin_code"),
+            expected_active_guidelines={"transfer_funds_pin_code"},
         ),
         ScenarioTurn(
             customer_message="I don't have it. How can I get it?",
             agent_message="Your pincode was emailed to your address at jez@parlant.io",
             expected_agent_message_content="that the customer's pincode was sent to jez@parlant.io",
-            expected_tool_results=[],
-            expected_active_guidelines=set("email_pincode"),
+            expected_tool_results=[
+                {
+                    "tool_calls": [
+                        {
+                            "tool_id": "local:email_pincode",
+                            "arguments": {
+                                "account_name": "Mark Corrigan",
+                                "email": "jez@parlant.io",
+                            },
+                            "result": {
+                                "data": "Pincode was emailed to jez@parlant.io",
+                                "metadata": {},
+                            },
+                        }
+                    ]
+                }
+            ],
+            expected_active_guidelines={"email_pincode"},
         ),
         ScenarioTurn(
             customer_message="Got it! it's 5432",
             agent_message="Thank you! Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 500 coins to Alan Johnson, and your pincode is 5432",
             expected_agent_message_content="asking the customer for confirmation about the following transaction: transferring 500 coins to Alan Johnson, with pin / pincode 5432",
             expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_reiterate"),
+            expected_active_guidelines={"transfer_funds_reiterate"},
         ),
         ScenarioTurn(
             customer_message="that's right",
             agent_message="The transaction was rejected due to an invalid pincode. Can you please double check the provided pin?",
             expected_agent_message_content="informing the customer that the transaction was rejected due to an invalid pincode",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_execute"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_execute"},
         ),
         ScenarioTurn(
             customer_message="Oh sorry! it's actually 6543",
             agent_message="The transaction was rejected because your account is blocked. Would you like me to unlock your account?",
             expected_agent_message_content="informing the customer that the transaction was rejected because the account is blocked",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_execute"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_execute"},
         ),
         ScenarioTurn(
             customer_message="Got it! it's 5432",
             agent_message="Thank you! Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 500 coins to Alan Johnson, and your pincode is 6543",
             expected_agent_message_content="asking the customer for confirmation about the following transaction: transferring 500 coins to Alan Johnson, with pin / pincode 6543",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_reiterate"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_reiterate"},
         ),
         ScenarioTurn(
             customer_message="Can you reroute it to a different branch instead",
             agent_message="I apologize, but I cannot assist you with this request through this chat. Is there anything else I could do for you instead?",
             expected_agent_message_content="informing the customer that the agent can't help it rerouting to a different branch",
-            expected_tool_results=[],
+            expected_tool_results=[],  # TODO fill in
             expected_active_guidelines=set(),
         ),
         ScenarioTurn(
             customer_message="Then yes, just unblock my account...",
             agent_message="Your account has been succesfully unblocked",
             expected_agent_message_content="informing the customer that the transaction was rejected because the account is blocked",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_execute"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_execute"},
         ),
         ScenarioTurn(
             customer_message="great, can I transfer the money to Alan now?",
             agent_message="500 coins were succesfully transferred to Alan Johnson. The transaction number is 9911827",
             expected_agent_message_content="informing the customer that the transaction succesful, and its number is 9911827",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_execute"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_execute"},
         ),
         ScenarioTurn(
             customer_message="nice. Now let's give Sophie Chapman 100 coins as well",
             agent_message="Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 100 coins to Sophie Chapman, and your pincode is 6543",
             expected_agent_message_content="asking for confirmation that the customer wishes to transfer 100 coins to Sophie Chapman, using pincode is 6543",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_reiterate"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_reiterate"},
         ),
         ScenarioTurn(
             customer_message="make that only 50 actually, she's been rude about my paintings lately",
             agent_message="Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 50 coins to Sophie Chapman, and your pincode is 6543",
             expected_agent_message_content="asking for confirmation that the customer wishes to transfer 50 coins to Sophie Chapman, using pincode is 6543",
-            expected_tool_results=[],
-            expected_active_guidelines=set("transfer_funds_execute"),
+            expected_tool_results=[],  # TODO fill in
+            expected_active_guidelines={"transfer_funds_execute"},
         ),
     ],
     agent_description="You are an AI customer assistant for Parlant Bank. Your role is to assist clients with their banking related needs.",
@@ -583,7 +294,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="The customer wants to transfer funds, and has confirmed the transfer details which the agent re-iterated, including the recipient, amount and the pincode",
                 action="Try to execute the transfer and report the results to the customer",
             ),
-            associated_tools=[],  # TODO get_tool("transfer_funds")
+            associated_tools=[get_tool("transfer_coins")],
         ),
         _GuidelineAndTool(
             name="unlock_account",
@@ -591,7 +302,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="User asks to unlock their account",
                 action="Use the customer’s account number to unlock the account",
             ),
-            associated_tools=[],  # TODO get_tool("unlock_account")
+            associated_tools=[get_tool("unlock_account")],
         ),
         _GuidelineAndTool(
             name="email_pincode",
@@ -599,7 +310,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="The customer asks for their pin code",
                 action="Email the pincode to the customer and inform them that it has been emailed to their address",
             ),
-            associated_tools=[],  # TODO get_tool("email_pinocde")
+            associated_tools=[get_tool("email_pincode")],
         ),
     ],
     glossary=[
@@ -666,7 +377,7 @@ def register_guidelines_and_tools(
             context.sync_await(
                 guideline_tool_association_store.create_association(
                     guideline_id=context.guidelines[str(i)].id,
-                    tool_id=ToolId("local", tool_description.name),
+                    tool_id=ToolId(service_name="local", tool_name=tool_description.name),
                 )
             )
 
@@ -674,14 +385,15 @@ def register_guidelines_and_tools(
 def register_context_variables(
     context: ContextOfTest,
     context_variables: Sequence[_ContextVariableData],
-    agent_id: AgentId,
-    customer_id: CustomerId,
-) -> ContextVariableStore:
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    # Register Variables
     context_variable_store = context.container[ContextVariableStore]
     for context_variable in context_variables:
         variable = context.sync_await(
             context_variable_store.create_variable(
-                variable_set=agent_id,
+                variable_set=agent.id,
                 name=context_variable.name,
                 description=context_variable.description,
                 tool_id=None,
@@ -690,17 +402,38 @@ def register_context_variables(
         )
         context.sync_await(
             context_variable_store.update_value(
-                variable_set=agent_id,
-                key=customer_id,
+                variable_set=agent.id,
+                key=customer.id,
                 variable_id=variable.id,
                 data=context_variable.data,
             )
         )
-    return context.sync_await(
+
+    # Insert context variables to context
+    variables_supported_by_agent = context.sync_await(
         context_variable_store.list_variables(
-            variable_set=agent_id,
+            variable_set=agent.id,
         )
     )
+    context.context_variables = []
+    keys_to_check_in_order_of_importance = (
+        [customer.id]  # Customer-specific value
+        + [f"tag:{tag_id}" for tag_id in customer.tags]  # Tag-specific value
+        + [ContextVariableStore.GLOBAL_KEY]  # Global value
+    )
+    for variable in variables_supported_by_agent:
+        # Try keys in order of importance, stopping at and using
+        # the first (and most important) set key for each variable.
+        for key in keys_to_check_in_order_of_importance:
+            if value := context.sync_await(
+                context_variable_store.read_value(
+                    variable_set=agent.id,
+                    variable_id=variable.id,
+                    key=key,
+                )
+            ):
+                context.context_variables.append((variable, value))
+                break
 
 
 def register_events(
@@ -749,21 +482,22 @@ def register_events(
                 )
             )
             context.events.append(agent_message_event)
-
-            context.sync_await(
-                session_store.create_event(
-                    session_id=session.id,
-                    source="ai_agent",
-                    kind="tool",
-                    correlation_id="test_correlation_id",
-                    data=json.loads(turn.tool_results),
-                )
-            )
+            if turn.expected_tool_results:
+                for result in turn.expected_tool_results:
+                    context.sync_await(
+                        session_store.create_event(
+                            session_id=session.id,
+                            source="ai_agent",
+                            kind="tool",
+                            correlation_id="test_correlation_id",
+                            data=json.loads(result.expected_tool_result),
+                        )
+                    )
 
 
 def build_test_context(
     context: ContextOfTest, scenario: InteractionScenario, message_n: int
-) -> tuple[SessionId, AgentId]:
+) -> tuple[Session, Agent]:
     # Get relevant stores
     session_store = context.container[SessionStore]
     customer_store = context.container[CustomerStore]
@@ -808,16 +542,16 @@ def build_test_context(
 
     # Create context variables
     if scenario.context_variables:
-        context.context_variables = register_context_variables(
+        register_context_variables(
             context,
             scenario.context_variables,
-            agent.id,
-            customer.id,
+            agent,
+            customer,
         )
 
     # Create message events
     register_events(context, agent, customer, session, scenario.messages[:message_n])
-    return session.id, agent.id
+    return session, agent
 
 
 def assmble_message(
@@ -859,20 +593,20 @@ def assmble_message(
 
 @mark.parametrize("n", range(1, 11))
 def test_engine_banking_scenario(context: ContextOfTest, n: int) -> None:
-    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+    session, agent = build_test_context(context, BANKING_SCENARIO, n)
     engine = context.container[AlphaEngine]
 
     # run engine
     buffer = EventBuffer(
         context.sync_await(
-            context.container[AgentStore].read_agent(agent_id),
+            agent,
         )
     )
     context.sync_await(
         engine.process(
             Context(
-                session_id=session_id,
-                agent_id=agent_id,
+                session_id=session.id,
+                agent_id=agent.id,
             ),
             buffer,
         )
@@ -896,14 +630,51 @@ def test_engine_banking_scenario(context: ContextOfTest, n: int) -> None:
 
 @mark.parametrize("n", range(1, 11))
 def test_tool_caller_banking_scenario(context: ContextOfTest, n: int) -> None:
-    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+    scenario: InteractionScenario = BANKING_SCENARIO
+    _, agent = build_test_context(context, scenario, n)
+    tool_caller = context.container[ToolCaller]
 
-    assert True
+    # Create guidelines with and w/o tools
+    if scenario.guidelines_and_tools:
+        expected_active_guideline_names = scenario.messages[n].expected_active_guidelines
+        ordinary_guideline_propositions = [
+            create_guideline_proposition(  # TODO is this import bad?
+                condition=g.guideline.condition,
+                action=g.guideline.action,
+                score=9,
+                rationale="Guideline was selected for application",
+            )
+            for g in scenario.guidelines_and_tools
+            if g.name in expected_active_guideline_names and not g.associated_tools
+        ]
+        tool_enabled_guideline_propositions = {
+            create_guideline_proposition(
+                condition=g.guideline.condition,
+                action=g.guideline.action,
+                score=9,
+                rationale="Guideline selection was forced - this guideline must apply",
+            ): [ToolId(service_name="local", tool_name=t.name) for t in g.associated_tools]
+            for g in scenario.guidelines_and_tools
+            if g.associated_tools
+        }
+
+    inference_tool_calls_result = context.sync_await(
+        tool_caller.infer_tool_calls(
+            agent=agent,
+            context_variables=context.context_variables,
+            interaction_history=context.events,
+            terms=context.terms,
+            ordinary_guideline_propositions=ordinary_guideline_propositions,
+            tool_enabled_guideline_propositions=tool_enabled_guideline_propositions,
+            staged_events=[],
+        )
+    )
+    assert inference_tool_calls_result  # TODO write tools
 
 
 @mark.parametrize("n", range(1, 11))
 def test_assembler_banking_scenario(context: ContextOfTest, n: int) -> None:
-    session_id, agent_id = build_test_context(context, BANKING_SCENARIO, n)
+    session, agent = build_test_context(context, BANKING_SCENARIO, n)
     message_composer = context.container[MessageAssembler]
     message_composer.generate_events()
     assert True

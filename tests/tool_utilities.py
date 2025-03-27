@@ -413,7 +413,9 @@ async def get_menu() -> ToolResult:
     return ToolResult({"menu": menu})
 
 
-def transfer_coins(amount: int, from_account: str, to_account: str, pincode: str) -> ToolResult:
+async def transfer_coins(
+    amount: int, from_account: str, to_account: str, pincode: str
+) -> ToolResult:
     if from_account == "Mark Corrigan" and to_account == "Sophie Chapman":
         if pincode == "1234":
             return ToolResult(data="Transaction succesful: Transaction number: #83933")
@@ -429,3 +431,15 @@ async def process_order(product_type: PizzaType, amount: int) -> ToolResult:
             amount = item["amount"]
             break
     return ToolResult({"new_amount": amount})
+
+
+async def unlock_account(account_number: str) -> ToolResult:
+    if account_number == "819663":
+        return ToolResult({"result": "Account succesfully unlocked"})
+    return ToolResult({"result": "ERROR: account numbernot found"})
+
+
+async def email_pincode(account_number: str, email: str) -> ToolResult:
+    if account_number == "819663":
+        return ToolResult({"result": f"Pincode sent to {email}"})
+    return ToolResult({"result": "ERROR: account number not found"})

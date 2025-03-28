@@ -1,3 +1,8 @@
+"""Core engine types.
+
+This module defines the core types used by the engine components.
+"""
+
 # Copyright 2024 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,10 +20,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Sequence
+from typing import Sequence, Dict, Any, Optional
 
 from parlant.core.agents import AgentId
-from parlant.core.sessions import SessionId
+from parlant.core.sessions import SessionId, MessageEventData
 from parlant.core.emissions import EventEmitter
 
 
@@ -37,6 +42,18 @@ class UtteranceReason(Enum):
 class UtteranceRequest:
     action: str
     reason: UtteranceReason
+
+
+@dataclass(frozen=True)
+class MessageGenerationResult:
+    """Result of message generation with metrics.
+    
+    Args:
+        message: Generated message data
+        metrics: Generation metrics and metadata
+    """
+    message: MessageEventData
+    metrics: Dict[str, Any]
 
 
 class Engine(ABC):

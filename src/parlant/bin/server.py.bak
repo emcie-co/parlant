@@ -41,76 +41,76 @@ from parlant.core.fragments import FragmentDocumentStore, FragmentStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
-from parlant.api.app import create_api_app, ASGIApplication
-from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.agents import AgentDocumentStore, AgentStore
-from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
-from parlant.core.emission.event_publisher import EventPublisherFactory
-from parlant.core.emissions import EventEmitterFactory
-from parlant.core.customers import CustomerDocumentStore, CustomerStore
-from parlant.core.evaluations import (
+from semblant.api.app import create_api_app, ASGIApplication
+from semblant.core.background_tasks import BackgroundTaskService
+from semblant.core.contextual_correlator import ContextualCorrelator
+from semblant.core.agents import AgentDocumentStore, AgentStore
+from semblant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
+from semblant.core.emission.event_publisher import EventPublisherFactory
+from semblant.core.emissions import EventEmitterFactory
+from semblant.core.customers import CustomerDocumentStore, CustomerStore
+from semblant.core.evaluations import (
     EvaluationListener,
     PollingEvaluationListener,
     EvaluationDocumentStore,
     EvaluationStatus,
     EvaluationStore,
 )
-from parlant.core.guideline_connections import (
+from semblant.core.guideline_connections import (
     GuidelineConnectionDocumentStore,
     GuidelineConnectionStore,
 )
-from parlant.core.guidelines import (
+from semblant.core.guidelines import (
     GuidelineDocumentStore,
     GuidelineStore,
 )
-from parlant.adapters.db.json_file import JSONFileDocumentDatabase
-from parlant.core.nlp.embedding import EmbedderFactory
-from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.tools.service_registry import (
+from semblant.adapters.db.json_file import JSONFileDocumentDatabase
+from semblant.core.nlp.embedding import EmbedderFactory
+from semblant.core.nlp.generation import SchematicGenerator
+from semblant.core.services.tools.service_registry import (
     ServiceRegistry,
     ServiceDocumentRegistry,
 )
-from parlant.core.sessions import (
+from semblant.core.sessions import (
     PollingSessionListener,
     SessionDocumentStore,
     SessionListener,
     SessionStore,
 )
-from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
-from parlant.core.engines.alpha.engine import AlphaEngine
-from parlant.core.guideline_tool_associations import (
+from semblant.core.glossary import GlossaryStore, GlossaryVectorStore
+from semblant.core.engines.alpha.engine import AlphaEngine
+from semblant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
 )
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
-from parlant.core.engines.alpha.guideline_proposer import (
+from semblant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
+from semblant.core.engines.alpha.guideline_proposer import (
     GuidelineProposer,
     GuidelinePropositionShot,
     GuidelinePropositionsSchema,
 )
-from parlant.core.engines.alpha.fluid_message_generator import (
+from semblant.core.engines.alpha.fluid_message_generator import (
     FluidMessageGenerator,
     FluidMessageGeneratorShot,
     FluidMessageSchema,
 )
-from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
-from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import (
+from semblant.core.engines.alpha.tool_event_generator import ToolEventGenerator
+from semblant.core.engines.types import Engine
+from semblant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
 )
-from parlant.core.services.indexing.coherence_checker import (
+from semblant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
     ConditionsEntailmentTestsSchema,
     ActionsContradictionTestsSchema,
 )
-from parlant.core.services.indexing.guideline_connection_proposer import (
+from semblant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
     GuidelineConnectionPropositionsSchema,
 )
-from parlant.core.logging import CompositeLogger, FileLogger, LogLevel, Logger
-from parlant.core.application import Application
-from parlant.core.version import VERSION
+from semblant.core.logging import CompositeLogger, FileLogger, LogLevel, Logger
+from semblant.core.application import Application
+from semblant.core.version import VERSION
 
 DEFAULT_PORT = 8800
 SERVER_ADDRESS = "https://localhost"
@@ -156,7 +156,7 @@ def load_nlp_service(name: str, extra_name: str, class_name: str, module_path: s
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
-            f"{name} support is not installed. Please install it with: pip install parlant[{extra_name}]."
+            f"{name} support is not installed. Please install it with: pip install semblant[{extra_name}]."
         )
         sys.exit(1)
 
@@ -172,7 +172,7 @@ def load_aws() -> NLPService:
 
 
 def load_azure() -> NLPService:
-    from parlant.adapters.nlp.azure import AzureService
+    from semblant.adapters.nlp.azure import AzureService
 
     return AzureService(LOGGER)
 
@@ -194,7 +194,7 @@ def load_gemini() -> NLPService:
 
 
 def load_openai() -> NLPService:
-    from parlant.adapters.nlp.openai import OpenAIService
+    from semblant.adapters.nlp.openai import OpenAIService
 
     return OpenAIService(LOGGER)
 
@@ -579,13 +579,13 @@ def main() -> None:
     @click.option(
         "--anthropic",
         is_flag=True,
-        help="Run with Anthropic. The environment variable ANTHROPIC_API_KEY must be set and install the extra package parlant[anthropic].",
+        help="Run with Anthropic. The environment variable ANTHROPIC_API_KEY must be set and install the extra package semblant[anthropic].",
         default=False,
     )
     @click.option(
         "--aws",
         is_flag=True,
-        help="Run with AWS Bedrock. The following environment variables must be set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and install the extra package parlant[aws].",
+        help="Run with AWS Bedrock. The following environment variables must be set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and install the extra package semblant[aws].",
         default=False,
     )
     @click.option(
@@ -597,25 +597,25 @@ def main() -> None:
     @click.option(
         "--cerebras",
         is_flag=True,
-        help="Run with Cerebras. The environment variable CEREBRAS_API_KEY must be set and install the extra package parlant[cerebras].",
+        help="Run with Cerebras. The environment variable CEREBRAS_API_KEY must be set and install the extra package semblant[cerebras].",
         default=False,
     )
     @click.option(
         "--deepseek",
         is_flag=True,
-        help="Run with DeepSeek. You must set the DEEPSEEK_API_KEY environment variable and install the extra package parlant[deepseek].",
+        help="Run with DeepSeek. You must set the DEEPSEEK_API_KEY environment variable and install the extra package semblant[deepseek].",
         default=False,
     )
     @click.option(
         "--gemini",
         is_flag=True,
-        help="Run with Gemini. The environment variable GEMINI_API_KEY must be set and install the extra package parlant[gemini].",
+        help="Run with Gemini. The environment variable GEMINI_API_KEY must be set and install the extra package semblant[gemini].",
         default=False,
     )
     @click.option(
         "--together",
         is_flag=True,
-        help="Run with Together AI. The environment variable TOGETHER_API_KEY must be set and install the extra package parlant[together].",
+        help="Run with Together AI. The environment variable TOGETHER_API_KEY must be set and install the extra package semblant[together].",
         default=False,
     )
     @click.option(
@@ -631,7 +631,7 @@ def main() -> None:
         metavar="MODULE",
         help=(
             "Specify a module to load. To load multiple modules, pass this argument multiple times. "
-            "If parlant.toml exists in the working directory, any additional modules specified "
+            "If semblant.toml exists in the working directory, any additional modules specified "
             "in it will also be loaded."
         ),
     )

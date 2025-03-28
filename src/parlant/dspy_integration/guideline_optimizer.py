@@ -489,13 +489,21 @@ class BatchOptimizedGuidelineManager:
                 # For Ollama models, use our custom adapter
                 ollama_model = model_name.split("/")[1]
                 initialize_ollama_model(ollama_model)
-                self.lm = OllamaAdapter(model_name)
+                self.lm = dspy.LM(
+                    model_name,
+                    api_base="http://localhost:11434",
+                    api_key="",
+                    model_type="chat"
+                )
             else:
                 # For other models like OpenAI, use all parameters
-                self.lm = LM(model_name, api_key=api_key, temperature=0.7, max_tokens=200)
-                
-            if metrics:
-                self.lm = MetricsLogger(self.lm, metrics)
+                self.lm = dspy.LM(
+                    model_name,
+                    api_key=api_key,
+                    temperature=0.7,
+                    max_tokens=200,
+                    model_type="chat"
+                )
                 
             # Configure DSPy with the language model
             dspy.configure(lm=self.lm)
@@ -529,6 +537,21 @@ class BatchOptimizedGuidelineManager:
         """
         optimized_guidelines = []
         
+        # If no examples, just use the base program
+        if not examples:
+            for guideline in guidelines:
+                pred = self.program(condition=guideline.content.condition)
+                response = pred.response if hasattr(pred, 'response') else pred['response']
+                optimized_guidelines.append(Guideline(
+                    id=guideline.id,
+                    creation_utc=guideline.creation_utc,
+                    content=GuidelineContent(
+                        condition=guideline.content.condition,
+                        action=response
+                    )
+                ))
+            return optimized_guidelines
+        
         for i in range(0, len(guidelines), batch_size):
             batch = guidelines[i:i + batch_size]
             
@@ -545,7 +568,7 @@ class BatchOptimizedGuidelineManager:
             try:
                 # Configure COPRO optimizer with evaluation metric
                 copro = CustomCOPRO(
-                    prompt_model=MetricsLogger(self.lm, self.metrics),  # Wrap with metrics logger
+                    prompt_model=self.lm,  # Use LM directly without MetricsLogger
                     metric=self._calculate_response_quality,
                     breadth=5,  # Number of new prompts to generate at each iteration
                     depth=3,  # Number of optimization iterations

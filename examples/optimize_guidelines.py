@@ -96,17 +96,17 @@ async def main() -> None:
     # Create example responses for training
     examples: List[Dict[str, str]] = [
         {
-            "input": "How much does your service cost?",
-            "output": "We offer three pricing tiers: Basic ($10/mo), Pro ($25/mo), and Enterprise (custom pricing). The Basic plan includes essential features, Pro adds advanced capabilities, and Enterprise comes with all features plus dedicated support. Which features are most important for your needs?"
+            "condition": "How much does your service cost?",
+            "response": "We offer three pricing tiers: Basic ($10/mo), Pro ($25/mo), and Enterprise (custom pricing). The Basic plan includes essential features, Pro adds advanced capabilities, and Enterprise comes with all features plus dedicated support. Which features are most important for your needs?"
         },
         {
-            "input": "I found a bug in the app",
-            "output": "I apologize for the inconvenience. Could you please share the exact error message you're seeing? Also, what browser and operating system are you using? This information will help us investigate and resolve the issue more quickly."
+            "condition": "I found a bug in the app",
+            "response": "I apologize for the inconvenience. Could you please share the exact error message you're seeing? Also, what browser and operating system are you using? This information will help us investigate and resolve the issue more quickly."
         }
     ]
 
     # Create the optimizer
-    optimizer = BatchOptimizedGuidelineManager(api_key=api_key, logger=logger)
+    optimizer = BatchOptimizedGuidelineManager(api_key=api_key)
 
     # Print original guidelines
     print("\nOriginal Guidelines:")
@@ -116,7 +116,7 @@ async def main() -> None:
         print(f"Action: {guideline.content.action}")
 
     # Optimize the guidelines
-    optimized = await optimizer.optimize_guidelines(guidelines, examples)
+    optimized = optimizer.optimize_guidelines(guidelines, examples)
 
     # Print optimized guidelines
     print("\nOptimized Guidelines:")

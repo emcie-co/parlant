@@ -1,0 +1,125 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Parlant Import Rules
+
+## Overview
+These rules govern how imports should be organized and used throughout the Parlant project.
+
+## Import Organization
+
+### Group Order
+1. Future imports
+2. Standard library imports
+3. Third-party imports
+4. First-party (parlant) imports
+
+### Standard Library Imports
+```python
+from typing import TYPE_CHECKING, Any, Optional, List, Dict, Set, Tuple
+import asyncio
+import datetime
+import pathlib
+import json
+import os
+import sys
+```
+
+### Third-Party Imports
+```python
+import fastapi
+import dspy
+import openai
+import structlog
+import pydantic
+```
+
+### First-Party Imports
+```python
+from parlant.core import *
+from parlant.api import *
+from parlant.adapters import *
+from parlant.dspy_integration import *
+from parlant.bin import *
+```
+
+## Import Style Rules
+- Use absolute imports over relative imports
+- Avoid `from x import *` except in `__init__.py` files
+- Maximum line length: 100 characters
+- Group and sort imports within their categories
+- Use double quotes for string literals
+
+## Type Checking Imports
+When using TYPE_CHECKING:
+```python
+if TYPE_CHECKING:
+    from _pytest.capture import CaptureFixture
+    from _pytest.fixtures import FixtureRequest
+    from _pytest.logging import LogCaptureFixture
+    from _pytest.monkeypatch import MonkeyPatch
+    from pytest_mock.plugin import MockerFixture
+```
+
+## Banned Imports
+Do not use:
+- `typing.List` (use `list` instead)
+- `typing.Dict` (use `dict` instead)
+- `typing.Set` (use `set` instead)
+- `typing.Tuple` (use `tuple` instead)
+- `unittest` (use pytest instead)
+
+## Module-Specific Import Rules
+
+### Core Module
+@src/parlant/core/**/*.py
+- Must import exceptions from `core.exceptions`
+- Must import base classes from `core.base`
+- Must import utilities from `core.utils`
+
+### API Module
+@src/parlant/api/**/*.py
+- Must import FastAPI dependencies directly
+- Must import models from `api.models`
+- Must import DTOs from `api.dto`
+
+### DSPy Integration Module
+@src/parlant/dspy_integration/**/*.py
+- Must import DSPy components directly
+- Must import core services from `core.services`
+- Must import message pipeline components from `core.engines`
+
+### Message Pipeline Components
+@src/parlant/core/engines/**/*.py
+- Must import base classes from `core.engines.base`
+- Must import DSPy services from `dspy_integration.services`
+- Must import message types from `core.types`
+
+## Testing Imports
+@tests/**/*.py
+- Must import pytest fixtures explicitly
+- Must import mock utilities from pytest_mock
+- Must import type hints for fixtures when using type checking
+
+## Example Import Layout
+```python
+from typing import TYPE_CHECKING, Optional
+
+import asyncio
+import json
+import pathlib
+
+import fastapi
+import pydantic
+import structlog
+
+from parlant.core.base import BaseService
+from parlant.core.exceptions import ParlantError
+from parlant.dspy_integration.services import DSPyService
+
+if TYPE_CHECKING:
+    from _pytest.fixtures import FixtureRequest
+    from pytest_mock.plugin import MockerFixture
+```

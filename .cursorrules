@@ -1,0 +1,366 @@
+// Python Development Rules for Parlant Project
+
+// General Python Rules
+rule "python.version" {
+    description = "Python version requirements"
+    version = "^3.10"
+    strict = true
+}
+
+rule "python.typing" {
+    description = "Type annotation requirements"
+    required = true
+    check_return_types = true
+    check_function_args = true
+    mypy_strict = true
+}
+
+rule "python.docstrings" {
+    description = "Docstring requirements"
+    style = "pep257"
+    required_sections = ["Args", "Returns", "Raises"]
+    required_for = ["class", "function", "method"]
+}
+
+// Project Structure Rules
+rule "project.structure" {
+    description = "Project directory organization"
+    src_dir = "src/parlant"
+    test_dir = "tests"
+    docs_dir = "docs"
+    examples_dir = "examples"
+}
+
+rule "project.modules" {
+    description = "Module organization"
+    core_modules = [
+        "core",
+        "api",
+        "adapters",
+        "dspy_integration",
+        "bin"
+    ]
+    require_init = true
+    require_typed = true
+}
+
+// Code Style Rules
+rule "style.formatting" {
+    description = "Code formatting requirements"
+    line_length = 100
+    indent_style = "space"
+    indent_size = 4
+    quote_style = "double"
+}
+
+rule "style.imports" {
+    description = "Import organization"
+    group_order = [
+        "future",
+        "standard_library",
+        "third_party",
+        "first_party"
+    ]
+    require_type_checking = true
+    parlant_imports = [
+        "parlant.core",
+        "parlant.api",
+        "parlant.adapters",
+        "parlant.dspy_integration",
+        "parlant.bin"
+    ]
+    import_rules = {
+        "standard_library": [
+            "typing",
+            "asyncio",
+            "datetime",
+            "pathlib",
+            "json",
+            "os",
+            "sys"
+        ],
+        "third_party": [
+            "fastapi",
+            "dspy",
+            "openai",
+            "structlog",
+            "pydantic"
+        ],
+        "first_party": "parlant.*"
+    }
+    banned_imports = [
+        "typing.List",  // use list instead
+        "typing.Dict",  // use dict instead
+        "typing.Set",   // use set instead
+        "typing.Tuple", // use tuple instead
+        "unittest"      // use pytest instead
+    ]
+    type_checking_imports = [
+        "from _pytest.capture import CaptureFixture",
+        "from _pytest.fixtures import FixtureRequest",
+        "from _pytest.logging import LogCaptureFixture",
+        "from _pytest.monkeypatch import MonkeyPatch",
+        "from pytest_mock.plugin import MockerFixture"
+    ]
+    import_style = {
+        "prefer_absolute": true,
+        "prefer_from": false,
+        "max_line_length": 100,
+        "group_by_type": true,
+        "sort_within_groups": true
+    }
+}
+
+// Testing Rules
+rule "testing.framework" {
+    description = "Testing requirements"
+    framework = "pytest"
+    plugins = [
+        "pytest-asyncio",
+        "pytest-bdd",
+        "pytest-cov",
+        "pytest-stochastics",
+        "pytest-tap",
+        "pytest-timing"
+    ]
+    require_typing = true
+    require_docstrings = true
+}
+
+rule "testing.coverage" {
+    description = "Test coverage requirements"
+    minimum_coverage = 80
+    exclude_patterns = [
+        "tests/*",
+        "examples/*",
+        "*/__init__.py"
+    ]
+}
+
+// Documentation Rules
+rule "docs.requirements" {
+    description = "Documentation requirements"
+    readme_required = true
+    changelog_required = true
+    api_docs_required = true
+    example_code_required = true
+}
+
+// Dependency Management Rules
+rule "deps.management" {
+    description = "Dependency management requirements"
+    tool = "poetry"
+    lock_file_required = true
+    version_pins_required = true
+}
+
+// DSPy Integration Rules
+rule "dspy.integration" {
+    description = "DSPy integration requirements"
+    module = "dspy_integration"
+    require_typing = true
+    require_tests = true
+    require_documentation = true
+}
+
+// Error Handling Rules
+rule "error.handling" {
+    description = "Error handling requirements"
+    custom_exceptions_module = "core/exceptions"
+    require_type_hints = true
+    require_docstrings = true
+}
+
+// Logging Rules
+rule "logging.requirements" {
+    description = "Logging configuration"
+    framework = "structlog"
+    require_context = true
+    require_levels = true
+}
+
+// Security Rules
+rule "security.requirements" {
+    description = "Security requirements"
+    env_vars_required = true
+    secrets_management = true
+    api_key_handling = true
+}
+
+// Performance Rules
+rule "performance.async" {
+    description = "Async/await requirements"
+    prefer_async = true
+    require_typing = true
+    event_loop_management = true
+}
+
+// API Rules
+rule "api.requirements" {
+    description = "API development requirements"
+    framework = "fastapi"
+    require_typing = true
+    require_validation = true
+    require_documentation = true
+    require_tests = true
+}
+
+// Message Pipeline Integration Rules
+rule "message.pipeline" {
+    description = "Message generation pipeline requirements"
+    core_components = [
+        "MessageEventComposer",
+        "FluidMessageGenerator",
+        "DSPyEnhancedMessageComposer"
+    ]
+    component_rules = {
+        "MessageEventComposer": {
+            "required_methods": [
+                "generate_message",
+                "process_context",
+                "apply_guidelines"
+            ],
+            "async_required": true,
+            "requires_typing": true
+        },
+        "FluidMessageGenerator": {
+            "required_methods": [
+                "generate",
+                "enhance_with_dspy",
+                "apply_context"
+            ],
+            "async_required": true,
+            "requires_typing": true
+        },
+        "DSPyEnhancedMessageComposer": {
+            "extends": "MessageEventComposer",
+            "required_methods": [
+                "enhance_guidelines",
+                "classify_context",
+                "optimize_response"
+            ],
+            "required_services": [
+                "DSPyService"
+            ],
+            "async_required": true,
+            "requires_typing": true
+        }
+    }
+    integration_points = [
+        "pre_generation",
+        "during_generation",
+        "post_generation"
+    ]
+    logging_requirements = {
+        "required_fields": [
+            "session_id",
+            "dspy_enhancement_status",
+            "guideline_optimization_metrics"
+        ],
+        "log_levels": ["info", "error", "debug"]
+    }
+}
+
+rule "dspy.message_integration" {
+    description = "DSPy integration within message pipeline"
+    required_interfaces = [
+        "DSPyService",
+        "GuidelineOptimizer",
+        "ContextClassifier"
+    ]
+    service_requirements = {
+        "DSPyService": {
+            "required_methods": [
+                "classify_guidelines",
+                "optimize_response",
+                "enhance_context"
+            ],
+            "async_required": true,
+            "error_handling": true
+        },
+        "GuidelineOptimizer": {
+            "required_methods": [
+                "optimize",
+                "validate",
+                "apply_optimization"
+            ],
+            "async_required": true,
+            "requires_metrics": true
+        },
+        "ContextClassifier": {
+            "required_methods": [
+                "classify",
+                "extract_features",
+                "update_classification"
+            ],
+            "async_required": true,
+            "requires_metrics": true
+        }
+    }
+    performance_requirements = {
+        "max_latency": "500ms",
+        "timeout_handling": true,
+        "retry_policy": true
+    }
+}
+
+rule "message.flow" {
+    description = "Message flow and processing requirements"
+    flow_stages = [
+        "session_initialization",
+        "context_processing",
+        "guideline_enhancement",
+        "message_generation",
+        "response_optimization"
+    ]
+    stage_requirements = {
+        "session_initialization": {
+            "required_data": [
+                "session_id",
+                "user_context",
+                "initial_guidelines"
+            ],
+            "validation_required": true
+        },
+        "context_processing": {
+            "dspy_integration": true,
+            "required_steps": [
+                "context_classification",
+                "feature_extraction",
+                "context_enhancement"
+            ]
+        },
+        "guideline_enhancement": {
+            "dspy_integration": true,
+            "required_steps": [
+                "guideline_classification",
+                "optimization",
+                "validation"
+            ]
+        },
+        "message_generation": {
+            "dspy_integration": true,
+            "required_steps": [
+                "template_selection",
+                "content_generation",
+                "guideline_application"
+            ]
+        },
+        "response_optimization": {
+            "dspy_integration": true,
+            "required_steps": [
+                "quality_check",
+                "enhancement",
+                "final_validation"
+            ]
+        }
+    }
+    error_handling = {
+        "required_strategies": [
+            "fallback_generation",
+            "timeout_recovery",
+            "service_degradation"
+        ],
+        "logging_required": true
+    }
+} 

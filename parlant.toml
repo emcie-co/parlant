@@ -1,0 +1,11 @@
+# Parlant Configuration
+
+[parlant]
+modules = [
+    "parlant.dspy_integration.module"
+]
+
+[dspy]
+# Add any DSPy-specific configuration here if needed
+enable_optimization = true
+enable_classification = true 

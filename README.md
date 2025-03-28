@@ -19,6 +19,9 @@
   </p>
 </div>
 
+> **FORK NOTICE**: This is a fork of the [original Parlant repository](https://github.com/emcie-co/parlant) with enhanced DSPy integration. You're currently viewing the `feature/copro-optimization` branch, which adds DSPy-powered guideline optimization and classification capabilities.
+
+
 **IMPORTANT NOTE:** Parlant is in active development by a team of (currently) 12 contributors (developers, researchers, and QA) from leading institutions, such as Microsoft, Check Point, and Dynamic Yield. We're looking for more contributors to help get customer-facing agents under control! Please consider joining our Discord server and participating in our development.
 
 ## ✨ Take Control of AI Agent Decisions
@@ -250,3 +253,66 @@ This fork enhances Parlant with:
 ### Contributing
 
 We welcome contributions! Check out our [ROADMAP.md](ROADMAP.md) to see where you can help.
+
+
+## 🚀 DSPy Integration (feature/copro-optimization branch)
+
+This fork adds powerful DSPy integration to enhance Parlant's guideline proposition capabilities. The integration adds machine learning optimization techniques to improve guideline classification and response generation.
+
+### Current Implementation Status
+
+- **Phase 1 & 2**: ✅ Complete - Core and Engine integration
+- **Phase 3**: 🔄 Almost Complete - Server integration with configuration system
+- **Phase 4**: 🔄 In Progress - Storage & Metrics implementation
+- **Phase 5**: 📋 Planned - Testing & Documentation
+
+### Key Features
+
+- **Smart Guideline Classification**: Uses LLMs to automatically determine which guidelines should be activated
+- **Enhanced Response Optimization**: Leverages DSPy's COPRO optimizer for better response quality
+- **Multi-Model Support**: Works with both OpenAI models and local Llama models
+- **Metrics Tracking**: Monitors performance and usage patterns
+- **Server Integration**: Seamlessly integrates with existing Parlant server
+
+### Getting Started with DSPy Features
+
+1. **Installation**
+```bash
+# Clone this fork
+git clone https://github.com/jmanhype/parlant.git -b feature/copro-optimization
+cd parlant
+
+# Install dependencies
+pip install -e .
+```
+
+2. **Configuration**
+```bash
+# Set up environment variables
+export DSPY_MODEL=openai/gpt-3.5-turbo
+export DSPY_OPTIMIZER_BATCH_SIZE=5
+export DSPY_MAX_TOKENS=2000
+export DSPY_TEMPERATURE=1.0
+```
+
+3. **Basic Usage**
+```python
+from parlant.dspy_integration import initialize_module
+from lagom import Container
+
+# Initialize your dependency injection container
+container = Container()
+
+# Initialize the DSPy integration module
+container = await initialize_module(container)
+```
+
+See [ROADMAP.md](ROADMAP.md) for detailed implementation status and plans.
+
+### Differences from Main Repository
+
+This fork enhances Parlant with:
+- DSPy-powered guideline classification and optimization
+- Improved response quality through advanced techniques
+- Support for both cloud and local LLMs
+- Enhanced metrics and performance tracking

@@ -10,6 +10,10 @@ src/parlant/
     ├── __init__.py
     ├── guideline_classifier.py     # DSPy classifier for guidelines
     ├── guideline_optimizer.py      # DSPy optimizer using COPRO
+    ├── composers/                  # Enhanced message composers
+    ├── config.py                   # Configuration system
+    ├── server.py                   # Server integration
+    ├── metrics.py                  # Metrics tracking
     └── engine/
         ├── __init__.py
         └── proposer.py            # DSPy guideline proposer implementation
@@ -23,35 +27,30 @@ src/parlant/
 - [x] Add basic metrics tracking
 - [x] Implement unit tests for core components
 
-### Phase 2: Engine Integration (Current) 🔄
+### Phase 2: Engine Integration ✅
 - [x] Create `DSPyGuidelineProposer` implementing `GuidelineProposer` interface
 - [x] Add batch processing support
 - [x] Integrate with existing metrics system
-- [ ] Add comprehensive tests for the proposer
-- [ ] Add integration tests with AlphaEngine
+- [x] Add comprehensive tests for the proposer
+- [x] Add integration tests with AlphaEngine
 
-### Phase 3: Server Integration 📋
-- [ ] Create configuration system
-- [ ] Add environment variable support:
-  ```bash
-  DSPY_MODEL=openai/gpt-3.5-turbo
-  DSPY_OPTIMIZER_BATCH_SIZE=5
-  DSPY_MAX_TOKENS=2000
-  DSPY_TEMPERATURE=1.0
-  ```
-- [ ] Implement API endpoints for DSPy-specific operations
-- [ ] Add configuration validation
+### Phase 3: Server Integration 🔄
+- [x] Create configuration system
+- [x] Add environment variable support
+- [x] Implement API endpoints for DSPy-specific operations
+- [x] Add configuration validation
+- [ ] Complete comprehensive documentation
 
-### Phase 4: Storage & Metrics 📊
-- [ ] Implement metrics storage
-- [ ] Add tracking for:
-  - API calls
-  - Token usage
-  - Response latency
-  - Classification accuracy
+### Phase 4: Storage & Metrics 🔄
+- [x] Implement basic metrics system
+- [x] Add initial tracking for API calls and performance
+- [ ] Add comprehensive tracking for:
+  - Token usage details
+  - Response latency metrics
+  - Classification accuracy charts
 - [ ] Create dashboard for monitoring
 
-### Phase 5: Testing & Documentation 📚
+### Phase 5: Testing & Documentation 📋
 - [ ] Add end-to-end tests
 - [ ] Create benchmark suite
 - [ ] Write technical documentation
@@ -65,12 +64,12 @@ src/parlant/
 
 ## Timeline
 - Phase 1: Complete ✅
-- Phase 2: In Progress (1-2 days remaining)
-- Phase 3: Not Started (2-3 days)
-- Phase 4: Not Started (2-3 days)
+- Phase 2: Complete ✅
+- Phase 3: Nearly Complete (1 day remaining)
+- Phase 4: In Progress (2 days)
 - Phase 5: Not Started (2-3 days)
 
-Total estimated time: 1.5-2 weeks remaining
+Total estimated time: 1 week remaining
 
 ## Notes
 - The integration maintains Parlant's existing architecture while enhancing guideline proposition capabilities

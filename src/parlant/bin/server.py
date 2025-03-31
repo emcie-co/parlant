@@ -17,8 +17,10 @@
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
+import datetime
 import importlib
 import os
+import shutil
 import traceback
 from lagom import Container, Singleton
 from typing import AsyncIterator, Awaitable, Callable, Iterable, Optional, Sequence, cast
@@ -28,6 +30,7 @@ from typing_extensions import NoReturn
 import click
 import click_completion
 from pathlib import Path
+import random
 import sys
 import uvicorn
 
@@ -56,6 +59,7 @@ from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.api.app import (
     APIConfigurationSteps,
+    configure_test_router,
     create_api_app,
     ASGIApplication,
     default_configuration_steps,
@@ -143,6 +147,7 @@ from parlant.core.version import VERSION
 
 
 DEFAULT_PORT = 8800
+TEST_PORT_RANGE = (8901, 8999)
 SERVER_ADDRESS = "https://localhost"
 CONFIG_FILE_PATH = Path("parlant.toml")
 
@@ -178,6 +183,7 @@ class CLIParams:
     log_level: str
     modules: list[str]
     migrate: bool
+    test_modules: list[str]
 
 
 def load_nlp_service(name: str, extra_name: str, class_name: str, module_path: str) -> NLPService:
@@ -569,7 +575,8 @@ async def load_app(params: CLIParams) -> AsyncIterator[ASGIApplication]:
         setup_container() as base_container,
         EXIT_STACK,
     ):
-        modules = set(await get_module_list_from_config() + params.modules)
+        test_modules = [m for m in params.test_modules if m != "None"]
+        modules = set(await get_module_list_from_config() + params.modules + test_modules)
 
         if modules:
             # Allow modules to return a different container
@@ -597,6 +604,8 @@ async def load_app(params: CLIParams) -> AsyncIterator[ASGIApplication]:
         )
 
         await create_agent_if_absent(actual_container[AgentStore])
+        if len(params.test_modules) > 0:
+            actual_container[APIConfigurationSteps].append(configure_test_router)
 
         app_wrapper = await create_api_app(actual_container)
         async with app_wrapper as app:
@@ -642,6 +651,8 @@ def require_env_keys(keys: list[str]) -> None:
 
 
 async def start_server(params: CLIParams) -> None:
+    global PARLANT_HOME_DIR
+
     LOGGER.set_level(
         {
             "info": LogLevel.INFO,
@@ -653,7 +664,23 @@ async def start_server(params: CLIParams) -> None:
     )
 
     LOGGER.info(f"Parlant server version {VERSION}")
-    LOGGER.info(f"Using home directory '{PARLANT_HOME_DIR.absolute()}'")
+
+    def _filter(src: str, names: list[str]) -> list[str]:
+        return ["sessions.json"] + [name for name in names if name.startswith("test_")]
+
+    if params.test_modules:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        PARLANT_HOME_DIR_NEW = PARLANT_HOME_DIR / f"test_{timestamp}"
+        shutil.copytree(
+            PARLANT_HOME_DIR,
+            PARLANT_HOME_DIR_NEW,
+            ignore=_filter,
+        )
+        PARLANT_HOME_DIR = PARLANT_HOME_DIR_NEW
+        LOGGER.info(f"Copying data to separate folder for tests: {PARLANT_HOME_DIR.absolute()}")
+        LOGGER.debug(f"TEST MODULES: {params.test_modules}")
+    else:
+        LOGGER.info(f"Using home directory '{PARLANT_HOME_DIR.absolute()}'")
 
     if "PARLANT_HOME" not in os.environ and DEFAULT_HOME_DIR == "runtime-data":
         LOGGER.warning(
@@ -790,6 +817,17 @@ def main() -> None:
             "Disable to exit if the database schema is not up-to-date."
         ),
     )
+    @click.option(
+        "--test",
+        multiple=True,
+        default=[],
+        metavar="TEST_MODULE",
+        is_flag=False,
+        flag_value="None",
+        help=(
+            "Specify a test module to load. To load multiple modules, pass this argument multiple times."
+        ),
+    )
     @click.pass_context
     def run(
         ctx: click.Context,
@@ -807,6 +845,7 @@ def main() -> None:
         module: tuple[str],
         version: bool,
         migrate: bool,
+        test: tuple[str],
     ) -> None:
         if version:
             print(f"Parlant v{VERSION}")
@@ -850,12 +889,16 @@ def main() -> None:
         else:
             assert False, "Should never get here"
 
+        if len(test) > 0 and port == DEFAULT_PORT:
+            port = random.randint(TEST_PORT_RANGE[0], TEST_PORT_RANGE[1])
+
         ctx.obj = CLIParams(
             port=port,
             nlp_service=nlp_service,
             log_level=log_level,
             modules=list(module),
             migrate=migrate,
+            test_modules=list(test),
         )
 
         asyncio.run(start_server(ctx.obj))

@@ -22,7 +22,6 @@ from typing import (
     Callable,
     Optional,
     TypeAlias,
-    TypeVar,
 )
 from exceptiongroup import ExceptionGroup
 from typing_extensions import Self
@@ -55,8 +54,13 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
+from parlant.core.engines.alpha import test_api_guideline_matcher
+from parlant.core.engines.alpha import tool_call_inference_test_api
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatcher
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCaller
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
 from parlant.core.journeys import JourneyStore
+from parlant.core.tools import LocalToolService
 from parlant.core.utterances import UtteranceStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
@@ -129,7 +133,6 @@ class AppWrapper:
             if logger:
                 logger.error("encountered error during configuration step setup")
             await self.__aexit__(None, None, None)
-            # await self.stack.aclose()
             self.stack = None
             raise
 
@@ -266,7 +269,7 @@ async def configure_static_files(app: FastAPI, container: Container) -> AsyncIte
 
 @asynccontextmanager
 async def configure_legacy_agents(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
-    agent_router = APIRouter(prefix="/agents")
+    agent_router = APIRouter()
 
     agent_router.include_router(
         guidelines.create_legacy_router(
@@ -441,7 +444,7 @@ async def configure_legacy_agents(app: FastAPI, container: Container) -> AsyncIt
         )
     )
 
-    app.include_router(agent_router)
+    app.include_router(agent_router, prefix="/agents")
     yield app
 
 
@@ -473,7 +476,7 @@ async def configure_sessions_router(app: FastAPI, container: Container) -> Async
 @asynccontextmanager
 async def configure_index_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
     router = index.legacy_create_router(
-        evaluation_service=container[BehavioralChangeEvaluator],
+        evaluation_service=container[LegacyBehavioralChangeEvaluator],
         evaluation_store=container[EvaluationStore],
         evaluation_listener=container[EvaluationListener],
         agent_store=container[AgentStore],
@@ -555,6 +558,7 @@ async def configure_guidelines_router(app: FastAPI, container: Container) -> Asy
         guideline_tool_association_store=container[GuidelineToolAssociationStore],
         agent_store=container[AgentStore],
         tag_store=container[TagStore],
+        journey_store=container[JourneyStore],
     )
     app.include_router(router, prefix="/guidelines")
     yield app
@@ -565,9 +569,11 @@ async def configure_relationships_router(
     app: FastAPI, container: Container
 ) -> AsyncIterator[FastAPI]:
     router = relationships.create_router(
-        relationship_store=container[RelationshipStore],
-        tag_store=container[TagStore],
         guideline_store=container[GuidelineStore],
+        tag_store=container[TagStore],
+        agent_store=container[AgentStore],
+        journey_store=container[JourneyStore],
+        relationship_store=container[RelationshipStore],
         service_registry=container[ServiceRegistry],
     )
     app.include_router(router, prefix="/relationships")
@@ -603,6 +609,38 @@ async def configure_logs_router(app: FastAPI, container: Container) -> AsyncIter
         websocket_logger=container[WebSocketLogger],
     )
     app.include_router(router)
+    yield app
+
+
+@asynccontextmanager
+async def configure_test_router(
+    app: FastAPI,
+    container: Container,
+) -> AsyncIterator[FastAPI]:
+    test_router_guideline_matching = (
+        guideline_matcher_test_api.create_test_guideline_matching_router(
+            guideline_matcher=container[GuidelineMatcher],
+            agent_store=container[AgentStore],
+            customer_store=container[CustomerStore],
+            context_variable_store=container[ContextVariableStore],
+            guideline_store=container[GuidelineStore],
+            glossary_store=container[GlossaryStore],
+            session_store=container[SessionStore],
+        )
+    )
+    app.include_router(test_router_guideline_matching, prefix="/test/alpha/guideline-matching")
+
+    test_router_tool_call_inference = (
+        tool_call_inference_test_api.create_test_tool_call_inference_router(
+            tool_caller=container[ToolCaller],
+            agent_store=container[AgentStore],
+            customer_store=container[CustomerStore],
+            session_store=container[SessionStore],
+            tool_service=container[LocalToolService],
+        )
+    )
+    app.include_router(test_router_tool_call_inference, prefix="/test/alpha/tool-call-inference")
+
     yield app
 
 

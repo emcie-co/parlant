@@ -481,8 +481,10 @@ async def container(
 
 
 @fixture
-async def api_app(container: Container) -> ASGIApplication:
-    return await create_api_app(container)
+async def api_app(container: Container) -> AsyncIterator[ASGIApplication]:
+    app_wrapper = await create_api_app(container)
+    async with app_wrapper as app:
+        yield app
 
 
 @fixture

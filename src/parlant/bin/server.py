@@ -116,7 +116,12 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
-from parlant.api.app import create_api_app, ASGIApplication
+from parlant.api.app import (
+    APIConfigurationSteps,
+    create_api_app,
+    ASGIApplication,
+    default_configuration_steps,
+)
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentDocumentStore, AgentStore
@@ -420,6 +425,8 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[Engine] = Singleton(AlphaEngine)
     c[Application] = lambda rc: Application(rc)
+
+    c[APIConfigurationSteps] = default_configuration_steps
 
     yield c
 
@@ -746,7 +753,9 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
             # Running in non-pico mode
             await create_agent_if_absent(actual_container[AgentStore])
 
-        yield await create_api_app(actual_container), actual_container
+        app_wrapper = await create_api_app(actual_container)
+        async with app_wrapper as app:
+            yield app, actual_container
 
 
 async def serve_app(

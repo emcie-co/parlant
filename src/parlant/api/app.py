@@ -13,8 +13,19 @@
 # limitations under the License.
 
 import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager
 import os
-from typing import Awaitable, Callable, TypeAlias
+from typing import (
+    AsyncContextManager,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Optional,
+    TypeAlias,
+    TypeVar,
+)
+from exceptiongroup import ExceptionGroup
+from typing_extensions import Self
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,10 +82,18 @@ ASGIApplication: TypeAlias = Callable[
     Awaitable[None],
 ]
 
+ASGIApplicationContextManager: TypeAlias = AsyncContextManager[ASGIApplication]
+
+APIConfigurationStep: TypeAlias = Callable[[FastAPI, Container], AsyncContextManager[FastAPI]]
+
+APIConfigurationSteps: TypeAlias = list[APIConfigurationStep]
+
 
 class AppWrapper:
-    def __init__(self, app: FastAPI) -> None:
+    def __init__(self, app: FastAPI, container: Container) -> None:
         self.app = app
+        self.container = container
+        self.stack: Optional[AsyncExitStack] = None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """FastAPI's built-in exception handling doesn't catch BaseExceptions
@@ -82,15 +101,73 @@ class AppWrapper:
         with an ugly traceback. This wrapper addresses that by specifically allowing
         asyncio.CancelledError to gracefully exit.
         """
+
+        if self.stack is None:
+            raise Exception("attempting to call on app before it was configured.")
+
         try:
-            return await self.app(scope, receive, send)
+            await self.app(scope, receive, send)
+
         except asyncio.CancelledError:
             pass
 
+    async def __aenter__(self) -> Self:
+        try:
+            logger = self.container[Logger]
+        except Exception:
+            logger = None
+        configuration_steps = self.container[APIConfigurationSteps]
+        self.stack = AsyncExitStack()
 
-async def create_api_app(container: Container) -> ASGIApplication:
+        try:
+            for step in configuration_steps:
+                configuration_context = step(self.app, self.container)
+                await self.stack.enter_async_context(configuration_context)
+
+            return self
+        except Exception:
+            if logger:
+                logger.error("encountered error during configuration step setup")
+            await self.__aexit__(None, None, None)
+            # await self.stack.aclose()
+            self.stack = None
+            raise
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> bool:
+        try:
+            logger = self.container[Logger]
+        except Exception:
+            logger = None
+        if self.stack:
+            teardown_exceptions: list[Exception] = []
+            exit_callbacks = list(getattr(self.stack, "_exit_callbacks"))
+            for cb_index, (_, exit_callback) in enumerate(reversed(exit_callbacks)):
+                try:
+                    await exit_callback(exc_type, exc_value, traceback)
+                except Exception as teardown_exception:
+                    teardown_exceptions.append(teardown_exception)
+                    if logger:
+                        logger.error(f"exception during teardown: {teardown_exception}")
+
+            self.stack.pop_all()
+
+            if exc_type is None and len(teardown_exceptions) > 0:
+                raise ExceptionGroup(
+                    f"exceptions during teardown [count=({len(teardown_exceptions)}]):",
+                    teardown_exceptions,
+                )
+
+        return False
+
+
+@asynccontextmanager
+async def configure_middlewares(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
     logger = container[Logger]
-    websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
     agent_store = container[AgentStore]
     customer_store = container[CustomerStore]
@@ -113,9 +190,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     nlp_service = container[NLPService]
     application = container[Application]
 
-    api_app = FastAPI()
-
-    @api_app.middleware("http")
+    @app.middleware("http")
     async def handle_cancellation(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
@@ -125,15 +200,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         except asyncio.CancelledError:
             return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    api_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @api_app.middleware("http")
+    @app.middleware("http")
     async def add_correlation_id(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
@@ -149,7 +216,29 @@ async def create_api_app(container: Container) -> ASGIApplication:
             ):
                 return await call_next(request)
 
-    @api_app.exception_handler(ItemNotFoundError)
+    yield app
+
+
+@asynccontextmanager
+async def configure_cors_middleware(app: FastAPI, _: Container) -> AsyncIterator[FastAPI]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    yield app
+
+
+@asynccontextmanager
+async def configure_exception_handlers(
+    app: FastAPI,
+    container: Container,
+) -> AsyncIterator[FastAPI]:
+    logger = container[Logger]
+
+    @app.exception_handler(ItemNotFoundError)
     async def item_not_found_error_handler(
         request: Request, exc: ItemNotFoundError
     ) -> HTTPException:
@@ -160,25 +249,36 @@ async def create_api_app(container: Container) -> ASGIApplication:
             detail=str(exc),
         )
 
-    static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
-    api_app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
+    yield app
 
-    @api_app.get("/", include_in_schema=False)
+
+@asynccontextmanager
+async def configure_static_files(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
+    app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
+
+    @app.get("/", include_in_schema=False)
     async def root() -> Response:
         return RedirectResponse("/chat")
 
+    yield app
+
+
+@asynccontextmanager
+async def configure_legacy_agents(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
     agent_router = APIRouter(prefix="/agents")
 
     agent_router.include_router(
         guidelines.create_legacy_router(
-            application=application,
-            guideline_store=guideline_store,
-            tag_store=tag_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
+            application=container[Application],
+            guideline_store=container[GuidelineStore],
+            relationship_store=container[RelationshipStore],
+            service_registry=container[ServiceRegistry],
+            tag_store=container[TagStore],
+            guideline_tool_association_store=container[GuidelineToolAssociationStore],
         ),
     )
+
     agent_router.include_router(
         glossary.create_legacy_router(
             glossary_store=glossary_store,
@@ -334,4 +434,197 @@ async def create_api_app(container: Container) -> ASGIApplication:
         )
     )
 
-    return AppWrapper(api_app)
+    agent_router.include_router(
+        variables.create_legacy_router(
+            context_variable_store=container[ContextVariableStore],
+            service_registry=container[ServiceRegistry],
+        )
+    )
+
+    app.include_router(agent_router)
+    yield app
+
+
+@asynccontextmanager
+async def configure_agents_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = agents.create_router(
+        agent_store=container[AgentStore],
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/agents")
+    yield app
+
+
+@asynccontextmanager
+async def configure_sessions_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = sessions.create_router(
+        logger=container[Logger],
+        application=container[Application],
+        agent_store=container[AgentStore],
+        customer_store=container[CustomerStore],
+        session_store=container[SessionStore],
+        session_listener=container[SessionListener],
+        nlp_service=container[NLPService],
+    )
+    app.include_router(router, prefix="/sessions")
+    yield app
+
+
+@asynccontextmanager
+async def configure_index_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = index.legacy_create_router(
+        evaluation_service=container[BehavioralChangeEvaluator],
+        evaluation_store=container[EvaluationStore],
+        evaluation_listener=container[EvaluationListener],
+        agent_store=container[AgentStore],
+    )
+    app.include_router(router, prefix="/index")
+    yield app
+
+
+@asynccontextmanager
+async def configure_services_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = services.create_router(
+        service_registry=container[ServiceRegistry],
+    )
+    app.include_router(router, prefix="/services")
+    yield app
+
+
+@asynccontextmanager
+async def configure_tags_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = tags.create_router(
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/tags")
+    yield app
+
+
+@asynccontextmanager
+async def configure_terms_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = glossary.create_router(
+        glossary_store=container[GlossaryStore],
+        agent_store=container[AgentStore],
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/terms")
+    yield app
+
+
+@asynccontextmanager
+async def configure_customers_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = customers.create_router(
+        customer_store=container[CustomerStore],
+        tag_store=container[TagStore],
+        agent_store=container[AgentStore],
+    )
+    app.include_router(router, prefix="/customers")
+    yield app
+
+
+@asynccontextmanager
+async def configure_utterances_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = utterances.create_router(
+        utterance_store=container[UtteranceStore],
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/utterances")
+    yield app
+
+
+@asynccontextmanager
+async def configure_context_variables_router(
+    app: FastAPI, container: Container
+) -> AsyncIterator[FastAPI]:
+    router = variables.create_router(
+        context_variable_store=container[ContextVariableStore],
+        service_registry=container[ServiceRegistry],
+        agent_store=container[AgentStore],
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/context-variables")
+    yield app
+
+
+@asynccontextmanager
+async def configure_guidelines_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = guidelines.create_router(
+        guideline_store=container[GuidelineStore],
+        relationship_store=container[RelationshipStore],
+        service_registry=container[ServiceRegistry],
+        guideline_tool_association_store=container[GuidelineToolAssociationStore],
+        agent_store=container[AgentStore],
+        tag_store=container[TagStore],
+    )
+    app.include_router(router, prefix="/guidelines")
+    yield app
+
+
+@asynccontextmanager
+async def configure_relationships_router(
+    app: FastAPI, container: Container
+) -> AsyncIterator[FastAPI]:
+    router = relationships.create_router(
+        relationship_store=container[RelationshipStore],
+        tag_store=container[TagStore],
+        guideline_store=container[GuidelineStore],
+        service_registry=container[ServiceRegistry],
+    )
+    app.include_router(router, prefix="/relationships")
+    yield app
+
+
+@asynccontextmanager
+async def configure_journeys_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = journeys.create_router(
+        journey_store=container[JourneyStore],
+        guideline_store=container[GuidelineStore],
+    )
+    app.include_router(router, prefix="/journeys")
+    yield app
+
+
+@asynccontextmanager
+async def configure_evaluations_router(
+    app: FastAPI, container: Container
+) -> AsyncIterator[FastAPI]:
+    router = evaluations.create_router(
+        evaluation_service=container[BehavioralChangeEvaluator],
+        evaluation_store=container[EvaluationStore],
+        evaluation_listener=container[EvaluationListener],
+    )
+    app.include_router(router, prefix="/evaluations")
+    yield app
+
+
+@asynccontextmanager
+async def configure_logs_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
+    router = logs.create_router(
+        websocket_logger=container[WebSocketLogger],
+    )
+    app.include_router(router)
+    yield app
+
+
+default_configuration_steps: APIConfigurationSteps = [
+    configure_middlewares,
+    configure_cors_middleware,
+    configure_exception_handlers,
+    configure_static_files,
+    configure_legacy_agents,
+    configure_agents_router,
+    configure_sessions_router,
+    configure_index_router,
+    configure_services_router,
+    configure_tags_router,
+    configure_terms_router,
+    configure_customers_router,
+    configure_utterances_router,
+    configure_context_variables_router,
+    configure_guidelines_router,
+    configure_logs_router,
+]
+
+
+async def create_api_app(container: Container) -> ASGIApplicationContextManager:
+    return AppWrapper(FastAPI(), container)

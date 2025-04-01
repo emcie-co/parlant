@@ -601,6 +601,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         reference_tools: Sequence[tuple[ToolId, Tool]],
     ) -> tuple[str, dict[str, Any]]:
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
+            print(f"DEBUG - spec type: {type(spec)}, spec value: {spec}")
             descriptor, options = spec
 
             result: dict[str, Any] = {"schema": {"type": descriptor["type"]}}

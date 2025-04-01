@@ -155,7 +155,7 @@ def get_tool(
             },
             required=tool_data["required"],
             consequential=False,
-        )
+        )  # TODO the bug is here
     return created_tools[tool_name]
 
 

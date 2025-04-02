@@ -29,12 +29,12 @@ from parlant.core.engines.alpha.guideline_proposer import (
 from parlant.core.engines.alpha.guideline_proposition import (
     GuidelineProposition,  # noqa
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore  # noqa
+from parlant.core.guidelines import GuidelineContent, GuidelineId, GuidelineStore  # noqa
 from parlant.core.sessions import EventSource, MessageEventData, SessionId, SessionStore  # noqa
 from parlant.core.loggers import Logger  # noqa
 from parlant.core.glossary import TermId  # noqa
 
-from parlant.core.tools import LocalToolService, Tool, ToolId, ToolParameterOptions
+from parlant.core.tools import LocalToolService, ToolId, ToolParameterDescriptor
 from tests.core.common.utils import ContextOfTest, create_event_message  # noqa
 from tests.core.stable.engines.alpha.test_tool_caller import create_guideline_proposition
 from tests.test_utilities import nlp_test, SyncAwaiter  # noqa
@@ -90,30 +90,30 @@ tools: dict[str, dict[str, Any]] = {
     },
 }
 
-created_tools: dict[str, Tool] = {}
-
-
-@dataclass(frozen=True)
-class _ToolCallVerification:
-    expected_tool_id: str
-    expected_tool_result: str
-    expected_tool_arguments: Optional[dict[str, str]] = None
-
 
 @dataclass(frozen=True)
 class ScenarioTurn:
     customer_message: str
     agent_message: str
     expected_agent_message_content: str
-    expected_tool_results: Optional[Sequence[_ToolCallVerification]] = None
+    expected_tool_results: Optional[Sequence[dict[str, Any]]] = None
     expected_active_guidelines: Optional[set[str]] = None
+
+
+@dataclass(frozen=True)
+class _LocalTool:
+    name: str
+    creation_utc: datetime
+    description: str
+    parameters: dict[str, ToolParameterDescriptor]
+    required: list[str]
 
 
 @dataclass(frozen=True)
 class _GuidelineAndTool:
     name: str
     guideline: GuidelineContent
-    associated_tools: Sequence[Tool] = None
+    associated_tools: Sequence[_LocalTool] = None
 
 
 @dataclass(frozen=True)
@@ -139,23 +139,22 @@ class InteractionScenario:
     glossary: Optional[Sequence[_TermData]] = None
 
 
-def get_tool(
+created_tools: dict[str, _LocalTool] = {}
+
+
+def _get_local_tool(
     tool_name: str,
-) -> Tool:
+) -> _LocalTool:
     if tool_name not in created_tools:
         creation_utc = datetime.now(timezone.utc)
         tool_data = tools[tool_name]
-        created_tools[tool_name] = Tool(
+        created_tools[tool_name] = _LocalTool(
             creation_utc=creation_utc,
             name=tool_data["name"],
             description=tool_data["description"],
-            parameters={
-                name: (descriptor, ToolParameterOptions())
-                for name, descriptor in tool_data["parameters"].items()
-            },
+            parameters=tool_data["parameters"],
             required=tool_data["required"],
-            consequential=False,
-        )  # TODO the bug is here
+        )
     return created_tools[tool_name]
 
 
@@ -294,7 +293,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="The customer wants to transfer funds, and has confirmed the transfer details which the agent re-iterated, including the recipient, amount and the pincode",
                 action="Try to execute the transfer and report the results to the customer",
             ),
-            associated_tools=[get_tool("transfer_coins")],
+            associated_tools=[_get_local_tool("transfer_coins")],
         ),
         _GuidelineAndTool(
             name="unlock_account",
@@ -302,7 +301,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="User asks to unlock their account",
                 action="Use the customer’s account number to unlock the account",
             ),
-            associated_tools=[get_tool("unlock_account")],
+            associated_tools=[_get_local_tool("unlock_account")],
         ),
         _GuidelineAndTool(
             name="email_pincode",
@@ -310,7 +309,7 @@ BANKING_SCENARIO = InteractionScenario(
                 condition="The customer asks for their pin code",
                 action="Email the pincode to the customer and inform them that it has been emailed to their address",
             ),
-            associated_tools=[get_tool("email_pincode")],
+            associated_tools=[_get_local_tool("email_pincode")],
         ),
     ],
     glossary=[
@@ -333,7 +332,7 @@ model_config = {"arbitrary_types_allowed": True}
 
 def verify_tool_calls(
     emitted_tool_calls: Sequence[EmittedEvent],
-    expected_tool_calls: Sequence[_ToolCallVerification],
+    expected_tool_calls: Sequence[dict[str, Any]],
 ) -> bool:
     pass
 

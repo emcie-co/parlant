@@ -1,7 +1,6 @@
 from dataclasses import Field, dataclass  # noqa
 from datetime import datetime, timezone
 from itertools import chain  # noqa
-import json
 from typing import Any, Optional, Sequence, cast  # noqa
 from pytest import Session, mark
 
@@ -96,7 +95,7 @@ class ScenarioTurn:
     customer_message: str
     agent_message: str
     expected_agent_message_content: str
-    expected_tool_results: Optional[Sequence[dict[str, Any]]] = None
+    expected_tool_results: Optional[JSONSerializable] = None
     expected_active_guidelines: Optional[set[str]] = None
 
 
@@ -161,7 +160,7 @@ def _get_local_tool(
 BANKING_SCENARIO = InteractionScenario(
     messages=[
         ScenarioTurn(
-            customer_message="Hello! I want to coinmove to Alan Johnson",
+            customer_message="Hello! I want to coinmove to Alan Johnson, account number 999777888",
             agent_message="Welcome to Parlant Bank! How many coins would you like to transfer?",
             expected_agent_message_content="Asking how many coins the agent would like to transfer",
             expected_tool_results=[],
@@ -247,7 +246,7 @@ BANKING_SCENARIO = InteractionScenario(
             expected_active_guidelines={"transfer_funds_execute"},
         ),
         ScenarioTurn(
-            customer_message="nice. Now let's give Sophie Chapman 100 coins as well",
+            customer_message="nice. Now let's give Sophie Chapman (number 9228434) 100 coins as well",
             agent_message="Before proceeding, please let me know if the transaction's details are correct: You wish to transfer 100 coins to Sophie Chapman, and your pincode is 6543",
             expected_agent_message_content="asking for confirmation that the customer wishes to transfer 100 coins to Sophie Chapman, using pincode is 6543",
             expected_tool_results=[],  # TODO fill in
@@ -489,7 +488,7 @@ def register_events(
                             source="ai_agent",
                             kind="tool",
                             correlation_id="test_correlation_id",
-                            data=json.loads(result.expected_tool_result),
+                            data=result,
                         )
                     )
 

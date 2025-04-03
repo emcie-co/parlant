@@ -451,36 +451,6 @@ While doing so, take the following instructions into account:
 5. Use the "should_run" argument to indicate whether a tool should be executed, meaning it has a high applicability score and either (a) has not been staged with the same arguments, or (b) was staged but needs to be re-executed.
 6. If a tool needs to be applied multiple times (each with different arguments), you may include it in the output multiple times.
 
-Produce a valid JSON object according to the following format:
-```json
-{{
-    "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
-    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
-    "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
-    "name": "<TOOL NAME>",
-    "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
-    "tool_calls_for_candidate_tool": [
-        {{
-            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER AND HOW THE TOOL NEEDS TO BE CALLED>",
-            "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED ONLY IF THE TOOL APPLICABILITY IS UNDER 6>],
-            "same_call_is_already_staged": <BOOL>,
-            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
-            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
-            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
-            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
-            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
-            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "are_optional_arguments_missing": <BOOL>,
-            "are_non_optional_arguments_missing": <BOOL>,
-            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
-            "should_run": <BOOL-WHETHER THE TOOL IS APPLICABLE, NOT YET STAGED, AND ALL REQUIRED PARAMS ARE PROVIDED>
-        }}
-        ...
-    ]
-}}
-```
-
 where the tool provided to you under appears at least once in "tool_calls_for_candidate_tool", whether you decide to use it or not.
 The exact format of your output will be provided to you at the end of this prompt.
 

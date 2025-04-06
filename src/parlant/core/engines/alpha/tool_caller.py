@@ -54,7 +54,7 @@ class ArgumentEvaluation(DefaultBaseModel):
     evaluate_is_it_provided_by_an_acceptable_source: str
     evaluate_was_it_already_provided_and_should_it_be_provided_again: str
     evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided: str
-    is_optional: bool
+    is_optional: Optional[bool] = None
     has_default_value_if_not_provided_by_acceptable_source: Optional[bool] = None
     is_missing: bool
     value_as_string: Optional[str] = None
@@ -65,9 +65,11 @@ class ToolCallEvaluation(DefaultBaseModel):
     applicability_score: int
     argument_evaluations: Optional[list[ArgumentEvaluation]] = None
     same_call_is_already_staged: bool
-    comparison_with_rejected_tools_including_references_to_subtleties: str
+    comparison_with_rejected_tools_including_references_to_subtleties: Optional[str] = None
     relevant_subtleties: str
-    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected: bool
+    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected: Optional[bool] = (
+        None
+    )
     potentially_better_rejected_tool_name: Optional[str] = None
     potentially_better_rejected_tool_rationale: Optional[str] = None
     the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool: Optional[
@@ -75,9 +77,9 @@ class ToolCallEvaluation(DefaultBaseModel):
     ] = None
     # These 3 ARQs are for cases we've observed where many optional arguments are missing
     # such that the model would be possibly biased to say the tool shouldn't run.
-    are_optional_arguments_missing: bool
-    are_non_optional_arguments_missing: bool
-    allowed_to_run_without_optional_arguments_even_if_they_are_missing: bool
+    are_optional_arguments_missing: Optional[bool] = None
+    are_non_optional_arguments_missing: Optional[bool] = None
+    allowed_to_run_without_optional_arguments_even_if_they_are_missing: Optional[bool] = None
     should_run: bool
 
 
@@ -540,27 +542,12 @@ Given the tool, your output should adhere to the following format:
 ```json
 {{
     "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
-    "most_recent_customer_inquiry_or_need": "<customer's inquiry or need>",
+    "most_recent_customer_inquiry_or_need": "<COSTUMER"S INQUIRY OR NEED>",
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
     "name": "{service_name}:{tool_name}",
     "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
     "tool_calls_for_candidate_tool": [
-        {{
-            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
-            "applicability_score": <INTEGER FROM 1 TO 10>,
-            "argument_evaluations": [<EVALUATIONS FOR THE ARGUMENTS. CAN BE DROPPED ONLY IF THE TOOL APPLICABILITY IS UNDER 6>],
-            "same_call_is_already_staged": <BOOL>,
-            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
-            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>",
-            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
-            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
-            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
-            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,
-            "are_optional_arguments_missing": <BOOL>,
-            "are_non_optional_arguments_missing": <BOOL>,
-            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
-            "should_run": <BOOL-WHETHER THE TOOL IS APPLICABLE, NOT YET STAGED, AND ALL REQUIRED PARAMS ARE PROVIDED>
-        }}
+        {tool_calls_for_candidate_tool_json_description}
     ]
 }}
 ```
@@ -570,10 +557,56 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             props={
                 "service_name": batch[0].service_name,
                 "tool_name": batch[0].tool_name,
+                "tool_calls_for_candidate_tool_json_description": self._format_tool_calls_for_candidate_tool_json_description(
+                    candidate_tool=batch[1], has_reference_tools=bool(reference_tools)
+                ),
             },
         )
 
         return builder
+
+    def _format_tool_calls_for_candidate_tool_json_description(
+        self, candidate_tool: Tool, has_reference_tools: bool
+    ) -> str:
+        result = """{{
+            "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
+            "applicability_score": <INTEGER FROM 1 TO 10>,
+            "argument_evaluations": [
+                {
+                    "parameter_name": "<PARAMETER NAME>",
+                    "acceptable_source_for_this_argument_according_to_its_tool_definition": "<REAPET THE ACCEPTABLE SOURCE FOR THE ARGUMENT FROM TOOL DEFINITION>",
+                    "evaluate_is_it_provided_by_an_acceptable_source": "<BRIEFLY EVALUATE IF THE SOURCE FOR THE VALUE MATCHES THE ACCEPTABLE SOURCE>",
+                    "evaluate_was_it_already_provided_and_should_it_be_provided_again": "<BRIEFLY EVALUATE IF THE PARAMERWE VALUE WAS PROVIDED AND SHOULD BE PROVIDED AGAIN>",
+                    "evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided": "<BRIEFLY EVALUATE IF IT'S A PROBLEM TO GUESS THE VALUE>",
+                    "is_optional": <BOOL>,
+                    "is_missing": <BOOL>,
+                    "value_as_string": "<PARAMETER VALUE>"
+                }
+            ],
+            "same_call_is_already_staged": <BOOL>,
+            "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>", """
+
+        if has_reference_tools:
+            result += """
+            "comparison_with_rejected_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST OTHER TOOLS IN APPLICABILITY>",
+            "a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected": <BOOL>,
+            "potentially_better_rejected_tool_name": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS IS THE NAME OF THAT REJECTED TOOL>",
+            "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
+            "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,"""
+
+        optional_arguments = [
+            name for name in candidate_tool.parameters if name not in candidate_tool.required
+        ]
+        if optional_arguments:
+            result += """
+            "are_optional_arguments_missing": <BOOL>,
+            "are_non_optional_arguments_missing": <BOOL>,
+            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,"""
+
+        result += """
+            "should_run": <BOOL-WHETHER THE TOOL IS APPLICABLE, NOT YET STAGED, AND ALL REQUIRED PARAMS ARE PROVIDED>
+                }}"""
+        return result
 
     def _add_tool_definitions_section(
         self,
@@ -826,11 +859,7 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     ],
                     same_call_is_already_staged=True,
-                    comparison_with_rejected_tools_including_references_to_subtleties=(
-                        "There are no tools in the list of rejected tools"
-                    ),
                     relevant_subtleties="check_balance(12345) is already staged",
-                    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     are_optional_arguments_missing=False,
                     are_non_optional_arguments_missing=False,
                     allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
@@ -855,9 +884,7 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                     applicability_rationale="There is no reason to notify the supervisor of anything",
                     applicability_score=1,
                     same_call_is_already_staged=False,
-                    comparison_with_rejected_tools_including_references_to_subtleties="There are no tools in the list of rejected tools",
                     relevant_subtleties="no subtleties were detected",
-                    a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     are_optional_arguments_missing=False,
                     are_non_optional_arguments_missing=False,
                     allowed_to_run_without_optional_arguments_even_if_they_are_missing=True,
@@ -907,10 +934,10 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         ),
                     ],
                     same_call_is_already_staged=False,
+                    relevant_subtleties="no subtleties were detected",
                     comparison_with_rejected_tools_including_references_to_subtleties=(
                         "None of the available reference tools are deemed more suitable for the candidate tool’s application"
                     ),
-                    relevant_subtleties="no subtleties were detected",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     are_optional_arguments_missing=False,
                     are_non_optional_arguments_missing=False,
@@ -950,10 +977,10 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         ),
                     ],
                     same_call_is_already_staged=False,
+                    relevant_subtleties="two products need to be checked for calories - begin with margherita",
                     comparison_with_rejected_tools_including_references_to_subtleties=(
                         "None of the available reference tools are deemed more suitable for the candidate tool’s application"
                     ),
-                    relevant_subtleties="two products need to be checked for calories - begin with margherita",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     are_optional_arguments_missing=False,
                     are_non_optional_arguments_missing=False,
@@ -976,10 +1003,10 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         ),
                     ],
                     same_call_is_already_staged=False,
+                    relevant_subtleties="two products need to be checked for calories - now check deep dish",
                     comparison_with_rejected_tools_including_references_to_subtleties=(
                         "None of the available reference tools are deemed more suitable for the candidate tool’s application"
                     ),
-                    relevant_subtleties="two products need to be checked for calories - now check deep dish",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     are_optional_arguments_missing=False,
                     are_non_optional_arguments_missing=False,
@@ -1016,10 +1043,10 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     ],
                     same_call_is_already_staged=False,
+                    relevant_subtleties="Both the candidate and referenc tool could apply - we need to choose the one that applies best",
                     comparison_with_rejected_tools_including_references_to_subtleties=(
                         "candidate tool is more specialized for this use case than the rejected tools"
                     ),
-                    relevant_subtleties="Both the candidate and referenc tool could apply - we need to choose the one that applies best",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=False,
                     potentially_better_rejected_tool_name="check_motorcycle_price",
                     potentially_better_rejected_tool_rationale=(
@@ -1063,8 +1090,8 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     ],
                     same_call_is_already_staged=False,
-                    comparison_with_rejected_tools_including_references_to_subtleties="not as good a fit as check_motorcycle_price",
                     relevant_subtleties="no subtleties were detected",
+                    comparison_with_rejected_tools_including_references_to_subtleties="not as good a fit as check_motorcycle_price",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=True,
                     potentially_better_rejected_tool_name="check_motorcycle_price",
                     potentially_better_rejected_tool_rationale=(
@@ -1107,8 +1134,8 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     ],
                     same_call_is_already_staged=False,
-                    comparison_with_rejected_tools_including_references_to_subtleties="check_indoor_temperature is a better fit for this usecase, as it's more specific",
                     relevant_subtleties="no subtleties were detected",
+                    comparison_with_rejected_tools_including_references_to_subtleties="check_indoor_temperature is a better fit for this usecase, as it's more specific",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=True,
                     potentially_better_rejected_tool_name="check_indoor_temperature",
                     potentially_better_rejected_tool_rationale=(
@@ -1152,8 +1179,8 @@ _baseline_shots: Sequence[ToolCallerInferenceShot] = [
                         )
                     ],
                     same_call_is_already_staged=False,
-                    comparison_with_rejected_tools_including_references_to_subtleties="not as good a fit as search_electronics",
                     relevant_subtleties="While laptops are a kind of product, they are specifically a type of electronics product",
+                    comparison_with_rejected_tools_including_references_to_subtleties="not as good a fit as search_electronics",
                     a_rejected_tool_would_have_been_a_better_fit_if_it_werent_already_rejected=True,
                     potentially_better_rejected_tool_name="search_electronics",
                     potentially_better_rejected_tool_rationale=(

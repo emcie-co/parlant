@@ -542,3 +542,93 @@ Feature: Tools
         When processing is triggered    
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 1000 and from_account Mark Corrigan and to_account Mark Scout and pincode 1234
+
+    Scenario: Tool caller correctly infers arguments values with optional (1)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, do you have laptop that is not above $300?"
+        When processing is triggered
+
+    Scenario: Tool caller correctly infers arguments values with optional (2)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, do you have SSD of Samsung?"
+        And an agent message, "Do you have a price limit? for example not more than $400?"
+        And a customer message, "No"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains SSD as keyword and Samsung as Vendor and no price limit
+
+    Scenario: Tool caller correctly infers arguments values with optional (3)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, how much does a SSD of Samsung cost?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains SSD as keyword and Samsung as Vendor 
+       
+    Scenario: Tool caller doesnt call tool when optional arguments exist but required not (1)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, do you have product above $15?"
+        When processing is triggered
+        Then no tool calls event is emitted
+    
+    Scenario: Tool caller doesnt call tool when optional arguments exist but required not (2)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, do you have in stock a product that cost more than $15?"
+        When processing is triggered
+        Then no tool calls event is emitted
+
+    Scenario: Tool caller consider a guideline about optional parameters (1)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a guideline to check only products in stock when costumer is interested in electronic products with specific attributes
+        And a customer message, "Hey, do you have laptop that is not above $300?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains laptop as keyword and 300 as max price and in_stock_only is True
+
+    Scenario: Tool caller consider a guideline about optional parameters (2)
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a guideline to check only products of Dell when customer is interested in laptops with specific attributes
+        And a customer message, "Hey, do you have a laptop that costs no more than $300 but isn't too cheap, say around $10?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains laptop as keyword and Dell as vendom and 300 as max price and 10 as min price 
+
+    Scenario: Tool caller include only required argument when asked to 
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a guideline to check only products of Dell when customer is interested in laptops with specific attributes
+        And a customer message, "Hey, do you have electronic device like microphones in your store?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains microphone as keyword 
+
+     Scenario: Tool caller call tool twice with optional arguments
+        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
+        And the tool "search_electronic_products"
+        And an association between "filter_electronic_products" and "search_electronic_products"
+        And a customer message, "Hey, do you have Dell laptop or Samsung SSD?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 2 tool call(s)
+        And the tool calls event contains a call to "local:search_electronic_products" with Dell vendor and laptop keyword
+        And the tool calls event contains a call to "local:search_electronic_products" with Samsung vendor and SSD keyword
+

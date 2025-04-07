@@ -259,3 +259,44 @@ def transfer_coins(amount: int, from_account: str, to_account: str, pincode: str
         else:
             return ToolResult(data="Transaction failed: incorrect pincode")
     return ToolResult(data="Transaction failed: one of the provided accounts does not exist")
+
+
+async def search_electronic_products(
+    keyword: str,
+    product_type: Optional[ElectronicProductType] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    in_stock_only: Optional[bool] = False,
+    vendor: Optional[str] = None,
+) -> ToolResult:
+    with open("tests/data/get_products_by_type_data.json", "r") as f:
+        database = json.load(f)
+
+    # Start with all products
+    products = database
+
+    # Filter by keyword (required parameter)
+    keyword = keyword.lower()
+    products = [
+        item
+        for item in products
+        if keyword in item["title"].lower() or keyword in item["description"].lower()
+    ]
+
+    # Apply optional filters
+    if product_type:
+        products = [item for item in products if item["type"] == product_type]
+
+    if min_price is not None:
+        products = [item for item in products if item["price"] >= min_price]
+
+    if max_price is not None:
+        products = [item for item in products if item["price"] <= max_price]
+
+    if in_stock_only:
+        products = [item for item in products if item["qty"] > 0]
+
+    if vendor:
+        products = [item for item in products if item["vendor"].lower() == vendor.lower()]
+
+    return ToolResult({"available_products": products, "total_results": len(products)})

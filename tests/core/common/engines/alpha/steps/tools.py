@@ -513,6 +513,33 @@ def given_a_tool(
             },
             "required": ["amount", "from_account", "to_account", "pincode"],
         },
+        "search_electronic_products": {
+            "name": "search_electronic_products",
+            "description": "Search for products in the inventory based on various criteria",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "keyword": {
+                    "type": "string",
+                    "description": "Search term to match against product names and descriptions",
+                },
+                "product_type": {
+                    "type": "string",
+                    "description": "Filter by product category",
+                    "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
+                },
+                "min_price": {"type": "integer", "description": "Minimum price filter"},
+                "max_price": {"type": "integer", "description": "Maximum price filter"},
+                "in_stock_only": {
+                    "type": "boolean",
+                    "description": "Only show products that are currently in stock",
+                },
+                "vendor": {
+                    "type": "string",
+                    "description": "Company name",
+                },
+            },
+            "required": ["keyword"],
+        },
     }
 
     tool = context.sync_await(local_tool_service.create_tool(**tools[tool_name]))

@@ -492,6 +492,27 @@ def given_a_tool(
             "parameters": {},
             "required": [],
         },
+        "transfer_coins": {
+            "name": "transfer_coins",
+            "description": "Transfer coins from one account to another",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "amount": {"type": "integer", "description": "the number of coins to transfer"},
+                "from_account": {
+                    "type": "string",
+                    "description": "The name of the person whose account the coins will be transferred from",
+                },
+                "to_account": {
+                    "type": "string",
+                    "description": "The name of the person whose account the coins will be transferred to",
+                },
+                "pincode": {
+                    "type": "string",
+                    "description": "the pincode for the account the coins are transfered from",
+                },
+            },
+            "required": ["amount", "from_account", "to_account", "pincode"],
+        },
     }
 
     tool = context.sync_await(local_tool_service.create_tool(**tools[tool_name]))

@@ -250,3 +250,12 @@ def get_qualification_info() -> ToolResult:
         data={},
         utterance_fields={"qualification_info": "5+ years of experience"},
     )
+
+
+def transfer_coins(amount: int, from_account: str, to_account: str, pincode: str) -> ToolResult:
+    if from_account == "Mark Corrigan" and to_account == "Sophie Chapman":
+        if pincode == "1234":
+            return ToolResult(data="Transaction succesful: Transaction number: 83933")
+        else:
+            return ToolResult(data="Transaction failed: incorrect pincode")
+    return ToolResult(data="Transaction failed: one of the provided accounts does not exist")

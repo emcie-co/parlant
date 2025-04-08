@@ -469,7 +469,6 @@ While doing so, take the following instructions into account:
 5. Use the "should_run" argument to indicate whether a tool should be executed, meaning it has a high applicability score and either (a) has not been staged with the same arguments, or (b) was staged but needs to be re-executed.
 6. If a tool needs to be applied multiple times (each with different arguments), you may include it in the output multiple times.
 
-where the tool provided to you under appears at least once in "tool_calls_for_candidate_tool", whether you decide to use it or not.
 The exact format of your output will be provided to you at the end of this prompt.
 
 The following examples show correct outputs for various hypothetical situations.

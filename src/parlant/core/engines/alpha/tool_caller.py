@@ -345,7 +345,8 @@ class ToolCaller:
         shot_collection: Sequence[ToolCallerInferenceShot] = [
             shot
             for shot in shots
-            if "has_reference_tools" in shot.feature_set == has_reference_tools
+            if not shot.feature_set
+            or ("has_reference_tools" in shot.feature_set) == has_reference_tools
         ]
         return shot_collection
 

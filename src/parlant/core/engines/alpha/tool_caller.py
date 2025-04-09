@@ -572,6 +572,8 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             props={
                 "service_name": batch[0].service_name,
                 "tool_name": batch[0].tool_name,
+                "candidate_tool": batch[1],
+                "has_reference_tools": bool(reference_tools),
                 "tool_calls_for_candidate_tool_json_description": self._format_tool_calls_for_candidate_tool_json_description(
                     candidate_tool=batch[1], has_reference_tools=bool(reference_tools)
                 ),
@@ -583,21 +585,31 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
     def _format_tool_calls_for_candidate_tool_json_description(
         self, candidate_tool: Tool, has_reference_tools: bool
     ) -> str:
+        optional_arguments = [
+            name for name in candidate_tool.parameters if name not in candidate_tool.required
+        ]
         result = """{{
             "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
-            "applicability_score": <INTEGER FROM 1 TO 10>,
+            "applicability_score": <INTEGER FROM 1 TO 10>,"""
+        result += """    
             "argument_evaluations": [
                 {
                     "parameter_name": "<PARAMETER NAME>",
                     "acceptable_source_for_this_argument_according_to_its_tool_definition": "<REAPET THE ACCEPTABLE SOURCE FOR THE ARGUMENT FROM TOOL DEFINITION>",
                     "evaluate_is_it_provided_by_an_acceptable_source": "<BRIEFLY EVALUATE IF THE SOURCE FOR THE VALUE MATCHES THE ACCEPTABLE SOURCE>",
                     "evaluate_was_it_already_provided_and_should_it_be_provided_again": "<BRIEFLY EVALUATE IF THE PARAMERWE VALUE WAS PROVIDED AND SHOULD BE PROVIDED AGAIN>",
-                    "evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided": "<BRIEFLY EVALUATE IF IT'S A PROBLEM TO GUESS THE VALUE>",
-                    "is_optional": <BOOL>,
+                    "evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided": "<BRIEFLY EVALUATE IF IT'S A PROBLEM TO GUESS THE VALUE>","""
+        if optional_arguments:
+            result += """
+                    "is_optional": <BOOL>,"""
+
+        result += """
                     "is_missing": <BOOL>,
                     "value_as_string": "<PARAMETER VALUE>"
                 }
-            ],
+            ],"""
+
+        result += """
             "same_call_is_already_staged": <BOOL>,
             "relevant_subtleties": "<IF SUBTLETIES FOUND, REFER TO THE RELEVANT ONES HERE>", """
 
@@ -609,9 +621,6 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             "potentially_better_rejected_tool_rationale": "<IF CANDIDATE TOOL IS A WORSE FIT THAN A REJECTED TOOL, THIS EXPLAINS WHY>",
             "the_better_rejected_tool_should_clearly_be_run_in_tandem_with_the_candidate_tool": <BOOL>,"""
 
-        optional_arguments = [
-            name for name in candidate_tool.parameters if name not in candidate_tool.required
-        ]
         if optional_arguments:
             result += """
             "are_optional_arguments_missing": <BOOL>,

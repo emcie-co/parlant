@@ -1584,7 +1584,6 @@ class Interface:
             ]
 
             if rel.source_guideline:
-                rich.print(f"source_guideline: {rel.source_guideline}")
                 result.extend(
                     [
                         ("Source Condition", rel.source_guideline.condition),

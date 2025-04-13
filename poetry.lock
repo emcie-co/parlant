@@ -3529,12 +3529,6 @@ mypy = "^1.11.1"
 nanoid = "^2.0.0"
 pydantic = "^2.9.2"
 
-[package.source]
-type = "git"
-url = "https://github.com/emcie-co/parlant-client-python.git"
-reference = "develop.1743678521"
-resolved_reference = "a69b73095ab3ddd9f68d817d3f39482339e187ee"
-
 [[package]]
 name = "parse"
 version = "1.20.2"

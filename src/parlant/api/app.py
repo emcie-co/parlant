@@ -147,8 +147,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
             detail=str(exc),
         )
 
-    static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
-    api_app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
+    # static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")
+    # api_app.mount("/chat", StaticFiles(directory=static_dir, html=True), name="static")
 
     @api_app.get("/", include_in_schema=False)
     async def root() -> Response:

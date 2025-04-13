@@ -126,6 +126,7 @@ class Application:
         return event
 
     async def dispatch_processing_task(self, session: Session) -> str:
+        # Create a new correlation scope (when new message is received) for the session
         with self._correlator.correlation_scope(generate_id()):
             await self._background_task_service.restart(
                 self._process_session(session),
@@ -135,11 +136,14 @@ class Application:
             return self._correlator.correlation_id
 
     async def _process_session(self, session: Session) -> None:
+        # Create a new event emitter from session_id and agent_id
+        # This event emitter is used to emit events to the session store
         event_emitter = await self._event_emitter_factory.create_event_emitter(
             emitting_agent_id=session.agent_id,
             session_id=session.id,
         )
 
+        # Process the session, which will emit events to the session store
         await self._engine.process(
             Context(
                 session_id=session.id,

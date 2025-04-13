@@ -17,7 +17,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from itertools import chain
 from pydantic import Field
-from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast
+from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast, List, Dict
 
 
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
@@ -48,6 +48,7 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.utterances import UtteranceId
+from parlant.core.image_handler import upload_base64_image_to_cdn
 
 API_GROUP = "sessions"
 
@@ -222,6 +223,13 @@ SessionEventCreationParamsActionField: TypeAlias = Annotated[
     ),
 ]
 
+class ImageDTO(DefaultBaseModel):
+    """Image data for upload in a message."""
+    url: str
+    type: str
+    size: int
+
+
 event_creation_params_example: ExampleJson = {
     "kind": "message",
     "source": "customer",
@@ -250,6 +258,7 @@ class EventCreationParamsDTO(
     kind: EventKindDTO
     source: EventSourceDTO
     message: Optional[SessionEventCreationParamsMessageField] = None
+    images: Optional[Sequence[ImageDTO]] = None
     actions: Optional[list[UtteranceRequestDTO]] = None
 
 
@@ -698,6 +707,17 @@ MessageEventDataUtterancesField: TypeAlias = Annotated[
     ),
 ]
 
+MessageEventDataImagesField: TypeAlias = Annotated[
+    Optional[List[Dict[str, str]]],
+    Field(
+        description="List of image data including URL, type and size for each image",
+        examples=[[
+            {"url": "https://example.com/image1.jpg", "type": "image/jpeg", "size": 1024},
+            {"url": "https://example.com/image2.jpg", "type": "image/png", "size": 2048}
+        ]],
+    ),
+]
+
 message_event_data_example = {
     "message": "Hello, I need help with my order",
     "participant": participant_example,
@@ -720,6 +740,7 @@ class MessageEventDataDTO(
     flagged: MessageEventDataFlaggedField = None
     tags: MessageEventDataTagsField = None
     utterances: MessageEventDataUtterancesField = None
+    images: MessageEventDataImagesField = None
 
 
 message_generation_inspection_example = {
@@ -1454,10 +1475,15 @@ def create_router(
         params: EventCreationParamsDTO,
         moderation: Moderation = Moderation.NONE,
     ) -> EventDTO:
-        if not params.message:
+        """
+        Adds a customer message to the session.
+
+        Currently supports adding a message from a customer source.
+        """
+        if not params.message and not params.images:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Missing 'message' field for event",
+                detail="Missing 'message' or 'images' field for event",
             )
 
         flagged = False
@@ -1483,14 +1509,44 @@ def create_router(
         except Exception:
             customer_display_name = session.customer_id
 
+        # Handle multiple images if provided
+        images = []
+        if params.images:
+            for image in params.images:
+                # Check if the image URL is a base64 image that needs to be uploaded to CDN
+                if image.url and image.url.startswith('data:'):
+                    # Upload the image to CDN and get the public URL
+                    cdn_url = await upload_base64_image_to_cdn(image.url)
+                    if cdn_url:
+                        images.append({
+                            "url": cdn_url,  # Replace with CDN URL
+                            "type": image.type,
+                            "size": image.size
+                        })
+                    else:
+                        # If upload fails, use the original URL
+                        images.append({
+                            "url": image.url,
+                            "type": image.type,
+                            "size": image.size
+                        })
+                else:
+                    # Not a base64 image, use as is
+                    images.append({
+                        "url": image.url,
+                        "type": image.type,
+                        "size": image.size
+                    })
+
         message_data: MessageEventData = {
-            "message": params.message,
+            "message": params.message or "",
             "participant": {
                 "id": session.customer_id,
                 "display_name": customer_display_name,
             },
             "flagged": flagged,
             "tags": list(tags),
+            "images": images if images else []
         }
 
         event = await application.post_event(

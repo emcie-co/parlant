@@ -327,6 +327,7 @@ class AlphaEngine(Engine):
             session=session,
             event_emitter=event_emitter,
             interaction=interaction,
+            # Initialize the response state with empty values, this will be updated in the preparation iterations
             state=ResponseState(
                 context_variables=[],
                 glossary_terms=set(),

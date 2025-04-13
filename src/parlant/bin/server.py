@@ -31,6 +31,11 @@ from pathlib import Path
 import sys
 import uvicorn
 
+import sys
+import os
+
+sys.path.append(os.getcwd() + "/src")
+
 from parlant.bin.prepare_migration import detect_required_migrations
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.chroma import ChromaDatabase

@@ -46,6 +46,9 @@ class EventPublisher(EventEmitter):
         correlation_id: str,
         data: StatusEventData,
     ) -> EmittedEvent:
+        """
+        Emits a status event, which is used to track the status of the agent.
+        """
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -63,6 +66,9 @@ class EventPublisher(EventEmitter):
         correlation_id: str,
         data: str | MessageEventData,
     ) -> EmittedEvent:
+        """
+        Emits a message event, which is used to track the message of the agent.
+        """
         if isinstance(data, str):
             message_data = cast(
                 JSONSerializable,
@@ -94,6 +100,9 @@ class EventPublisher(EventEmitter):
         correlation_id: str,
         data: ToolEventData,
     ) -> EmittedEvent:
+        """
+        Emits a tool event, which is used to track the tool call of the agent.
+        """
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
@@ -109,6 +118,9 @@ class EventPublisher(EventEmitter):
         self,
         event: EmittedEvent,
     ) -> None:
+        """
+        Publishes an event to the session store, which is used to track the events of the session.
+        """
         await self._store.create_event(
             session_id=self._session_id,
             source=EventSource.AI_AGENT,
@@ -119,6 +131,10 @@ class EventPublisher(EventEmitter):
 
 
 class EventPublisherFactory(EventEmitterFactory):
+    """
+    This factory is used to create an event publisher for an agent.
+    The event publisher is used to publish events to the session store.
+    """
     def __init__(
         self,
         agent_store: AgentStore,
@@ -133,5 +149,8 @@ class EventPublisherFactory(EventEmitterFactory):
         emitting_agent_id: AgentId,
         session_id: SessionId,
     ) -> EventEmitter:
+        """
+        Creates an event emitter for an agent.
+        """
         agent = await self._agent_store.read_agent(emitting_agent_id)
         return EventPublisher(agent, self._session_store, session_id)

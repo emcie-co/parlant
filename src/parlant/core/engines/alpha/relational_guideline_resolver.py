@@ -76,7 +76,7 @@ class RelationalGuidelineResolver:
                 await self._relationship_store.list_relationships(
                     kind=GuidelineRelationshipKind.PRIORITY,
                     indirect=True,
-                    target=match.guideline.id,
+                    target_id=match.guideline.id,
                 )
             )
 
@@ -88,13 +88,13 @@ class RelationalGuidelineResolver:
             while relationships:
                 relationship = relationships.pop()
                 if (
-                    relationship.target_type == EntityType.GUIDELINE
-                    and relationship.target in match_guideline_ids
+                    relationship.target.type == EntityType.GUIDELINE
+                    and relationship.target.id in match_guideline_ids
                 ):
                     prioritized = False
                     break
 
-                elif relationship.target_type == EntityType.TAG:
+                elif relationship.target.type == EntityType.TAG:
                     # In case target is a tag, we need to find all guidelines
                     # that are associated with this tag.
                     #
@@ -102,7 +102,7 @@ class RelationalGuidelineResolver:
                     #
                     # If not, we need to iterate over all those guidelines and add their priority relationships
                     guideline_associated_to_tag = await self._guideline_store.list_guidelines(
-                        tags=[cast(TagId, relationship.target)]
+                        tags=[cast(TagId, relationship.target.id)]
                     )
 
                     if any(
@@ -122,7 +122,7 @@ class RelationalGuidelineResolver:
                             await self._relationship_store.list_relationships(
                                 kind=GuidelineRelationshipKind.PRIORITY,
                                 indirect=True,
-                                target=g.id,
+                                target_id=g.id,
                             )
                         )
 
@@ -158,26 +158,26 @@ class RelationalGuidelineResolver:
                 await self._relationship_store.list_relationships(
                     kind=GuidelineRelationshipKind.ENTAILMENT,
                     indirect=True,
-                    source=match.guideline.id,
+                    source_id=match.guideline.id,
                 )
             )
 
             while relationships:
                 relationship = relationships.pop()
 
-                if relationship.target_type == EntityType.GUIDELINE:
-                    if any(relationship.target == m.guideline.id for m in matches):
+                if relationship.target.type == EntityType.GUIDELINE:
+                    if any(relationship.target.id == m.guideline.id for m in matches):
                         # no need to add this related guideline as it's already an assumed match
                         continue
                     related_guidelines_by_match[match].add(
-                        next(g for g in usable_guidelines if g.id == relationship.target)
+                        next(g for g in usable_guidelines if g.id == relationship.target.id)
                     )
 
-                elif relationship.target_type == EntityType.TAG:
+                elif relationship.target.type == EntityType.TAG:
                     # In case target is a tag, we need to find all guidelines
                     # that are associated with this tag.
                     guidelines_associated_to_tag = await self._guideline_store.list_guidelines(
-                        tags=[cast(TagId, relationship.target)]
+                        tags=[cast(TagId, relationship.target.id)]
                     )
 
                     related_guidelines_by_match[match].update(
@@ -190,7 +190,7 @@ class RelationalGuidelineResolver:
                             await self._relationship_store.list_relationships(
                                 kind=GuidelineRelationshipKind.ENTAILMENT,
                                 indirect=True,
-                                source=g.id,
+                                source_id=g.id,
                             )
                         )
 
@@ -254,7 +254,7 @@ class RelationalGuidelineResolver:
                 await self._relationship_store.list_relationships(
                     kind=GuidelineRelationshipKind.DEPENDENCY,
                     indirect=True,
-                    source=match.guideline.id,
+                    source_id=match.guideline.id,
                 )
             )
 
@@ -269,15 +269,15 @@ class RelationalGuidelineResolver:
                 dependency = dependencies.pop()
 
                 if (
-                    dependency.target_type == EntityType.GUIDELINE
-                    and dependency.target not in match_guideline_ids
+                    dependency.target.type == EntityType.GUIDELINE
+                    and dependency.target.id not in match_guideline_ids
                 ):
                     dependent = True
                     break
 
-                if dependency.target_type == EntityType.TAG:
+                if dependency.target.type == EntityType.TAG:
                     guidelines_associated_to_tag = await self._guideline_store.list_guidelines(
-                        tags=[cast(TagId, dependency.target)]
+                        tags=[cast(TagId, dependency.target.id)]
                     )
 
                     for g in guidelines_associated_to_tag:
@@ -288,7 +288,7 @@ class RelationalGuidelineResolver:
                             await self._relationship_store.list_relationships(
                                 kind=GuidelineRelationshipKind.DEPENDENCY,
                                 indirect=True,
-                                source=g.id,
+                                source_id=g.id,
                             )
                         )
 

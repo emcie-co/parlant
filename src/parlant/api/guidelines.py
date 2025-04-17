@@ -14,7 +14,6 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from enum import Enum
 from itertools import chain
 from typing import Annotated, Optional, Sequence, TypeAlias, cast, get_args
 from fastapi import APIRouter, HTTPException, Path, status, Query
@@ -32,12 +31,12 @@ from parlant.api.common import (
     GuidelineTagsField,
     InvoiceDataDTO,
     PayloadKindDTO,
+    RelationshipKindDTO,
     TagDTO,
     ToolIdDTO,
     apigen_config,
     apigen_skip_config,
     guideline_dto_example,
-    guideline_relationship_kind_to_dto,
     operation_dto_to_operation,
 )
 from parlant.api.index import InvoiceDTO
@@ -62,6 +61,7 @@ from parlant.core.evaluations import (
 )
 from parlant.core.relationships import (
     EntityType,
+    RelationshipEntity,
     RelationshipId,
     GuidelineRelationshipKind,
     RelationshipStore,
@@ -380,13 +380,6 @@ class LegacyGuidelineUpdateParamsDTO(
     enabled: Optional[bool] = None
 
 
-class GuidelineRelationshipKindDTO(Enum):
-    """The kind of guideline relationship."""
-
-    ENTAILMENT = "entailment"
-    PRIORITY = "priority"
-
-
 @dataclass
 class _GuidelineRelationship:
     """Represents one relationship between two Guidelines."""
@@ -533,33 +526,69 @@ async def _get_guideline_relationships_by_kind(
     ) -> Guideline | Tag:
         if entity_type == EntityType.GUIDELINE:
             return await guideline_store.read_guideline(guideline_id=cast(GuidelineId, entity_id))
-        else:
+        elif entity_type == EntityType.TAG:
             return await tag_store.read_tag(tag_id=cast(TagId, entity_id))
+        else:
+            raise ValueError(f"Unsupported entity type: {entity_type}")
 
-    relationships = [
-        _GuidelineRelationship(
-            id=r.id,
-            source=await _get_entity(r.source, r.source_type),
-            source_type=r.source_type,
-            target=await _get_entity(r.target, r.target_type),
-            target_type=r.target_type,
-            kind=r.kind,
+    relationships = []
+
+    for r in chain(
+        await relationship_store.list_relationships(
+            kind=kind,
+            indirect=include_indirect,
+            source_id=entity_id,
+        ),
+        await relationship_store.list_relationships(
+            kind=kind,
+            indirect=include_indirect,
+            target_id=entity_id,
+        ),
+    ):
+        assert type(r.source.id) is GuidelineId or type(r.source.id) is TagId
+        assert type(r.target.id) is GuidelineId or type(r.target.id) is TagId
+        assert type(r.kind) is GuidelineRelationshipKind
+
+        relationships.append(
+            _GuidelineRelationship(
+                id=r.id,
+                source=await _get_entity(r.source.id, r.source.type),
+                source_type=r.source.type,
+                target=await _get_entity(r.target.id, r.target.type),
+                target_type=r.target.type,
+                kind=r.kind,
+            )
         )
-        for r in chain(
-            await relationship_store.list_relationships(
-                kind=kind,
-                indirect=include_indirect,
-                source=entity_id,
-            ),
-            await relationship_store.list_relationships(
-                kind=kind,
-                indirect=include_indirect,
-                target=entity_id,
-            ),
-        )
-    ]
 
     return [(r, entity_id not in [r.source.id, r.target.id]) for r in relationships]
+
+
+def _guideline_relationship_kind_dto_to_kind(
+    dto: RelationshipKindDTO,
+) -> GuidelineRelationshipKind:
+    match dto:
+        case RelationshipKindDTO.ENTAILMENT:
+            return GuidelineRelationshipKind.ENTAILMENT
+        case RelationshipKindDTO.PRIORITY:
+            return GuidelineRelationshipKind.PRIORITY
+        case RelationshipKindDTO.DEPENDENCY:
+            return GuidelineRelationshipKind.DEPENDENCY
+        case _:
+            raise ValueError(f"Invalid guideline relationship kind: {dto.value}")
+
+
+def _guideline_relationship_kind_to_dto(
+    kind: GuidelineRelationshipKind,
+) -> RelationshipKindDTO:
+    match kind:
+        case GuidelineRelationshipKind.ENTAILMENT:
+            return RelationshipKindDTO.ENTAILMENT
+        case GuidelineRelationshipKind.PRIORITY:
+            return RelationshipKindDTO.PRIORITY
+        case GuidelineRelationshipKind.DEPENDENCY:
+            return RelationshipKindDTO.DEPENDENCY
+        case _:
+            raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
 
 
 async def _get_relationships(
@@ -918,10 +947,8 @@ def create_legacy_router(
                     )
 
                 await relationship_store.create_relationship(
-                    source=req.source,
-                    source_type=EntityType.GUIDELINE,
-                    target=req.target,
-                    target_type=EntityType.GUIDELINE,
+                    source=RelationshipEntity(id=req.source, type=EntityType.GUIDELINE),
+                    target=RelationshipEntity(id=req.target, type=EntityType.GUIDELINE),
                     kind=GuidelineRelationshipKind.ENTAILMENT,
                 )
 
@@ -1069,26 +1096,26 @@ def create_legacy_router(
             await relationship_store.list_relationships(
                 kind=GuidelineRelationshipKind.ENTAILMENT,
                 indirect=False,
-                source=guideline_id,
+                source_id=guideline_id,
             ),
             await relationship_store.list_relationships(
                 kind=GuidelineRelationshipKind.ENTAILMENT,
                 indirect=False,
-                target=guideline_id,
+                target_id=guideline_id,
             ),
         ):
             if deleted:
                 await relationship_store.delete_relationship(r.id)
             else:
-                if type(r.source) is TagId or type(r.target) is TagId:
+                if type(r.source.id) is TagId or type(r.target.id) is TagId:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Tag-based relationships are not supported for legacy API",
                     )
                 connected_guideline = (
-                    await guideline_store.read_guideline(cast(GuidelineId, r.target))
-                    if r.source == guideline_id
-                    else await guideline_store.read_guideline(cast(GuidelineId, r.source))
+                    await guideline_store.read_guideline(cast(GuidelineId, r.target.id))
+                    if r.source.id == guideline_id
+                    else await guideline_store.read_guideline(cast(GuidelineId, r.source.id))
                 )
                 if connected_guideline.tags and not any(
                     t in connected_guideline.tags for t in updated_guideline.tags
@@ -1353,7 +1380,7 @@ def _guideline_relationship_to_dto(
         if relationship.target_type == EntityType.TAG
         else None,
         indirect=indirect,
-        kind=guideline_relationship_kind_to_dto(relationship.kind),
+        kind=_guideline_relationship_kind_to_dto(relationship.kind),
     )
 
 

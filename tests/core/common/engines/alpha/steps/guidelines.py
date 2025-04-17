@@ -19,6 +19,7 @@ from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.relationships import (
     EntityType,
     GuidelineRelationshipKind,
+    RelationshipEntity,
     RelationshipStore,
 )
 from parlant.core.guidelines import Guideline, GuidelineStore
@@ -445,10 +446,14 @@ def given_an_entailment_guideline_relationship(
 
     context.sync_await(
         store.create_relationship(
-            source=context.guidelines[guideline_a].id,
-            source_type=EntityType.GUIDELINE,
-            target=context.guidelines[guideline_b].id,
-            target_type=EntityType.GUIDELINE,
+            source=RelationshipEntity(
+                id=context.guidelines[guideline_a].id,
+                type=EntityType.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=context.guidelines[guideline_b].id,
+                type=EntityType.GUIDELINE,
+            ),
             kind=GuidelineRelationshipKind.ENTAILMENT,
         )
     )

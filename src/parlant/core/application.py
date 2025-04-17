@@ -35,6 +35,7 @@ from parlant.core.evaluations import (
 from parlant.core.relationships import (
     EntityType,
     GuidelineRelationshipKind,
+    RelationshipEntity,
     RelationshipStore,
 )
 from parlant.core.guidelines import GuidelineId, GuidelineStore
@@ -193,10 +194,14 @@ class Application:
                 target_guideline_id = content_guidelines[target_key]
 
             await self._relationship_store.create_relationship(
-                source=source_guideline_id,
-                source_type=EntityType.GUIDELINE,
-                target=target_guideline_id,
-                target_type=EntityType.GUIDELINE,
+                source=RelationshipEntity(
+                    id=source_guideline_id,
+                    type=EntityType.GUIDELINE,
+                ),
+                target=RelationshipEntity(
+                    id=target_guideline_id,
+                    type=EntityType.GUIDELINE,
+                ),
                 kind=GuidelineRelationshipKind.ENTAILMENT,
             )
 
@@ -229,7 +234,7 @@ class Application:
                     await self._relationship_store.list_relationships(
                         kind=GuidelineRelationshipKind.ENTAILMENT,
                         indirect=False,
-                        source=guideline_id,
+                        source_id=guideline_id,
                     )
                 )
 
@@ -237,7 +242,7 @@ class Application:
                     await self._relationship_store.list_relationships(
                         kind=GuidelineRelationshipKind.ENTAILMENT,
                         indirect=False,
-                        target=guideline_id,
+                        target_id=guideline_id,
                     )
                 )
 
@@ -262,10 +267,14 @@ class Application:
                         == EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
                     ):
                         await self._relationship_store.create_relationship(
-                            source=content_guidelines[source_key],
-                            source_type=EntityType.GUIDELINE,
-                            target=content_guidelines[target_key],
-                            target_type=EntityType.GUIDELINE,
+                            source=RelationshipEntity(
+                                id=content_guidelines[source_key],
+                                type=EntityType.GUIDELINE,
+                            ),
+                            target=RelationshipEntity(
+                                id=content_guidelines[target_key],
+                                type=EntityType.GUIDELINE,
+                            ),
                             kind=GuidelineRelationshipKind.ENTAILMENT,
                         )
                     else:

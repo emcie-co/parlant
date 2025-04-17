@@ -281,6 +281,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
             relationship_store=relationship_store,
             tag_store=tag_store,
             guideline_store=guideline_store,
+            service_registry=service_registry,
         ),
     )
 

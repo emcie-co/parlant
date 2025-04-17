@@ -45,6 +45,7 @@ class GuidelineRelationshipKind(Enum):
     REQUIREMENT = "requirement"
     PRIORITY = "priority"
     PERSISTENCE = "persistence"
+    DEPENDENCY = "dependency"
 
 
 class EntityType(Enum):

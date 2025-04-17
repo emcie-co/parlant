@@ -494,6 +494,7 @@ class GuidelineRelationshipKindDTO(Enum):
 
     ENTAILMENT = "entailment"
     PRIORITY = "priority"
+    DEPENDENCY = "dependency"
 
 
 class RelationshipDTO(
@@ -523,6 +524,8 @@ def guideline_relationship_kind_dto_to_kind(
             return GuidelineRelationshipKind.ENTAILMENT
         case GuidelineRelationshipKindDTO.PRIORITY:
             return GuidelineRelationshipKind.PRIORITY
+        case GuidelineRelationshipKindDTO.DEPENDENCY:
+            return GuidelineRelationshipKind.DEPENDENCY
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {dto.value}")
 
@@ -535,5 +538,7 @@ def guideline_relationship_kind_to_dto(
             return GuidelineRelationshipKindDTO.ENTAILMENT
         case GuidelineRelationshipKind.PRIORITY:
             return GuidelineRelationshipKindDTO.PRIORITY
+        case GuidelineRelationshipKind.DEPENDENCY:
+            return GuidelineRelationshipKindDTO.DEPENDENCY
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {kind.value}")

@@ -40,7 +40,12 @@ class RelationalGuidelineResolver:
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
     ) -> Sequence[GuidelineMatch]:
-        result = await self.replace_with_prioritized(matches)
+        result = await self.filter_unmet_dependencies(
+            usable_guidelines=usable_guidelines,
+            matches=matches,
+        )
+        result = await self.replace_with_prioritized(result)
+
         return list(
             chain(
                 result,
@@ -61,7 +66,7 @@ class RelationalGuidelineResolver:
         # and S is prioritized, only "When X, Then Y" should be activated.
         # Such priority relationships are stored in RelationshipStore,
         # and those are the ones we are loading here.
-        guideline_ids = {m.guideline.id for m in matches}
+        match_guideline_ids = {m.guideline.id for m in matches}
 
         itarated_guidelines: set[GuidelineId] = set()
 
@@ -84,7 +89,7 @@ class RelationalGuidelineResolver:
                 relationship = relationships.pop()
                 if (
                     relationship.target_type == EntityType.GUIDELINE
-                    and relationship.target in guideline_ids
+                    and relationship.target in match_guideline_ids
                 ):
                     prioritized = False
                     break
@@ -101,7 +106,7 @@ class RelationalGuidelineResolver:
                     )
 
                     if any(
-                        g.id in guideline_ids and g.id != match.guideline.id
+                        g.id in match_guideline_ids and g.id != match.guideline.id
                         for g in guideline_associated_to_tag
                     ):
                         prioritized = False
@@ -110,7 +115,7 @@ class RelationalGuidelineResolver:
                     for g in guideline_associated_to_tag:
                         # In case we already iterated over this guideline,
                         # we don't need to iterate over it again.
-                        if g.id in itarated_guidelines or g.id in guideline_ids:
+                        if g.id in itarated_guidelines or g.id in match_guideline_ids:
                             continue
 
                         relationships.extend(
@@ -122,7 +127,7 @@ class RelationalGuidelineResolver:
                         )
 
                     itarated_guidelines.update(
-                        g.id for g in guideline_associated_to_tag if g.id not in guideline_ids
+                        g.id for g in guideline_associated_to_tag if g.id not in match_guideline_ids
                     )
 
             itarated_guidelines.add(match.guideline.id)
@@ -230,3 +235,66 @@ class RelationalGuidelineResolver:
             )
             for match, inferred_guideline in match_and_inferred_guideline_pairs
         ]
+
+    async def filter_unmet_dependencies(
+        self,
+        usable_guidelines: Sequence[Guideline],
+        matches: Sequence[GuidelineMatch],
+    ) -> Sequence[GuidelineMatch]:
+        # Some guidelines have dependencies that dictate activation.
+        #
+        # For example, if we matched guidelines "When X, Then Y" (S) and "When Y, Then Z" (T),
+        # and S is dependes on T, then S should not be activated unless T is activated.
+        match_guideline_ids = {m.guideline.id for m in matches}
+
+        result: list[GuidelineMatch] = []
+
+        for match in matches:
+            dependencies = list(
+                await self._relationship_store.list_relationships(
+                    kind=GuidelineRelationshipKind.DEPENDENCY,
+                    indirect=True,
+                    source=match.guideline.id,
+                )
+            )
+
+            if not dependencies:
+                result.append(match)
+                continue
+
+            itarated_guidelines: set[GuidelineId] = set()
+
+            dependent = False
+            while dependencies:
+                dependency = dependencies.pop()
+
+                if (
+                    dependency.target_type == EntityType.GUIDELINE
+                    and dependency.target not in match_guideline_ids
+                ):
+                    dependent = True
+                    break
+
+                if dependency.target_type == EntityType.TAG:
+                    guidelines_associated_to_tag = await self._guideline_store.list_guidelines(
+                        tags=[cast(TagId, dependency.target)]
+                    )
+
+                    for g in guidelines_associated_to_tag:
+                        if g.id in itarated_guidelines or g.id in match_guideline_ids:
+                            continue
+
+                        dependencies.extend(
+                            await self._relationship_store.list_relationships(
+                                kind=GuidelineRelationshipKind.DEPENDENCY,
+                                indirect=True,
+                                source=g.id,
+                            )
+                        )
+
+                    itarated_guidelines.update(g.id for g in guidelines_associated_to_tag)
+
+            if not dependent:
+                result.append(match)
+
+        return result

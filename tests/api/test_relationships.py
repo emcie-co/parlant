@@ -296,3 +296,61 @@ async def test_that_relationship_can_be_deleted(
 
     with raises(ItemNotFoundError):
         await relationship_store.read_relationship(id=relationship.id)
+
+
+async def test_that_dependency_relationship_can_be_created(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    response = await async_client.post(
+        "/relationships",
+        json={
+            "source_guideline": source_guideline.id,
+            "target_guideline": target_guideline.id,
+            "kind": "dependency",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    relationship = response.json()
+    assert relationship["source_guideline"]["id"] == source_guideline.id
+    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["kind"] == "dependency"
+
+
+async def test_that_dependency_relationship_can_be_deleted(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="condition",
+        action="action",
+    )
+
+    relationship = await relationship_store.create_relationship(
+        source=source_guideline.id,
+        source_type=EntityType.GUIDELINE,
+        target=source_guideline.id,
+        target_type=EntityType.GUIDELINE,
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    response = await async_client.delete(f"/relationships/{relationship.id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    with raises(ItemNotFoundError):
+        await relationship_store.read_relationship(id=relationship.id)

@@ -3145,6 +3145,7 @@ async def async_main() -> None:
             [
                 "entailment",
                 "priority",
+                "dependency",
             ]
         ),
         help="Relationship kind",
@@ -3185,6 +3186,7 @@ async def async_main() -> None:
             [
                 "entailment",
                 "priority",
+                "dependency",
             ]
         ),
         help="Relationship kind",
@@ -3211,6 +3213,7 @@ async def async_main() -> None:
             [
                 "entailment",
                 "priority",
+                "dependency",
             ]
         ),
         help="Relationship kind",

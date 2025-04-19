@@ -513,6 +513,54 @@ def given_a_tool(
             "parameters": {},
             "required": [],
         },
+        "transfer_coins": {
+            "name": "transfer_coins",
+            "description": "Transfer coins from one account to another",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "amount": {"type": "integer", "description": "the number of coins to transfer"},
+                "from_account": {
+                    "type": "string",
+                    "description": "The name of the person whose account the coins will be transferred from",
+                },
+                "to_account": {
+                    "type": "string",
+                    "description": "The name of the person whose account the coins will be transferred to",
+                },
+                "pincode": {
+                    "type": "string",
+                    "description": "the pincode for the account the coins are transfered from",
+                },
+            },
+            "required": ["amount", "from_account", "to_account", "pincode"],
+        },
+        "search_electronic_products": {
+            "name": "search_electronic_products",
+            "description": "Search for products in the inventory based on various criteria",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "keyword": {
+                    "type": "string",
+                    "description": "Search term to match against product names and descriptions",
+                },
+                "product_type": {
+                    "type": "string",
+                    "description": "Filter by product category",
+                    "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
+                },
+                "min_price": {"type": "integer", "description": "Minimum price filter"},
+                "max_price": {"type": "integer", "description": "Maximum price filter"},
+                "in_stock_only": {
+                    "type": "boolean",
+                    "description": "Only show products that are currently in stock",
+                },
+                "vendor": {
+                    "type": "string",
+                    "description": "Company name",
+                },
+            },
+            "required": ["keyword"],
+        },
     }
 
     tool = context.sync_await(local_tool_service.create_tool(**tools[tool_name]))

@@ -16,7 +16,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import enum
+from enum import Enum, auto
 import importlib
 import inspect
 import sys
@@ -161,6 +161,17 @@ class ToolParameterOptions(DefaultBaseModel):
     """An alias to use when presenting this parameter to user, instead of the real name"""
 
 
+class ToolOverlap(Enum):
+    NONE = auto()
+    """The tool never overlaps with any other tool. No need to check relationships."""
+
+    AUTO = auto()
+    """Check relationship store. If no relationships, then assume no overlap. This is the default value for overlap."""
+
+    ALWAYS = auto()
+    """The tool always overlaps with other tools in context (this is today's behavior)."""
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -170,6 +181,7 @@ class Tool:
     parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]
     required: list[str]
     consequential: bool
+    overlap: ToolOverlap
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -266,6 +278,7 @@ class LocalToolService(ToolService):
             parameters=local_tool.parameters,
             required=local_tool.required,
             consequential=local_tool.consequential,
+            overlap=ToolOverlap.AUTO,
         )
 
     # Note that in this function's arguments ToolParameterOptions is optional (initialized to default if not given)
@@ -426,7 +439,7 @@ def normalize_tool_argument(parameter_type: Any, argument: Any) -> Any:
             parameter_type = get_args(parameter_type)[0]
         if (
             inspect.isclass(parameter_type)
-            and issubclass(parameter_type, enum.Enum)
+            and issubclass(parameter_type, Enum)
             or parameter_type in [str, int, float, bool]
         ):
             return parameter_type(argument)

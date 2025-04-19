@@ -30,6 +30,7 @@ from typing_extensions import override
 
 from parlant.core.tools import (
     Tool,
+    ToolOverlap,
     ToolParameterOptions,
     ToolResult,
     ToolParameterDescriptor,
@@ -160,6 +161,7 @@ class OpenAPIClient(ToolService):
                     },
                     required=parameter_spec.required,
                     consequential=False,
+                    overlap=ToolOverlap.AUTO,
                 )
 
                 async def tool_func(

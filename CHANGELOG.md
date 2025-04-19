@@ -22,6 +22,7 @@ TBD
 - Added tags to context variables, guidelines, glossary and agents
 - Added guideline matching strategies
 - Added guideline relationships
+- Added support for tool parameters choice provider using the tool context as argument
 
 ### Changed
 - Made the message generator slightly more polite by default, following user feedback

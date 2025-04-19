@@ -23,6 +23,7 @@ import traceback
 import dateutil.parser
 from types import TracebackType
 from typing import (
+    Annotated,
     Any,
     AsyncIterator,
     Awaitable,
@@ -31,6 +32,7 @@ from typing import (
     NamedTuple,
     Optional,
     Sequence,
+    TypeAlias,
     TypedDict,
     Union,
     get_args,
@@ -38,7 +40,7 @@ from typing import (
 )
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Unpack, override
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 import httpx
 from urllib.parse import urljoin
@@ -243,7 +245,9 @@ async def adapt_tool_arguments(
     return adapted_arguments
 
 
-async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]) -> Tool:
+async def _recompute_and_marshal_tool(
+    tool: Tool, plugin_data: Mapping[str, Any], context: ToolContext
+) -> Tool:
     """This function is specifically used to refresh some of the tool's
     details based on dynamic changes (e.g., updating parameter descriptors
     based on dynamically-generated enum choices)"""
@@ -255,8 +259,15 @@ async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]
         if options.choice_provider:
             args = {}
             for param_name in inspect.signature(options.choice_provider).parameters:
-                if param_name in plugin_data:
+                # Tool context is identified by its type, all other parameters are taken by name from the plugin data
+                if (
+                    inspect.signature(options.choice_provider).parameters[param_name].annotation
+                    is ToolContext
+                ):
+                    args[param_name] = context
+                elif param_name in plugin_data:
                     args[param_name] = plugin_data[param_name]
+
             new_descriptor["enum"] = await options.choice_provider(**args)
 
         marshalled_options = ToolParameterOptions(
@@ -445,6 +456,23 @@ class _ToolResultShim(DefaultBaseModel):
     result: ToolResult
 
 
+class ResolveToolRequest(DefaultBaseModel):
+    agent_id: str
+    session_id: str
+    customer_id: str
+
+
+ToolContextQuery: TypeAlias = Annotated[
+    ResolveToolRequest,
+    Query(
+        description="The ids of a tool context",
+        examples=[
+            {"agent_id": "agent_id", "session_id": "session_id", "customer_id": "customer_id"}
+        ],
+    ),
+]
+
+
 class PluginServer:
     def __init__(
         self,
@@ -542,7 +570,23 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
-            tool = await _recompute_and_marshal_tool(spec.tool, self.plugin_data)
+            return ReadToolResponse(tool=spec.tool)
+
+        @app.get("/tools/{name}/resolve")
+        async def resolve_tool(name: str, context: ToolContextQuery) -> ReadToolResponse:
+            try:
+                spec = self.tools[name]
+            except KeyError:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tool: '{name}' does not exists",
+                )
+
+            tool = await _recompute_and_marshal_tool(
+                spec.tool,
+                self.plugin_data,
+                ToolContext(context.agent_id, context.session_id, context.customer_id),
+            )
 
             return ReadToolResponse(tool=tool)
 
@@ -727,6 +771,38 @@ class PluginClient(ToolService):
     @override
     async def read_tool(self, name: str) -> Tool:
         response = await self._http_client.get(self._get_url(f"/tools/{name}"))
+
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            raise ItemNotFoundError(UniqueId(name))
+        if response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+            raise ToolError(name, "Failed to read tool from remote service")
+
+        content = response.json()
+        t = content["tool"]
+        return Tool(
+            name=t["name"],
+            creation_utc=dateutil.parser.parse(t["creation_utc"]),
+            description=t["description"],
+            metadata=t["metadata"],
+            parameters=self._translate_parameters(t["parameters"]),
+            required=t["required"],
+            consequential=t["consequential"],
+        )
+
+    @override
+    async def resolve_tool(
+        self,
+        name: str,
+        context: ToolContext,
+    ) -> Tool:
+        response = await self._http_client.get(
+            self._get_url(f"/tools/{name}/resolve"),
+            params={
+                "agent_id": context.agent_id,
+                "session_id": context.session_id,
+                "customer_id": context.customer_id,
+            },
+        )
 
         if response.status_code == status.HTTP_404_NOT_FOUND:
             raise ItemNotFoundError(UniqueId(name))

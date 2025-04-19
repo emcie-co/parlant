@@ -158,6 +158,7 @@ class ToolCaller:
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
+        tool_context: ToolContext,
     ) -> ToolCallInferenceResult:
         with self._logger.scope("ToolCaller"):
             return await self._do_infer_tool_calls(
@@ -168,6 +169,7 @@ class ToolCaller:
                 ordinary_guideline_matches,
                 tool_enabled_guideline_matches,
                 staged_events,
+                tool_context,
             )
 
     async def _do_infer_tool_calls(
@@ -179,6 +181,7 @@ class ToolCaller:
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
+        tool_context: ToolContext,
     ) -> ToolCallInferenceResult:
         if not tool_enabled_guideline_matches:
             return ToolCallInferenceResult(
@@ -199,7 +202,9 @@ class ToolCaller:
                         tool_id.service_name
                     )
 
-                tool = await services[tool_id.service_name].read_tool(tool_id.tool_name)
+                tool = await services[tool_id.service_name].resolve_tool(
+                    tool_id.tool_name, tool_context
+                )
 
                 batches[(tool_id, tool)].append(guideline_match)
 

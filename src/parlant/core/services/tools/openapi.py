@@ -212,6 +212,11 @@ class OpenAPIClient(ToolService):
         return tool_spec.tool
 
     @override
+    async def resolve_tool(self, name: str, context: ToolContext) -> Tool:
+        # OpenAPI tools don't have a server-side choice_provider, so it simply calls read_tool
+        return await self.read_tool(name)
+
+    @override
     async def call_tool(
         self,
         name: str,

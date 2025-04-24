@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Mapping, NewType, Optional, Sequence, cast
+from enum import Enum
+from typing import Mapping, NewType, Optional, Sequence, TypeAlias, Union, cast
 from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -31,14 +32,53 @@ from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
 )
 from parlant.core.tags import TagId
+from parlant.core.tools import ToolId
 
 GuidelineId = NewType("GuidelineId", str)
+
+
+class GuidelineHandlerType(Enum):
+    ACTION = "action"
+    TOOL_ACTIVATION = "tool_activation"
+    OBSERVATION = "observation"
+    JOURNEY = "journey"
+
+
+@dataclass(frozen=True)
+class GuidelineActionHandler:
+    action: str
+    _type: GuidelineHandlerType = GuidelineHandlerType.ACTION
+
+
+@dataclass(frozen=True)
+class GuidelineToolActivationHandler:
+    tool_id: ToolId
+    _type: GuidelineHandlerType = GuidelineHandlerType.TOOL_ACTIVATION
+
+
+@dataclass(frozen=True)
+class GuidelineObservationHandler:
+    _type: GuidelineHandlerType = GuidelineHandlerType.OBSERVATION
+
+
+@dataclass(frozen=True)
+class GuidelineJourneyHandler:
+    journey: str
+    _type: GuidelineHandlerType = GuidelineHandlerType.JOURNEY
+
+
+GuidelineHandler: TypeAlias = Union[
+    GuidelineActionHandler,
+    GuidelineToolActivationHandler,
+    GuidelineObservationHandler,
+    GuidelineJourneyHandler,
+]
 
 
 @dataclass(frozen=True)
 class GuidelineContent:
     condition: str
-    action: str
+    handler: GuidelineHandler
 
 
 @dataclass(frozen=True)
@@ -50,16 +90,13 @@ class Guideline:
     tags: Sequence[TagId]
     metadata: Mapping[str, JSONSerializable]
 
-    def __str__(self) -> str:
-        return f"When {self.content.condition}, then {self.content.action}"
-
     def __hash__(self) -> int:
         return hash(self.id)
 
 
 class GuidelineUpdateParams(TypedDict, total=False):
     condition: str
-    action: str
+    handler: GuidelineHandler
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
 
@@ -69,7 +106,7 @@ class GuidelineStore(ABC):
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        handler: GuidelineHandler,
         metadata: Mapping[str, JSONSerializable] = {},
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
@@ -165,12 +202,23 @@ class GuidelineDocument_v0_3_0(TypedDict, total=False):
     enabled: bool
 
 
-class GuidelineDocument(TypedDict, total=False):
+class GuidelineDocument_v0_4_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     condition: str
     action: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+
+
+class GuidelineDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    handler_type: str
+    handler: str
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
 
@@ -197,7 +245,7 @@ async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Opti
 
 
 class GuidelineDocumentStore(GuidelineStore):
-    VERSION = Version.from_string("0.4.0")
+    VERSION = Version.from_string("0.5.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
@@ -208,9 +256,14 @@ class GuidelineDocumentStore(GuidelineStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
+        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+
         async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(GuidelineDocument_v0_3_0, doc)
-            return GuidelineDocument(
+            return GuidelineDocument_v0_4_0(
                 id=d["id"],
                 version=Version.String("0.4.0"),
                 creation_utc=d["creation_utc"],
@@ -220,9 +273,18 @@ class GuidelineDocumentStore(GuidelineStore):
                 metadata={},
             )
 
-        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            raise Exception(
-                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_4_0, doc)
+
+            return GuidelineDocument(
+                id=d["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                handler_type=GuidelineHandlerType.ACTION.value,
+                handler=d["action"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
             )
 
         return await DocumentMigrationHelper[GuidelineDocument](
@@ -280,6 +342,18 @@ class GuidelineDocumentStore(GuidelineStore):
     ) -> None:
         pass
 
+    def _serialize_handler_content(self, handler: GuidelineHandler) -> str:
+        if isinstance(handler, GuidelineActionHandler):
+            return handler.action
+        elif isinstance(handler, GuidelineToolActivationHandler):
+            return handler.tool_id.to_string()
+        elif isinstance(handler, GuidelineObservationHandler):
+            return ""
+        elif isinstance(handler, GuidelineJourneyHandler):
+            return handler.journey
+        else:
+            raise ValueError(f"Unknown handler type: {type(handler)}")
+
     def _serialize(
         self,
         guideline: Guideline,
@@ -289,7 +363,8 @@ class GuidelineDocumentStore(GuidelineStore):
             version=self.VERSION.to_string(),
             creation_utc=guideline.creation_utc.isoformat(),
             condition=guideline.content.condition,
-            action=guideline.content.action,
+            handler_type=guideline.content.handler._type.value,
+            handler=self._serialize_handler_content(guideline.content.handler),
             enabled=guideline.enabled,
             metadata=guideline.metadata,
         )
@@ -298,6 +373,20 @@ class GuidelineDocumentStore(GuidelineStore):
         self,
         guideline_document: GuidelineDocument,
     ) -> Guideline:
+        def deserialize_handler(handler_type: str, handler: Optional[str]) -> GuidelineHandler:
+            if handler_type == GuidelineHandlerType.ACTION.value:
+                return GuidelineActionHandler(action=cast(str, handler))
+            elif handler_type == GuidelineHandlerType.TOOL_ACTIVATION.value:
+                return GuidelineToolActivationHandler(
+                    tool_id=ToolId.from_string(cast(str, handler))
+                )
+            elif handler_type == GuidelineHandlerType.OBSERVATION.value:
+                return GuidelineObservationHandler()
+            elif handler_type == GuidelineHandlerType.JOURNEY.value:
+                return GuidelineJourneyHandler(journey=cast(str, handler))
+            else:
+                raise ValueError(f"Unknown handler type: {handler_type}")
+
         tag_ids = [
             d["tag_id"]
             for d in await self._tag_association_collection.find(
@@ -309,7 +398,11 @@ class GuidelineDocumentStore(GuidelineStore):
             id=GuidelineId(guideline_document["id"]),
             creation_utc=datetime.fromisoformat(guideline_document["creation_utc"]),
             content=GuidelineContent(
-                condition=guideline_document["condition"], action=guideline_document["action"]
+                condition=guideline_document["condition"],
+                handler=deserialize_handler(
+                    handler_type=guideline_document["handler_type"],
+                    handler=guideline_document["handler"],
+                ),
             ),
             enabled=guideline_document["enabled"],
             tags=[TagId(tag_id) for tag_id in tag_ids],
@@ -320,7 +413,7 @@ class GuidelineDocumentStore(GuidelineStore):
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        handler: GuidelineHandler,
         metadata: Mapping[str, JSONSerializable] = {},
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
@@ -334,7 +427,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 creation_utc=creation_utc,
                 content=GuidelineContent(
                     condition=condition,
-                    action=action,
+                    handler=handler,
                 ),
                 enabled=enabled,
                 tags=tags or [],
@@ -443,10 +536,18 @@ class GuidelineDocumentStore(GuidelineStore):
         params: GuidelineUpdateParams,
     ) -> Guideline:
         async with self._lock.writer_lock:
+            guideline = await self.read_guideline(guideline_id)
+
+            handler_content = None
+            if params["handler"] is not None:
+                assert guideline.content.handler._type == params["handler"]._type
+
+                handler_content = self._serialize_handler_content(params["handler"])
+
             guideline_document = GuidelineDocument(
                 {
                     **({"condition": params["condition"]} if "condition" in params else {}),
-                    **({"action": params["action"]} if "action" in params else {}),
+                    **({"handler": handler_content} if handler_content is not None else {}),
                     **({"enabled": params["enabled"]} if "enabled" in params else {}),
                 }
             )
@@ -469,13 +570,15 @@ class GuidelineDocumentStore(GuidelineStore):
             guideline_document = await self._collection.find_one(
                 filters={
                     "condition": {"$eq": guideline_content.condition},
-                    "action": {"$eq": guideline_content.action},
+                    "handler": {"$eq": self._serialize_handler_content(guideline_content.handler)},
                 }
             )
 
         if not guideline_document:
             raise ItemNotFoundError(
-                item_id=UniqueId(f"{guideline_content.condition}{guideline_content.action}")
+                item_id=UniqueId(
+                    f"{guideline_content.condition}{self._serialize_handler_content(guideline_content.handler)}"
+                )
             )
 
         return await self._deserialize(guideline_document=guideline_document)

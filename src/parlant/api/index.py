@@ -25,11 +25,10 @@ from parlant.api.common import (
     ConnectionPropositionKindDTO,
     EvaluationStatusDTO,
     GuidelineContentDTO,
-    GuidelinePayloadDTO,
+    GuidelineIdField,
     GuidelinePayloadOperationDTO,
     GuidelineInvoiceDataDTO,
     InvoiceDataDTO,
-    PayloadDTO,
     PayloadKindDTO,
     ExampleJson,
     apigen_skip_config,
@@ -53,7 +52,7 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.guidelines import GuidelineActionHandler, GuidelineContent
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,
@@ -76,6 +75,77 @@ def _evaluation_status_to_dto(
     )
 
 
+GuidelinePayloadCoherenceCheckField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Whether to check for contradictions with other Guidelines",
+        examples=[True, False],
+    ),
+]
+
+GuidelinePayloadConnectionPropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Whether to propose logical connections with other Guidelines",
+        examples=[True, False],
+    ),
+]
+
+
+guideline_payload_example: ExampleJson = {
+    "content": {
+        "condition": "User asks about product pricing",
+        "action": "Provide current price list and any active discounts",
+    },
+    "operation": "add",
+    "updated_id": None,
+    "coherence_check": True,
+    "connection_proposition": True,
+}
+
+
+class GuidelinePayloadDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": guideline_payload_example},
+):
+    """Payload data for a Guideline operation"""
+
+    content: GuidelineContentDTO
+    operation: GuidelinePayloadOperationDTO
+    updated_id: Optional[GuidelineIdField] = None
+    coherence_check: GuidelinePayloadCoherenceCheckField
+    connection_proposition: GuidelinePayloadConnectionPropositionField
+
+
+payload_example: ExampleJson = {
+    "kind": "guideline",
+    "guideline": {
+        "content": {
+            "condition": "User asks about product pricing",
+            "action": "Provide current price list and any active discounts",
+        },
+        "operation": "add",
+        "updated_id": None,
+        "coherence_check": True,
+        "connection_proposition": True,
+    },
+}
+
+
+class PayloadDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": payload_example},
+):
+    """
+    A container for a guideline payload along with its kind
+
+    Only `"guideline"` is available at this point.
+    """
+
+    kind: PayloadKindDTO
+    guideline: Optional[GuidelinePayloadDTO] = None
+
+
 def _payload_from_dto(dto: PayloadDTO) -> Payload:
     if dto.kind == PayloadKindDTO.GUIDELINE:
         if not dto.guideline:
@@ -87,7 +157,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
         return GuidelinePayload(
             content=GuidelineContent(
                 condition=dto.guideline.content.condition,
-                action=dto.guideline.content.action,
+                handler=GuidelineActionHandler(action=dto.guideline.content.action),
             ),
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
@@ -120,7 +190,7 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
             guideline=GuidelinePayloadDTO(
                 content=GuidelineContentDTO(
                     condition=descriptor.payload.content.condition,
-                    action=descriptor.payload.content.action,
+                    action=cast(GuidelineActionHandler, descriptor.payload.content.handler).action,
                 ),
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=descriptor.payload.updated_id,
@@ -164,11 +234,11 @@ def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> Invoic
                         kind=_coherence_check_kind_to_dto(c.kind),
                         first=GuidelineContentDTO(
                             condition=c.first.condition,
-                            action=c.first.action,
+                            action=cast(GuidelineActionHandler, c.first.handler).action,
                         ),
                         second=GuidelineContentDTO(
                             condition=c.second.condition,
-                            action=c.second.action,
+                            action=cast(GuidelineActionHandler, c.second.handler).action,
                         ),
                         issue=c.issue,
                         severity=c.severity,
@@ -180,11 +250,11 @@ def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> Invoic
                         check_kind=_connection_proposition_kind_to_dto(c.check_kind),
                         source=GuidelineContentDTO(
                             condition=c.source.condition,
-                            action=c.source.action,
+                            action=cast(GuidelineActionHandler, c.source.handler).action,
                         ),
                         target=GuidelineContentDTO(
                             condition=c.target.condition,
-                            action=c.target.action,
+                            action=cast(GuidelineActionHandler, c.target.handler).action,
                         ),
                     )
                     for c in invoice_data.entailment_propositions

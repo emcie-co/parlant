@@ -38,7 +38,7 @@ from parlant.core.common import (
     Version,
     generate_id,
 )
-from parlant.core.guidelines import GuidelineContent, GuidelineId
+from parlant.core.guidelines import GuidelineActionHandler, GuidelineContent, GuidelineId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -87,7 +87,7 @@ class GuidelinePayload:
     updated_id: Optional[GuidelineId] = None
 
     def __repr__(self) -> str:
-        return f"condition: {self.content.condition}, action: {self.content.action}"
+        return f"condition: {self.content.condition}, action: {cast(GuidelineActionHandler, self.content.handler).action}"
 
 
 Payload: TypeAlias = Union[GuidelinePayload]
@@ -284,11 +284,11 @@ class EvaluationDocumentStore(EvaluationStore):
                 kind=check.kind.value,
                 first=_GuidelineContentDocument(
                     condition=check.first.condition,
-                    action=check.first.action,
+                    action=cast(GuidelineActionHandler, check.first.handler).action,
                 ),
                 second=_GuidelineContentDocument(
                     condition=check.second.condition,
-                    action=check.second.action,
+                    action=cast(GuidelineActionHandler, check.second.handler).action,
                 ),
                 issue=check.issue,
                 severity=check.severity,
@@ -301,11 +301,11 @@ class EvaluationDocumentStore(EvaluationStore):
                 check_kind=cp.check_kind.value,
                 source=_GuidelineContentDocument(
                     condition=cp.source.condition,
-                    action=cp.source.action,
+                    action=cast(GuidelineActionHandler, cp.source.handler).action,
                 ),
                 target=_GuidelineContentDocument(
                     condition=cp.target.condition,
-                    action=cp.target.action,
+                    action=cast(GuidelineActionHandler, cp.target.handler).action,
                 ),
             )
 
@@ -326,7 +326,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 return _GuidelinePayloadDocument(
                     content=_GuidelineContentDocument(
                         condition=payload.content.condition,
-                        action=payload.content.action,
+                        action=cast(GuidelineActionHandler, payload.content.handler).action,
                     ),
                     action=payload.operation.value,
                     updated_id=payload.updated_id,
@@ -368,7 +368,7 @@ class EvaluationDocumentStore(EvaluationStore):
         ) -> GuidelineContent:
             return GuidelineContent(
                 condition=gc_doc["condition"],
-                action=gc_doc["action"],
+                handler=GuidelineActionHandler(action=gc_doc["action"]),
             )
 
         def deserialize_coherence_check_document(cc_doc: _CoherenceCheckDocument) -> CoherenceCheck:
@@ -414,7 +414,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 return GuidelinePayload(
                     content=GuidelineContent(
                         condition=payload_doc["content"]["condition"],
-                        action=payload_doc["content"]["action"],
+                        handler=GuidelineActionHandler(action=payload_doc["content"]["action"]),
                     ),
                     operation=GuidelinePayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],

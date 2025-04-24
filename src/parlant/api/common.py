@@ -149,47 +149,6 @@ GuidelineIdField: TypeAlias = Annotated[
 ]
 
 
-GuidelinePayloadCoherenceCheckField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="Whether to check for contradictions with other Guidelines",
-        examples=[True, False],
-    ),
-]
-
-GuidelinePayloadConnectionPropositionField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="Whether to propose logical connections with other Guidelines",
-        examples=[True, False],
-    ),
-]
-
-guideline_payload_example: ExampleJson = {
-    "content": {
-        "condition": "User asks about product pricing",
-        "action": "Provide current price list and any active discounts",
-    },
-    "operation": "add",
-    "updated_id": None,
-    "coherence_check": True,
-    "connection_proposition": True,
-}
-
-
-class GuidelinePayloadDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": guideline_payload_example},
-):
-    """Payload data for a Guideline operation"""
-
-    content: GuidelineContentDTO
-    operation: GuidelinePayloadOperationDTO
-    updated_id: Optional[GuidelineIdField] = None
-    coherence_check: GuidelinePayloadCoherenceCheckField
-    connection_proposition: GuidelinePayloadConnectionPropositionField
-
-
 def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> GuidelinePayloadOperation:
     if operation := {
         GuidelinePayloadOperationDTO.ADD: GuidelinePayloadOperation.ADD,
@@ -198,35 +157,6 @@ def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> GuidelinePa
         return operation
 
     raise ValueError(f"Unsupported operation: {dto}")
-
-
-payload_example: ExampleJson = {
-    "kind": "guideline",
-    "guideline": {
-        "content": {
-            "condition": "User asks about product pricing",
-            "action": "Provide current price list and any active discounts",
-        },
-        "operation": "add",
-        "updated_id": None,
-        "coherence_check": True,
-        "connection_proposition": True,
-    },
-}
-
-
-class PayloadDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": payload_example},
-):
-    """
-    A container for a guideline payload along with its kind
-
-    Only `"guideline"` is available at this point.
-    """
-
-    kind: PayloadKindDTO
-    guideline: Optional[GuidelinePayloadDTO] = None
 
 
 CoherenceCheckIssueField: TypeAlias = Annotated[

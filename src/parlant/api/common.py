@@ -322,6 +322,23 @@ GuidelineTagsField: TypeAlias = Annotated[
     ),
 ]
 
+GuidelineJourneyField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="The journey associated with the guideline",
+        examples=["journey1", "journey2"],
+    ),
+]
+
+
+class GuidelineHandlerKindDTO(Enum):
+    """The kind of handler for the guideline."""
+
+    ACTION = "action"
+    TOOL_ACTIVATION = "tool_activation"
+    OBSERVATION = "observation"
+    JOURNEY = "journey"
+
 
 class GuidelineDTO(
     DefaultBaseModel,
@@ -330,8 +347,11 @@ class GuidelineDTO(
     """Represents a guideline."""
 
     id: GuidelineIdField
+    handler_kind: GuidelineHandlerKindDTO
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
+    tool_id: Optional[ToolIdDTO] = None
+    journey: Optional[GuidelineJourneyField] = None
     enabled: GuidelineEnabledField
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField

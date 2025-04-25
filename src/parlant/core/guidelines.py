@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum
+from enum import Enum, auto
 from typing import Mapping, NewType, Optional, Sequence, TypeAlias, Union, cast
 from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
@@ -37,34 +37,34 @@ from parlant.core.tools import ToolId
 GuidelineId = NewType("GuidelineId", str)
 
 
-class GuidelineHandlerType(Enum):
-    ACTION = "action"
-    TOOL_ACTIVATION = "tool_activation"
-    OBSERVATION = "observation"
-    JOURNEY = "journey"
+class GuidelineHandlerKind(Enum):
+    ACTION = auto()
+    TOOL_ACTIVATION = auto()
+    OBSERVATION = auto()
+    JOURNEY = auto()
 
 
 @dataclass(frozen=True)
 class GuidelineActionHandler:
     action: str
-    _type: GuidelineHandlerType = GuidelineHandlerType.ACTION
+    kind: GuidelineHandlerKind = GuidelineHandlerKind.ACTION
 
 
 @dataclass(frozen=True)
 class GuidelineToolActivationHandler:
     tool_id: ToolId
-    _type: GuidelineHandlerType = GuidelineHandlerType.TOOL_ACTIVATION
+    kind: GuidelineHandlerKind = GuidelineHandlerKind.TOOL_ACTIVATION
 
 
 @dataclass(frozen=True)
 class GuidelineObservationHandler:
-    _type: GuidelineHandlerType = GuidelineHandlerType.OBSERVATION
+    kind: GuidelineHandlerKind = GuidelineHandlerKind.OBSERVATION
 
 
 @dataclass(frozen=True)
 class GuidelineJourneyHandler:
     journey: str
-    _type: GuidelineHandlerType = GuidelineHandlerType.JOURNEY
+    kind: GuidelineHandlerKind = GuidelineHandlerKind.JOURNEY
 
 
 GuidelineHandler: TypeAlias = Union[
@@ -217,7 +217,7 @@ class GuidelineDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     condition: str
-    handler_type: str
+    handler_kind: str
     handler: str
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
@@ -281,7 +281,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 version=Version.String("0.5.0"),
                 creation_utc=d["creation_utc"],
                 condition=d["condition"],
-                handler_type=GuidelineHandlerType.ACTION.value,
+                handler_kind=GuidelineHandlerKind.ACTION.value,
                 handler=d["action"],
                 enabled=d["enabled"],
                 metadata=d["metadata"],
@@ -351,8 +351,6 @@ class GuidelineDocumentStore(GuidelineStore):
             return ""
         elif isinstance(handler, GuidelineJourneyHandler):
             return handler.journey
-        else:
-            raise ValueError(f"Unknown handler type: {type(handler)}")
 
     def _serialize(
         self,
@@ -363,7 +361,7 @@ class GuidelineDocumentStore(GuidelineStore):
             version=self.VERSION.to_string(),
             creation_utc=guideline.creation_utc.isoformat(),
             condition=guideline.content.condition,
-            handler_type=guideline.content.handler._type.value,
+            handler_kind=guideline.content.handler.kind.value,
             handler=self._serialize_handler_content(guideline.content.handler),
             enabled=guideline.enabled,
             metadata=guideline.metadata,
@@ -373,19 +371,19 @@ class GuidelineDocumentStore(GuidelineStore):
         self,
         guideline_document: GuidelineDocument,
     ) -> Guideline:
-        def deserialize_handler(handler_type: str, handler: Optional[str]) -> GuidelineHandler:
-            if handler_type == GuidelineHandlerType.ACTION.value:
+        def deserialize_handler(handler_kind: str, handler: Optional[str]) -> GuidelineHandler:
+            if handler_kind == GuidelineHandlerKind.ACTION.value:
                 return GuidelineActionHandler(action=cast(str, handler))
-            elif handler_type == GuidelineHandlerType.TOOL_ACTIVATION.value:
+            elif handler_kind == GuidelineHandlerKind.TOOL_ACTIVATION.value:
                 return GuidelineToolActivationHandler(
                     tool_id=ToolId.from_string(cast(str, handler))
                 )
-            elif handler_type == GuidelineHandlerType.OBSERVATION.value:
+            elif handler_kind == GuidelineHandlerKind.OBSERVATION.value:
                 return GuidelineObservationHandler()
-            elif handler_type == GuidelineHandlerType.JOURNEY.value:
+            elif handler_kind == GuidelineHandlerKind.JOURNEY.value:
                 return GuidelineJourneyHandler(journey=cast(str, handler))
             else:
-                raise ValueError(f"Unknown handler type: {handler_type}")
+                raise ValueError(f"Unknown handler kind: {handler_kind}")
 
         tag_ids = [
             d["tag_id"]
@@ -400,7 +398,7 @@ class GuidelineDocumentStore(GuidelineStore):
             content=GuidelineContent(
                 condition=guideline_document["condition"],
                 handler=deserialize_handler(
-                    handler_type=guideline_document["handler_type"],
+                    handler_kind=guideline_document["handler_kind"],
                     handler=guideline_document["handler"],
                 ),
             ),
@@ -540,7 +538,7 @@ class GuidelineDocumentStore(GuidelineStore):
 
             handler_content = None
             if params["handler"] is not None:
-                assert guideline.content.handler._type == params["handler"]._type
+                assert guideline.content.handler.kind == params["handler"].kind
 
                 handler_content = self._serialize_handler_content(params["handler"])
 

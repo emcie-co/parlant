@@ -26,7 +26,9 @@ from parlant.api.common import (
     ConnectionPropositionKindDTO,
     GuidelineDTO,
     GuidelineEnabledField,
+    GuidelineHandlerKindDTO,
     GuidelineIdField,
+    GuidelineJourneyField,
     GuidelineMetadataField,
     RelationshipDTO,
     GuidelineTagsField,
@@ -68,9 +70,15 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import (
     Guideline,
+    GuidelineActionHandler,
     GuidelineContent,
+    GuidelineHandler,
+    GuidelineHandlerKind,
     GuidelineId,
+    GuidelineJourneyHandler,
+    GuidelineObservationHandler,
     GuidelineStore,
+    GuidelineToolActivationHandler,
     GuidelineUpdateParams,
 )
 from parlant.core.guideline_tool_associations import (
@@ -421,7 +429,7 @@ def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
     payload = GuidelinePayload(
         content=GuidelineContent(
             condition=dto.payload.guideline.content.condition,
-            action=dto.payload.guideline.content.action,
+            handler=GuidelineActionHandler(action=dto.payload.guideline.content.action),
         ),
         operation=operation_dto_to_operation(dto.payload.guideline.operation),
         coherence_check=dto.payload.guideline.coherence_check,
@@ -483,9 +491,13 @@ def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineDa
         coherence_checks = [
             CoherenceCheck(
                 kind=_coherence_kind_dto_to_coherence_kind(check.kind),
-                first=GuidelineContent(condition=check.first.condition, action=check.first.action),
+                first=GuidelineContent(
+                    condition=check.first.condition,
+                    handler=GuidelineActionHandler(action=check.first.action),
+                ),
                 second=GuidelineContent(
-                    condition=check.second.condition, action=check.second.action
+                    condition=check.second.condition,
+                    handler=GuidelineActionHandler(action=check.second.action),
                 ),
                 issue=check.issue,
                 severity=check.severity,
@@ -498,10 +510,12 @@ def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineDa
                 EntailmentRelationshipProposition(
                     check_kind=_check_kind_dto_to_check_kind(prop.check_kind),
                     source=GuidelineContent(
-                        condition=prop.source.condition, action=prop.source.action
+                        condition=prop.source.condition,
+                        handler=GuidelineActionHandler(action=prop.source.action),
                     ),
                     target=GuidelineContent(
-                        condition=prop.target.condition, action=prop.target.action
+                        condition=prop.target.condition,
+                        handler=GuidelineActionHandler(action=prop.target.action),
                     ),
                 )
                 for prop in dto.guideline.connection_propositions
@@ -588,10 +602,15 @@ async def _get_relationships(
 
 def _legacy_guideline_dto(guideline: Guideline | Tag) -> LegacyGuidelineDTO:
     if isinstance(guideline, Guideline):
+        if guideline.content.handler.kind != GuidelineHandlerKind.ACTION:
+            raise ValueError(
+                f"Guideline {guideline.id} has a handler of type {guideline.content.handler.kind}. "
+                "Legacy API only supports guidelines with action handlers."
+            )
         return LegacyGuidelineDTO(
             id=guideline.id,
             condition=guideline.content.condition,
-            action=guideline.content.action,
+            action=cast(GuidelineActionHandler, guideline.content.handler).action,
             enabled=guideline.enabled,
         )
 
@@ -681,12 +700,7 @@ def create_legacy_router(
         return LegacyGuidelineCreationResult(
             items=[
                 LegacyGuidelineWithConnectionsAndToolAssociationsDTO(
-                    guideline=LegacyGuidelineDTO(
-                        id=guideline.id,
-                        condition=guideline.content.condition,
-                        action=guideline.content.action,
-                        enabled=guideline.enabled,
-                    ),
+                    guideline=_legacy_guideline_dto(guideline),
                     connections=[
                         LegacyGuidelineConnectionDTO(
                             id=relationship.id,
@@ -760,12 +774,7 @@ def create_legacy_router(
         )
 
         return LegacyGuidelineWithConnectionsAndToolAssociationsDTO(
-            guideline=LegacyGuidelineDTO(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                enabled=guideline.enabled,
-            ),
+            guideline=_legacy_guideline_dto(guideline),
             connections=[
                 LegacyGuidelineConnectionDTO(
                     id=relationship.id,
@@ -819,15 +828,7 @@ def create_legacy_router(
             tags=[Tag.for_agent_id(agent_id)],
         )
 
-        return [
-            LegacyGuidelineDTO(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                enabled=guideline.enabled,
-            )
-            for guideline in guidelines
-        ]
+        return [_legacy_guideline_dto(guideline) for guideline in guidelines]
 
     @router.patch(
         "/{agent_id}/guidelines/{guideline_id}",
@@ -982,12 +983,7 @@ def create_legacy_router(
         updated_guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
 
         return LegacyGuidelineWithConnectionsAndToolAssociationsDTO(
-            guideline=LegacyGuidelineDTO(
-                id=updated_guideline.id,
-                condition=updated_guideline.content.condition,
-                action=updated_guideline.content.action,
-                enabled=updated_guideline.enabled,
-            ),
+            guideline=_legacy_guideline_dto(updated_guideline),
             connections=[
                 LegacyGuidelineConnectionDTO(
                     id=relationship.id,
@@ -1182,7 +1178,9 @@ class GuidelineCreationParamsDTO(
     """Parameters for creating a new guideline."""
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
+    tool_id: Optional[ToolIdDTO] = None
+    journey: Optional[GuidelineJourneyField] = None
     metadata: Optional[GuidelineMetadataField] = None
     enabled: Optional[GuidelineEnabledField] = None
     tags: Optional[GuidelineTagsField] = None
@@ -1249,6 +1247,8 @@ class GuidelineUpdateParamsDTO(
 
     condition: Optional[GuidelineConditionField] = None
     action: Optional[GuidelineActionField] = None
+    tool_id: Optional[ToolIdDTO] = None
+    journey: Optional[GuidelineJourneyField] = None
     tool_associations: Optional[GuidelineToolAssociationUpdateParamsDTO] = None
     enabled: Optional[GuidelineEnabledField] = None
     tags: Optional[GuidelineTagsUpdateParamsDTO] = None
@@ -1302,6 +1302,41 @@ class GuidelineWithRelationshipsAndToolAssociationsDTO(
     tool_associations: Sequence[GuidelineToolAssociationDTO]
 
 
+def guideline_handler_kind_to_dto(handler_kind: GuidelineHandlerKind) -> GuidelineHandlerKindDTO:
+    match handler_kind:
+        case GuidelineHandlerKind.ACTION:
+            return GuidelineHandlerKindDTO.ACTION
+        case GuidelineHandlerKind.TOOL_ACTIVATION:
+            return GuidelineHandlerKindDTO.TOOL_ACTIVATION
+        case GuidelineHandlerKind.OBSERVATION:
+            return GuidelineHandlerKindDTO.OBSERVATION
+        case GuidelineHandlerKind.JOURNEY:
+            return GuidelineHandlerKindDTO.JOURNEY
+
+
+def _guideline_to_dto(guideline: Guideline) -> GuidelineDTO:
+    return GuidelineDTO(
+        id=guideline.id,
+        handler_kind=guideline_handler_kind_to_dto(guideline.content.handler.kind),
+        condition=guideline.content.condition,
+        action=guideline.content.handler.action
+        if isinstance(guideline.content.handler, GuidelineActionHandler)
+        else None,
+        tool_id=ToolIdDTO(
+            service_name=guideline.content.handler.tool_id.service_name,
+            tool_name=guideline.content.handler.tool_id.tool_name,
+        )
+        if isinstance(guideline.content.handler, GuidelineToolActivationHandler)
+        else None,
+        journey=guideline.content.handler.journey
+        if isinstance(guideline.content.handler, GuidelineJourneyHandler)
+        else None,
+        enabled=guideline.enabled,
+        tags=guideline.tags,
+        metadata=guideline.metadata,
+    )
+
+
 def _guideline_relationship_to_dto(
     relationship: _GuidelineRelationship,
     indirect: bool,
@@ -1318,14 +1353,7 @@ def _guideline_relationship_to_dto(
 
     return RelationshipDTO(
         id=relationship.id,
-        source_guideline=GuidelineDTO(
-            id=rel_source_guideline.id,
-            condition=rel_source_guideline.content.condition,
-            action=rel_source_guideline.content.action,
-            enabled=rel_source_guideline.enabled,
-            tags=rel_source_guideline.tags,
-            metadata=rel_source_guideline.metadata,
-        )
+        source_guideline=_guideline_to_dto(rel_source_guideline)
         if relationship.source_type == EntityType.GUIDELINE
         else None,
         source_tag=TagDTO(
@@ -1335,15 +1363,7 @@ def _guideline_relationship_to_dto(
         )
         if relationship.source_type == EntityType.TAG
         else None,
-        target_guideline=GuidelineDTO(
-            id=relationship.target.id,
-            creation_utc=rel_target_guideline.creation_utc,
-            condition=rel_target_guideline.content.condition,
-            action=rel_target_guideline.content.action,
-            enabled=rel_target_guideline.enabled,
-            tags=rel_target_guideline.tags,
-            metadata=rel_target_guideline.metadata,
-        )
+        target_guideline=_guideline_to_dto(rel_target_guideline)
         if relationship.target_type == EntityType.GUIDELINE
         else None,
         target_tag=TagDTO(
@@ -1355,6 +1375,43 @@ def _guideline_relationship_to_dto(
         indirect=indirect,
         kind=guideline_relationship_kind_to_dto(relationship.kind),
     )
+
+
+def _guideline_handler_from_params(
+    params: GuidelineUpdateParamsDTO | GuidelineCreationParamsDTO,
+) -> GuidelineHandler:
+    action = params.action
+    tool_id = params.tool_id
+    journey = params.journey
+
+    if action and (tool_id or journey):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Guideline cannot have both an action and a tool or journey",
+        )
+    elif tool_id and journey:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Guideline cannot have both a tool and a journey",
+        )
+
+    if action:
+        return GuidelineActionHandler(
+            action=action,
+        )
+    elif tool_id:
+        return GuidelineToolActivationHandler(
+            tool_id=ToolId(
+                service_name=tool_id.service_name,
+                tool_name=tool_id.tool_name,
+            ),
+        )
+    elif journey:
+        return GuidelineJourneyHandler(
+            journey=journey,
+        )
+    else:
+        return GuidelineObservationHandler()
 
 
 def create_router(
@@ -1392,6 +1449,8 @@ def create_router(
 
         See the [documentation](https://parlant.io/docs/concepts/customization/guidelines) for more information.
         """
+        handler = _guideline_handler_from_params(params)
+
         tags = []
         if params.tags:
             for tag_id in params.tags:
@@ -1404,20 +1463,13 @@ def create_router(
 
         guideline = await guideline_store.create_guideline(
             condition=params.condition,
-            action=params.action,
+            handler=handler,
             metadata=params.metadata or {},
             enabled=params.enabled or True,
             tags=tags or None,
         )
 
-        return GuidelineDTO(
-            id=guideline.id,
-            condition=guideline.content.condition,
-            action=guideline.content.action,
-            metadata=guideline.metadata,
-            enabled=guideline.enabled,
-            tags=guideline.tags,
-        )
+        return _guideline_to_dto(guideline)
 
     @router.get(
         "",
@@ -1448,17 +1500,7 @@ def create_router(
         else:
             guidelines = await guideline_store.list_guidelines()
 
-        return [
-            GuidelineDTO(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                metadata=guideline.metadata,
-                enabled=guideline.enabled,
-                tags=guideline.tags,
-            )
-            for guideline in guidelines
-        ]
+        return [_guideline_to_dto(guideline) for guideline in guidelines]
 
     @router.get(
         "/{guideline_id}",
@@ -1499,14 +1541,7 @@ def create_router(
         )
 
         return GuidelineWithRelationshipsAndToolAssociationsDTO(
-            guideline=GuidelineDTO(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                metadata=guideline.metadata,
-                enabled=guideline.enabled,
-                tags=guideline.tags,
-            ),
+            guideline=_guideline_to_dto(guideline),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
                 for relationship, indirect in relationships
@@ -1556,15 +1591,26 @@ def create_router(
 
         Tool Association rules:
         - Tool services and tools must exist before creating associations
-        """
-        _ = await guideline_store.read_guideline(guideline_id=guideline_id)
 
-        if params.condition or params.action or params.enabled is not None:
+        Guideline handler kind can not be updated.
+        """
+        guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
+
+        handler: Optional[GuidelineHandler] = None
+
+        if guideline.content.handler.kind in [
+            GuidelineHandlerKind.ACTION,
+            GuidelineHandlerKind.TOOL_ACTIVATION,
+            GuidelineHandlerKind.JOURNEY,
+        ]:
+            handler = _guideline_handler_from_params(params)
+
+        if params.condition or params.enabled is not None:
             update_params: GuidelineUpdateParams = {}
             if params.condition:
                 update_params["condition"] = params.condition
-            if params.action:
-                update_params["action"] = params.action
+            if handler:
+                update_params["handler"] = handler
             if params.enabled is not None:
                 update_params["enabled"] = params.enabled
 
@@ -1647,14 +1693,7 @@ def create_router(
         updated_guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
 
         return GuidelineWithRelationshipsAndToolAssociationsDTO(
-            guideline=GuidelineDTO(
-                id=updated_guideline.id,
-                condition=updated_guideline.content.condition,
-                action=updated_guideline.content.action,
-                metadata=updated_guideline.metadata,
-                enabled=updated_guideline.enabled,
-                tags=updated_guideline.tags,
-            ),
+            guideline=_guideline_to_dto(updated_guideline),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
                 for relationship, indirect in await _get_relationships(

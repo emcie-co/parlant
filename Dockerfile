@@ -7,16 +7,27 @@ ENV CXXFLAGS='-std=c++11'
 ENV PYTHONPATH=/app/src
 ENV PARLANT_HOME=/app/data
 
-RUN apt-get update && apt-get install -y g++ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    g++ \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
 RUN pip install poetry==$POETRY_VERSION
 
-COPY pyproject.toml poetry.lock /app/
-COPY src /app/src
-WORKDIR /app
+# Copy project files
+COPY . .
+
+# Install dependencies
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-root --only main
+    && poetry lock --no-update \
+    && poetry install --no-interaction --no-ansi
 
 # Expose the port your app runs on
-EXPOSE 8000
+EXPOSE 8800
 
-CMD ["poetry", "run", "parlant-server"]
+# Command to run the server
+CMD ["poetry", "run", "python", "src/parlant/bin/server.py", "run", "--log-level", "debug"]

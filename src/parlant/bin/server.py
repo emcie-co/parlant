@@ -95,6 +95,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.engine import AlphaEngine
+from parlant.core.engines.beta.engine import BetaEngine
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -313,6 +314,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[EntityCommands] = Singleton(EntityCommands)
 
     c[Engine] = Singleton(AlphaEngine)
+    c[BetaEngine] = Singleton(BetaEngine)
     c[Application] = lambda rc: Application(rc)
 
     yield c

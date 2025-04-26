@@ -1837,4 +1837,91 @@ def create_router(
             for tc in tool_calls
         ]
 
+
+    @router.post(
+        "/{session_id}/direct_events",
+        status_code=status.HTTP_201_CREATED,
+        operation_id="create_direct_events",
+    )
+    async def create_direct_events(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+        moderation: ModerationQuery = Moderation.NONE,
+    ) -> str:
+        """
+        Creates a new direct event in the specified session. This API will return the agent's response.
+        Currently supports creating message events from customer and human agent sources.
+        """
+
+        if params.kind != EventKindDTO.MESSAGE:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only message events can currently be added manually",
+            )
+
+        if params.source == EventSourceDTO.CUSTOMER:
+            return await _add_customer_message_direct(session_id, params, moderation)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Only "customer" and "human_agent_on_behalf_of_ai_agent" sources are supported for direct posting.',
+            )
+
+    async def _add_customer_message_direct(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+        moderation: Moderation = Moderation.NONE,
+    ) -> str:
+        """
+        Adds a customer message to the session.
+
+        Currently supports adding a message from a customer source.
+        """
+        if not params.message and not params.images:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing 'message' or 'images' field for event",
+            )
+
+        flagged = False
+        tags: Set[str] = set()
+
+        if moderation in [Moderation.AUTO, Moderation.PARANOID]:
+            moderation_service = await nlp_service.get_moderation_service()
+            check = await moderation_service.check(params.message)
+            flagged |= check.flagged
+            tags.update(check.tags)
+
+        if moderation == Moderation.PARANOID:
+            check = await _get_jailbreak_moderation_service(logger).check(params.message)
+            if "jailbreak" in check.tags:
+                flagged = True
+                tags.update({"jailbreak"})
+
+        session = await session_store.read_session(session_id)
+
+        try:
+            customer = await customer_store.read_customer(session.customer_id)
+            customer_display_name = customer.name
+        except Exception:
+            customer_display_name = session.customer_id
+
+        message_data: MessageEventData = {
+            "message": params.message or "",
+            "participant": {
+                "id": session.customer_id,
+                "display_name": customer_display_name,
+            },
+            "flagged": flagged,
+            "tags": list(tags)
+        }
+
+        agent_response = await application.post_direct_event(
+            session_id=session_id,
+            kind=_event_kind_dto_to_event_kind(params.kind),
+            data=message_data,
+            source=EventSource.CUSTOMER
+        )
+
+        return agent_response
     return router

@@ -24,7 +24,7 @@ from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import generate_id
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
-from parlant.core.emissions import EventEmitterFactory
+from parlant.core.emissions import EventEmitterFactory, EventEmitter
 from parlant.core.customers import CustomerId
 from parlant.core.evaluations import (
     EntailmentRelationshipProposition,
@@ -49,7 +49,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.loggers import Logger
-
+from parlant.core.engines.beta.engine import BetaEngine
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
 
@@ -63,6 +63,7 @@ class Application:
         self._guideline_store = container[GuidelineStore]
         self._relationship_store = container[RelationshipStore]
         self._engine = container[Engine]
+        self._beta_engine = container[BetaEngine]
         self._event_emitter_factory = container[EventEmitterFactory]
         self._background_task_service = container[BackgroundTaskService]
 
@@ -282,3 +283,44 @@ class Application:
                     entailment_propositions.add(proposition)
 
         return content_guidelines.values()
+
+
+    async def post_direct_event(
+        self,
+        session_id: SessionId,
+        kind: EventKind,
+        data: Mapping[str, Any],
+        source: EventSource = EventSource.CUSTOMER,
+    ) -> str:
+        event = await self._session_store.create_event(
+            session_id=session_id,
+            source=source,
+            kind=kind,
+            correlation_id=self._correlator.correlation_id,
+            data=data,
+        )
+
+        session = await self._session_store.read_session(session_id)
+        agent_response = await self._process_session_direct(session)
+        return agent_response
+    
+
+    
+
+    async def _process_session_direct(self, session: Session) -> str:
+        # Create a dummy event emitter since BetaEngine doesn't use it
+        event_emitter = await self._event_emitter_factory.create_event_emitter(
+            emitting_agent_id=session.agent_id,
+            session_id=session.id,
+        )
+
+        # Process the session, which will emit events to the session store
+        agent_response = await self._beta_engine.process(
+            Context(
+                session_id=session.id,
+                agent_id=session.agent_id,
+            ),
+            event_emitter=event_emitter,
+        )
+
+        return agent_response

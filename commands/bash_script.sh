@@ -14,3 +14,10 @@ npm run dev
 
 npm run build
 npm run preview
+
+
+# Build the Docker image
+docker build -t spring-agents .
+
+# Run the container with name spring-agents, always restart it
+docker run -p 8800:8800 --name goblin-agents --restart always spring-agents

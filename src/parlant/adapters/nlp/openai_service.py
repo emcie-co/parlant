@@ -243,7 +243,7 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger)
+        super().__init__(model_name="gpt-4o-mini", logger=logger)
 
     @property
     @override
@@ -411,8 +411,8 @@ class OpenAIService(NLPService):
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
         if t == ToolCallInferenceSchema:
-            return GPT_4o[t](self._logger)  # type: ignore
-        return GPT_4o_24_08_06[t](self._logger)  # type: ignore
+            return GPT_4o_Mini[t](self._logger)  # type: ignore
+        return GPT_4o_Mini[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

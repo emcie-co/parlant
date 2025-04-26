@@ -53,6 +53,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.glossary import TermId
+from parlant.core.tools import ToolId
 from parlant.core.utterances import Utterance, UtteranceId
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
@@ -158,8 +159,11 @@ class StatusEventData(TypedDict):
 
 class GuidelineMatch(TypedDict):
     guideline_id: GuidelineId
+    handler_kind: str
     condition: str
-    action: str
+    action: NotRequired[str]
+    journey: NotRequired[str]
+    tool_id: NotRequired[ToolId]
     score: int
     rationale: str
 

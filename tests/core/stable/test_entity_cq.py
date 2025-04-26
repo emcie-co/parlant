@@ -16,7 +16,7 @@ from lagom import Container
 
 from parlant.core.agents import Agent, AgentStore
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.guidelines import GuidelineHandler, GuidelineHandlerKind, GuidelineStore
 from parlant.core.tags import Tag, TagId
 
 
@@ -35,12 +35,18 @@ async def test_that_list_guidelines_with_mutual_agent_tag_are_returned(
 
     first_guideline = await guideline_store.create_guideline(
         condition="condition 1",
-        action="action 1",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 1",
+        ),
     )
 
     second_guideline = await guideline_store.create_guideline(
         condition="condition 2",
-        action="action 2",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 2",
+        ),
     )
 
     await guideline_store.upsert_tag(
@@ -68,7 +74,10 @@ async def test_that_list_guidelines_global_guideline_is_returned(
 
     global_guideline = await guideline_store.create_guideline(
         condition="condition 1",
-        action="action 1",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 1",
+        ),
     )
 
     result = await entity_queries.find_guidelines_for_agent(agent.id)
@@ -86,12 +95,18 @@ async def test_that_guideline_with_not_hierarchy_tag_is_not_returned(
 
     first_guideline = await guideline_store.create_guideline(
         condition="condition 1",
-        action="action 1",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 1",
+        ),
     )
 
     second_guideline = await guideline_store.create_guideline(
         condition="condition 2",
-        action="action 2",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 2",
+        ),
     )
 
     await guideline_store.upsert_tag(

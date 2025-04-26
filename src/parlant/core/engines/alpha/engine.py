@@ -38,7 +38,13 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
 )
 from parlant.core.engines.alpha.tool_caller import ToolInsights, MissingToolData
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineId,
+    GuidelineContent,
+)
 from parlant.core.glossary import Term
 from parlant.core.sessions import (
     ContextVariable as StoredContextVariable,
@@ -407,21 +413,50 @@ class AlphaEngine(Engine):
             )
             context.state.prepared_to_respond = True
 
-        # Return structured inspection information, useful for later troubleshooting.
-        return PreparationIteration(
-            guideline_matches=[
+        guideline_matches = []
+        for match in chain(
+            context.state.ordinary_guideline_matches,
+            context.state.tool_enabled_guideline_matches.keys(),
+        ):
+            handler = {
+                **(
+                    {
+                        "action": match.guideline.content.handler.action,
+                    }
+                    if match.guideline.content.handler.kind == GuidelineHandlerKind.ACTION
+                    else {}
+                ),
+                **(
+                    {
+                        "journey": match.guideline.content.handler.journey,
+                    }
+                    if match.guideline.content.handler.kind == GuidelineHandlerKind.JOURNEY
+                    else {}
+                ),
+                **(
+                    {
+                        "tool_id": cast(
+                            ToolId, match.guideline.content.handler.tool_id
+                        ).to_string(),
+                    }
+                    if match.guideline.content.handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION
+                    else {}
+                ),
+            }
+            guideline_matches.append(
                 StoredGuidelineMatch(
                     guideline_id=match.guideline.id,
                     condition=match.guideline.content.condition,
-                    action=match.guideline.content.action,
+                    handler_kind=match.guideline.content.handler.kind.value,
                     score=match.score,
                     rationale=match.rationale,
+                    **handler,  # type: ignore
                 )
-                for match in chain(
-                    context.state.ordinary_guideline_matches,
-                    context.state.tool_enabled_guideline_matches.keys(),
-                )
-            ],
+            )
+
+        # Return structured inspection information, useful for later troubleshooting.
+        return PreparationIteration(
+            guideline_matches=guideline_matches,
             tool_calls=[
                 tool_call
                 for tool_event in new_tool_events
@@ -715,12 +750,7 @@ class AlphaEngine(Engine):
             query += str([e.data for e in context.interaction.history])
 
         if context.state.guidelines:
-            query += str(
-                [
-                    f"When {g.content.condition}, then {g.content.action}"
-                    for g in context.state.guidelines
-                ]
-            )
+            query += str([str(g) for g in context.state.guidelines])
 
         if context.state.tool_events:
             query += str([e.data for e in context.state.tool_events])
@@ -793,7 +823,10 @@ class AlphaEngine(Engine):
                     creation_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition=conditions[utterance.reason],
-                        action=utterance.action,
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action=utterance.action,
+                        ),
                     ),
                     enabled=True,
                     tags=[],

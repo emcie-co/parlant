@@ -15,7 +15,7 @@
 from typing import Sequence
 
 from parlant.core.agents import Agent
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.guidelines import GuidelineContent, GuidelineHandler, GuidelineHandlerKind
 from parlant.core.services.indexing.guideline_connection_proposer import GuidelineConnectionProposer
 
 from tests.core.common.utils import ContextOfTest
@@ -29,11 +29,17 @@ def test_that_entailment_due_to_the_sources_condition_is_detected(  # This test 
 
     source_guideline_content = GuidelineContent(
         condition="Planning trips to Brazil",
-        action="Check if there are any festivals happening on the relevant days, and suggest them to the customer if they coincide with their plans",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Check if there are any festivals happening on the relevant days, and suggest them to the customer if they coincide with their plans",
+        ),
     )
     target_guideline_content = GuidelineContent(
         condition="Suggesting activites in a non-English speaking country",
-        action="Ask the customer if they speak the local language",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Ask the customer if they speak the local language",
+        ),
     )
     connection_propositions = list(
         context.sync_await(
@@ -53,7 +59,13 @@ def test_that_connection_is_proposed_for_a_sequence_where_each_guideline_entails
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "discussing sandwiches",

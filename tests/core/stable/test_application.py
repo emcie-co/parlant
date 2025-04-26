@@ -21,7 +21,7 @@ from parlant.core.async_utils import Timeout
 from parlant.core.application import Application
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.guidelines import GuidelineHandler, GuidelineHandlerKind, GuidelineStore
 from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolResult
@@ -67,7 +67,10 @@ async def proactive_agent_id(
 ) -> AgentId:
     guideline = await container[GuidelineStore].create_guideline(
         condition="The customer hasn't engaged yet",
-        action="Greet the customer",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Greet the customer",
+        ),
     )
 
     await container[GuidelineStore].upsert_tag(

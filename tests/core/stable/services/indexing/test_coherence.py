@@ -15,7 +15,7 @@
 from datetime import datetime, timezone
 
 from parlant.core.agents import Agent, AgentId
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.guidelines import GuidelineContent, GuidelineHandler, GuidelineHandlerKind
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -43,8 +43,8 @@ async def incoherence_nlp_test(
 async def nlp_test_action_contradiction(
     agent: Agent, glossary_store: GlossaryStore, incoherence: IncoherenceTest
 ) -> bool:
-    guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: "{incoherence.guideline_a.action}"}}"""
-    guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: "{incoherence.guideline_b.action}"}}"""
+    guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: "{incoherence.guideline_a.handler.action}"}}"""
+    guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: "{incoherence.guideline_b.handler.action}"}}"""
     terms = await glossary_store.find_relevant_terms(
         query=guideline_a_text + guideline_b_text,
         tags=[Tag.for_agent_id(agent.id)],
@@ -70,8 +70,8 @@ The following is a glossary that applies to this agent:
 async def nlp_test_condition_entailment(
     agent: Agent, glossary_store: GlossaryStore, incoherence: IncoherenceTest
 ) -> bool:
-    guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: {incoherence.guideline_a.action}"}}"""
-    guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: {incoherence.guideline_b.action}"}}"""
+    guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: {incoherence.guideline_a.handler.action}"}}"""
+    guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: {incoherence.guideline_b.handler.action}"}}"""
     terms = await glossary_store.find_relevant_terms(
         query=guideline_a_text + guideline_b_text,
         tags=[Tag.for_agent_id(agent.id)],
@@ -106,11 +106,19 @@ def base_test_that_contradicting_actions_with_hierarchical_conditions_are_detect
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition=guideline_a_definition["condition"], action=guideline_a_definition["action"]
+        condition=guideline_a_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_a_definition["action"],
+        ),
     )
 
     guideline_b = GuidelineContent(
-        condition=guideline_b_definition["condition"], action=guideline_b_definition["action"]
+        condition=guideline_b_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_b_definition["action"],
+        ),
     )
 
     incoherence_results = list(
@@ -179,11 +187,19 @@ def base_test_that_contingent_incoherencies_are_detected(
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition=guideline_a_definition["condition"], action=guideline_a_definition["action"]
+        condition=guideline_a_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_a_definition["action"],
+        ),
     )
 
     guideline_b = GuidelineContent(
-        condition=guideline_b_definition["condition"], action=guideline_b_definition["action"]
+        condition=guideline_b_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_b_definition["action"],
+        ),
     )
 
     incoherence_results = list(
@@ -255,11 +271,19 @@ def base_test_that_temporal_contradictions_are_detected_as_incoherencies(
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition=guideline_a_definition["condition"], action=guideline_a_definition["action"]
+        condition=guideline_a_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_a_definition["action"],
+        ),
     )
 
     guideline_b = GuidelineContent(
-        condition=guideline_b_definition["condition"], action=guideline_b_definition["action"]
+        condition=guideline_b_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_b_definition["action"],
+        ),
     )
 
     incoherence_results = list(
@@ -328,11 +352,19 @@ def base_test_that_contextual_contradictions_are_detected_as_contingent_incohere
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition=guideline_a_definition["condition"], action=guideline_a_definition["action"]
+        condition=guideline_a_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_a_definition["action"],
+        ),
     )
 
     guideline_b = GuidelineContent(
-        condition=guideline_b_definition["condition"], action=guideline_b_definition["action"]
+        condition=guideline_b_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_b_definition["action"],
+        ),
     )
 
     incoherence_results = list(
@@ -402,11 +434,19 @@ def base_test_that_non_contradicting_guidelines_arent_false_positives(
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition=guideline_a_definition["condition"], action=guideline_a_definition["action"]
+        condition=guideline_a_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_a_definition["action"],
+        ),
     )
 
     guideline_b = GuidelineContent(
-        condition=guideline_b_definition["condition"], action=guideline_b_definition["action"]
+        condition=guideline_b_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=guideline_b_definition["action"],
+        ),
     )
 
     incoherence_results = list(
@@ -462,12 +502,18 @@ def test_that_suggestive_conditions_with_contradicting_actions_are_detected_as_c
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
         condition="Recommending pizza toppings",
-        action="Only recommend mushrooms as they are healthy",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Only recommend mushrooms as they are healthy",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="Asked for our pizza topping selection",
-        action="list the possible toppings and recommend olives",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="list the possible toppings and recommend olives",
+        ),
     )
 
     incoherence_results = list(
@@ -500,12 +546,19 @@ def test_that_logically_contradicting_response_actions_are_detected_as_incoheren
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition="Recommending pizza toppings", action="Recommend tomatoes"
+        condition="Recommending pizza toppings",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Recommend tomatoes",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="asked about our toppings while inventory indicates that we are almost out of tomatoes",
-        action="mention that we are out of tomatoes",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="mention that we are out of tomatoes",
+        ),
     )
 
     incoherence_results = list(
@@ -539,12 +592,18 @@ def test_that_entailing_conditions_with_unrelated_actions_arent_false_positives(
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
         condition="ordering tickets for a movie",
-        action="check if the customer is eligible for a discount",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="check if the customer is eligible for a discount",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="buying tickets for rated R movies",
-        action="ask the customer for identification",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask the customer for identification",
+        ),
     )
 
     incoherence_results = list(
@@ -566,12 +625,18 @@ def test_that_contradicting_actions_that_are_contextualized_by_their_conditions_
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
         condition="asked to schedule an appointment for the weekend",
-        action="alert the customer about our weekend hours and schedule the appointment",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="alert the customer about our weekend hours and schedule the appointment",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="asked for an appointment with a physician",
-        action="schedule a physician appointment for the next available Monday",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="schedule a physician appointment for the next available Monday",
+        ),
     )
 
     incoherence_results = list(
@@ -648,7 +713,11 @@ def test_that_many_coherent_guidelines_arent_detected_as_false_positive(
     ]:
         coherent_guidelines.append(
             GuidelineContent(
-                condition=guideline_params["condition"], action=guideline_params["action"]
+                condition=guideline_params["condition"],
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action=guideline_params["action"],
+                ),
             )
         )
 
@@ -673,17 +742,26 @@ def test_that_existing_guidelines_are_not_checked_against_each_other(
     coherence_checker = context.container[CoherenceChecker]
     guideline_to_evaluate = GuidelineContent(
         condition="the customer is dissatisfied",
-        action="apologize and suggest to forward the request to management",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="apologize and suggest to forward the request to management",
+        ),
     )
 
     first_guideline_to_compare = GuidelineContent(
         condition="a client asks to summarize a document",
-        action="provide a summary of the document",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide a summary of the document",
+        ),
     )
 
     second_guideline_to_compare = GuidelineContent(
         condition="the client asks for a summary of another customer's medical document",
-        action="refuse to share the document or its summary",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="refuse to share the document or its summary",
+        ),
     )
 
     incoherence_results = list(
@@ -723,12 +801,18 @@ def test_that_a_glossary_based_incoherency_is_detected(
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
         condition="the client asks our recommendation",
-        action="add one pap to the order",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="add one pap to the order",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="the client asks for a specific pizza topping",
-        action="Add the pizza to the order unless a fruit-based topping is requested",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Add the pizza to the order unless a fruit-based topping is requested",
+        ),
     )
 
     incoherence_results = list(
@@ -771,12 +855,18 @@ def test_that_an_agent_description_based_incoherency_is_detected(
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
         condition="the client asks for our recommendation",
-        action="Recommend a product according to our company's philosophy",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Recommend a product according to our company's philosophy",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="the client asks for a recommended sweetened soda",
-        action="suggest sparkling orange juice",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="suggest sparkling orange juice",
+        ),
     )
     incoherence_results = list(
         context.sync_await(
@@ -814,7 +904,10 @@ def test_that_many_guidelines_which_are_all_contradictory_are_detected(
     contradictory_guidelines = [
         GuidelineContent(
             condition="a client asks for the price of a television",
-            action=f"reply that the price is {i*10}$",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=f"reply that the price is {i*10}$",
+            ),
         )
         for i in range(n)
     ]
@@ -838,11 +931,20 @@ def test_that_misspelled_contradicting_actions_are_detected_as_incoherencies(  #
     agent: Agent,
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
-    guideline_a = GuidelineContent(condition="Recommending pizza tops", action="Recommend tomatos")
+    guideline_a = GuidelineContent(
+        condition="Recommending pizza tops",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Recommend tomatos",
+        ),
+    )
 
     guideline_b = GuidelineContent(
         condition="asked about our toppings while inventory indicates that we are almost out of tomatoes",
-        action="mention that we are oout of tomatoes",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="mention that we are oout of tomatoes",
+        ),
     )
 
     incoherence_results = list(
@@ -875,12 +977,19 @@ def test_that_seemingly_contradictory_but_actually_complementary_actions_are_not
 ) -> None:
     coherence_checker = context.container[CoherenceChecker]
     guideline_a = GuidelineContent(
-        condition="the customer is a returning customer", action="add a 5% discount to the order"
+        condition="the customer is a returning customer",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="add a 5% discount to the order",
+        ),
     )
 
     guideline_b = GuidelineContent(
         condition="the customer is a very frequent customer",
-        action="add a 10% discount to the order",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="add a 10% discount to the order",
+        ),
     )
 
     incoherence_results = list(

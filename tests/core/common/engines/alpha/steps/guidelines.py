@@ -21,7 +21,12 @@ from parlant.core.relationships import (
     GuidelineRelationshipKind,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineStore,
+)
 
 from parlant.core.tags import Tag
 from tests.core.common.engines.alpha.utils import step
@@ -40,7 +45,10 @@ def given_a_guideline_to_when(
     guideline = context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
-            action=do_something,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=do_something,
+            ),
         )
     )
 
@@ -68,7 +76,10 @@ def given_a_guideline_name_to_when(
     context.guidelines[guideline_name] = context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
-            action=do_something,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=do_something,
+            ),
         )
     )
 
@@ -90,7 +101,10 @@ def given_50_other_random_guidelines(
     async def create_guideline(condition: str, action: str) -> Guideline:
         guideline = await guideline_store.create_guideline(
             condition=condition,
-            action=action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=action,
+            ),
         )
 
         _ = await guideline_store.upsert_tag(
@@ -338,7 +352,10 @@ def given_the_guideline_called(
     async def create_guideline(condition: str, action: str) -> Guideline:
         guideline = await guideline_store.create_guideline(
             condition=condition,
-            action=action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=action,
+            ),
         )
 
         _ = await guideline_store.upsert_tag(

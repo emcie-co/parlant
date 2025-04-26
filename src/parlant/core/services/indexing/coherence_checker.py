@@ -234,10 +234,10 @@ Condition Entailment Test Results:
     ) -> PromptBuilder:
         builder = PromptBuilder()
         comparison_candidates_text = "\n".join(
-            f"""{{"id": {id}, "when": "{g.condition}", "then": "{g.action}"}}"""
+            f"""{{"id": {id}, "when": "{g.condition}", "then": "{g.handler.action}"}}"""
             for id, g in indexed_comparison_guidelines.items()
         )
-        guideline_to_evaluate_text = f"""{{"when": "{guideline_to_evaluate.condition}", "then": "{guideline_to_evaluate.action}"}}"""
+        guideline_to_evaluate_text = f"""{{"when": "{guideline_to_evaluate.condition}", "then": "{guideline_to_evaluate.handler.action}"}}"""
 
         builder.add_section(
             name="conditions-entailment-checker-general-instructions",
@@ -517,10 +517,10 @@ Action Contradiction Test Results:
     ) -> PromptBuilder:
         builder = PromptBuilder()
         comparison_candidates_text = "\n".join(
-            f"""{{"id": {id}, "when": "{g.condition}", "then": "{g.action}"}}"""
+            f"""{{"id": {id}, "when": "{g.condition}", "then": "{g.handler.action}"}}"""
             for id, g in indexed_comparison_guidelines.items()
         )
-        guideline_to_evaluate_text = f"""{{"when": "{guideline_to_evaluate.condition}", "then": "{guideline_to_evaluate.action}"}}"""
+        guideline_to_evaluate_text = f"""{{"when": "{guideline_to_evaluate.condition}", "then": "{guideline_to_evaluate.handler.action}"}}"""
 
         builder.add_section(
             name="actions-contradiction-checker-general-instructions",

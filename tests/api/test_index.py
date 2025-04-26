@@ -19,7 +19,7 @@ from lagom import Container
 
 from parlant.core.agents import AgentId
 from parlant.core.evaluations import EvaluationStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.guidelines import GuidelineHandler, GuidelineHandlerKind, GuidelineStore
 
 from parlant.core.tags import Tag
 from tests.conftest import NoCachedGenerations
@@ -243,7 +243,10 @@ async def test_that_an_evaluation_can_be_fetched_with_a_detailed_approved_invoic
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -416,7 +419,10 @@ async def test_that_an_evaluation_that_failed_due_to_guideline_duplication_with_
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="greet them back with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="greet them back with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -788,7 +794,10 @@ async def test_that_evaluation_task_with_update_of_existing_guideline_is_approve
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer asks for help",
-        action="provide assistance",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide assistance",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -840,7 +849,10 @@ async def test_that_evaluation_task_with_update_of_existing_guideline_is_unappro
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="respond with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="respond with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -850,7 +862,10 @@ async def test_that_evaluation_task_with_update_of_existing_guideline_is_unappro
 
     guideline_to_override = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="respond with 'Goodbye'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="respond with 'Goodbye'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1034,7 +1049,10 @@ async def test_that_evaluation_task_with_conflicting_updated_and_added_guideline
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(

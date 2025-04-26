@@ -774,9 +774,7 @@ Candidate tool: ###
             guidelines = []
 
             for i, p in enumerate(all_matches, start=1):
-                guideline = (
-                    f"{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
-                )
+                guideline = f"{i}) {str(p.guideline)}"
                 guidelines.append(guideline)
 
             guideline_list = "\n".join(guidelines)

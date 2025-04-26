@@ -25,7 +25,13 @@ from parlant.core.relationships import (
     RelationshipStore,
 )
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineContent,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineStore,
+)
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import LocalToolService, ToolId
@@ -46,7 +52,10 @@ async def create_guidelines_and_create_relationships_between_them(
     guidelines = [
         await container[GuidelineStore].create_guideline(
             condition=gc.condition,
-            action=gc.action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=gc.handler.action,
+            ),
         )
         for gc in guideline_contents
     ]
@@ -119,7 +128,10 @@ async def test_legacy_that_a_guideline_can_be_deleted(
 
     guideline_to_delete = await guideline_store.create_guideline(
         condition="the customer wants to unsubscribe",
-        action="ask for confirmation",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask for confirmation",
+        ),
     )
 
     await guideline_store.upsert_tag(
@@ -293,7 +305,10 @@ async def test_legacy_that_a_connection_to_an_existing_guideline_is_created(
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     invoice = {
@@ -365,7 +380,10 @@ async def test_legacy_that_a_guideline_can_be_read_by_id(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -394,8 +412,20 @@ async def test_legacy_that_guidelines_can_be_listed(
         container,
         agent_id,
         [
-            GuidelineContent("A", "B"),
-            GuidelineContent("B", "C"),
+            GuidelineContent(
+                condition="A",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="B",
+                ),
+            ),
+            GuidelineContent(
+                condition="B",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="C",
+                ),
+            ),
         ],
     )
 
@@ -417,8 +447,20 @@ async def test_legacy_that_a_connection_can_be_added_to_a_guideline(
         container,
         agent_id,
         [
-            GuidelineContent("A", "B"),
-            GuidelineContent("B", "C"),
+            GuidelineContent(
+                condition="A",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="B",
+                ),
+            ),
+            GuidelineContent(
+                condition="B",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="C",
+                ),
+            ),
         ],
     )
 
@@ -468,8 +510,20 @@ async def test_legacy_that_a_direct_target_connection_can_be_removed_from_a_guid
         container,
         agent_id,
         [
-            GuidelineContent("A", "B"),
-            GuidelineContent("B", "C"),
+            GuidelineContent(
+                condition="A",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="B",
+                ),
+            ),
+            GuidelineContent(
+                condition="B",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="C",
+                ),
+            ),
         ],
     )
 
@@ -508,9 +562,27 @@ async def test_legacy_that_an_indirect_connection_cannot_be_removed_from_a_guide
         container,
         agent_id,
         [
-            GuidelineContent("A", "B"),
-            GuidelineContent("B", "C"),
-            GuidelineContent("C", "D"),
+            GuidelineContent(
+                condition="A",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="B",
+                ),
+            ),
+            GuidelineContent(
+                condition="B",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="C",
+                ),
+            ),
+            GuidelineContent(
+                condition="C",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="D",
+                ),
+            ),
         ],
     )
 
@@ -543,8 +615,20 @@ async def test_legacy_that_deleting_a_guideline_also_deletes_all_of_its_direct_c
         container,
         agent_id,
         [
-            GuidelineContent("A", "B"),
-            GuidelineContent("B", "C"),
+            GuidelineContent(
+                condition="A",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="B",
+                ),
+            ),
+            GuidelineContent(
+                condition="B",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="C",
+                ),
+            ),
         ],
     )
 
@@ -571,7 +655,10 @@ async def test_legacy_that_reading_a_guideline_lists_both_direct_and_indirect_co
     guidelines = [
         await guideline_store.create_guideline(
             condition=condition,
-            action=action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=action,
+            ),
         )
         for condition, action in [
             ("A", "B"),
@@ -615,14 +702,14 @@ async def test_legacy_that_reading_a_guideline_lists_both_direct_and_indirect_co
         assert c["source"] == {
             "id": guideline_a.id,
             "condition": guideline_a.content.condition,
-            "action": guideline_a.content.action,
+            "action": guideline_a.content.handler.action,
             "enabled": guideline_a.enabled,
         }
 
         assert c["target"] == {
             "id": guideline_b.id,
             "condition": guideline_b.content.condition,
-            "action": guideline_b.content.action,
+            "action": guideline_b.content.handler.action,
             "enabled": guideline_b.enabled,
         }
 
@@ -648,7 +735,10 @@ async def test_legacy_that_a_tool_association_can_be_added(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -730,7 +820,10 @@ async def test_legacy_that_a_tool_association_can_be_removed(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -803,7 +896,10 @@ async def test_legacy_that_guideline_deletion_removes_tool_associations(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -834,7 +930,10 @@ async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexis
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -874,7 +973,10 @@ async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexis
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -922,7 +1024,10 @@ async def test_legacy_that_an_http_404_is_thrown_when_associating_with_a_nonexis
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -968,7 +1073,10 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -978,7 +1086,10 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
 
     connected_guideline = await guideline_store.create_guideline(
         condition="reply with 'Hello'",
-        action="finish with a smile",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="finish with a smile",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -988,7 +1099,10 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
 
     connected_guideline_post_update = await guideline_store.create_guideline(
         condition="reply with 'Howdy!'",
-        action="finish with a smile",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="finish with a smile",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1036,7 +1150,7 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
                                 },
                                 "target": {
                                     "condition": connected_guideline_post_update.content.condition,
-                                    "action": connected_guideline_post_update.content.action,
+                                    "action": connected_guideline_post_update.content.handler.action,
                                 },
                             }
                         ],
@@ -1079,7 +1193,10 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1204,7 +1321,10 @@ async def test_legacy_that_guideline_update_retains_existing_connections_with_di
 
     existing_guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1214,7 +1334,10 @@ async def test_legacy_that_guideline_update_retains_existing_connections_with_di
 
     connected_guideline = await guideline_store.create_guideline(
         condition="reply with 'Hello'",
-        action="finish with a smile",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="finish with a smile",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1292,7 +1415,10 @@ async def test_legacy_that_a_guideline_can_be_disabled(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1322,7 +1448,10 @@ async def test_legacy_that_retrieving_a_guideline_associated_with_a_wrong_agent_
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1344,7 +1473,10 @@ async def test_legacy_that_updating_a_guideline_with_a_wrong_agent_id_returns_a_
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1369,7 +1501,10 @@ async def test_legacy_that_deleting_a_guideline_with_a_wrong_agent_id_returns_a_
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="reply with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -1445,13 +1580,19 @@ async def test_that_guidelines_can_be_listed(
     first_guideline = [
         await guideline_store.create_guideline(
             condition=f"condition {i}",
-            action=f"action {i}",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=f"action {i}",
+            ),
         )
         for i in range(2)
     ]
     second_guideline = await guideline_store.create_guideline(
         condition="condition 2",
-        action="action 2",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 2",
+        ),
     )
 
     response_guidelines = (await async_client.get("/guidelines")).raise_for_status().json()
@@ -1470,12 +1611,18 @@ async def test_that_guidelines_can_be_listed_by_tag(
 
     first_guideline = await guideline_store.create_guideline(
         condition="condition 1",
-        action="action 1",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 1",
+        ),
     )
 
     second_guideline = await guideline_store.create_guideline(
         condition="condition 2",
-        action="action 2",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action 2",
+        ),
     )
 
     await guideline_store.upsert_tag(
@@ -1508,7 +1655,10 @@ async def test_that_a_guideline_can_be_read(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
         metadata={"key1": "value1", "key2": "value2"},
     )
 
@@ -1530,7 +1680,10 @@ async def test_that_a_guideline_condition_can_be_updated(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     response = await async_client.patch(
@@ -1545,7 +1698,7 @@ async def test_that_a_guideline_condition_can_be_updated(
 
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["condition"] == "the customer inquires about weather"
-    assert updated_guideline["action"] == guideline.content.action
+    assert updated_guideline["handler"]["action"] == guideline.content.handler.action
 
 
 async def test_that_a_guideline_action_can_be_updated(
@@ -1556,7 +1709,10 @@ async def test_that_a_guideline_action_can_be_updated(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     response = await async_client.patch(
@@ -1582,7 +1738,10 @@ async def test_that_a_guideline_can_be_disabled(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     response = await async_client.patch(
@@ -1610,7 +1769,10 @@ async def test_that_a_tag_can_be_added_to_guideline(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     response = await async_client.patch(
@@ -1637,7 +1799,10 @@ async def test_that_a_tag_can_be_removed_from_guideline(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     # First add a tag
@@ -1670,7 +1835,10 @@ async def test_that_a_guideline_can_be_deleted(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to unsubscribe",
-        action="ask for confirmation",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask for confirmation",
+        ),
     )
 
     (await async_client.delete(f"/guidelines/{guideline.id}")).raise_for_status()
@@ -1696,7 +1864,10 @@ async def test_that_a_tool_association_can_be_added_to_a_guideline(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     service_name = "local"
@@ -1740,7 +1911,10 @@ async def test_that_a_tag_can_be_added_to_a_guideline(
     tag = await tag_store.create_tag("test_tag")
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     response = await async_client.patch(
@@ -1766,7 +1940,10 @@ async def test_that_a_tag_can_be_removed_from_a_guideline(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     await guideline_store.upsert_tag(
@@ -1794,7 +1971,10 @@ async def test_that_adding_nonexistent_agent_tag_to_guideline_returns_404(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     response = await async_client.patch(
@@ -1813,7 +1993,10 @@ async def test_that_adding_nonexistent_tag_to_guideline_returns_404(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
     )
 
     response = await async_client.patch(
@@ -1832,7 +2015,10 @@ async def test_that_metadata_can_be_updated_for_a_guideline(
 
     guideline = await guideline_store.create_guideline(
         condition="the customer wants to get meeting details",
-        action="get meeting event information",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get meeting event information",
+        ),
         metadata={"key3": "value2"},
     )
 

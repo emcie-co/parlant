@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum, auto
-from typing import Mapping, NewType, Optional, Sequence, TypeAlias, Union, cast
+from enum import Enum
+from typing import Mapping, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -38,41 +38,18 @@ GuidelineId = NewType("GuidelineId", str)
 
 
 class GuidelineHandlerKind(Enum):
-    ACTION = auto()
-    TOOL_ACTIVATION = auto()
-    OBSERVATION = auto()
-    JOURNEY = auto()
+    ACTION = "action"
+    TOOL_ACTIVATION = "tool_activation"
+    OBSERVATION = "observation"
+    JOURNEY = "journey"
 
 
 @dataclass(frozen=True)
-class GuidelineActionHandler:
-    action: str
-    kind: GuidelineHandlerKind = GuidelineHandlerKind.ACTION
-
-
-@dataclass(frozen=True)
-class GuidelineToolActivationHandler:
-    tool_id: ToolId
-    kind: GuidelineHandlerKind = GuidelineHandlerKind.TOOL_ACTIVATION
-
-
-@dataclass(frozen=True)
-class GuidelineObservationHandler:
-    kind: GuidelineHandlerKind = GuidelineHandlerKind.OBSERVATION
-
-
-@dataclass(frozen=True)
-class GuidelineJourneyHandler:
-    journey: str
-    kind: GuidelineHandlerKind = GuidelineHandlerKind.JOURNEY
-
-
-GuidelineHandler: TypeAlias = Union[
-    GuidelineActionHandler,
-    GuidelineToolActivationHandler,
-    GuidelineObservationHandler,
-    GuidelineJourneyHandler,
-]
+class GuidelineHandler:
+    kind: GuidelineHandlerKind
+    action: Optional[str] = None
+    tool_id: Optional[ToolId] = None
+    journey: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +66,16 @@ class Guideline:
     enabled: bool
     tags: Sequence[TagId]
     metadata: Mapping[str, JSONSerializable]
+
+    def __str__(self) -> str:
+        if self.content.handler.kind == GuidelineHandlerKind.ACTION:
+            return f"When {self.content.condition}, then {self.content.handler.action}"
+        elif self.content.handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION:
+            return f"When {self.content.condition}, then activate tool {cast(ToolId, self.content.handler.tool_id).to_string()}"
+        elif self.content.handler.kind == GuidelineHandlerKind.OBSERVATION:
+            return f"{self.content.condition}"
+        elif self.content.handler.kind == GuidelineHandlerKind.JOURNEY:
+            return f"When {self.content.condition}, then {self.content.handler.journey}"
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -343,14 +330,14 @@ class GuidelineDocumentStore(GuidelineStore):
         pass
 
     def _serialize_handler_content(self, handler: GuidelineHandler) -> str:
-        if isinstance(handler, GuidelineActionHandler):
-            return handler.action
-        elif isinstance(handler, GuidelineToolActivationHandler):
-            return handler.tool_id.to_string()
-        elif isinstance(handler, GuidelineObservationHandler):
+        if handler.kind == GuidelineHandlerKind.ACTION:
+            return cast(str, handler.action)
+        elif handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION:
+            return cast(ToolId, handler.tool_id).to_string()
+        elif handler.kind == GuidelineHandlerKind.OBSERVATION:
             return ""
-        elif isinstance(handler, GuidelineJourneyHandler):
-            return handler.journey
+        elif handler.kind == GuidelineHandlerKind.JOURNEY:
+            return cast(str, handler.journey)
 
     def _serialize(
         self,
@@ -373,15 +360,18 @@ class GuidelineDocumentStore(GuidelineStore):
     ) -> Guideline:
         def deserialize_handler(handler_kind: str, handler: Optional[str]) -> GuidelineHandler:
             if handler_kind == GuidelineHandlerKind.ACTION.value:
-                return GuidelineActionHandler(action=cast(str, handler))
+                return GuidelineHandler(action=cast(str, handler), kind=GuidelineHandlerKind.ACTION)
             elif handler_kind == GuidelineHandlerKind.TOOL_ACTIVATION.value:
-                return GuidelineToolActivationHandler(
-                    tool_id=ToolId.from_string(cast(str, handler))
+                return GuidelineHandler(
+                    tool_id=ToolId.from_string(cast(str, handler)),
+                    kind=GuidelineHandlerKind.TOOL_ACTIVATION,
                 )
             elif handler_kind == GuidelineHandlerKind.OBSERVATION.value:
-                return GuidelineObservationHandler()
+                return GuidelineHandler(kind=GuidelineHandlerKind.OBSERVATION)
             elif handler_kind == GuidelineHandlerKind.JOURNEY.value:
-                return GuidelineJourneyHandler(journey=cast(str, handler))
+                return GuidelineHandler(
+                    journey=cast(str, handler), kind=GuidelineHandlerKind.JOURNEY
+                )
             else:
                 raise ValueError(f"Unknown handler kind: {handler_kind}")
 

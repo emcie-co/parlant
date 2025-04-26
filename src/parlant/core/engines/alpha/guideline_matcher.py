@@ -20,7 +20,7 @@ from itertools import chain
 import json
 import math
 import time
-from typing import Optional, Sequence
+from typing import Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core import async_utils
@@ -35,13 +35,20 @@ from parlant.core.engines.alpha.guideline_match import (
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineId,
+    GuidelineContent,
+)
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.emissions import EmittedEvent
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tags import TagId
+from parlant.core.tools import ToolId
 
 
 class SegmentPreviouslyAppliedRationale(DefaultBaseModel):
@@ -188,6 +195,16 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
     async def shots(self) -> Sequence[GenericGuidelineMatchingShot]:
         return await shot_collection.list()
 
+    def _render_guideline_content(self, guideline_content: GuidelineContent) -> str:
+        if guideline_content.handler.kind == GuidelineHandlerKind.ACTION:
+            return f"Condition: {guideline_content.condition}, Action: {guideline_content.handler.action}"
+        elif guideline_content.handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION:
+            return f"Condition: {guideline_content.condition}, Activate Tool: {cast(ToolId, guideline_content.handler.tool_id).to_string()}"
+        elif guideline_content.handler.kind == GuidelineHandlerKind.OBSERVATION:
+            return f"Condition: {guideline_content.condition}"
+        elif guideline_content.handler.kind == GuidelineHandlerKind.JOURNEY:
+            return f"Condition: {guideline_content.condition}, Journey: {guideline_content.handler.journey}"
+
     def _format_shots(self, shots: Sequence[GenericGuidelineMatchingShot]) -> str:
         return "\n".join(
             f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
@@ -219,7 +236,7 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
 """
         if shot.guidelines:
             formatted_guidelines = "\n".join(
-                f"{i}) condition: {g.condition}, action: {g.action}"
+                f"{i}) {self._render_guideline_content(g)}"
                 for i, g in enumerate(shot.guidelines, start=1)
             )
             formatted_shot += f"""
@@ -243,11 +260,27 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> PromptBuilder:
         result_structure = [
             {
-                "guideline_id": g.id,
-                "condition": g.content.condition,
-                "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
-                "condition_applies": "<BOOL>",
-                "action": g.content.action,
+                **{
+                    "guideline_id": g.id,
+                    "condition": g.content.condition,
+                    "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
+                    "condition_applies": "<BOOL>",
+                },
+                **(
+                    {"action": g.content.handler.action}
+                    if g.content.handler.kind == GuidelineHandlerKind.ACTION
+                    else {}
+                ),
+                **(
+                    {"tool_id": cast(ToolId, g.content.handler.tool_id).to_string()}
+                    if g.content.handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION
+                    else {}
+                ),
+                **(
+                    {"journey": g.content.handler.journey}
+                    if g.content.handler.kind == GuidelineHandlerKind.JOURNEY
+                    else {}
+                ),
                 "guideline_is_continuous": "<BOOL: Optional, only necessary if guideline_previously_applied is true. Specifies whether the action is taken one-time, or is continuous>",
                 "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": True,
                 "guideline_previously_applied_rationale": [
@@ -265,8 +298,7 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
             for g in self._guidelines.values()
         ]
         guidelines_text = "\n".join(
-            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
-            for i, g in self._guidelines.items()
+            f"{i}) {self._render_guideline_content(g.content)}" for i, g in self._guidelines.items()
         )
 
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
@@ -589,15 +621,24 @@ example_1_events = [
 example_1_guidelines = [
     GuidelineContent(
         condition="the customer initiates a purchase.",
-        action="Open a new cart for the customer",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Open a new cart for the customer",
+        ),
     ),
     GuidelineContent(
         condition="the customer asks about data security",
-        action="Refer the customer to our privacy policy page",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Refer the customer to our privacy policy page",
+        ),
     ),
     GuidelineContent(
         condition="the customer asked to subscribe to our pro plan",
-        action="maintain a helpful tone and thank them for shopping at our store",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="maintain a helpful tone and thank them for shopping at our store",
+        ),
     ),
 ]
 
@@ -677,14 +718,24 @@ example_2_events = [
 example_2_guidelines = [
     GuidelineContent(
         condition="the customer indicates that they are looking for a job.",
-        action="ask the customer for their location",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask the customer for their location",
+        ),
     ),
     GuidelineContent(
         condition="the customer asks about job openings.",
-        action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 opennings overall",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 opennings overall",
+        ),
     ),
     GuidelineContent(
-        condition="discussing job opportunities.", action="maintain a positive, assuring tone"
+        condition="discussing job opportunities.",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="maintain a positive, assuring tone",
+        ),
     ),
 ]
 
@@ -773,15 +824,24 @@ example_3_events = [
 example_3_guidelines = [
     GuidelineContent(
         condition="the customer asks about the value of a stock.",
-        action="provide the price using the 'check_stock_price' tool",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.TOOL_ACTIVATION,
+            tool_id=ToolId(service_name="stock_market", tool_name="check_stock_price"),
+        ),
     ),
     GuidelineContent(
         condition="the weather at a certain location is discussed.",
-        action="check the weather at that location using the 'check_weather' tool",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.TOOL_ACTIVATION,
+            tool_id=ToolId(service_name="weather", tool_name="check_weather"),
+        ),
     ),
     GuidelineContent(
         condition="the customer asked about the weather.",
-        action="provide the customre with the temperature and the chances of precipitation",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the customre with the temperature and the chances of precipitation",
+        ),
     ),
 ]
 
@@ -849,7 +909,10 @@ example_4_events = [
 example_4_guidelines = [
     GuidelineContent(
         condition="the customer wants to book an appointment",
-        action="get the name of the person they want to meet and the time they want to meet them",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="get the name of the person they want to meet and the time they want to meet them",
+        ),
     ),
 ]
 

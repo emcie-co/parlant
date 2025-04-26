@@ -267,7 +267,7 @@ you don't need to specifically double-check if you followed or broke any guideli
         guidelines = []
 
         for i, p in enumerate(all_matches, start=1):
-            guideline = f"Guideline #{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
+            guideline = f"Guideline #{i}) {str(p.guideline)}"
 
             guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
             guidelines.append(guideline)

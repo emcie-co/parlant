@@ -14,13 +14,18 @@
 
 from enum import Enum
 from pydantic import Field
-from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
+from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias, cast
 
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import GuidelinePayloadOperation
 from parlant.core.relationships import RelationshipId, GuidelineRelationshipKind
-from parlant.core.guidelines import GuidelineId
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandlerKind,
+    GuidelineId,
+)
 from parlant.core.tags import TagId
+from parlant.core.tools import ToolId
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:
@@ -340,6 +345,24 @@ class GuidelineHandlerKindDTO(Enum):
     JOURNEY = "journey"
 
 
+guideline_handler_dto_example: ExampleJson = {
+    "kind": "action",
+    "action": "provide current pricing information and mention any ongoing promotions",
+}
+
+
+class GuidelineHandlerDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": guideline_handler_dto_example},
+):
+    """The handler for the guideline."""
+
+    kind: GuidelineHandlerKindDTO
+    action: Optional[GuidelineActionField] = None
+    tool_id: Optional[ToolIdDTO] = None
+    journey: Optional[GuidelineJourneyField] = None
+
+
 class GuidelineDTO(
     DefaultBaseModel,
     json_schema_extra={"example": guideline_dto_example},
@@ -347,11 +370,8 @@ class GuidelineDTO(
     """Represents a guideline."""
 
     id: GuidelineIdField
-    handler_kind: GuidelineHandlerKindDTO
     condition: GuidelineConditionField
-    action: Optional[GuidelineActionField] = None
-    tool_id: Optional[ToolIdDTO] = None
-    journey: Optional[GuidelineJourneyField] = None
+    handler: GuidelineHandlerDTO
     enabled: GuidelineEnabledField
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
@@ -487,3 +507,40 @@ def guideline_relationship_kind_to_dto(
             return GuidelineRelationshipKindDTO.PRIORITY
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
+
+
+def guideline_handler_kind_to_dto(handler_kind: GuidelineHandlerKind) -> GuidelineHandlerKindDTO:
+    match handler_kind:
+        case GuidelineHandlerKind.ACTION:
+            return GuidelineHandlerKindDTO.ACTION
+        case GuidelineHandlerKind.TOOL_ACTIVATION:
+            return GuidelineHandlerKindDTO.TOOL_ACTIVATION
+        case GuidelineHandlerKind.OBSERVATION:
+            return GuidelineHandlerKindDTO.OBSERVATION
+        case GuidelineHandlerKind.JOURNEY:
+            return GuidelineHandlerKindDTO.JOURNEY
+
+
+def guideline_to_dto(guideline: Guideline) -> GuidelineDTO:
+    return GuidelineDTO(
+        id=guideline.id,
+        handler=GuidelineHandlerDTO(
+            kind=guideline_handler_kind_to_dto(guideline.content.handler.kind),
+            action=guideline.content.handler.action
+            if guideline.content.handler.kind == GuidelineHandlerKind.ACTION
+            else None,
+            tool_id=ToolIdDTO(
+                service_name=cast(ToolId, guideline.content.handler.tool_id).service_name,
+                tool_name=cast(ToolId, guideline.content.handler.tool_id).tool_name,
+            )
+            if guideline.content.handler.kind == GuidelineHandlerKind.TOOL_ACTIVATION
+            else None,
+            journey=guideline.content.handler.journey
+            if guideline.content.handler.kind == GuidelineHandlerKind.JOURNEY
+            else None,
+        ),
+        condition=guideline.content.condition,
+        enabled=guideline.enabled,
+        tags=guideline.tags,
+        metadata=guideline.metadata,
+    )

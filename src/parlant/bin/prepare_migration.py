@@ -50,8 +50,8 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import (
     GuidelineDocument_v0_2_0,
+    GuidelineDocument_v0_3_0,
     GuidelineTagAssociationDocument,
-    GuidelineDocument,
     GuidelineId,
     guideline_document_converter_0_1_0_to_0_2_0,
     GuidelineDocument_v0_1_0,
@@ -436,7 +436,7 @@ async def migrate_guidelines_0_1_0_to_0_3_0() -> None:
                 continue
             guideline_to_use = cast(GuidelineDocument_v0_2_0, converted_guideline)
 
-        new_guideline = GuidelineDocument(
+        new_guideline = GuidelineDocument_v0_3_0(
             id=guideline_to_use["id"],
             version=Version.String("0.3.0"),
             creation_utc=guideline_to_use["creation_utc"],

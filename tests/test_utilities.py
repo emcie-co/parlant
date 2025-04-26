@@ -60,7 +60,12 @@ from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineStore,
+)
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
@@ -284,7 +289,10 @@ async def create_guideline(
 ) -> Guideline:
     guideline = await container[GuidelineStore].create_guideline(
         condition=condition,
-        action=action,
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=action,
+        ),
     )
 
     _ = await container[GuidelineStore].upsert_tag(

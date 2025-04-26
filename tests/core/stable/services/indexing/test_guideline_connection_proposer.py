@@ -18,7 +18,7 @@ from typing import Sequence
 
 from parlant.core.agents import Agent, AgentId
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.guidelines import GuidelineContent, GuidelineHandler, GuidelineHandlerKind
 from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
 )
@@ -36,12 +36,18 @@ def base_test_that_an_entailment_connection_is_proposed_for_two_guidelines_where
 
     source_guideline_content = GuidelineContent(
         source_guideline_definition["condition"],
-        source_guideline_definition["action"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=source_guideline_definition["action"],
+        ),
     )
 
     target_guideline_content = GuidelineContent(
         target_guideline_definition["condition"],
-        target_guideline_definition["action"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=target_guideline_definition["action"],
+        ),
     )
 
     connection_propositions = list(
@@ -116,7 +122,13 @@ def test_that_multiple_connections_are_detected_and_proposed_at_the_same_time(
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "the customer requests technical support",
@@ -178,7 +190,13 @@ def test_that_possible_connections_between_existing_guidelines_are_not_proposed(
     agent: Agent,
 ) -> None:
     existing_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "the customer requests technical support",
@@ -245,13 +263,19 @@ def test_that_a_connection_is_proposed_based_on_given_glossary(
         )
     )
     source_guideline_content = GuidelineContent(
-        "the customer asks about walnut prices",
-        "provide the current walnut prices",
+        condition="the customer asks about walnut prices",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current walnut prices",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "providing altcoin prices",
-        "mention that between exchanges, there can be minor differences",
+        condition="providing altcoin prices",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="mention that between exchanges, there can be minor differences",
+        ),
     )
 
     connection_propositions = list(
@@ -303,13 +327,19 @@ def test_that_a_connection_is_proposed_based_on_multiple_glossary_terms(
     )
 
     source_guideline_content = GuidelineContent(
-        "the customer asks about getting walnuts",
-        "reply that the customer can buy walnuts from the tall tree",
+        condition="the customer asks about getting walnuts",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply that the customer can buy walnuts from the tall tree",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "suggesting to purchase altcoins from a european service",
-        "warn about EU regulations",
+        condition="suggesting to purchase altcoins from a european service",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="warn about EU regulations",
+        ),
     )
 
     connection_propositions = list(
@@ -331,7 +361,13 @@ def test_that_one_guideline_can_entail_multiple_guidelines(
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "the customer asks for our catalouge",
@@ -371,13 +407,19 @@ def base_test_that_entailing_whens_are_not_connected(
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        source_guideline_definition["condition"],
-        source_guideline_definition["action"],
+        condition=source_guideline_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=source_guideline_definition["action"],
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        target_guideline_definition["condition"],
-        target_guideline_definition["action"],
+        condition=target_guideline_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=target_guideline_definition["action"],
+        ),
     )
 
     connection_propositions = list(
@@ -438,13 +480,19 @@ def base_test_that_entailing_thens_are_not_connected(
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        source_guideline_definition["condition"],
-        source_guideline_definition["action"],
+        condition=source_guideline_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=source_guideline_definition["action"],
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        target_guideline_definition["condition"],
-        target_guideline_definition["action"],
+        condition=target_guideline_definition["condition"],
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action=target_guideline_definition["action"],
+        ),
     )
 
     connection_propositions = list(
@@ -501,7 +549,13 @@ def test_that_connection_is_proposed_for_a_sequence_where_each_guideline_entails
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "the customer says hello",
@@ -538,7 +592,13 @@ def test_that_connection_is_proposed_for_a_sequence_where_each_guideline_entails
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "directing the customer to a guide",
@@ -575,7 +635,13 @@ def test_that_circular_connection_is_proposed_for_three_guidelines_where_each_ac
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "referencing a guide to the customer",
@@ -650,13 +716,19 @@ def test_that_no_connection_is_made_for_a_guidelines_whose_condition_entails_ano
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        "the customer refers to a past interaction",
-        "ask for the date of this previous interaction",
+        condition="the customer refers to a past interaction",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask for the date of this previous interaction",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "the customer refers to a quota offered in a past interaction",
-        "answer that that quota is no longer relevant",
+        condition="the customer refers to a quota offered in a past interaction",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="answer that that quota is no longer relevant",
+        ),
     )
 
     connection_propositions = list(
@@ -677,13 +749,19 @@ def test_that_no_connection_is_made_for_a_guideline_which_implies_but_not_causes
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        "The customer complains that the phrases in the photograph are blurry",
-        "clarify what the unclear phrases mean",
+        condition="The customer complains that the phrases in the photograph are blurry",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="clarify what the unclear phrases mean",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "a word is misunderstood",
-        "reply with its dictionary definition",
+        condition="a word is misunderstood",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply with its dictionary definition",
+        ),
     )
 
     connection_propositions = list(
@@ -704,13 +782,19 @@ def test_that_guidelines_with_similar_thens_arent_connected(  # Tests both that 
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        "the customer refers to a past interaction",
-        "ask the customer for the date of this interaction",
+        condition="the customer refers to a past interaction",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask the customer for the date of this interaction",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "the customer asks about a solution suggested in a previous interaction",
-        "ask when that conversation occurred",
+        condition="the customer asks about a solution suggested in a previous interaction",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="ask when that conversation occurred",
+        ),
     )
 
     connection_propositions = list(
@@ -731,13 +815,19 @@ def test_that_identical_actions_arent_connected(  # Tests both that entailing co
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        "asked about pizza toppings",
-        "list our pizza toppings",
+        condition="asked about pizza toppings",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="list our pizza toppings",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "asked about our menu",
-        "list our pizza toppings",
+        condition="asked about our menu",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="list our pizza toppings",
+        ),
     )
 
     connection_propositions = list(
@@ -773,13 +863,19 @@ def test_that_misspelled_entailing_guidelines_are_connected(
     )
 
     source_guideline_content = GuidelineContent(
-        "the customer ask about wallnut prices",
-        "provide the curent walnut prices",
+        condition="the customer ask about wallnut prices",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the curent walnut prices",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "provding altcoinn prices",
-        "mention that between exchanges, there can be minor differences",
+        condition="provding altcoinn prices",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="mention that between exchanges, there can be minor differences",
+        ),
     )
 
     connection_propositions = list(
@@ -803,13 +899,19 @@ def test_that_try_actions_are_connected(
     connection_proposer = context.container[GuidelineConnectionProposer]
 
     source_guideline_content = GuidelineContent(
-        "the customer complains that a suggested solution did not work",
-        "reply in a hostile manner",
+        condition="the customer complains that a suggested solution did not work",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="reply in a hostile manner",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "the conversational tone is hostile",
-        "try to de-escalate the situation",
+        condition="the conversational tone is hostile",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="try to de-escalate the situation",
+        ),
     )
 
     connection_propositions = list(
@@ -839,13 +941,19 @@ def test_that_agent_based_connection_is_detected(
         tags=[],
     )
     source_guideline_content = GuidelineContent(
-        "the customer asks for drink recommendation",
-        "recommend orange soda",
+        condition="the customer asks for drink recommendation",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="recommend orange soda",
+        ),
     )
 
     target_guideline_content = GuidelineContent(
-        "recommending a vegetable based soda",
-        "mention that between exchanges, there can be minor differences",
+        condition="recommending a vegetable based soda",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="mention that between exchanges, there can be minor differences",
+        ),
     )
 
     connection_propositions = list(
@@ -919,7 +1027,13 @@ def test_that_many_guidelines_with_agent_description_and_glossary_arent_detected
     )
 
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "asked a clarifying question",
@@ -987,10 +1101,17 @@ def test_that_entailed_predicate_describing_an_agent_action_is_detected(
 
     source_guideline_content = GuidelineContent(
         condition="Asked for our pizza topping selection",
-        action="list the possible toppings and recommend olives",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="list the possible toppings and recommend olives",
+        ),
     )
     target_guideline_content = GuidelineContent(
-        condition="Recommending pizza toppings", action="Recommend mushrooms as they are healthy"
+        condition="Recommending pizza toppings",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Recommend mushrooms as they are healthy",
+        ),
     )
     connection_propositions = list(
         context.sync_await(
@@ -1013,10 +1134,17 @@ def test_that_strict_entailment_due_to_the_sources_condition_is_detected_1(
 
     source_guideline_content = GuidelineContent(
         condition="A US based customer attempts to purchase a ladder",
-        action="Ask how tall the ladder should be",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Ask how tall the ladder should be",
+        ),
     )
     target_guideline_content = GuidelineContent(
-        condition="discussing sizes with an American customer", action="Use imperial units"
+        condition="discussing sizes with an American customer",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Use imperial units",
+        ),
     )
     connection_propositions = list(
         context.sync_await(
@@ -1039,11 +1167,17 @@ def test_that_strict_entailment_due_to_the_sources_condition_is_detected_2(
 
     source_guideline_content = GuidelineContent(
         condition="a non-guest customer greets you",
-        action="refer to them by their first name, and welcome them 'back'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="refer to them by their first name, and welcome them 'back'",
+        ),
     )
     target_guideline_content = GuidelineContent(
         condition="you're welcoming non-guest customers",
-        action="refer to them by their first name, and welcome them 'back'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="refer to them by their first name, and welcome them 'back'",
+        ),
     )
     connection_propositions = list(
         context.sync_await(
@@ -1063,7 +1197,13 @@ def test_that_an_action_that_causes_a_more_general_case_of_another_guidelines_so
     agent: Agent,
 ) -> None:
     introduced_guidelines: Sequence[GuidelineContent] = [
-        GuidelineContent(condition=i["condition"], action=i["action"])
+        GuidelineContent(
+            condition=i["condition"],
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=i["action"],
+            ),
+        )
         for i in [
             {
                 "condition": "the customer needs help unlocking their card",

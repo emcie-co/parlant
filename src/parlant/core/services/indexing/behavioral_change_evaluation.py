@@ -169,7 +169,10 @@ class GuidelineEvaluator:
         for g in existing_guidelines:
             if g.id not in updated_ids:
                 remaining_existing_guidelines.append(
-                    (GuidelineContent(condition=g.content.condition, action=g.content.action), True)
+                    (
+                        GuidelineContent(condition=g.content.condition, handler=g.content.handler),
+                        True,
+                    )
                 )
             else:
                 updated_ids.remove(g.id)
@@ -192,27 +195,27 @@ class GuidelineEvaluator:
             return None
 
         coherence_checks_by_guideline_payload: OrderedDict[str, list[CoherenceCheck]] = OrderedDict(
-            {f"{p.content.condition}{p.content.action}": [] for p in payloads}
+            {f"{p.content.condition}{p.content.handler.action}": [] for p in payloads}
         )
 
         guideline_payload_is_skipped_pairs = {
-            f"{p.content.condition}{p.content.action}": p.coherence_check for p in payloads
+            f"{p.content.condition}{p.content.handler.action}": p.coherence_check for p in payloads
         }
 
         for c in incoherences:
             if (
-                f"{c.guideline_a.condition}{c.guideline_a.action}"
+                f"{c.guideline_a.condition}{c.guideline_a.handler.action}"
                 in coherence_checks_by_guideline_payload
                 and guideline_payload_is_skipped_pairs[
-                    f"{c.guideline_a.condition}{c.guideline_a.action}"
+                    f"{c.guideline_a.condition}{c.guideline_a.handler.action}"
                 ]
             ):
                 coherence_checks_by_guideline_payload[
-                    f"{c.guideline_a.condition}{c.guideline_a.action}"
+                    f"{c.guideline_a.condition}{c.guideline_a.handler.action}"
                 ].append(
                     CoherenceCheck(
                         kind=CoherenceCheckKind.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-                        if f"{c.guideline_b.condition}{c.guideline_b.action}"
+                        if f"{c.guideline_b.condition}{c.guideline_b.handler.action}"
                         in coherence_checks_by_guideline_payload
                         else CoherenceCheckKind.CONTRADICTION_WITH_EXISTING_GUIDELINE,
                         first=c.guideline_a,
@@ -223,14 +226,14 @@ class GuidelineEvaluator:
                 )
 
             if (
-                f"{c.guideline_b.condition}{c.guideline_b.action}"
+                f"{c.guideline_b.condition}{c.guideline_b.handler.action}"
                 in coherence_checks_by_guideline_payload
                 and guideline_payload_is_skipped_pairs[
-                    f"{c.guideline_b.condition}{c.guideline_b.action}"
+                    f"{c.guideline_b.condition}{c.guideline_b.handler.action}"
                 ]
             ):
                 coherence_checks_by_guideline_payload[
-                    f"{c.guideline_b.condition}{c.guideline_b.action}"
+                    f"{c.guideline_b.condition}{c.guideline_b.handler.action}"
                 ].append(
                     CoherenceCheck(
                         kind=CoherenceCheckKind.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE,
@@ -259,7 +262,10 @@ class GuidelineEvaluator:
         }
 
         remaining_existing_guidelines = [
-            (GuidelineContent(condition=g.content.condition, action=g.content.action), True)
+            (
+                GuidelineContent(condition=g.content.condition, handler=g.content.handler),
+                True,
+            )
             for g in existing_guidelines
             if g.id not in updated_ids
         ]
@@ -282,22 +288,26 @@ class GuidelineEvaluator:
 
         connection_results_by_guideline_payload: OrderedDict[
             str, list[EntailmentRelationshipProposition]
-        ] = OrderedDict({f"{p.content.condition}{p.content.action}": [] for p in payloads})
+        ] = OrderedDict({f"{p.content.condition}{p.content.handler.action}": [] for p in payloads})
         guideline_payload_is_skipped_pairs = {
-            f"{p.content.condition}{p.content.action}": p.connection_proposition for p in payloads
+            f"{p.content.condition}{p.content.handler.action}": p.connection_proposition
+            for p in payloads
         }
 
         for c in connection_propositions:
             if (
-                f"{c.source.condition}{c.source.action}" in connection_results_by_guideline_payload
-                and guideline_payload_is_skipped_pairs[f"{c.source.condition}{c.source.action}"]
+                f"{c.source.condition}{c.source.handler.action}"
+                in connection_results_by_guideline_payload
+                and guideline_payload_is_skipped_pairs[
+                    f"{c.source.condition}{c.source.handler.action}"
+                ]
             ):
                 connection_results_by_guideline_payload[
-                    f"{c.source.condition}{c.source.action}"
+                    f"{c.source.condition}{c.source.handler.action}"
                 ].append(
                     EntailmentRelationshipProposition(
                         check_kind=EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-                        if f"{c.target.condition}{c.target.action}"
+                        if f"{c.target.condition}{c.target.handler.action}"
                         in connection_results_by_guideline_payload
                         else EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE,
                         source=c.source,
@@ -306,15 +316,18 @@ class GuidelineEvaluator:
                 )
 
             if (
-                f"{c.target.condition}{c.target.action}" in connection_results_by_guideline_payload
-                and guideline_payload_is_skipped_pairs[f"{c.target.condition}{c.target.action}"]
+                f"{c.target.condition}{c.target.handler.action}"
+                in connection_results_by_guideline_payload
+                and guideline_payload_is_skipped_pairs[
+                    f"{c.target.condition}{c.target.handler.action}"
+                ]
             ):
                 connection_results_by_guideline_payload[
-                    f"{c.target.condition}{c.target.action}"
+                    f"{c.target.condition}{c.target.handler.action}"
                 ].append(
                     EntailmentRelationshipProposition(
                         check_kind=EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-                        if f"{c.source.condition}{c.source.action}"
+                        if f"{c.source.condition}{c.source.handler.action}"
                         in connection_results_by_guideline_payload
                         else EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE,
                         source=c.source,

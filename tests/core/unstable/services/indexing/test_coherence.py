@@ -14,7 +14,7 @@
 
 from parlant.core.agents import Agent
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.guidelines import GuidelineContent, GuidelineHandler, GuidelineHandlerKind
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
     IncoherenceKind,
@@ -54,7 +54,11 @@ def test_that_guidelines_with_many_incoherencies_are_detected(
     ]:
         guidelines_with_incoherencies.append(
             GuidelineContent(
-                condition=guideline_params["condition"], action=guideline_params["action"]
+                condition=guideline_params["condition"],
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action=guideline_params["action"],
+                ),
             )
         )
 
@@ -95,15 +99,24 @@ def test_that_contradictory_next_message_commands_are_detected_as_incoherencies(
     guidelines_to_evaluate = [
         GuidelineContent(
             condition="a document is being discussed",
-            action="provide the full document to the customer",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action="provide the full document to the customer",
+            ),
         ),
         GuidelineContent(
             condition="a client asks to summarize a document",
-            action="provide a summary of the document in 100 words or less",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action="provide a summary of the document in 100 words or less",
+            ),
         ),
         GuidelineContent(
             condition="the client asks for a summary of another customer's medical document",
-            action="refuse to share the document or its summary",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action="refuse to share the document or its summary",
+            ),
         ),
     ]
 

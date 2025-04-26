@@ -19,7 +19,7 @@ from lagom import Container
 from pytest import raises
 
 from parlant.core.relationships import EntityType, GuidelineRelationshipKind, RelationshipStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.guidelines import GuidelineHandler, GuidelineHandlerKind, GuidelineStore
 from parlant.core.tags import TagStore
 from parlant.core.common import ItemNotFoundError
 
@@ -32,12 +32,18 @@ async def test_that_relationship_can_be_created_between_two_guidelines(
 
     source_guideline = await guideline_store.create_guideline(
         condition="source condition",
-        action="source action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="source action",
+        ),
     )
 
     target_guideline = await guideline_store.create_guideline(
         condition="target condition",
-        action="target action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="target action",
+        ),
     )
 
     response = await async_client.post(
@@ -108,7 +114,10 @@ async def test_that_relationship_can_be_created_between_a_guideline_and_a_tag(
 
     source_guideline = await guideline_store.create_guideline(
         condition="source condition",
-        action="source action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="source action",
+        ),
     )
 
     target_tag = await tag_store.create_tag(
@@ -148,7 +157,10 @@ async def test_that_relationships_can_be_listed_by_guideline_id(
 
     guideline = await guideline_store.create_guideline(
         condition="condition",
-        action="action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action",
+        ),
     )
 
     tag = await tag_store.create_tag(
@@ -183,7 +195,10 @@ async def test_that_relationships_can_be_listed_by_tag_id(
 
     guideline = await guideline_store.create_guideline(
         condition="condition",
-        action="action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action",
+        ),
     )
 
     tag = await tag_store.create_tag(
@@ -229,7 +244,10 @@ async def test_that_relationship_cannot_be_listed_without_kind(
 
     guideline = await guideline_store.create_guideline(
         condition="condition",
-        action="action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action",
+        ),
     )
 
     response = await async_client.get(f"/relationships?guideline_id={guideline.id}")
@@ -246,7 +264,10 @@ async def test_that_relationship_can_be_read(
 
     guideline = await guideline_store.create_guideline(
         condition="condition",
-        action="action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action",
+        ),
     )
 
     tag = await tag_store.create_tag(
@@ -280,7 +301,10 @@ async def test_that_relationship_can_be_deleted(
 
     guideline = await guideline_store.create_guideline(
         condition="condition",
-        action="action",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="action",
+        ),
     )
 
     relationship = await relationship_store.create_relationship(

@@ -28,7 +28,12 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineContent, GuidelineStore
+from parlant.core.guidelines import (
+    GuidelineContent,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineStore,
+)
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,
@@ -54,7 +59,10 @@ async def test_that_a_new_evaluation_starts_with_a_pending_status(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer greets you",
-                        action="greet them back with 'Hello'",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="greet them back with 'Hello'",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -85,7 +93,10 @@ async def test_that_an_evaluation_completes_when_all_invoices_have_data(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer greets you",
-                        action="greet them back with 'Hello'",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="greet them back with 'Hello'",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -121,7 +132,10 @@ async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_appr
 
     guideline = await guideline_store.create_guideline(
         condition="a customer inquires about upgrading their service package",
-        action="provide information on available upgrade options and benefits",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide information on available upgrade options and benefits",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -137,7 +151,10 @@ async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_appr
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="a customer needs assistance with understanding their billing statements",
-                        action="guide them through the billing details and explain any charges",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="guide them through the billing details and explain any charges",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -173,7 +190,10 @@ async def test_that_an_evaluation_of_an_incoherent_guideline_completes_with_an_u
 
     guideline = await guideline_store.create_guideline(
         condition="A VIP customer requests a specific feature that aligns with their business needs but is not on the current product roadmap",
-        action="Escalate the request to product management for special consideration",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="Escalate the request to product management for special consideration",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -189,7 +209,10 @@ async def test_that_an_evaluation_of_an_incoherent_guideline_completes_with_an_u
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="Any customer requests a feature not available in the current version",
-                        action="Inform them that upcoming features are added only according to the roadmap",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="Inform them that upcoming features are added only according to the roadmap",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -231,7 +254,10 @@ async def test_that_an_evaluation_of_incoherent_proposed_guidelines_completes_wi
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="any customer requests a feature not available in the current version",
-                        action="Inform them that upcoming features are added only according to the roadmap",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="Inform them that upcoming features are added only according to the roadmap",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -243,7 +269,10 @@ async def test_that_an_evaluation_of_incoherent_proposed_guidelines_completes_wi
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="a VIP customer requests a specific feature that aligns with their business needs but is not on the current product roadmap",
-                        action="escalate the request to product management for special consideration",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="escalate the request to product management for special consideration",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -287,7 +316,10 @@ async def test_that_an_evaluation_of_multiple_payloads_completes_with_an_invoice
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer greets you",
-                        action="greet them back with 'Hello'",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="greet them back with 'Hello'",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -299,7 +331,10 @@ async def test_that_an_evaluation_of_multiple_payloads_completes_with_an_invoice
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer asks about the weather",
-                        action="provide a weather update",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="provide a weather update",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -340,7 +375,10 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer greets you",
-                        action="greet them back with 'Hello'",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="greet them back with 'Hello'",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -352,7 +390,10 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer greets you",
-                        action="greet them back with 'Hola'",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="greet them back with 'Hola'",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -366,7 +407,10 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
         GuidelinePayload(
             content=GuidelineContent(
                 condition="the customer asks about the weather",
-                action="provide a weather update",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="provide a weather update",
+                ),
             ),
             operation=GuidelinePayloadOperation.ADD,
             coherence_check=True,
@@ -398,7 +442,10 @@ async def test_that_an_evaluation_validation_failed_due_to_guidelines_duplicatio
     duplicate_payload = GuidelinePayload(
         content=GuidelineContent(
             condition="the customer greets you",
-            action="greet them back with 'Hello'",
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action="greet them back with 'Hello'",
+            ),
         ),
         operation=GuidelinePayloadOperation.ADD,
         coherence_check=True,
@@ -430,7 +477,10 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
 
     guideline = await guideline_store.create_guideline(
         condition="the customer greets you",
-        action="greet them back with 'Hello'",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="greet them back with 'Hello'",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -447,7 +497,10 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
                     GuidelinePayload(
                         content=GuidelineContent(
                             condition="the customer greets you",
-                            action="greet them back with 'Hello'",
+                            handler=GuidelineHandler(
+                                kind=GuidelineHandlerKind.ACTION,
+                                action="greet them back with 'Hello'",
+                            ),
                         ),
                         operation=GuidelinePayloadOperation.ADD,
                         coherence_check=True,
@@ -475,7 +528,10 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
-        action="provide the current weather update",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="provide the current weather update",
+        ),
     )
 
     _ = await guideline_store.upsert_tag(
@@ -491,7 +547,10 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="providing the weather update",
-                        action="mention the best time to go for a walk",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="mention the best time to go for a walk",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -520,7 +579,7 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
 
     assert invoice_data.entailment_propositions
     assert (
-        invoice_data.entailment_propositions[0].source.action
+        invoice_data.entailment_propositions[0].source.handler.action
         == "provide the current weather update"
     )
     assert (
@@ -544,7 +603,10 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="the customer asks about the weather",
-                        action="provide the current weather update",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="provide the current weather update",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -556,7 +618,10 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="providing the weather update",
-                        action="mention the best time to go for a walk",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="mention the best time to go for a walk",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -601,7 +666,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
     )
 
     assert (
-        invoice_data.entailment_propositions[0].source.action
+        invoice_data.entailment_propositions[0].source.handler.action
         == "provide the current weather update"
     )
     assert (

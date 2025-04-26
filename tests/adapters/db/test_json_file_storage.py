@@ -41,6 +41,8 @@ from parlant.core.evaluations import (
 from parlant.core.guidelines import (
     GuidelineContent,
     GuidelineDocumentStore,
+    GuidelineHandler,
+    GuidelineHandlerKind,
     GuidelineId,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
@@ -196,7 +198,10 @@ async def test_guideline_creation_and_loading_data_from_file(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Creating a guideline with JSONFileDatabase implementation",
-                action="Expecting it to show in the guidelines json file",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Expecting it to show in the guidelines json file",
+                ),
             )
 
     with open(new_file) as f:
@@ -207,14 +212,17 @@ async def test_guideline_creation_and_loading_data_from_file(
     json_guideline = guidelines_from_json["guidelines"][0]
 
     assert json_guideline["condition"] == guideline.content.condition
-    assert json_guideline["action"] == guideline.content.action
+    assert json_guideline["handler"]["action"] == guideline.content.handler.action
     assert datetime.fromisoformat(json_guideline["creation_utc"]) == guideline.creation_utc
 
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             second_guideline = await guideline_store.create_guideline(
                 condition="Second guideline creation",
-                action="Additional test entry in the JSON file",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Additional test entry in the JSON file",
+                ),
             )
 
     with open(new_file) as f:
@@ -225,7 +233,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     second_json_guideline = guidelines_from_json["guidelines"][1]
 
     assert second_json_guideline["condition"] == second_guideline.content.condition
-    assert second_json_guideline["action"] == second_guideline.content.action
+    assert second_json_guideline["handler"]["action"] == second_guideline.content.handler.action
     assert (
         datetime.fromisoformat(second_json_guideline["creation_utc"])
         == second_guideline.creation_utc
@@ -240,7 +248,10 @@ async def test_guideline_retrieval(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Test condition for loading",
-                action="Test content for loading guideline",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Test content for loading guideline",
+                ),
             )
 
             loaded_guidelines = await guideline_store.list_guidelines()
@@ -250,7 +261,7 @@ async def test_guideline_retrieval(
         assert len(loaded_guideline_list) == 1
         loaded_guideline = loaded_guideline_list[0]
         assert loaded_guideline.content.condition == "Test condition for loading"
-        assert loaded_guideline.content.action == "Test content for loading guideline"
+        assert loaded_guideline.content.handler.action == "Test content for loading guideline"
 
 
 async def test_customer_creation(
@@ -513,7 +524,10 @@ async def test_successful_loading_of_an_empty_json_file(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Create a guideline just for testing",
-                action="Expect it to appear in the guidelines JSON file eventually",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Expect it to appear in the guidelines JSON file eventually",
+                ),
             )
 
     with open(new_file) as f:
@@ -524,7 +538,10 @@ async def test_successful_loading_of_an_empty_json_file(
     json_guideline = guidelines_from_json["guidelines"][0]
 
     assert json_guideline["condition"] == "Create a guideline just for testing"
-    assert json_guideline["action"] == "Expect it to appear in the guidelines JSON file eventually"
+    assert (
+        json_guideline["handler"]["action"]
+        == "Expect it to appear in the guidelines JSON file eventually"
+    )
 
 
 async def test_evaluation_creation(
@@ -537,7 +554,10 @@ async def test_evaluation_creation(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="Test evaluation creation with invoice",
-                        action="Ensure the evaluation with invoice is persisted in the JSON file",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="Ensure the evaluation with invoice is persisted in the JSON file",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -571,7 +591,10 @@ async def test_evaluation_update(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="Initial evaluation payload with invoice",
-                        action="This content will be updated",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="This content will be updated",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,

@@ -52,7 +52,7 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineActionHandler, GuidelineContent
+from parlant.core.guidelines import GuidelineHandler, GuidelineContent, GuidelineHandlerKind
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,
@@ -157,7 +157,10 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
         return GuidelinePayload(
             content=GuidelineContent(
                 condition=dto.guideline.content.condition,
-                handler=GuidelineActionHandler(action=dto.guideline.content.action),
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action=dto.guideline.content.action,
+                ),
             ),
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
@@ -190,7 +193,7 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
             guideline=GuidelinePayloadDTO(
                 content=GuidelineContentDTO(
                     condition=descriptor.payload.content.condition,
-                    action=cast(GuidelineActionHandler, descriptor.payload.content.handler).action,
+                    action=descriptor.payload.content.handler.action,
                 ),
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=descriptor.payload.updated_id,
@@ -234,11 +237,11 @@ def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> Invoic
                         kind=_coherence_check_kind_to_dto(c.kind),
                         first=GuidelineContentDTO(
                             condition=c.first.condition,
-                            action=cast(GuidelineActionHandler, c.first.handler).action,
+                            action=c.first.handler.action,
                         ),
                         second=GuidelineContentDTO(
                             condition=c.second.condition,
-                            action=cast(GuidelineActionHandler, c.second.handler).action,
+                            action=c.second.handler.action,
                         ),
                         issue=c.issue,
                         severity=c.severity,
@@ -250,11 +253,11 @@ def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> Invoic
                         check_kind=_connection_proposition_kind_to_dto(c.check_kind),
                         source=GuidelineContentDTO(
                             condition=c.source.condition,
-                            action=cast(GuidelineActionHandler, c.source.handler).action,
+                            action=c.source.handler.action,
                         ),
                         target=GuidelineContentDTO(
                             condition=c.target.condition,
-                            action=cast(GuidelineActionHandler, c.target.handler).action,
+                            action=c.target.handler.action,
                         ),
                     )
                     for c in invoice_data.entailment_propositions

@@ -17,7 +17,7 @@ from lagom import Container
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.relationships import EntityType, GuidelineRelationshipKind, RelationshipStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.guidelines import GuidelineHandler, GuidelineHandlerKind, GuidelineStore
 from parlant.core.tags import TagStore
 
 
@@ -28,9 +28,27 @@ async def test_that_relational_guideline_resolver_prioritizes_indirectly_between
     guideline_store = container[GuidelineStore]
     resolver = container[RelationalGuidelineResolver]
 
-    g1 = await guideline_store.create_guideline(condition="x", action="y")
-    g2 = await guideline_store.create_guideline(condition="y", action="z")
-    g3 = await guideline_store.create_guideline(condition="z", action="t")
+    g1 = await guideline_store.create_guideline(
+        condition="x",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="y",
+        ),
+    )
+    g2 = await guideline_store.create_guideline(
+        condition="y",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="z",
+        ),
+    )
+    g3 = await guideline_store.create_guideline(
+        condition="z",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="t",
+        ),
+    )
 
     await relationship_store.create_relationship(
         source=g1.id,
@@ -67,8 +85,20 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines(
     guideline_store = container[GuidelineStore]
     resolver = container[RelationalGuidelineResolver]
 
-    g1 = await guideline_store.create_guideline(condition="x", action="y")
-    g2 = await guideline_store.create_guideline(condition="y", action="z")
+    g1 = await guideline_store.create_guideline(
+        condition="x",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="y",
+        ),
+    )
+    g2 = await guideline_store.create_guideline(
+        condition="y",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="z",
+        ),
+    )
 
     matches: list[GuidelineMatch] = [
         GuidelineMatch(guideline=g1, score=8, rationale=""),
@@ -96,10 +126,34 @@ async def test_that_relational_guideline_resolver_infers_guidelines_from_tags(
     tag_store = container[TagStore]
     resolver = container[RelationalGuidelineResolver]
 
-    g1 = await guideline_store.create_guideline(condition="x", action="y")
-    g2 = await guideline_store.create_guideline(condition="y", action="z")
-    g3 = await guideline_store.create_guideline(condition="z", action="t")
-    g4 = await guideline_store.create_guideline(condition="t", action="u")
+    g1 = await guideline_store.create_guideline(
+        condition="x",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="y",
+        ),
+    )
+    g2 = await guideline_store.create_guideline(
+        condition="y",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="z",
+        ),
+    )
+    g3 = await guideline_store.create_guideline(
+        condition="z",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="t",
+        ),
+    )
+    g4 = await guideline_store.create_guideline(
+        condition="t",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="u",
+        ),
+    )
 
     t1 = await tag_store.create_tag(name="t1")
 
@@ -144,8 +198,20 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines_from_ta
     tag_store = container[TagStore]
     resolver = container[RelationalGuidelineResolver]
 
-    g1 = await guideline_store.create_guideline(condition="x", action="y")
-    g2 = await guideline_store.create_guideline(condition="y", action="z")
+    g1 = await guideline_store.create_guideline(
+        condition="x",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="y",
+        ),
+    )
+    g2 = await guideline_store.create_guideline(
+        condition="y",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="z",
+        ),
+    )
 
     t1 = await tag_store.create_tag(name="t1")
 
@@ -187,9 +253,27 @@ async def test_that_relational_guideline_resolver_handles_indirect_guidelines_fr
     tag_store = container[TagStore]
     resolver = container[RelationalGuidelineResolver]
 
-    g1 = await guideline_store.create_guideline(condition="x", action="y")
-    g2 = await guideline_store.create_guideline(condition="y", action="z")
-    g3 = await guideline_store.create_guideline(condition="z", action="t")
+    g1 = await guideline_store.create_guideline(
+        condition="x",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="y",
+        ),
+    )
+    g2 = await guideline_store.create_guideline(
+        condition="y",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="z",
+        ),
+    )
+    g3 = await guideline_store.create_guideline(
+        condition="z",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.ACTION,
+            action="t",
+        ),
+    )
 
     t1 = await tag_store.create_tag(name="t1")
 

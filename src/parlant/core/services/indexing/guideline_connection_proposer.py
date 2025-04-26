@@ -525,10 +525,10 @@ ADDITIONAL INFORMATION
 
         # Find and add glossary to prompt
         causation_candidates = "\n\t".join(
-            f"{{id: {id}, when: {g.condition}, then: {g.action}}}"
+            f"{{id: {id}, when: {g.condition}, then: {g.handler.action}}}"
             for id, g in comparison_set.items()
         )
-        test_guideline = f"{{id: 0, when: '{evaluated_guideline.condition}', then: '{evaluated_guideline.action}'}}"
+        test_guideline = f"{{id: 0, when: '{evaluated_guideline.condition}', then: '{evaluated_guideline.handler.action}'}}"
         terms = await self._glossary_store.find_relevant_terms(
             query=test_guideline + causation_candidates,
             tags=[Tag.for_agent_id(agent.id)],
@@ -559,7 +559,7 @@ Causation candidates: ###
             "source_id": 0,
             "target_id": {id},
             "source_when: {evaluated_guideline.condition},
-            "source_then": {evaluated_guideline.action},
+            "source_then": {evaluated_guideline.handler.action},
             "target_when": {g.condition},
             "target_when_is_customer_action": <BOOL>,
             "rationale": <Explanation for if and how the source's 'then' causes the target's 'when'. The explanation should revolve around the word 'cause' or a conjugation of it>,
@@ -570,7 +570,7 @@ Causation candidates: ###
             "source_id": {id},
             "target_id": 0,
             "source_when: {g.condition},
-            "source_then": {g.action},
+            "source_then": {g.handler.action},
             "target_when": {evaluated_guideline.condition},
             "target_when_is_customer_action": <BOOL>,
             "rationale": <Explanation for if and how the source's 'then' causes the target's 'when'. The explanation should revolve around the word 'cause' or a conjugation of it>,

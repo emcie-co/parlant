@@ -27,7 +27,13 @@ from parlant.core.engines.alpha.tool_caller import (
     ToolCallInferenceSchema,
     ToolCaller,
 )
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineId,
+    GuidelineContent,
+)
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.tools.plugins import tool
@@ -112,7 +118,10 @@ def create_guideline_match(
         creation_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
-            action=action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=action,
+            ),
         ),
         enabled=True,
         tags=tags,

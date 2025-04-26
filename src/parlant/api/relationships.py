@@ -19,7 +19,6 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from parlant.api import common
 from parlant.api.common import (
     ExampleJson,
-    GuidelineDTO,
     GuidelineIdField,
     RelationshipDTO,
     GuidelineRelationshipKindDTO,
@@ -28,6 +27,8 @@ from parlant.api.common import (
     apigen_config,
     guideline_relationship_kind_dto_to_kind,
     guideline_relationship_kind_to_dto,
+    guideline_to_dto,
+    relationship_example,
 )
 from parlant.core.common import DefaultBaseModel
 from parlant.core.relationships import (
@@ -38,7 +39,6 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.api.common import relationship_example
 
 API_GROUP = "relationships"
 
@@ -132,14 +132,7 @@ def create_router(
 
         return RelationshipDTO(
             id=relationship.id,
-            source_guideline=GuidelineDTO(
-                id=cast(Guideline, source_guideline).id,
-                condition=cast(Guideline, source_guideline).content.condition,
-                action=cast(Guideline, source_guideline).content.action,
-                enabled=cast(Guideline, source_guideline).enabled,
-                tags=cast(Guideline, source_guideline).tags,
-                metadata=cast(Guideline, source_guideline).metadata,
-            )
+            source_guideline=guideline_to_dto(cast(Guideline, source_guideline))
             if relationship.source_type == EntityType.GUIDELINE
             else None,
             source_tag=TagDTO(
@@ -148,14 +141,7 @@ def create_router(
             )
             if relationship.source_type == EntityType.TAG
             else None,
-            target_guideline=GuidelineDTO(
-                id=cast(Guideline, target_guideline).id,
-                condition=cast(Guideline, target_guideline).content.condition,
-                action=cast(Guideline, target_guideline).content.action,
-                enabled=cast(Guideline, target_guideline).enabled,
-                tags=cast(Guideline, target_guideline).tags,
-                metadata=cast(Guideline, target_guideline).metadata,
-            )
+            target_guideline=guideline_to_dto(cast(Guideline, target_guideline))
             if relationship.target_type == EntityType.GUIDELINE
             else None,
             target_tag=TagDTO(

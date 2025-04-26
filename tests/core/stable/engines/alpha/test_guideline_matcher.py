@@ -48,7 +48,13 @@ from parlant.core.engines.alpha.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import (
+    Guideline,
+    GuidelineContent,
+    GuidelineHandler,
+    GuidelineHandlerKind,
+    GuidelineId,
+)
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import EventKind, EventSource
 from parlant.core.loggers import Logger
@@ -268,7 +274,10 @@ def create_guideline(
         creation_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
-            action=action,
+            handler=GuidelineHandler(
+                kind=GuidelineHandlerKind.ACTION,
+                action=action,
+            ),
         ),
         enabled=True,
         tags=tags,

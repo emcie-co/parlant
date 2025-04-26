@@ -46,6 +46,8 @@ from parlant.core.guidelines import (
     Guideline,
     GuidelineContent,
     GuidelineDocumentStore,
+    GuidelineHandler,
+    GuidelineHandlerKind,
     GuidelineId,
 )
 from parlant.adapters.db.mongo_db import MongoDocumentDatabase
@@ -270,7 +272,10 @@ async def test_guideline_creation(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Creating a guideline with MongoDB implementation",
-                action="Expecting it to be stored in the MongoDB database",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Expecting it to be stored in the MongoDB database",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
@@ -287,7 +292,7 @@ async def test_guideline_creation(
             db_guideline = guideline_list[0]
             assert db_guideline.id == guideline.id
             assert db_guideline.content.condition == guideline.content.condition
-            assert db_guideline.content.action == guideline.content.action
+            assert db_guideline.content.handler.action == guideline.content.handler.action
             assert db_guideline.creation_utc == guideline.creation_utc
 
 
@@ -307,13 +312,19 @@ async def test_multiple_guideline_creation(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             first_guideline = await guideline_store.create_guideline(
                 condition="First guideline creation",
-                action="Test entry in MongoDB",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Test entry in MongoDB",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
             second_guideline = await guideline_store.create_guideline(
                 condition="Second guideline creation",
-                action="Additional test entry in MongoDB",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Additional test entry in MongoDB",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
@@ -337,10 +348,10 @@ async def test_multiple_guideline_creation(
             for guideline in guidelines:
                 if guideline.id == first_guideline.id:
                     assert guideline.content.condition == "First guideline creation"
-                    assert guideline.content.action == "Test entry in MongoDB"
+                    assert guideline.content.handler.action == "Test entry in MongoDB"
                 elif guideline.id == second_guideline.id:
                     assert guideline.content.condition == "Second guideline creation"
-                    assert guideline.content.action == "Additional test entry in MongoDB"
+                    assert guideline.content.handler.action == "Additional test entry in MongoDB"
 
 
 async def test_guideline_retrieval(
@@ -358,7 +369,10 @@ async def test_guideline_retrieval(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             created_guideline = await guideline_store.create_guideline(
                 condition="Test condition for loading",
-                action="Test content for loading guideline",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Test content for loading guideline",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
@@ -370,7 +384,7 @@ async def test_guideline_retrieval(
             assert len(loaded_guideline_list) == 1
             loaded_guideline = loaded_guideline_list[0]
             assert loaded_guideline.content.condition == "Test condition for loading"
-            assert loaded_guideline.content.action == "Test content for loading guideline"
+            assert loaded_guideline.content.handler.action == "Test content for loading guideline"
             assert loaded_guideline.id == created_guideline.id
 
 
@@ -708,7 +722,10 @@ async def test_database_initialization(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Create a guideline for initialization test",
-                action="Verify it's stored in MongoDB correctly",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="Verify it's stored in MongoDB correctly",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
@@ -733,7 +750,10 @@ async def test_evaluation_creation(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="Test evaluation creation with invoice",
-                        action="Ensure the evaluation with invoice is persisted in MongoDB",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="Ensure the evaluation with invoice is persisted in MongoDB",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -780,7 +800,10 @@ async def test_evaluation_update(
                 GuidelinePayload(
                     content=GuidelineContent(
                         condition="Initial evaluation payload with invoice",
-                        action="This content will be updated",
+                        handler=GuidelineHandler(
+                            kind=GuidelineHandlerKind.ACTION,
+                            action="This content will be updated",
+                        ),
                     ),
                     operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
@@ -1016,7 +1039,10 @@ async def test_delete_one_in_collection(
         async with GuidelineDocumentStore(guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Guideline to be deleted",
-                action="This guideline will be deleted in the test",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="This guideline will be deleted in the test",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 
@@ -1041,7 +1067,10 @@ async def test_delete_collection(
         async with GuidelineDocumentStore(mongo_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Test collection deletion",
-                action="This collection will be deleted",
+                handler=GuidelineHandler(
+                    kind=GuidelineHandlerKind.ACTION,
+                    action="This collection will be deleted",
+                ),
                 tags=[Tag.for_agent_id(context.agent_id)],
             )
 

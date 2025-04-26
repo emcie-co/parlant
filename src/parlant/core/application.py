@@ -201,17 +201,17 @@ class Application:
             )
 
         content_guidelines: dict[str, GuidelineId] = {
-            f"{invoice.payload.content.condition}_{invoice.payload.content.action}": (
+            f"{invoice.payload.content.condition}_{invoice.payload.content.handler.action}": (
                 await self._guideline_store.create_guideline(
                     condition=invoice.payload.content.condition,
-                    action=invoice.payload.content.action,
+                    handler=invoice.payload.content.handler,
                 )
                 if invoice.payload.operation == GuidelinePayloadOperation.ADD
                 else await self._guideline_store.update_guideline(
                     guideline_id=cast(GuidelineId, invoice.payload.updated_id),
                     params={
                         "condition": invoice.payload.content.condition,
-                        "action": invoice.payload.content.action,
+                        "handler": invoice.payload.content.handler,
                     },
                 )
             ).id
@@ -253,8 +253,8 @@ class Application:
                 continue
 
             for proposition in invoice.data.entailment_propositions:
-                source_key = f"{proposition.source.condition}_{proposition.source.action}"
-                target_key = f"{proposition.target.condition}_{proposition.target.action}"
+                source_key = f"{proposition.source.condition}_{proposition.source.handler.action}"
+                target_key = f"{proposition.target.condition}_{proposition.target.handler.action}"
 
                 if proposition not in entailment_propositions:
                     if (

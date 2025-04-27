@@ -14,7 +14,7 @@ parlant-prepare-migration = "parlant.bin.prepare_migration:main"
 
 [tool.poetry.dependencies]
 aiofiles = "^24.1.0"
-aiopenapi3 = "^0.6.0"
+aiopenapi3 = "^0.8.1"
 aiorwlock = "^1.5.0"
 boto3 = "^1.35.70"
 chromadb = "0.5.17"
@@ -34,7 +34,7 @@ nano-vectordb = "^0.0.4.3"
 nanoid = "^2.0.0"
 networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
-openapi3-parser = "^1.1.17"
+openapi3-parser = "^1.1.21"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
 #parlant-client = "^0.10.3" # Use this when releasing to main
 parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "v1.0.0" }

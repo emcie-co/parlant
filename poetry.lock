@@ -127,13 +127,13 @@ speedups = ["Brotli", "aiodns (>=3.2.0)", "brotlicffi"]
 
 [[package]]
 name = "aiopenapi3"
-version = "0.6.0"
+version = "0.8.1"
 description = "client and validator for OpenAPI3 3.0, OpenAPI 3.1, Swagger 2.0"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 files = [
-    {file = "aiopenapi3-0.6.0-py3-none-any.whl", hash = "sha256:6d1316d39263987cbf9222263d1de2d5f8b3984009401cafbf8cb7f122fcf651"},
-    {file = "aiopenapi3-0.6.0.tar.gz", hash = "sha256:a29c97ec5dc25607a8d0023f0ee0219e7a001f78fb19372c18efd8c5fbeb3e17"},
+    {file = "aiopenapi3-0.8.1-py3-none-any.whl", hash = "sha256:f1054a9f3a593f616a3ef3f01f4084049877e8e1907f82354127243c9b890c18"},
+    {file = "aiopenapi3-0.8.1.tar.gz", hash = "sha256:ef9a84b6a45f72e3016b74621025e5b1c6cb9a3c5da5b77998ddf16e2decd4c4"},
 ]
 
 [package.dependencies]
@@ -146,8 +146,9 @@ PyYaml = "*"
 yarl = "*"
 
 [package.extras]
-auth = ["httpx-auth"]
+auth = ["httpx-auth (>=0.21.0)"]
 socks = ["httpx-socks"]
+types = ["pydantic-extra-types (>=2.10.1)"]
 
 [[package]]
 name = "aiorwlock"
@@ -2003,20 +2004,20 @@ format = ["fqdn", "idna", "isoduration", "jsonpointer (>1.13)", "rfc3339-validat
 format-nongpl = ["fqdn", "idna", "isoduration", "jsonpointer (>1.13)", "rfc3339-validator", "rfc3986-validator (>0.1.0)", "uri-template", "webcolors (>=24.6.0)"]
 
 [[package]]
-name = "jsonschema-spec"
-version = "0.2.4"
+name = "jsonschema-path"
+version = "0.3.4"
 description = "JSONSchema Spec with object-oriented paths"
 optional = false
-python-versions = ">=3.8.0,<4.0.0"
+python-versions = "<4.0.0,>=3.8.0"
 files = [
-    {file = "jsonschema_spec-0.2.4-py3-none-any.whl", hash = "sha256:e6dcf7056734ec6854f7888da6c08ce6c421f28aeeddce96bb90de0fb6d711ef"},
-    {file = "jsonschema_spec-0.2.4.tar.gz", hash = "sha256:873e396ad1ba6edf9f52d6174c110d4fafb7b5f5894744246a53fe75e5251ec2"},
+    {file = "jsonschema_path-0.3.4-py3-none-any.whl", hash = "sha256:f502191fdc2b22050f9a81c9237be9d27145b9001c55842bece5e94e382e52f8"},
+    {file = "jsonschema_path-0.3.4.tar.gz", hash = "sha256:8365356039f16cc65fddffafda5f58766e34bebab7d6d105616ab52bc4297001"},
 ]
 
 [package.dependencies]
 pathable = ">=0.4.1,<0.5.0"
 PyYAML = ">=5.1"
-referencing = ">=0.28.0,<0.31.0"
+referencing = "<0.37.0"
 requests = ">=2.31.0,<3.0.0"
 
 [[package]]
@@ -3156,34 +3157,34 @@ rfc3339-validator = "*"
 
 [[package]]
 name = "openapi-spec-validator"
-version = "0.6.0"
+version = "0.7.1"
 description = "OpenAPI 2.0 (aka Swagger) and OpenAPI 3 spec validator"
 optional = false
 python-versions = ">=3.8.0,<4.0.0"
 files = [
-    {file = "openapi_spec_validator-0.6.0-py3-none-any.whl", hash = "sha256:675f1a3c0d0d8eff9116694acde88bcd4613a95bf5240270724d9d78c78f26d6"},
-    {file = "openapi_spec_validator-0.6.0.tar.gz", hash = "sha256:68c4c212c88ef14c6b1a591b895bf742c455783c7ebba2507abd7dbc1365a616"},
+    {file = "openapi_spec_validator-0.7.1-py3-none-any.whl", hash = "sha256:3c81825043f24ccbcd2f4b149b11e8231abce5ba84f37065e14ec947d8f4e959"},
+    {file = "openapi_spec_validator-0.7.1.tar.gz", hash = "sha256:8577b85a8268685da6f8aa30990b83b7960d4d1117e901d451b5d572605e5ec7"},
 ]
 
 [package.dependencies]
 jsonschema = ">=4.18.0,<5.0.0"
-jsonschema-spec = ">=0.2.3,<0.3.0"
+jsonschema-path = ">=0.3.1,<0.4.0"
 lazy-object-proxy = ">=1.7.1,<2.0.0"
 openapi-schema-validator = ">=0.6.0,<0.7.0"
 
 [[package]]
 name = "openapi3-parser"
-version = "1.1.20"
+version = "1.1.21"
 description = "OpenAPI v3 parser"
 optional = false
 python-versions = "*"
 files = [
-    {file = "openapi3_parser-1.1.20-py3-none-any.whl", hash = "sha256:cf35d725357cb82b9bd47e50e01e77d8fa37a3f2d0ba2e8255f0bb3f794535a4"},
-    {file = "openapi3_parser-1.1.20.tar.gz", hash = "sha256:4a3a72dcbb79a62524c9b6985873094ec0f159e271f3ad3cce873fe73a753ddf"},
+    {file = "openapi3_parser-1.1.21-py3-none-any.whl", hash = "sha256:b30f530bc22c0b7b87814eedf957e2b1b507ad914380661114d34f345f103227"},
+    {file = "openapi3_parser-1.1.21.tar.gz", hash = "sha256:6ad5a4c307fdabb371c3191dc608968b68db433238f218591ff825c8d28aaa75"},
 ]
 
 [package.dependencies]
-openapi-spec-validator = "0.6.0"
+openapi-spec-validator = ">=0.7.1"
 prance = ">=0.20.2"
 
 [[package]]
@@ -6419,4 +6420,4 @@ together = ["together", "torch", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "2b45139b40a8c0c56c120a6cb4ee4cfc0bb5dae0647bd46aa07bcf5329a4d2eb"
+content-hash = "0d4a33576ee7762fe23f31fc213d3b75cb564469f18aa3fb59ff97786c25fd8d"

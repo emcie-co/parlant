@@ -1,6 +1,6 @@
 from itertools import chain
 from typing import Mapping, Sequence
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     SingleToolBatch,
     SingleToolBatchSchema,

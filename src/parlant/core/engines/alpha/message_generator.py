@@ -30,7 +30,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 from parlant.core.engines.alpha.tool_calling.tool_caller import MissingToolData, ToolInsights
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter

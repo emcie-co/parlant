@@ -27,11 +27,11 @@ from parlant.core.context_variables import (
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.glossary import Term
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingStrategyResolver,
 )
-from parlant.core.engines.alpha.guideline_match import (
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId

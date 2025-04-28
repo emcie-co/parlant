@@ -14,7 +14,7 @@
 
 from lagom import Container
 
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.relationships import (
     EntityType,

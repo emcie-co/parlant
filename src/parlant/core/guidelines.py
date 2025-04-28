@@ -38,7 +38,7 @@ GuidelineId = NewType("GuidelineId", str)
 @dataclass(frozen=True)
 class GuidelineContent:
     condition: str
-    action: str
+    action: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ class Guideline:
 
 class GuidelineUpdateParams(TypedDict, total=False):
     condition: str
-    action: str
+    action: Optional[str]
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
 
@@ -69,7 +69,7 @@ class GuidelineStore(ABC):
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        action: Optional[str] = None,
         metadata: Mapping[str, JSONSerializable] = {},
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
@@ -170,7 +170,7 @@ class GuidelineDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     condition: str
-    action: str
+    action: Optional[str]
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
 
@@ -320,7 +320,7 @@ class GuidelineDocumentStore(GuidelineStore):
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        action: Optional[str] = None,
         metadata: Mapping[str, JSONSerializable] = {},
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
@@ -466,12 +466,16 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_content: GuidelineContent,
     ) -> Guideline:
         async with self._lock.reader_lock:
-            guideline_document = await self._collection.find_one(
-                filters={
-                    "condition": {"$eq": guideline_content.condition},
-                    "action": {"$eq": guideline_content.action},
-                }
-            )
+            filters = {
+                "condition": {"$eq": guideline_content.condition},
+                **(
+                    {"action": {"$eq": guideline_content.action}}
+                    if guideline_content.action
+                    else {}
+                ),
+            }
+
+            guideline_document = await self._collection.find_one(filters=cast(Where, filters))
 
         if not guideline_document:
             raise ItemNotFoundError(

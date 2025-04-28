@@ -23,7 +23,7 @@ from typing_extensions import override
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer, CustomerStore, CustomerId
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCall,
     ToolCallBatch,

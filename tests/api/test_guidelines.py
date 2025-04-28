@@ -1534,7 +1534,7 @@ async def test_that_a_guideline_can_be_created(
 
     guideline = response.json()
     assert guideline["condition"] == "the customer asks about pricing"
-    assert guideline["action"] == "provide current pricing information"
+    assert guideline["handler"]["action"] == "provide current pricing information"
     assert guideline["enabled"] is True
     assert guideline["tags"] == []
     assert guideline["metadata"] == {"key1": "value1", "key2": "value2"}
@@ -1565,7 +1565,7 @@ async def test_that_a_guideline_can_be_created_with_tags(
     )
 
     assert guideline_dto["guideline"]["condition"] == "the customer asks about pricing"
-    assert guideline_dto["guideline"]["action"] == "provide current pricing information"
+    assert guideline_dto["guideline"]["handler"]["action"] == "provide current pricing information"
 
     assert len(guideline_dto["guideline"]["tags"]) == 2
     assert set(guideline_dto["guideline"]["tags"]) == {tag_1.id, tag_2.id}
@@ -1666,7 +1666,7 @@ async def test_that_a_guideline_can_be_read(
 
     assert item["guideline"]["id"] == guideline.id
     assert item["guideline"]["condition"] == "the customer asks about the weather"
-    assert item["guideline"]["action"] == "provide the current weather update"
+    assert item["guideline"]["handler"]["action"] == "provide the current weather update"
     assert item["guideline"]["metadata"] == {"key1": "value1", "key2": "value2"}
     assert len(item["relationships"]) == 0
     assert len(item["tool_associations"]) == 0
@@ -1727,7 +1727,7 @@ async def test_that_a_guideline_action_can_be_updated(
 
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["condition"] == guideline.content.condition
-    assert updated_guideline["action"] == "give current weather information"
+    assert updated_guideline["handler"]["action"] == "give current weather information"
 
 
 async def test_that_a_guideline_can_be_disabled(
@@ -2040,3 +2040,210 @@ async def test_that_metadata_can_be_updated_for_a_guideline(
 
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["metadata"] == {"key1": "value1", "key2": "value2"}
+
+
+async def test_that_a_guideline_can_be_created_with_an_observation_handler(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer wants to get meeting details",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    guideline = response.json()["guideline"]
+
+    assert guideline["id"] is not None
+    assert guideline["condition"] == "the customer wants to get meeting details"
+    assert guideline["handler"]["kind"] == "observation"
+
+
+async def test_that_a_guideline_can_be_created_with_a_journey_handler(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer wants to get meeting details",
+            "journey": "Step 1: Get meeting details, Step 2: Get meeting event information, Step 3: Confirm meeting details",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    guideline = response.json()["guideline"]
+
+    assert guideline["id"] is not None
+    assert guideline["condition"] == "the customer wants to get meeting details"
+    assert guideline["handler"]["kind"] == "journey"
+    assert (
+        guideline["handler"]["journey"]
+        == "Step 1: Get meeting details, Step 2: Get meeting event information, Step 3: Confirm meeting details"
+    )
+
+
+async def test_that_a_guideline_can_be_created_with_a_tool_activation_handler(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="fetch_event_data",
+        module_path="some.module",
+        description="",
+        parameters={},
+        required=[],
+    )
+
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer wants to get meeting details",
+            "handler": {
+                "kind": "tool_activation",
+                "tool_id": {
+                    "service_name": "local",
+                    "tool_name": "fetch_event_data",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    guideline = response.json()["guideline"]
+
+    assert guideline["id"] is not None
+    assert guideline["condition"] == "the customer wants to get meeting details"
+    assert guideline["handler"]["kind"] == "tool_activation"
+    assert guideline["handler"]["tool_id"]["service_name"] == "local"
+    assert guideline["handler"]["tool_id"]["tool_name"] == "fetch_event_data"
+
+
+async def test_that_a_guideline_with_a_journey_handler_can_not_be_associated_with_a_tool(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="fetch_event_data",
+        module_path="some.module",
+        description="",
+        parameters={},
+        required=[],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.JOURNEY,
+            journey="Step 1: Get meeting details, Step 2: Get meeting event information, Step 3: Confirm meeting details",
+        ),
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "handler": {
+                "kind": "tool_activation",
+                "tool_id": {
+                    "service_name": "local",
+                    "tool_name": "fetch_event_data",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.json()["detail"] == "Journey handler cannot be associated with a tool"
+
+
+async def test_that_a_guideline_with_a_tool_activation_handler_can_not_be_associated_with_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="fetch_event_data",
+        module_path="some.module",
+        description="",
+        parameters={},
+        required=[],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.TOOL_ACTIVATION,
+            tool_id=ToolId(
+                service_name="local",
+                tool_name="fetch_event_data",
+            ),
+        ),
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "handler": {
+                "kind": "tool_activation",
+                "tool_id": {
+                    "service_name": "local",
+                    "tool_name": "fetch_event_data",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.json()["detail"] == "Tool activation handler cannot be associated with a tool"
+
+
+async def test_that_a_guideline_with_an_observation_handler_can_not_be_associated_with_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="fetch_event_data",
+        module_path="some.module",
+        description="",
+        parameters={},
+        required=[],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        handler=GuidelineHandler(
+            kind=GuidelineHandlerKind.TOOL_ACTIVATION,
+            tool_id=ToolId(
+                service_name="local",
+                tool_name="fetch_event_data",
+            ),
+        ),
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "handler": {
+                "kind": "tool_activation",
+                "tool_id": {
+                    "service_name": "local",
+                    "tool_name": "fetch_event_data",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.json()["detail"] == "Observation handler cannot be associated with a tool"

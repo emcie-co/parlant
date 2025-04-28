@@ -524,12 +524,10 @@ class GuidelineDocumentStore(GuidelineStore):
         params: GuidelineUpdateParams,
     ) -> Guideline:
         async with self._lock.writer_lock:
-            guideline = await self.read_guideline(guideline_id)
+            _ = await self.read_guideline(guideline_id)
 
             handler_content = None
-            if params["handler"] is not None:
-                assert guideline.content.handler.kind == params["handler"].kind
-
+            if "handler" in params:
                 handler_content = self._serialize_handler_content(params["handler"])
 
             guideline_document = GuidelineDocument(

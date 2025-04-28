@@ -1585,6 +1585,14 @@ def create_router(
             GuidelineHandlerKind.JOURNEY,
         ]:
             handler = _guideline_handler_from_params(params)
+            if (
+                guideline.content.handler.kind != handler.kind
+                and handler.kind != GuidelineHandlerKind.OBSERVATION
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Guideline handler kind can not be updated",
+                )
 
         if params.condition or params.enabled is not None:
             update_params: GuidelineUpdateParams = {}

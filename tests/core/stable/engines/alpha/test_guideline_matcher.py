@@ -345,6 +345,7 @@ def base_test_that_correct_guidelines_are_matched(
     conversation_guidelines = {
         name: create_guideline_by_name(context, name) for name in conversation_guideline_names
     }
+
     relevant_guidelines = [
         conversation_guidelines[name]
         for name in conversation_guidelines

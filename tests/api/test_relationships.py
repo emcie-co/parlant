@@ -59,13 +59,13 @@ async def test_that_relationship_can_be_created_between_two_guidelines(
     relationship = response.json()
     assert relationship["source_guideline"]["id"] == source_guideline.id
     assert relationship["source_guideline"]["condition"] == "source condition"
-    assert relationship["source_guideline"]["action"] == "source action"
+    assert relationship["source_guideline"]["handler"]["action"] == "source action"
 
     assert relationship["source_tag"] is None
 
     assert relationship["target_guideline"]["id"] == target_guideline.id
     assert relationship["target_guideline"]["condition"] == "target condition"
-    assert relationship["target_guideline"]["action"] == "target action"
+    assert relationship["target_guideline"]["handler"]["action"] == "target action"
 
     assert relationship["target_tag"] is None
 
@@ -137,7 +137,7 @@ async def test_that_relationship_can_be_created_between_a_guideline_and_a_tag(
     relationship = response.json()
     assert relationship["source_guideline"]["id"] == source_guideline.id
     assert relationship["source_guideline"]["condition"] == "source condition"
-    assert relationship["source_guideline"]["action"] == "source action"
+    assert relationship["source_guideline"]["handler"]["action"] == "source action"
 
     assert relationship["source_tag"] is None
 

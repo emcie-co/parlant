@@ -34,8 +34,20 @@ import uvicorn
 from parlant.bin.prepare_migration import detect_required_migrations
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.chroma import ChromaDatabase
-from parlant.core.engines.alpha import guideline_matcher
 from parlant.core.engines.alpha import message_generator
+from parlant.core.engines.alpha.guideline_matching.default_guideline_matching_strategy import (
+    DefaultGuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching import generic_actionable_batch
+from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+    GenericActionableGuidelineMatching,
+    GenericActionableGuidelineMatchingShot,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatcher,
+    GuidelineMatchingStrategyResolver,
+)
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
@@ -105,14 +117,7 @@ from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
-from parlant.core.engines.alpha.guideline_matcher import (
-    GenericGuidelineMatching,
-    GuidelineMatcher,
-    GenericGuidelineMatchingShot,
-    GenericGuidelineMatchesSchema,
-    DefaultGuidelineMatchingStrategyResolver,
-    GuidelineMatchingStrategyResolver,
-)
+
 from parlant.core.engines.alpha.message_generator import (
     MessageGenerator,
     MessageGeneratorShot,
@@ -297,7 +302,9 @@ async def setup_container() -> AsyncIterator[Container]:
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
 
-    c[ShotCollection[GenericGuidelineMatchingShot]] = guideline_matcher.shot_collection
+    c[ShotCollection[GenericActionableGuidelineMatchingShot]] = (
+        generic_actionable_batch.shot_collection
+    )
     c[ShotCollection[SingleToolBatchShot]] = single_tool_batch.shot_collection
     c[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
 
@@ -494,7 +501,7 @@ async def initialize_container(
         )
 
     for schema in (
-        GenericGuidelineMatchesSchema,
+        GenericActionableGuidelineMatchesSchema,
         MessageSchema,
         UtteranceDraftSchema,
         UtteranceSelectionSchema,
@@ -508,7 +515,7 @@ async def initialize_container(
     ):
         try_define(SchematicGenerator[schema], await nlp_service.get_schematic_generator(schema))  # type: ignore
 
-    try_define(GenericGuidelineMatching, Singleton(GenericGuidelineMatching))
+    c[GenericActionableGuidelineMatching] = Singleton(GenericActionableGuidelineMatching)
 
     try_define(
         DefaultGuidelineMatchingStrategyResolver,

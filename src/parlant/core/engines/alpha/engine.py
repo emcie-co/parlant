@@ -57,13 +57,11 @@ from parlant.core.sessions import (
     Term as StoredTerm,
     ToolEventData,
 )
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingResult,
 )
-from parlant.core.engines.alpha.guideline_match import (
-    GuidelineMatch,
-)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_event_generator import (
     ToolEventGenerationResult,
     ToolEventGenerator,
@@ -421,7 +419,7 @@ class AlphaEngine(Engine):
                 StoredGuidelineMatch(
                     guideline_id=match.guideline.id,
                     condition=match.guideline.content.condition,
-                    action=match.guideline.content.action,
+                    action=match.guideline.content.action or None,
                     score=match.score,
                     rationale=match.rationale,
                 )

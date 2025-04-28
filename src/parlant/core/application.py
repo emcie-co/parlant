@@ -216,7 +216,7 @@ class Application:
                     guideline_id=cast(GuidelineId, invoice.payload.updated_id),
                     params={
                         "condition": invoice.payload.content.condition,
-                        "action": invoice.payload.content.action,
+                        "action": invoice.payload.content.action or None,
                     },
                 )
             ).id

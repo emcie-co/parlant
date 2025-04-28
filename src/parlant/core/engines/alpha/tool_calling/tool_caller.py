@@ -25,7 +25,7 @@ from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo

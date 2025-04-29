@@ -78,6 +78,8 @@ from parlant.core.sessions import (
     Session,
     SessionId,
     SessionStore,
+    EventSource,
+    EventKind,
 )
 from parlant.core.tags import Tag, TagId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
@@ -323,9 +325,9 @@ async def read_reply(
         iter(
             await container[SessionStore].list_events(
                 session_id=session_id,
-                source="ai_agent",
+                source=EventSource.AI_AGENT,
                 min_offset=customer_event_offset,
-                kinds=["message"],
+                kinds=[EventKind.MESSAGE],
             )
         )
     )
@@ -350,7 +352,7 @@ async def post_message(
 
     event = await container[Application].post_event(
         session_id=session_id,
-        kind="message",
+        kind=EventKind.MESSAGE,
         data=data,
     )
 
@@ -358,7 +360,7 @@ async def post_message(
         await container[Application].wait_for_update(
             session_id=session_id,
             min_offset=event.offset + 1,
-            kinds=["message"],
+            kinds=[EventKind.MESSAGE],
             timeout=response_timeout,
         )
 

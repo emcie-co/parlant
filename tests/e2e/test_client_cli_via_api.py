@@ -139,6 +139,8 @@ async def test_that_an_agent_can_be_updated(
             new_description,
             "--max-engine-iterations",
             str(new_max_engine_iterations),
+            "--composition-mode",
+            "strict-utterance",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -151,6 +153,7 @@ async def test_that_an_agent_can_be_updated(
         assert agent["name"] == new_name
         assert agent["description"] == new_description
         assert agent["max_engine_iterations"] == new_max_engine_iterations
+        assert agent["composition_mode"] == "strict_utterance"
 
 
 async def test_that_an_agent_can_be_deleted(

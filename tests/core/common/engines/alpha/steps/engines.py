@@ -17,7 +17,7 @@ from typing import cast
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
-from parlant.core.agents import AgentId, AgentStore
+from parlant.core.agents import AgentId, AgentStore, CompositionMode
 from parlant.core.customers import CustomerStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.emissions import EmittedEvent
@@ -26,7 +26,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceSelector,
 )
 from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
-from parlant.core.engines.alpha.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context, UtteranceReason, UtteranceRequest
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.sessions import SessionId, SessionStore
@@ -150,9 +150,13 @@ def when_messages_are_emitted(
     message_event_composer: MessageEventComposer
 
     match agent.composition_mode:
-        case "fluid":
+        case CompositionMode.FLUID:
             message_event_composer = context.container[MessageGenerator]
-        case "strict_utterance" | "composited_utterance" | "fluid_utterance":
+        case (
+            CompositionMode.STRICT_UTTERANCE
+            | CompositionMode.COMPOSITED_UTTERANCE
+            | CompositionMode.FLUID_UTTERANCE
+        ):
             message_event_composer = context.container[UtteranceSelector]
 
     result = context.sync_await(

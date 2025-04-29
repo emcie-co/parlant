@@ -125,7 +125,7 @@ async def test_that_all_customers_including_guests_can_be_listed(
         second_name == customer["name"] and second_extra == customer["extra"]
         for customer in customers
     )
-    assert any("<guest>" == customer["name"] for customer in customers)
+    assert any("Guest" == customer["name"] for customer in customers)
 
 
 async def test_that_a_customer_can_be_updated_with_a_new_name(

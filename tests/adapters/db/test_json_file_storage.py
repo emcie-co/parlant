@@ -31,6 +31,7 @@ from parlant.core.customers import CustomerDocumentStore, CustomerId
 from parlant.core.evaluations import (
     EvaluationDocumentStore,
     GuidelinePayload,
+    GuidelinePayloadOperation,
     Invoice,
     InvoiceData,
     InvoiceGuidelineData,
@@ -50,7 +51,7 @@ from parlant.core.persistence.document_database import (
     identity_loader,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.sessions import SessionDocumentStore
+from parlant.core.sessions import EventKind, EventSource, SessionDocumentStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
 )
@@ -169,8 +170,8 @@ async def test_event_creation(
 
             event = await session_store.create_event(
                 session_id=session.id,
-                source="customer",
-                kind="message",
+                source=EventSource.CUSTOMER,
+                kind=EventKind.MESSAGE,
                 correlation_id="test_correlation_id",
                 data={"message": "Hello, world!"},
                 creation_utc=datetime.now(timezone.utc),
@@ -538,7 +539,7 @@ async def test_evaluation_creation(
                         condition="Test evaluation creation with invoice",
                         action="Ensure the evaluation with invoice is persisted in the JSON file",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 )
@@ -572,7 +573,7 @@ async def test_evaluation_update(
                         condition="Initial evaluation payload with invoice",
                         action="This content will be updated",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 )

@@ -35,7 +35,7 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
+from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
 from parlant.core.loggers import Logger
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -223,6 +223,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                         ),
                     ),
                 )
+
             except ValidationError as e:
                 self._logger.error(
                     f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
@@ -409,7 +410,7 @@ class OpenAIService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        if t == ToolCallInferenceSchema:
+        if t == SingleToolBatchSchema:
             return GPT_4o[t](self._logger)  # type: ignore
         return GPT_4o_24_08_06[t](self._logger)  # type: ignore
 

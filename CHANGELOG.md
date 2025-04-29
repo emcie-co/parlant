@@ -5,6 +5,30 @@ All notable changes to Parlant will be documented here.
 ## [Unreleased]
 TBD
 
+## [2.1.0] - 2025-04-29
+
+### Added
+- ToolParameterOptions.choice_provider can now access ToolContext
+- Added utterance/draft toggle in the integrated UI
+- Added new guideline relationship: Dependency
+- Added tool relationships and the OVERLAP relationship
+- Added the 'overlap' property to tools. By default, tools will be assumed not to overlap with each other, simplifying their evaluation at runtime.
+
+### Changed
+- Improved tool calling efficiency by adjusting the prompt to the tool at hand
+- Revised completion schema (ARQs) for tool calling
+- Utterances now follow a 2-stage process: draft + select
+- Changed guest customer name to Guest
+
+### Fixed
+- Fixed deprioritized guidelines always being skipped
+- Fixed agent creation with tags
+- Fixed client CLI exit status when encountering an error
+- Fixed agent update
+
+### Known Issues
+- OpenAPI tool services sometimes run into issues due to a version update in aiopenapi3
+
 ## [2.0.0] - 2025-04-09
 
 ### Added
@@ -22,6 +46,7 @@ TBD
 - Added tags to context variables, guidelines, glossary and agents
 - Added guideline matching strategies
 - Added guideline relationships
+- Added support for tool parameters choice provider using the tool context as argument
 
 ### Changed
 - Made the message generator slightly more polite by default, following user feedback

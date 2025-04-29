@@ -8,7 +8,6 @@ interface Props {
 	agent: AgentInterface;
 	customer?: CustomerInterface;
 	tooltip?: boolean;
-	asCustomer?: boolean;
 }
 
 interface Color {
@@ -48,13 +47,13 @@ export const getAvatarColor = (id: string, type: 'agent' | 'customer') => {
 	return palette[hash % palette.length];
 };
 
-const Avatar = ({agent, customer, tooltip = true, asCustomer = false}: Props): ReactNode => {
-	const agentColor = getAvatarColor(agent.id, asCustomer ? 'customer' : 'agent');
+const Avatar = ({agent, customer, tooltip = true}: Props): ReactNode => {
+	const agentColor = getAvatarColor(agent.id, 'agent');
 	const customerColor = customer && getAvatarColor(customer.id, 'customer');
 	const isAgentUnavailable = agent?.name === 'N/A';
 	const isCustomerUnavailable = customer?.name === 'N/A';
-	const agentFirstLetter = agent.name === '<guest>' ? 'G' : agent.name[0].toUpperCase();
-	const isGuest = customer?.name === '<guest>' || (asCustomer && agent.name === '<guest>');
+	const agentFirstLetter = agent.name.replaceAll(/>|</g, '')[0].toUpperCase();
+	const isGuest = customer?.id === 'guest' || agent?.id === 'guest';
 	const customerFirstLetter = isGuest ? 'G' : customer?.name?.[0]?.toUpperCase();
 	const style: React.CSSProperties = {transform: 'translateY(17px)', fontSize: '13px !important', fontWeight: 400, fontFamily: 'inter'};
 	if (!tooltip) style.display = 'none';

@@ -36,7 +36,7 @@ from parlant.core.engines.alpha.guideline_match import (
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
-from parlant.core.sessions import Event, EventId, EventSource
+from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.emissions import EmittedEvent
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
@@ -196,16 +196,16 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
     def _format_shot(self, shot: GenericGuidelineMatchingShot) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
-                "customer": "user",
-                "customer_ui": "frontend_application",
-                "human_agent": "human_service_agent",
-                "human_agent_on_behalf_of_ai_agent": "ai_agent",
-                "ai_agent": "ai_agent",
-                "system": "system-provided",
+                EventSource.CUSTOMER: "user",
+                EventSource.CUSTOMER_UI: "frontend_application",
+                EventSource.HUMAN_AGENT: "human_service_agent",
+                EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: "ai_agent",
+                EventSource.AI_AGENT: "ai_agent",
+                EventSource.SYSTEM: "system-provided",
             }
 
             return {
-                "event_kind": e.kind,
+                "event_kind": e.kind.value,
                 "event_source": source_map[e.source],
                 "data": e.data,
             }
@@ -549,7 +549,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
     return Event(
         id=EventId(e_id),
         source=source,
-        kind="message",
+        kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
         offset=0,
         correlation_id="",
@@ -559,27 +559,29 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
 
 
 example_1_events = [
-    _make_event("11", "customer", "Can I purchase a subscription to your software?"),
-    _make_event("23", "ai_agent", "Absolutely, I can assist you with that right now."),
-    _make_event("34", "customer", "Cool, let's go with the subscription for the Pro plan."),
+    _make_event("11", EventSource.CUSTOMER, "Can I purchase a subscription to your software?"),
+    _make_event("23", EventSource.AI_AGENT, "Absolutely, I can assist you with that right now."),
+    _make_event(
+        "34", EventSource.CUSTOMER, "Cool, let's go with the subscription for the Pro plan."
+    ),
     _make_event(
         "56",
-        "ai_agent",
+        EventSource.AI_AGENT,
         "Your subscription has been successfully activated. Is there anything else I can help you with?",
     ),
     _make_event(
         "88",
-        "customer",
+        EventSource.CUSTOMER,
         "Will my son be able to see that I'm subscribed? Or is my data protected?",
     ),
     _make_event(
         "98",
-        "ai_agent",
+        EventSource.AI_AGENT,
         "If your son is not a member of your same household account, he won't be able to see your subscription. Please refer to our privacy policy page for additional up-to-date information.",
     ),
     _make_event(
         "78",
-        "customer",
+        EventSource.CUSTOMER,
         "Gotcha, and I imagine that if he does try to add me to the household account he won't be able to see that there already is an account, right?",
     ),
 ]
@@ -655,19 +657,21 @@ example_1_expected = GenericGuidelineMatchesSchema(
 )
 
 example_2_events = [
-    _make_event("11", "customer", "I'm looking for a job, what do you have available?"),
+    _make_event("11", EventSource.CUSTOMER, "I'm looking for a job, what do you have available?"),
     _make_event(
         "23",
-        "ai_agent",
+        EventSource.AI_AGENT,
         "Hi there! we have plenty of opportunities for you, where are you located?",
     ),
-    _make_event("34", "customer", "I'm looking for anything around the bay area"),
+    _make_event("34", EventSource.CUSTOMER, "I'm looking for anything around the bay area"),
     _make_event(
         "56",
-        "ai_agent",
+        EventSource.AI_AGENT,
         "That's great. We have a number of positions available over there. What kind of role are you interested in?",
     ),
-    _make_event("78", "customer", "Anything to do with training and maintaining AI agents"),
+    _make_event(
+        "78", EventSource.CUSTOMER, "Anything to do with training and maintaining AI agents"
+    ),
 ]
 
 example_2_guidelines = [
@@ -753,13 +757,17 @@ example_2_expected = GenericGuidelineMatchesSchema(
 
 
 example_3_events = [
-    _make_event("11", "customer", "Hi there, what is the S&P500 trading at right now?"),
-    _make_event("23", "ai_agent", "Hello! It's currently priced at just about 6,000$."),
+    _make_event("11", EventSource.CUSTOMER, "Hi there, what is the S&P500 trading at right now?"),
+    _make_event("23", EventSource.AI_AGENT, "Hello! It's currently priced at just about 6,000$."),
     _make_event(
-        "34", "customer", "Better than I hoped. And what's the weather looking like today?"
+        "34",
+        EventSource.CUSTOMER,
+        "Better than I hoped. And what's the weather looking like today?",
     ),
-    _make_event("56", "ai_agent", "It's 5 degrees Celsius in London today"),
-    _make_event("78", "customer", "Bummer. Does S&P500 still trade at 6,000$ by the way?"),
+    _make_event("56", EventSource.AI_AGENT, "It's 5 degrees Celsius in London today"),
+    _make_event(
+        "78", EventSource.CUSTOMER, "Bummer. Does S&P500 still trade at 6,000$ by the way?"
+    ),
 ]
 
 example_3_guidelines = [
@@ -833,9 +841,9 @@ example_3_expected = GenericGuidelineMatchesSchema(
 )
 
 example_4_events = [
-    _make_event("11", "customer", "Hey there, I'd like to book an appointment please"),
-    _make_event("23", "ai_agent", "Hi, sure thing. With whom and at what time?"),
-    _make_event("11", "customer", "Great! With John D. please, thank you."),
+    _make_event("11", EventSource.CUSTOMER, "Hey there, I'd like to book an appointment please"),
+    _make_event("23", EventSource.AI_AGENT, "Hi, sure thing. With whom and at what time?"),
+    _make_event("11", EventSource.CUSTOMER, "Great! With John D. please, thank you."),
 ]
 
 example_4_guidelines = [

@@ -28,10 +28,11 @@ from parlant.core.utterances import UtteranceStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolResult
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
+from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
 from parlant.core.async_utils import Timeout
 from parlant.core.customers import CustomerId
 from parlant.core.sessions import (
+    EventKind,
     EventSource,
     MessageEventData,
     SessionId,
@@ -61,12 +62,12 @@ async def long_session_id(
         container,
         session_id,
         [
-            make_event_params("customer"),
-            make_event_params("ai_agent"),
-            make_event_params("customer"),
-            make_event_params("ai_agent"),
-            make_event_params("ai_agent"),
-            make_event_params("customer"),
+            make_event_params(EventSource.CUSTOMER),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.CUSTOMER),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.CUSTOMER),
         ],
     )
 
@@ -80,7 +81,8 @@ async def strict_agent_id(
     agent_store = container[AgentStore]
     agent = await agent_store.create_agent(name="strict_test_agent")
     await agent_store.update_agent(
-        agent.id, params=AgentUpdateParams(composition_mode="strict_utterance")
+        agent.id,
+        params=AgentUpdateParams(composition_mode=CompositionMode.STRICT_UTTERANCE),
     )
     return agent.id
 
@@ -88,7 +90,7 @@ async def strict_agent_id(
 def make_event_params(
     source: EventSource,
     data: dict[str, Any] = {},
-    kind: str = "custom",
+    kind: EventKind = EventKind.CUSTOM,
 ) -> dict[str, Any]:
     return {
         "source": source,
@@ -121,11 +123,14 @@ def event_is_according_to_params(
     event: dict[str, Any],
     params: dict[str, Any],
 ) -> bool:
-    tested_properties = ["source", "kind", "data"]
+    if "source" in params:
+        assert EventSource(event["source"]) == params["source"]
 
-    for p in tested_properties:
-        if event[p] != params[p]:
-            return False
+    if "kind" in params:
+        assert EventKind(event["kind"]) == params["kind"]
+
+    if "data" in params:
+        assert event["data"] == params["data"]
 
     return True
 
@@ -435,8 +440,8 @@ async def test_that_deleting_a_session_also_deletes_its_events(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -461,11 +466,11 @@ async def test_that_events_can_be_listed(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -487,11 +492,11 @@ async def test_that_events_can_be_filtered_by_offset(
     offset: int,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -544,8 +549,8 @@ async def test_that_posting_problematic_messages_with_moderation_enabled_causes_
         f"/sessions/{session_id}/events",
         params={"moderation": "auto"},
         json={
-            "kind": "message",
-            "source": "customer",
+            "kind": EventKind.MESSAGE.value,
+            "source": EventSource.CUSTOMER.value,
             "message": "Fuck all those guys",
         },
     )
@@ -760,11 +765,11 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
     ]
     await populate_session_id(container, session_id, session_events)
 
@@ -928,15 +933,17 @@ async def test_that_a_message_is_generated_using_the_active_nlp_service(
     message_generation_inspections = inspection_data["message_generations"]
     assert len(message_generation_inspections) >= 1
 
-    assert message_generation_inspections[0]["generation"]["schema_name"] == "MessageSchema"
+    message_generation = message_generation_inspections[0]["generations"]["message_generation"]
+
+    assert message_generation["schema_name"] == "MessageSchema"
 
     schematic_generator = await nlp_service.get_schematic_generator(MessageSchema)
-    assert message_generation_inspections[0]["generation"]["model"] == schematic_generator.id
+    assert message_generation["model"] == schematic_generator.id
 
-    assert message_generation_inspections[0]["generation"]["usage"]["input_tokens"] > 0
+    assert message_generation["usage"]["input_tokens"] > 0
 
     assert "Woof Woof" in message_generation_inspections[0]["messages"][0]
-    assert message_generation_inspections[0]["generation"]["usage"]["output_tokens"] >= 2
+    assert message_generation["usage"]["output_tokens"] >= 2
 
 
 async def test_that_an_agent_message_can_be_regenerated(
@@ -946,11 +953,11 @@ async def test_that_an_agent_message_can_be_regenerated(
     agent_id: AgentId,
 ) -> None:
     session_events = [
-        make_event_params("customer", data={"content": "Hello"}),
-        make_event_params("ai_agent", data={"content": "Hi, how can I assist you?"}),
-        make_event_params("customer", data={"content": "What's the weather today?"}),
-        make_event_params("ai_agent", data={"content": "It's sunny and warm."}),
-        make_event_params("customer", data={"content": "Thank you!"}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "Hello"}),
+        make_event_params(EventSource.AI_AGENT, data={"content": "Hi, how can I assist you?"}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "What's the weather today?"}),
+        make_event_params(EventSource.AI_AGENT, data={"content": "It's sunny and warm."}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "Thank you!"}),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -985,7 +992,7 @@ async def test_that_an_agent_message_can_be_regenerated(
 
     await container[SessionListener].wait_for_events(
         session_id=session_id,
-        kinds=["message"],
+        kinds=[EventKind.MESSAGE],
         correlation_id=event["correlation_id"],
     )
 
@@ -1068,9 +1075,7 @@ async def test_that_an_event_with_utterances_can_be_generated(
         customer_id=customer.id,
     )
 
-    utterance = await utterance_store.create_utterance(
-        value="Greetings from Booga booga hotel!", fields=[]
-    )
+    utterance = await utterance_store.create_utterance(value="Hello, how can I assist?", fields=[])
 
     customer_event = await post_message(
         container=container,

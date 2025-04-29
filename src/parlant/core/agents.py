@@ -15,11 +15,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, NewType, Optional, Sequence, TypeAlias, cast
+from enum import Enum
+from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
 from parlant.core.persistence.common import (
     ObjectId,
 )
@@ -36,12 +37,12 @@ from parlant.core.tags import TagId
 
 AgentId = NewType("AgentId", str)
 
-CompositionMode: TypeAlias = Literal[
-    "fluid",
-    "fluid_utterance",
-    "strict_utterance",
-    "composited_utterance",
-]
+
+class CompositionMode(Enum):
+    FLUID = "fluid"
+    FLUID_UTTERANCE = "fluid_utterance"
+    STRICT_UTTERANCE = "strict_utterance"
+    COMPOSITED_UTTERANCE = "composited_utterance"
 
 
 class AgentUpdateParams(TypedDict, total=False):
@@ -59,7 +60,7 @@ class Agent:
     creation_utc: datetime
     max_engine_iterations: int
     tags: Sequence[TagId]
-    composition_mode: CompositionMode = "fluid"
+    composition_mode: CompositionMode = CompositionMode.FLUID
 
 
 class AgentStore(ABC):
@@ -121,7 +122,7 @@ class _AgentDocument(TypedDict, total=False):
     name: str
     description: Optional[str]
     max_engine_iterations: int
-    composition_mode: CompositionMode
+    composition_mode: str
 
 
 class _AgentTagAssociationDocument(TypedDict, total=False):
@@ -206,7 +207,7 @@ class AgentDocumentStore(AgentStore):
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=agent.composition_mode,
+            composition_mode=agent.composition_mode.value,
         )
 
     async def _deserialize_agent(self, agent_document: _AgentDocument) -> Agent:
@@ -224,7 +225,7 @@ class AgentDocumentStore(AgentStore):
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
             tags=tags,
-            composition_mode=cast(CompositionMode, agent_document.get("composition_mode", "fluid")),
+            composition_mode=CompositionMode(agent_document.get("composition_mode", "fluid")),
         )
 
     @override
@@ -248,7 +249,7 @@ class AgentDocumentStore(AgentStore):
                 creation_utc=creation_utc,
                 max_engine_iterations=max_engine_iterations,
                 tags=tags or [],
-                composition_mode=composition_mode or "fluid",
+                composition_mode=composition_mode or CompositionMode.FLUID,
             )
 
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
@@ -308,7 +309,7 @@ class AgentDocumentStore(AgentStore):
 
             result = await self._agents_collection.update_one(
                 filters={"id": {"$eq": agent_id}},
-                params=cast(_AgentDocument, params),
+                params=cast(_AgentDocument, to_json_dict(params)),
             )
 
         assert result.updated_document

@@ -22,7 +22,10 @@ from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.utterance_selector import DEFAULT_NO_MATCH_UTTERANCE
 from parlant.core.nlp.moderation import ModerationTag
+
 from parlant.core.sessions import (
+    EventKind,
+    EventSource,
     MessageEventData,
     SessionId,
     SessionStatus,
@@ -31,7 +34,6 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 from tests.test_utilities import nlp_test, JournalingEngineHooks
@@ -65,8 +67,8 @@ def given_an_agent_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="ai_agent",
-            kind="message",
+            source=EventSource.AI_AGENT,
+            kind=EventKind.MESSAGE,
             correlation_id="test_correlation_id",
             data=cast(JSONSerializable, message_data),
         )
@@ -105,8 +107,8 @@ def given_a_human_message_on_behalf_of_the_agent(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="human_agent_on_behalf_of_ai_agent",
-            kind="message",
+            source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+            kind=EventKind.MESSAGE,
             correlation_id="test_correlation_id",
             data=cast(JSONSerializable, message_data),
         )
@@ -140,8 +142,8 @@ def given_a_customer_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="customer",
-            kind="message",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
             correlation_id="test_correlation_id",
             data=cast(JSONSerializable, message_data),
         )
@@ -182,8 +184,8 @@ def given_a_flagged_customer_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="customer",
-            kind="message",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
             correlation_id="test_correlation_id",
             data=cast(JSONSerializable, message_data),
         )
@@ -219,7 +221,7 @@ def when_the_last_few_messages_are_deleted(
 def then_a_single_message_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
+    assert len(list(filter(lambda e: e.kind == EventKind.MESSAGE, emitted_events))) == 1
 
 
 @step(then, parsers.parse("a total of {count:d} message event(s) (is|are) emitted"))
@@ -227,7 +229,7 @@ def then_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
     count: int,
 ) -> None:
-    message_count = sum(1 for e in emitted_events if e.kind == "message")
+    message_count = sum(1 for e in emitted_events if e.kind == EventKind.MESSAGE)
     assert message_count == count, f"Expected {count} message events, but found {message_count}"
 
 
@@ -236,7 +238,7 @@ def then_the_message_contains_the_text(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
@@ -249,7 +251,7 @@ def then_the_message_does_not_contain_the_text(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
@@ -263,7 +265,7 @@ def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert context.sync_await(
@@ -280,7 +282,7 @@ def then_the_message_mentions(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert context.sync_await(
@@ -299,7 +301,7 @@ def then_the_message_uses_the_utterance(
     emitted_events: list[EmittedEvent],
     utterance_text: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
     assert message_data["utterances"]
 
@@ -314,7 +316,7 @@ def then_the_message_does_not_use_the_utterance(
     emitted_events: list[EmittedEvent],
     utterance_text: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
 
     assert all(utterance_text not in utterance for _, utterance in message_data["utterances"])
@@ -331,14 +333,14 @@ def then_no_events_are_emitted(
 def then_no_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len([e for e in emitted_events if e.kind == "message"]) == 0
+    assert len([e for e in emitted_events if e.kind == EventKind.MESSAGE]) == 0
 
 
 @step(then, "a no-match message is emitted")
 def then_a_no_match_message_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
@@ -351,7 +353,7 @@ def _has_status_event(
     acknowledged_event_offset: Optional[int],
     events: list[EmittedEvent],
 ) -> bool:
-    for e in (e for e in events if e.kind == "status"):
+    for e in (e for e in events if e.kind == EventKind.STATUS):
         data = cast(StatusEventData, e.data)
 
         has_same_status = data["status"] == status
@@ -452,7 +454,7 @@ def then_a_status_event_type_is_not_emitted(
 def then_no_tool_calls_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
     assert 0 == len(tool_events), pformat(tool_events, indent=2)
 
 
@@ -460,7 +462,7 @@ def then_no_tool_calls_event_is_emitted(
 def then_a_single_tool_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
     assert 1 == len(tool_events), pformat(tool_events, indent=2)
 
 
@@ -469,14 +471,14 @@ def then_the_tool_calls_event_contains_n_tool_calls(
     number_of_tool_calls: int,
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
+    tool_calls_event = next(e for e in emitted_events if e.kind == EventKind.TOOL)
     assert number_of_tool_calls == len(
         cast(ToolEventData, tool_calls_event.data)["tool_calls"]
     ), pformat(tool_calls_event, indent=2)
 
 
 def _get_tool_calls(emitted_events: list[EmittedEvent]) -> list[ToolCall]:
-    tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
+    tool_calls_event = next(e for e in emitted_events if e.kind == EventKind.TOOL)
     tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_calls"]
     return tool_calls
 
@@ -501,8 +503,8 @@ def then_the_tool_calls_event_contains_expected_content(
 def then_the_tool_calls_event_is_correlated_with_the_message_event(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
-    message_events = [e for e in emitted_events if e.kind == "message"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
+    message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
 
     assert len(tool_events) > 0, "No tool event found"
     assert len(message_events) > 0, "No message event found"

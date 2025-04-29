@@ -12,14 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
 from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
-from parlant.core.relationships import RelationshipId, GuidelineRelationshipKind
+from parlant.core.evaluations import GuidelinePayloadOperation
+from parlant.core.relationships import RelationshipId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.tags import TagId
+from parlant.core.tools import Tool, ToolParameterDescriptor
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:
@@ -187,6 +190,16 @@ class GuidelinePayloadDTO(
     updated_id: Optional[GuidelineIdField] = None
     coherence_check: GuidelinePayloadCoherenceCheckField
     connection_proposition: GuidelinePayloadConnectionPropositionField
+
+
+def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> GuidelinePayloadOperation:
+    if operation := {
+        GuidelinePayloadOperationDTO.ADD: GuidelinePayloadOperation.ADD,
+        GuidelinePayloadOperationDTO.UPDATE: GuidelinePayloadOperation.UPDATE,
+    }.get(dto):
+        return operation
+
+    raise ValueError(f"Unsupported operation: {dto}")
 
 
 payload_example: ExampleJson = {
@@ -396,6 +409,160 @@ class GuidelineDTO(
     metadata: GuidelineMetadataField
 
 
+EnumValueTypeDTO: TypeAlias = str | int
+
+ToolParameterDescriptionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Detailed description of what the parameter does and how it should be used",
+        examples=["Email address of the recipient", "Maximum number of retries allowed"],
+    ),
+]
+
+ToolParameterEnumField: TypeAlias = Annotated[
+    Sequence[EnumValueTypeDTO],
+    Field(
+        description="List of allowed values for string or integer parameters. If provided, the parameter value must be one of these options.",
+        examples=[["high", "medium", "low"], [1, 2, 3, 5, 8, 13]],
+    ),
+]
+
+
+class ToolParameterTypeDTO(Enum):
+    """
+    The supported data types for tool parameters.
+
+    Each type corresponds to a specific JSON Schema type and validation rules.
+    """
+
+    STRING = "string"
+    NUMBER = "number"
+    INTEGER = "integer"
+    BOOLEAN = "boolean"
+
+
+tool_parameter_example: ExampleJson = {
+    "type": "string",
+    "description": "Priority level for the email",
+    "enum": ["high", "medium", "low"],
+}
+
+
+class ToolParameterDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": tool_parameter_example},
+):
+    """
+    Defines a parameter that can be passed to a tool.
+
+    Parameters can have different types with optional constraints like enums.
+    Each parameter can include a description to help users understand its purpose.
+    """
+
+    type: ToolParameterTypeDTO
+    description: Optional[ToolParameterDescriptionField] = None
+    enum: Optional[ToolParameterEnumField] = None
+
+
+ToolCreationUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp when the tool was first registered with the system",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
+
+ToolDescriptionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Detailed description of the tool's purpose and behavior",
+        examples=[
+            "Sends an email to specified recipients with optional attachments",
+            "Processes a payment transaction and returns confirmation details",
+        ],
+    ),
+]
+
+ToolParametersField: TypeAlias = Annotated[
+    dict[str, ToolParameterDTO],
+    Field(
+        description="Dictionary mapping parameter names to their definitions",
+        examples=[
+            {
+                "recipient": {"type": "string", "description": "Email address to send to"},
+                "amount": {"type": "number", "description": "Payment amount in dollars"},
+            }
+        ],
+    ),
+]
+
+ToolRequiredField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="List of parameter names that must be provided when calling the tool",
+        examples=[["recipient", "subject"], ["payment_id", "amount"]],
+    ),
+]
+
+
+tool_example: ExampleJson = {
+    "creation_utc": "2024-03-24T12:00:00Z",
+    "name": "send_email",
+    "description": "Sends an email to specified recipients with configurable priority",
+    "parameters": {
+        "to": {"type": "string", "description": "Recipient email address"},
+        "subject": {"type": "string", "description": "Email subject line"},
+        "body": {"type": "string", "description": "Email body content"},
+        "priority": {
+            "type": "string",
+            "description": "Priority level for the email",
+            "enum": ["high", "medium", "low"],
+        },
+    },
+    "required": ["to", "subject", "body"],
+}
+
+
+class ToolDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": tool_example},
+):
+    """
+    Represents a single function provided by an integrated service.
+
+    Tools are the primary way for agents to interact with external services.
+    Each tool has defined parameters and can be invoked when those parameters
+    are satisfied.
+    """
+
+    creation_utc: ToolCreationUTCField
+    name: ToolNameField
+    description: ToolDescriptionField
+    parameters: ToolParametersField
+    required: ToolRequiredField
+
+
+def tool_parameters_to_dto(parameters: ToolParameterDescriptor) -> ToolParameterDTO:
+    return ToolParameterDTO(
+        type=ToolParameterTypeDTO(parameters["type"]),
+        description=parameters["description"] if "description" in parameters else None,
+        enum=parameters["enum"] if "enum" in parameters else None,
+    )
+
+
+def tool_to_dto(tool: Tool) -> ToolDTO:
+    return ToolDTO(
+        creation_utc=tool.creation_utc,
+        name=tool.name,
+        description=tool.description,
+        parameters={
+            name: tool_parameters_to_dto(descriptor)
+            for name, (descriptor, _) in tool.parameters.items()
+        },
+        required=tool.required,
+    )
+
+
 TagIdField: TypeAlias = Annotated[
     TagId,
     Field(
@@ -478,11 +645,13 @@ relationship_example: ExampleJson = {
 }
 
 
-class GuidelineRelationshipKindDTO(Enum):
-    """The kind of guideline relationship."""
+class RelationshipKindDTO(Enum):
+    """The kind of relationship."""
 
     ENTAILMENT = "entailment"
     PRIORITY = "priority"
+    DEPENDENCY = "dependency"
+    OVERLAP = "overlap"
 
 
 class RelationshipDTO(
@@ -493,6 +662,7 @@ class RelationshipDTO(
 
     Only one of `source_guideline` and `source_tag` can have a value.
     Only one of `target_guideline` and `target_tag` can have a value.
+    Only one of `source_tool` and `target_tool` can have a value.
     """
 
     id: RelationshipIdField
@@ -500,29 +670,7 @@ class RelationshipDTO(
     source_tag: Optional[TagDTO] = None
     target_guideline: Optional[GuidelineDTO] = None
     target_tag: Optional[TagDTO] = None
+    source_tool: Optional[ToolDTO] = None
+    target_tool: Optional[ToolDTO] = None
     indirect: RelationshipIndirectField
-    kind: GuidelineRelationshipKindDTO
-
-
-def guideline_relationship_kind_dto_to_kind(
-    dto: GuidelineRelationshipKindDTO,
-) -> GuidelineRelationshipKind:
-    match dto:
-        case GuidelineRelationshipKindDTO.ENTAILMENT:
-            return "entailment"
-        case GuidelineRelationshipKindDTO.PRIORITY:
-            return "priority"
-        case _:
-            raise ValueError(f"Invalid guideline relationship kind: {dto}")
-
-
-def guideline_relationship_kind_to_dto(
-    kind: GuidelineRelationshipKind,
-) -> GuidelineRelationshipKindDTO:
-    match kind:
-        case "entailment":
-            return GuidelineRelationshipKindDTO.ENTAILMENT
-        case "priority":
-            return GuidelineRelationshipKindDTO.PRIORITY
-        case _:
-            raise ValueError(f"Invalid guideline relationship kind: {kind}")
+    kind: RelationshipKindDTO

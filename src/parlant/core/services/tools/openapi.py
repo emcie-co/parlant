@@ -30,6 +30,7 @@ from typing_extensions import override
 
 from parlant.core.tools import (
     Tool,
+    ToolOverlap,
     ToolParameterOptions,
     ToolResult,
     ToolParameterDescriptor,
@@ -160,6 +161,7 @@ class OpenAPIClient(ToolService):
                     },
                     required=parameter_spec.required,
                     consequential=False,
+                    overlap=ToolOverlap.ALWAYS,
                 )
 
                 async def tool_func(
@@ -210,6 +212,11 @@ class OpenAPIClient(ToolService):
         except KeyError:
             raise ItemNotFoundError(item_id=UniqueId(name))
         return tool_spec.tool
+
+    @override
+    async def resolve_tool(self, name: str, context: ToolContext) -> Tool:
+        # OpenAPI tools don't have a server-side choice_provider, so it simply calls read_tool
+        return await self.read_tool(name)
 
     @override
     async def call_tool(

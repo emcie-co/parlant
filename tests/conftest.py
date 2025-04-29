@@ -33,16 +33,18 @@ from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerDocumentStore, CustomerStore
 from parlant.core.engines.alpha import guideline_matcher
-from parlant.core.engines.alpha import tool_caller
+from parlant.core.engines.alpha.tool_calling import single_tool_batch
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
+from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
 from parlant.core.engines.alpha.utterance_selector import (
+    UtteranceDraftSchema,
     UtteranceFieldExtractionSchema,
     UtteranceFieldExtractor,
     UtteranceSelector,
     UtteranceSelectionSchema,
-    UtteranceCompositionSchema,
+    UtteranceRevisionSchema,
 )
 from parlant.core.evaluations import (
     EvaluationListener,
@@ -86,7 +88,10 @@ from parlant.core.engines.alpha.message_generator import (
     MessageGeneratorShot,
     MessageSchema,
 )
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCallerInferenceShot
+from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    ToolCallBatcher,
+    ToolCaller,
+)
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
@@ -278,10 +283,11 @@ async def container(
         for generation_schema in (
             GenericGuidelineMatchesSchema,
             MessageSchema,
+            UtteranceDraftSchema,
             UtteranceSelectionSchema,
-            UtteranceCompositionSchema,
+            UtteranceRevisionSchema,
             UtteranceFieldExtractionSchema,
-            ToolCallInferenceSchema,
+            single_tool_batch.SingleToolBatchSchema,
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
             GuidelineConnectionPropositionsSchema,
@@ -293,7 +299,9 @@ async def container(
             )
 
         container[ShotCollection[GenericGuidelineMatchingShot]] = guideline_matcher.shot_collection
-        container[ShotCollection[ToolCallerInferenceShot]] = tool_caller.shot_collection
+        container[ShotCollection[single_tool_batch.SingleToolBatchShot]] = (
+            single_tool_batch.shot_collection
+        )
         container[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
 
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
@@ -313,6 +321,10 @@ async def container(
         ]
         container[GenericGuidelineMatching] = Singleton(GenericGuidelineMatching)
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
+
+        container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
+        container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
+        container[ToolCaller] = Singleton(ToolCaller)
         container[RelationalGuidelineResolver] = Singleton(RelationalGuidelineResolver)
         container[UtteranceSelector] = Singleton(UtteranceSelector)
         container[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
@@ -371,6 +383,15 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
+        container[SchematicGenerator[UtteranceDraftSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[UtteranceDraftSchema],
+            container[SchematicGenerator[UtteranceDraftSchema]],
+        ).use_cache = False
+
+    if isinstance(
         container[SchematicGenerator[UtteranceSelectionSchema]],
         CachedSchematicGenerator,
     ):
@@ -380,12 +401,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceCompositionSchema]],
+        container[SchematicGenerator[UtteranceRevisionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceCompositionSchema],
-            container[SchematicGenerator[UtteranceCompositionSchema]],
+            CachedSchematicGenerator[UtteranceRevisionSchema],
+            container[SchematicGenerator[UtteranceRevisionSchema]],
         ).use_cache = False
 
     if isinstance(
@@ -398,12 +419,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[ToolCallInferenceSchema]],
+        container[SchematicGenerator[single_tool_batch.SingleToolBatchSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[ToolCallInferenceSchema],
-            container[SchematicGenerator[ToolCallInferenceSchema]],
+            CachedSchematicGenerator[single_tool_batch.SingleToolBatchSchema],
+            container[SchematicGenerator[single_tool_batch.SingleToolBatchSchema]],
         ).use_cache = False
 
     if isinstance(

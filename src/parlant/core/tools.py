@@ -16,7 +16,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import enum
+from enum import Enum, auto
 import importlib
 import inspect
 import sys
@@ -79,6 +79,7 @@ class ToolContext:
             ]
         ] = None,
         plugin_data: Mapping[str, Any] = {},
+        # this plugin data is used to pass data that is required by the plugin and doesn't go through the LLM evaluation
     ) -> None:
         self.agent_id = agent_id
         self.session_id = session_id
@@ -114,11 +115,11 @@ class ToolResult:
 
     def __init__(
         self,
-        data: JSONSerializable,
-        metadata: Optional[Mapping[str, JSONSerializable]] = None,
+        data: Any,
+        metadata: Optional[Mapping[str, Any]] = None,
         control: Optional[ControlOptions] = None,
         utterances: Optional[Sequence[Utterance]] = None,
-        utterance_fields: Optional[Mapping[str, JSONSerializable]] = None,
+        utterance_fields: Optional[Mapping[str, Any]] = None,
     ) -> None:
         object.__setattr__(self, "data", data)
         object.__setattr__(self, "metadata", metadata or {})
@@ -148,10 +149,10 @@ class ToolParameterOptions(DefaultBaseModel):
     adapter: Optional[Callable[[Any], Awaitable[Any]]] = Field(default=None, exclude=True)
     """A custom adapter function to convert the inferred value to a type."""
 
-    choice_provider: Optional[Callable[..., Awaitable[list[str]]]] = Field(
+    choice_provider: Optional[Callable[..., Awaitable[Sequence[str]]]] = Field(
         default=None, exclude=True
     )
-    """A custom function to provide valid choicoes for the parameter's argument."""
+    """A custom function to provide valid choices for the parameter's argument."""
 
     precedence: Optional[int] = Field(default=DEFAULT_PARAMETER_PRECEDENCE)
     """The precedence of this parameter comparing to other parameters. Lower values are higher precedence.
@@ -159,6 +160,17 @@ class ToolParameterOptions(DefaultBaseModel):
 
     display_name: Optional[str] = Field(default=None)
     """An alias to use when presenting this parameter to user, instead of the real name"""
+
+
+class ToolOverlap(Enum):
+    NONE = auto()
+    """The tool never overlaps with any other tool. No need to check relationships."""
+
+    AUTO = auto()
+    """(TODO: WIP feature): Check relationship store. If no relationships, then assume no overlap. This is the default value for overlap."""
+
+    ALWAYS = auto()
+    """The tool always overlaps with other tools in context."""
 
 
 @dataclass(frozen=True)
@@ -170,6 +182,7 @@ class Tool:
     parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]
     required: list[str]
     consequential: bool
+    overlap: ToolOverlap
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -231,6 +244,13 @@ class ToolService(ABC):
     ) -> Tool: ...
 
     @abstractmethod
+    async def resolve_tool(
+        self,
+        name: str,
+        context: ToolContext,
+    ) -> Tool: ...
+
+    @abstractmethod
     async def call_tool(
         self,
         name: str,
@@ -266,6 +286,7 @@ class LocalToolService(ToolService):
             parameters=local_tool.parameters,
             required=local_tool.required,
             consequential=local_tool.consequential,
+            overlap=ToolOverlap.ALWAYS,
         )
 
     # Note that in this function's arguments ToolParameterOptions is optional (initialized to default if not given)
@@ -314,6 +335,16 @@ class LocalToolService(ToolService):
             return self._local_tool_to_tool(self._local_tools_by_name[name])
         except KeyError:
             raise ItemNotFoundError(item_id=UniqueId(name))
+
+    @override
+    async def resolve_tool(
+        self,
+        name: str,
+        context: ToolContext,
+    ) -> Tool:
+        tool = await self.read_tool(name)
+        # Local tools have no plugin_data as plugin servers do, so it simply calls read_tool, no support for choice_provider here.
+        return tool
 
     @override
     async def call_tool(
@@ -426,7 +457,7 @@ def normalize_tool_argument(parameter_type: Any, argument: Any) -> Any:
             parameter_type = get_args(parameter_type)[0]
         if (
             inspect.isclass(parameter_type)
-            and issubclass(parameter_type, enum.Enum)
+            and issubclass(parameter_type, Enum)
             or parameter_type in [str, int, float, bool]
         ):
             return parameter_type(argument)

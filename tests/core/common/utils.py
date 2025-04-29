@@ -25,7 +25,7 @@ from parlant.core.engines.types import UtteranceRequest
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline
-from parlant.core.sessions import Event, MessageEventData, EventSource, EventId
+from parlant.core.sessions import Event, EventKind, MessageEventData, EventSource, EventId
 
 from tests.test_utilities import SyncAwaiter
 
@@ -50,14 +50,14 @@ def create_event_message(
     message_data: MessageEventData = {
         "message": message,
         "participant": {
-            "display_name": customer.name if customer else source,
+            "display_name": customer.name if customer else source.value,
         },
     }
 
     event = Event(
         id=EventId(generate_id()),
         source=source,
-        kind="message",
+        kind=EventKind.MESSAGE,
         offset=offset,
         correlation_id="test_correlation_id",
         data=cast(JSONSerializable, message_data),

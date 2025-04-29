@@ -26,8 +26,16 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerId
-from parlant.core.evaluations import EntailmentRelationshipProposition, Invoice
+from parlant.core.evaluations import (
+    EntailmentRelationshipProposition,
+    EntailmentRelationshipPropositionKind,
+    GuidelinePayloadOperation,
+    Invoice,
+)
 from parlant.core.relationships import (
+    EntityType,
+    GuidelineRelationshipKind,
+    RelationshipEntity,
     RelationshipStore,
 )
 from parlant.core.guidelines import GuidelineId, GuidelineStore
@@ -101,7 +109,7 @@ class Application:
         session_id: SessionId,
         kind: EventKind,
         data: Mapping[str, Any],
-        source: EventSource = "customer",
+        source: EventSource = EventSource.CUSTOMER,
         trigger_processing: bool = True,
     ) -> Event:
         event = await self._session_store.create_event(
@@ -186,11 +194,15 @@ class Application:
                 target_guideline_id = content_guidelines[target_key]
 
             await self._relationship_store.create_relationship(
-                source=source_guideline_id,
-                source_type="guideline",
-                target=target_guideline_id,
-                target_type="guideline",
-                kind="entailment",
+                source=RelationshipEntity(
+                    id=source_guideline_id,
+                    type=EntityType.GUIDELINE,
+                ),
+                target=RelationshipEntity(
+                    id=target_guideline_id,
+                    type=EntityType.GUIDELINE,
+                ),
+                kind=GuidelineRelationshipKind.ENTAILMENT,
             )
 
         content_guidelines: dict[str, GuidelineId] = {
@@ -199,7 +211,7 @@ class Application:
                     condition=invoice.payload.content.condition,
                     action=invoice.payload.content.action,
                 )
-                if invoice.payload.operation == "add"
+                if invoice.payload.operation == GuidelinePayloadOperation.ADD
                 else await self._guideline_store.update_guideline(
                     guideline_id=cast(GuidelineId, invoice.payload.updated_id),
                     params={
@@ -212,22 +224,25 @@ class Application:
         }
 
         for invoice in invoices:
-            if invoice.payload.operation == "update" and invoice.payload.connection_proposition:
+            if (
+                invoice.payload.operation == GuidelinePayloadOperation.UPDATE
+                and invoice.payload.connection_proposition
+            ):
                 guideline_id = cast(GuidelineId, invoice.payload.updated_id)
 
                 relationships_to_delete = list(
                     await self._relationship_store.list_relationships(
-                        kind="entailment",
+                        kind=GuidelineRelationshipKind.ENTAILMENT,
                         indirect=False,
-                        source=guideline_id,
+                        source_id=guideline_id,
                     )
                 )
 
                 relationships_to_delete.extend(
                     await self._relationship_store.list_relationships(
-                        kind="entailment",
+                        kind=GuidelineRelationshipKind.ENTAILMENT,
                         indirect=False,
-                        target=guideline_id,
+                        target_id=guideline_id,
                     )
                 )
 
@@ -247,13 +262,20 @@ class Application:
                 target_key = f"{proposition.target.condition}_{proposition.target.action}"
 
                 if proposition not in entailment_propositions:
-                    if proposition.check_kind == "connection_with_another_evaluated_guideline":
+                    if (
+                        proposition.check_kind
+                        == EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
+                    ):
                         await self._relationship_store.create_relationship(
-                            source=content_guidelines[source_key],
-                            source_type="guideline",
-                            target=content_guidelines[target_key],
-                            target_type="guideline",
-                            kind="entailment",
+                            source=RelationshipEntity(
+                                id=content_guidelines[source_key],
+                                type=EntityType.GUIDELINE,
+                            ),
+                            target=RelationshipEntity(
+                                id=content_guidelines[target_key],
+                                type=EntityType.GUIDELINE,
+                            ),
+                            kind=GuidelineRelationshipKind.ENTAILMENT,
                         )
                     else:
                         await _create_with_existing_guideline(

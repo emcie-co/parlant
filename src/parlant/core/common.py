@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
+from enum import Enum
 import hashlib
 from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
 import nanoid  # type: ignore
@@ -128,3 +129,12 @@ def md5_checksum(input: str) -> str:
     md5_hash.update(input.encode("utf-8"))
 
     return md5_hash.hexdigest()
+
+
+def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
+    def adapt_value(v: Any) -> Any:
+        if isinstance(v, Enum):
+            return v.value
+        return v
+
+    return {k: adapt_value(v) for k, v in d.items()}

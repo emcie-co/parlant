@@ -14,7 +14,7 @@
 
 from datetime import datetime, timezone
 from itertools import chain
-from typing import Sequence, cast
+from typing import Sequence
 
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id, JSONSerializable
@@ -197,7 +197,7 @@ def match_guidelines(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
-    conversation_context: list[tuple[str, str]],
+    conversation_context: list[tuple[EventSource, str]],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
     staged_events: Sequence[EmittedEvent] = [],
@@ -210,7 +210,7 @@ def match_guidelines(
     interaction_history = [
         create_event_message(
             offset=i,
-            source=cast(EventSource, source),
+            source=source,
             message=message,
         )
         for i, (source, message) in enumerate(conversation_context)
@@ -307,7 +307,7 @@ def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
-    conversation_context: list[tuple[str, str]],
+    conversation_context: list[tuple[EventSource, str]],
     conversation_guideline_names: list[str],
     relevant_guideline_names: list[str],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
@@ -343,16 +343,16 @@ def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_one_ac
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "Hi there! I was wondering - what's the life expectancy of owls?",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Great Question! Owls can live 5 to 30 years in the wild, and even longer in captivity.",
         ),
-        ("customer", "That's shorter than I expected, thank you!"),
+        (EventSource.CUSTOMER, "That's shorter than I expected, thank you!"),
     ]
 
     conversation_guideline_names: list[str] = ["many_actions"]
@@ -371,12 +371,12 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_2(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Could you add some pretzels to my order?"),
-        ("ai_agent", "Pretzels have been added to your order. Anything else?"),
-        ("customer", "Do you have Coke? I'd like one, please."),
-        ("ai_agent", "Coke has been added to your order."),
-        ("customer", "Great, where are you located at?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Could you add some pretzels to my order?"),
+        (EventSource.AI_AGENT, "Pretzels have been added to your order. Anything else?"),
+        (EventSource.CUSTOMER, "Do you have Coke? I'd like one, please."),
+        (EventSource.AI_AGENT, "Coke has been added to your order."),
+        (EventSource.CUSTOMER, "Great, where are you located at?"),
     ]
     conversation_guideline_names: list[str] = ["check_drinks_in_stock"]
     base_test_that_correct_guidelines_are_matched(
@@ -389,45 +389,51 @@ def test_that_many_guidelines_are_classified_correctly(  # a stress test
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey, do you sell skateboards?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey, do you sell skateboards?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Yes, we do! We have a variety of skateboards for all skill levels. Are you looking for something specific?",
         ),
-        ("customer", "I'm looking for a skateboard for a beginner. What do you recommend?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I'm looking for a skateboard for a beginner. What do you recommend?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "For beginners, I recommend our complete skateboards with a sturdy deck and softer wheels for easier control. Would you like to see some options?",
         ),
-        ("customer", "That sounds perfect. Can you show me a few?"),
+        (EventSource.CUSTOMER, "That sounds perfect. Can you show me a few?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Sure! We have a few options: the 'Smooth Ride' model, the 'City Cruiser,' and the 'Basic Starter.' Which one would you like to know more about?",
         ),
-        ("customer", "I like the 'City Cruiser.' What color options do you have?"),
-        ("ai_agent", "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?"),
-        ("customer", "I'll go with the blue one."),
+        (EventSource.CUSTOMER, "I like the 'City Cruiser.' What color options do you have?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
+            "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?",
+        ),
+        (EventSource.CUSTOMER, "I'll go with the blue one."),
+        (
+            EventSource.AI_AGENT,
             "Great choice! I'll add the blue 'City Cruiser' to your cart. Would you like to add any accessories like a helmet or grip tape?",
         ),
-        ("customer", "Yes, I'll take a helmet. What do you have in stock?"),
+        (EventSource.CUSTOMER, "Yes, I'll take a helmet. What do you have in stock?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "We have helmets in small, medium, and large sizes, all available in black and gray. What size do you need?",
         ),
-        ("customer", "I need a medium. I'll take one in black."),
+        (EventSource.CUSTOMER, "I need a medium. I'll take one in black."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Got it! Your blue 'City Cruiser' skateboard and black medium helmet are ready for checkout. How would you like to pay?",
         ),
-        ("customer", "I'll pay with a credit card, thank you very much!"),
+        (EventSource.CUSTOMER, "I'll pay with a credit card, thank you very much!"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Thank you for your order! Your skateboard and helmet will be shipped shortly. Enjoy your ride!",
         ),
-        ("customer", "That's great! Thanks!"),
+        (EventSource.CUSTOMER, "That's great! Thanks!"),
     ]
 
     exceptions = [
@@ -459,25 +465,25 @@ def test_that_relevant_guidelines_are_matched_parametrized_1(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "I'd like to order a pizza, please."),
-        ("ai_agent", "No problem. What would you like to have?"),
-        ("customer", "I'd like a large pizza. What toppings do you have?"),
-        ("ai_agent", "Today, we have pepperoni, tomatoes, and olives available."),
-        ("customer", "I'll take pepperoni, thanks."),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "I'd like to order a pizza, please."),
+        (EventSource.AI_AGENT, "No problem. What would you like to have?"),
+        (EventSource.CUSTOMER, "I'd like a large pizza. What toppings do you have?"),
+        (EventSource.AI_AGENT, "Today, we have pepperoni, tomatoes, and olives available."),
+        (EventSource.CUSTOMER, "I'll take pepperoni, thanks."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
         ),
-        ("customer", "Sure. What types of drinks do you have?"),
-        ("ai_agent", "We have Sprite, Coke, and Fanta."),
-        ("customer", "I'll take two Sprites, please."),
-        ("ai_agent", "Anything else?"),
-        ("customer", "No, that's all. I want to pay."),
-        ("ai_agent", "No problem! We accept only cash."),
-        ("customer", "Sure, I'll pay the delivery guy."),
-        ("ai_agent", "Unfortunately, we accept payments only at our location."),
-        ("customer", "So what should I do now?"),
+        (EventSource.CUSTOMER, "Sure. What types of drinks do you have?"),
+        (EventSource.AI_AGENT, "We have Sprite, Coke, and Fanta."),
+        (EventSource.CUSTOMER, "I'll take two Sprites, please."),
+        (EventSource.AI_AGENT, "Anything else?"),
+        (EventSource.CUSTOMER, "No, that's all. I want to pay."),
+        (EventSource.AI_AGENT, "No problem! We accept only cash."),
+        (EventSource.CUSTOMER, "Sure, I'll pay the delivery guy."),
+        (EventSource.AI_AGENT, "Unfortunately, we accept payments only at our location."),
+        (EventSource.CUSTOMER, "So what should I do now?"),
     ]
     conversation_guideline_names: list[str] = [
         "check_toppings_in_stock",
@@ -503,43 +509,46 @@ def test_that_guideline_that_needs_to_be_reapplied_is_matched(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Hi! Welcome to PizzaBot, your virtual pizza assistant. How can I help you today?",
         ),
-        ("customer", "Hi, I’d like to order a pizza."),
-        ("ai_agent", "Great choice! What size would you like—small, medium, or large?"),
-        ("customer", "I’ll take a large pizza."),
+        (EventSource.CUSTOMER, "Hi, I’d like to order a pizza."),
+        (EventSource.AI_AGENT, "Great choice! What size would you like—small, medium, or large?"),
+        (EventSource.CUSTOMER, "I’ll take a large pizza."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Got it! And what type of crust would you like? We have classic, thin, stuffed, or gluten-free.",
         ),
-        ("customer", "Let’s go with stuffed crust."),
+        (EventSource.CUSTOMER, "Let’s go with stuffed crust."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Yum! Now for the toppings. Would you like a classic like pepperoni or something custom?",
         ),
-        ("customer", "Can I do half pepperoni and half veggie?"),
+        (EventSource.CUSTOMER, "Can I do half pepperoni and half veggie?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Absolutely! Your pizza will have half pepperoni and half veggie. For the veggie side, would you like a mix of mushrooms, onions, bell peppers, and olives?",
         ),
-        ("customer", "Yes, that sounds perfect."),
-        ("ai_agent", "Great! Would you like any extra cheese or dipping sauces?"),
-        ("customer", "Extra cheese for sure, and ranch dipping sauce, please."),
+        (EventSource.CUSTOMER, "Yes, that sounds perfect."),
+        (EventSource.AI_AGENT, "Great! Would you like any extra cheese or dipping sauces?"),
+        (EventSource.CUSTOMER, "Extra cheese for sure, and ranch dipping sauce, please."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Got it. A large, stuffed crust pizza with half pepperoni, half veggie, extra cheese, and ranch dipping sauce. Anything else?",
         ),
-        ("customer", "Nope, that’s all. How long will it take?"),
+        (EventSource.CUSTOMER, "Nope, that’s all. How long will it take?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Your pizza will be ready in about 25 minutes. Would you like delivery or pickup?",
         ),
-        ("customer", "Delivery please?"),
-        ("ai_agent", "Great, the total would be 10$, would you like to pay by credit or cash?"),
-        ("customer", "Actually hold up, could you add another large pizza to the order?"),
+        (EventSource.CUSTOMER, "Delivery please?"),
+        (
+            EventSource.AI_AGENT,
+            "Great, the total would be 10$, would you like to pay by credit or cash?",
+        ),
+        (EventSource.CUSTOMER, "Actually hold up, could you add another large pizza to the order?"),
     ]
 
     conversation_guideline_names: list[str] = ["large_pizza_crust"]
@@ -560,43 +569,46 @@ def test_that_guidelines_based_on_context_variables_arent_matched_repetitively(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Hi! Welcome to PizzaBot, your virtual pizza assistant. We have a special summer deal - two large pizzas for the price of one! How can I help you today?",
         ),
-        ("customer", "Hi, I’d like to order a pizza."),
-        ("ai_agent", "Great choice! What size would you like—small, medium, or large?"),
-        ("customer", "I’ll take a large pizza."),
+        (EventSource.CUSTOMER, "Hi, I’d like to order a pizza."),
+        (EventSource.AI_AGENT, "Great choice! What size would you like—small, medium, or large?"),
+        (EventSource.CUSTOMER, "I’ll take a large pizza."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Got it! And what type of crust would you like? We have classic, thin, stuffed, or gluten-free.",
         ),
-        ("customer", "Let’s go with stuffed crust."),
+        (EventSource.CUSTOMER, "Let’s go with stuffed crust."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Yum! Now for the toppings. Would you like a classic like pepperoni or something custom?",
         ),
-        ("customer", "Can I do half pepperoni and half veggie?"),
+        (EventSource.CUSTOMER, "Can I do half pepperoni and half veggie?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Absolutely! Your pizza will have half pepperoni and half veggie. For the veggie side, would you like a mix of mushrooms, onions, bell peppers, and olives?",
         ),
-        ("customer", "Yes, that sounds perfect."),
-        ("ai_agent", "Great! Would you like any extra cheese or dipping sauces?"),
-        ("customer", "Extra cheese for sure, and ranch dipping sauce, please."),
+        (EventSource.CUSTOMER, "Yes, that sounds perfect."),
+        (EventSource.AI_AGENT, "Great! Would you like any extra cheese or dipping sauces?"),
+        (EventSource.CUSTOMER, "Extra cheese for sure, and ranch dipping sauce, please."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Got it. A large, stuffed crust pizza with half pepperoni, half veggie, extra cheese, and ranch dipping sauce. Anything else?",
         ),
-        ("customer", "Nope, that’s all. How long will it take?"),
+        (EventSource.CUSTOMER, "Nope, that’s all. How long will it take?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Your pizza will be ready in about 25 minutes. Would you like delivery or pickup?",
         ),
-        ("customer", "Delivery please?"),
-        ("ai_agent", "Great, the total would be 10$, would you like to pay by credit or cash?"),
-        ("customer", "Actually hold up, could you add another large pizza to the order?"),
+        (EventSource.CUSTOMER, "Delivery please?"),
+        (
+            EventSource.AI_AGENT,
+            "Great, the total would be 10$, would you like to pay by credit or cash?",
+        ),
+        (EventSource.CUSTOMER, "Actually hold up, could you add another large pizza to the order?"),
     ]
     context_variables = [
         create_context_variable(
@@ -623,11 +635,14 @@ def test_that_guidelines_are_not_considered_done_when_they_strictly_arent(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("ai_agent", "Hey there, how can I help you?"),
-        ("customer", "I'd like to pay my credit card bill"),
-        ("ai_agent", "Sure thing. For which card, and how much would you like to pay right now?"),
-        ("customer", "For my amex please"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.AI_AGENT, "Hey there, how can I help you?"),
+        (EventSource.CUSTOMER, "I'd like to pay my credit card bill"),
+        (
+            EventSource.AI_AGENT,
+            "Sure thing. For which card, and how much would you like to pay right now?",
+        ),
+        (EventSource.CUSTOMER, "For my amex please"),
     ]
 
     conversation_guideline_names: list[str] = ["pay_cc_bill"]

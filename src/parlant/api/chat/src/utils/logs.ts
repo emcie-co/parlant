@@ -162,7 +162,7 @@ export const getMessageLogsWithFilters = async (correlation_id: string, filters:
 				const regex = new RegExp(`\\[?${word}\\]?`, 'i'); // Allow optional brackets
 				return regex.test(`[${log.level}]${log.message}`);
 			  });
-			return allWordsMatch;
+			if (!allWordsMatch) return false;
 		}
 		if (filterTypes) {
 			const match = log.message.match(/^\[([^\]]+)\]/);

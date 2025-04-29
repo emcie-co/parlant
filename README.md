@@ -1,13 +1,25 @@
 
 <div align="center">
-<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />
-  <h3>Parlant: The Conversation Modeling Engine 💬 ✅</h3>
+<!--<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />-->
+
+
+
+  <h3>Parlant: The Conversation Modeling Engine</h3>
+
+**Stop fighting with prompts and take charge of GenAI interactions!**
+
+  <a href="https://trendshift.io/repositories/12768" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12768" alt="emcie-co%2Fparlant | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+
   <p>
     <a href="https://www.parlant.io/" target="_blank">Website</a> —
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> —
     <a href="https://www.parlant.io/docs/tutorial/getting-started" target="_blank">Tutorial</a> —
     <a href="https://www.parlant.io/docs/about" target="_blank">About</a>
   </p>
+
+
+  
   <p>
     <a href="https://pypi.org/project/parlant/" alt="Parlant on PyPi"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/parlant"></a>
     <img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/parlant">
@@ -17,16 +29,35 @@
     <a href="https://discord.gg/duxWqxKk6J"><img alt="Discord" src="https://img.shields.io/discord/1312378700993663007?style=flat&logo=discord&logoColor=white&label=discord">
 </a>
   </p>
+
 </div>
 
-**IMPORTANT NOTE:** We're looking for more contributors to help get user-facing agents under control! To be a part of this effort, join our [Discord server](https://discord.gg/duxWqxKk6J) and tell us about your relevant skills and how you wish to help.
-
+## YouTube Video Intro
 [![Parlant Introduction](https://github.com/emcie-co/parlant/blob/develop/yt-preview.png?raw=true)](https://www.youtube.com/watch?v=_39ERIb0100)
+
+1. Install
+```bash
+pip install parlant
+```
+
+2. Start the server and start interact with the default agent
+```bash
+parlant-server run
+# Now visit http://localhost:8800
+```
+
+3. Add behavioral guidelines and let Parlant do the rest
+```bash
+parlant guideline create \
+    --condition "the user greets you" \
+    --action "thank them for checking out Parlant"
+# Now start a new conversation and greet the agent
+```
 
 ## What is Conversation Modeling?
 You've built an AI agent—that's great! However, when you actually test it, you see it's not handling many customer interactions properly, and your business experts are displeased with it. What do you do?
 
-Enter Conversation Modeling (CM): a new powerful and reliable approach to getting AI agents to controlling how your agents interact with your users.
+Enter Conversation Modeling (CM): a new powerful and reliable approach to controlling how your agents interact with your users.
 
 A conversation model is a structured, domain-specific set of principles, actions, objectives, and terms that an agent applies to a given conversation.
 
@@ -37,6 +68,10 @@ The problem of getting your AI agent to say what _you_ want it to say is a hard 
 - **Flow engines** (such as [Rasa](https://github.com/RasaHQ/rasa), [Botpress](https://github.com/botpress/botpress) or [LangFlow](https://github.com/langflow-ai/langflow)) _force_ the user to interact according to predefined flows. In contrast, a **CM engine** dynamically _adapts_ to a user's natural interaction patterns while conforming to your rules.
 
 - **Free-form prompt engineering** (such as with [LangGraph](https://www.langchain.com/langgraph) or [LlamaIndex](https://docs.llamaindex.ai/)) leads to _inconsistency_, frequently failing to uphold requirements. Conversely, a **CM engine** leverages structure to _enforce_ conformance to a Conversation Model.
+
+## Quick Demo
+<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/ParlantGIF.gif?raw=true" />
+
 
 ## Who uses Parlant?
 Parlant is used to deliver complex conversational agents that reliably follow your business protocols in use cases such as:
@@ -99,10 +134,9 @@ Parlant's engine revolves around solving one key problem: How can we _reliably g
 Hence Parlant's fundamentally different approach to agent building: [Managed Guidelines](https://www.parlant.io/docs/concepts/customization/guidelines):
 
 ```bash
-$ parlant guideline create \
-    --agent-id MY_AGENT_ID \
-    --condition "the customer wants to return an item" \
-    --action "get the order number and item name and then help them return it"
+parlant guideline create \
+  --condition "the customer wants to return an item" \
+  --action "get the order number and item name and then help them return it"
 ```
 
 By giving structure to behavioral guidelines, and _granularizing_ guidelines (i.e. making each behavioral guideline a first-class entity in the engine), Parlant's engine is able to offer unprecedented control, quality, and efficiency in building LLM-based agents:

@@ -11,6 +11,7 @@ import {useAtom} from 'jotai';
 import {agentAtom, customerAtom, sessionAtom} from '@/store';
 import {getAvatarColor} from '../avatar/avatar';
 import MessageRelativeTime from './message-relative-time';
+import { Switch } from '../ui/switch';
 
 interface Props {
 	event: EventInterface;
@@ -29,24 +30,35 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
 	const markdownRef = useRef<HTMLSpanElement>(null);
-	const [rowCount, setRowCount] = useState(1);
+	const [showUtterance, setShowUtterance] = useState(true);
+	const [, setRowCount] = useState(1);
 
 	useEffect(() => {
 		if (!markdownRef?.current) return;
 		const rowCount = Math.floor(markdownRef.current.offsetHeight / 24);
 		setRowCount(rowCount + 1);
-	}, [markdownRef]);
+	}, [markdownRef, showUtterance]);
 
-	const isOneLiner = rowCount === 1;
+	// FIXME:
+	// rowCount SHOULD in fact be automatically calculated to
+	// benefit from nice, smaller one-line message boxes.
+	// However, currently we couldn't make it work in all
+	// of the following use cases in draft/utterance switches:
+	// 1. When both draft and utterance are multi-line
+	// 2. When both draft and utterance are one-liners
+	// 3. When one is a one-liner and the other isn't
+	// Therefore for now I'm disabling isOneLiner
+	// until fixed.  -- Yam
+	const isOneLiner = false; // FIXME: see above
 
 	const isCustomer = event.source === 'customer' || event.source === 'customer_ui';
 	const serverStatus = event.serverStatus;
-	const isGuest = customer?.name === '<guest>';
+	const isGuest = customer?.id === 'guest';
 	const customerName = isGuest ? 'G' : customer?.name?.[0]?.toUpperCase();
 	const isViewingCurrentMessage = showLogsForMessage && showLogsForMessage.id === event.id;
 	const colorPallete = getAvatarColor((isCustomer ? customer?.id : agent?.id) || '', isCustomer ? 'customer' : 'agent');
 	const name = isCustomer ? customer?.name : agent?.name;
-	const formattedName = name === '<guest>' ? 'Guest' : name;
+	const formattedName = (isCustomer && isGuest) ? 'Guest' : name;
 
 	return (
 		<>
@@ -62,7 +74,21 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								</div>
 								<div className='font-medium text-[14px] text-[#282828]'>{formattedName}</div>
 							</div>
-							<MessageRelativeTime event={event} />
+							<div className='flex'>
+								{!isCustomer && event.data?.draft && (
+									<div className="flex">
+										<div className='text-[14px] text-[#A9A9A9] font-light mr-1'>
+											{showUtterance ? 'Utterance' : 'Draft'}
+										</div>
+										<div className="mr-4">
+											<Switch
+												checked={showUtterance}
+												onCheckedChange={setShowUtterance} />
+										</div>
+									</div>
+								)}
+								<MessageRelativeTime event={event} />
+							</div>
 						</div>
 					)}
 					<div className='flex items-center relative max-w-full'>
@@ -91,7 +117,9 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 								)}>
 								<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 									<span ref={markdownRef}>
-										<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message}</Markdown>
+										<Markdown className={twJoin(!isOneLiner && 'leading-[26px]', !showUtterance && 'text-gray-400')}>
+											{(showUtterance ? event?.data?.message : event?.data?.draft) || ''}
+										</Markdown>
 									</span>
 								</div>
 								<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}></div>

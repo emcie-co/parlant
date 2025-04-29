@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Sequence, cast
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
-from parlant.core.sessions import Event, EventSource, MessageEventData, ToolEventData
+from parlant.core.sessions import Event, EventKind, EventSource, MessageEventData, ToolEventData
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.utils import (
     context_variables_to_json,
@@ -119,7 +119,7 @@ class PromptBuilder:
     def adapt_event(e: Event | EmittedEvent) -> str:
         data = e.data
 
-        if e.kind == "message":
+        if e.kind == EventKind.MESSAGE:
             message_data = cast(MessageEventData, e.data)
 
             if message_data.get("flagged"):
@@ -135,7 +135,7 @@ class PromptBuilder:
                     "message": message_data["message"],
                 }
 
-        if e.kind == "tool":
+        if e.kind == EventKind.TOOL:
             tool_data = cast(ToolEventData, e.data)
 
             data = {
@@ -150,17 +150,17 @@ class PromptBuilder:
             }
 
         source_map: dict[EventSource, str] = {
-            "customer": "user",
-            "customer_ui": "frontend_application",
-            "human_agent": "human_service_agent",
-            "human_agent_on_behalf_of_ai_agent": "ai_agent",
-            "ai_agent": "ai_agent",
-            "system": "system-provided",
+            EventSource.CUSTOMER: "user",
+            EventSource.CUSTOMER_UI: "frontend_application",
+            EventSource.HUMAN_AGENT: "human_service_agent",
+            EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: "ai_agent",
+            EventSource.AI_AGENT: "ai_agent",
+            EventSource.SYSTEM: "system-provided",
         }
 
         return json.dumps(
             {
-                "event_kind": e.kind,
+                "event_kind": e.kind.value,
                 "event_source": source_map[e.source],
                 "data": data,
             }
@@ -211,7 +211,7 @@ The user you're interacting with is called {customer_name}.
         events: Sequence[Event],
     ) -> PromptBuilder:
         if events:
-            interaction_events = [self.adapt_event(e) for e in events if e.kind != "status"]
+            interaction_events = [self.adapt_event(e) for e in events if e.kind != EventKind.STATUS]
 
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
@@ -285,7 +285,9 @@ and let the user know if/when you assume they meant a term by their typo: ###
         events: Sequence[EmittedEvent],
     ) -> PromptBuilder:
         if events:
-            staged_events_as_dict = [self.adapt_event(e) for e in events if e.kind == "tool"]
+            staged_events_as_dict = [
+                self.adapt_event(e) for e in events if e.kind == EventKind.TOOL
+            ]
 
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,

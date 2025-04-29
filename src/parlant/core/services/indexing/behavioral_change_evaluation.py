@@ -21,10 +21,13 @@ from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import md5_checksum
 from parlant.core.evaluations import (
     CoherenceCheck,
+    CoherenceCheckKind,
     EntailmentRelationshipProposition,
+    EntailmentRelationshipPropositionKind,
     Evaluation,
     EvaluationStatus,
     EvaluationId,
+    GuidelinePayloadOperation,
     Invoice,
     InvoiceGuidelineData,
     Payload,
@@ -155,7 +158,11 @@ class GuidelineEvaluator:
 
         guidelines_to_skip = [(p.content, False) for p in payloads if not p.coherence_check]
 
-        updated_ids = {cast(GuidelineId, p.updated_id) for p in payloads if p.operation == "update"}
+        updated_ids = {
+            cast(GuidelineId, p.updated_id)
+            for p in payloads
+            if p.operation == GuidelinePayloadOperation.UPDATE
+        }
 
         remaining_existing_guidelines = []
 
@@ -204,10 +211,10 @@ class GuidelineEvaluator:
                     f"{c.guideline_a.condition}{c.guideline_a.action}"
                 ].append(
                     CoherenceCheck(
-                        kind="contradiction_with_another_evaluated_guideline"
+                        kind=CoherenceCheckKind.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE
                         if f"{c.guideline_b.condition}{c.guideline_b.action}"
                         in coherence_checks_by_guideline_payload
-                        else "contradiction_with_existing_guideline",
+                        else CoherenceCheckKind.CONTRADICTION_WITH_EXISTING_GUIDELINE,
                         first=c.guideline_a,
                         second=c.guideline_b,
                         issue=c.actions_contradiction_rationale,
@@ -226,7 +233,7 @@ class GuidelineEvaluator:
                     f"{c.guideline_b.condition}{c.guideline_b.action}"
                 ].append(
                     CoherenceCheck(
-                        kind="contradiction_with_another_evaluated_guideline",
+                        kind=CoherenceCheckKind.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE,
                         first=c.guideline_a,
                         second=c.guideline_b,
                         issue=c.actions_contradiction_rationale,
@@ -247,7 +254,9 @@ class GuidelineEvaluator:
 
         guidelines_to_skip = [(p.content, False) for p in payloads if not p.connection_proposition]
 
-        updated_ids = {p.updated_id for p in payloads if p.operation == "update"}
+        updated_ids = {
+            p.updated_id for p in payloads if p.operation == GuidelinePayloadOperation.UPDATE
+        }
 
         remaining_existing_guidelines = [
             (GuidelineContent(condition=g.content.condition, action=g.content.action), True)
@@ -287,10 +296,10 @@ class GuidelineEvaluator:
                     f"{c.source.condition}{c.source.action}"
                 ].append(
                     EntailmentRelationshipProposition(
-                        check_kind="connection_with_another_evaluated_guideline"
+                        check_kind=EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
                         if f"{c.target.condition}{c.target.action}"
                         in connection_results_by_guideline_payload
-                        else "connection_with_existing_guideline",
+                        else EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE,
                         source=c.source,
                         target=c.target,
                     )
@@ -304,10 +313,10 @@ class GuidelineEvaluator:
                     f"{c.target.condition}{c.target.action}"
                 ].append(
                     EntailmentRelationshipProposition(
-                        check_kind="connection_with_another_evaluated_guideline"
+                        check_kind=EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
                         if f"{c.source.condition}{c.source.action}"
                         in connection_results_by_guideline_payload
-                        else "connection_with_existing_guideline",
+                        else EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE,
                         source=c.source,
                         target=c.target,
                     )

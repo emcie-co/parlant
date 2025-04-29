@@ -68,7 +68,7 @@ const AgentList = (): ReactNode => {
 						className={clsx('cursor-pointer hover:bg-[#FBFBFB] min-h-[78px] h-[78px] w-full border-b-[0.6px] border-b-solid border-b-[#EBECF0] flex items-center ps-[30px] pe-[20px]')}>
 						<Avatar agent={entity} tooltip={false} />
 						<div>
-							<div className='text-[16px] font-medium'>{entity.name === '<guest>' ? 'Guest' : entity.name}</div>
+							<div className='text-[16px] font-medium'>{entity.id === 'guest' ? 'Guest' : entity.name}</div>
 							<div className='text-[14px] font-light text-[#A9A9A9]'>(id={entity.id})</div>
 						</div>
 					</div>

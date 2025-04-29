@@ -50,7 +50,7 @@ from parlant.core.engines.alpha.guideline_match import (
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.sessions import EventSource
+from parlant.core.sessions import EventKind, EventSource
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId
 
@@ -228,7 +228,7 @@ def match_guidelines(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
-    conversation_context: list[tuple[str, str]],
+    conversation_context: list[tuple[EventSource, str]],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
     staged_events: Sequence[EmittedEvent] = [],
@@ -236,7 +236,7 @@ def match_guidelines(
     interaction_history = [
         create_event_message(
             offset=i,
-            source=cast(EventSource, source),
+            source=source,
             message=message,
         )
         for i, (source, message) in enumerate(conversation_context)
@@ -326,7 +326,7 @@ def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
-    conversation_context: list[tuple[str, str]],
+    conversation_context: list[tuple[EventSource, str]],
     conversation_guideline_names: list[str],
     relevant_guideline_names: list[str],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
@@ -361,37 +361,55 @@ def test_that_relevant_guidelines_are_matched_parametrized_2(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "I'm feeling a bit stressed about coming in. Can I cancel my class for today?",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "I'm sorry to hear that. While cancellation is not possible now, "
             "how about a lighter session? Maybe it helps to relax.",
         ),
-        ("customer", "I suppose that could work. What do you suggest?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I suppose that could work. What do you suggest?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "How about our guided meditation session every Tuesday evening at 20:00? "
             "It's very calming and might be just what you need right now.",
         ),
-        ("customer", "Alright, please book me into that. Thank you for understanding."),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "Alright, please book me into that. Thank you for understanding.",
+        ),
+        (
+            EventSource.AI_AGENT,
             "You're welcome! I've switched your booking to the meditation session. "
             "Remember, it's okay to feel stressed. We're here to support you.",
         ),
-        ("customer", "Thanks, I really appreciate it."),
-        ("ai_agent", "Anytime! Is there anything else I can assist you with today?"),
-        ("customer", "No, that's all for now."),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "Thanks, I really appreciate it.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Anytime! Is there anything else I can assist you with today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "No, that's all for now.",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Take care and see you soon at the meditation class. "
             "Our gym is at the mall on the 2nd floor.",
         ),
-        ("customer", "Thank you!"),
+        (
+            EventSource.CUSTOMER,
+            "Thank you!",
+        ),
     ]
     conversation_guideline_names: list[str] = [
         "class_booking",
@@ -415,23 +433,29 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "I'd like to order a pizza, please."),
-        ("ai_agent", "No problem. What would you like to have?"),
-        ("customer", "I'd like a large pizza. What toppings do you have?"),
-        ("ai_agent", "Today we have pepperoni, tomatoes, and olives available."),
-        ("customer", "I'll take pepperoni, thanks."),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "I'd like to order a pizza, please."),
+        (EventSource.AI_AGENT, "No problem. What would you like to have?"),
+        (EventSource.CUSTOMER, "I'd like a large pizza. What toppings do you have?"),
+        (EventSource.AI_AGENT, "Today we have pepperoni, tomatoes, and olives available."),
+        (EventSource.CUSTOMER, "I'll take pepperoni, thanks."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
         ),
-        ("customer", "Sure. What types of drinks do you have?"),
-        ("ai_agent", "We have Sprite, Coke, and Fanta."),
-        ("customer", "I'll take two Sprites, please."),
-        ("ai_agent", "Anything else?"),
-        ("customer", "No, that's all."),
-        ("ai_agent", "How would you like to pay?"),
-        ("customer", "I'll pick it up and pay in cash, thanks."),
+        (
+            EventSource.CUSTOMER,
+            "Sure. What types of drinks do you have?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We have Sprite, Coke, and Fanta.",
+        ),
+        (EventSource.CUSTOMER, "I'll take two Sprites, please."),
+        (EventSource.AI_AGENT, "Anything else?"),
+        (EventSource.CUSTOMER, "No, that's all."),
+        (EventSource.AI_AGENT, "How would you like to pay?"),
+        (EventSource.CUSTOMER, "I'll pick it up and pay in cash, thanks."),
     ]
 
     conversation_guideline_names: list[str] = ["check_toppings_in_stock", "check_drinks_in_stock"]
@@ -471,7 +495,12 @@ def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
         ),
     ]
 
-    guideline_matches = match_guidelines(context, agent, customer, [("customer", "Hello there")])
+    guideline_matches = match_guidelines(
+        context,
+        agent,
+        customer,
+        [(EventSource.CUSTOMER, "Hello there")],
+    )
 
     assert len(guideline_matches) == len(relevant_guidelines)
     assert all(gp.guideline in relevant_guidelines for gp in guideline_matches)
@@ -495,26 +524,32 @@ def test_that_guidelines_are_matched_based_on_agent_description(
         tags=[],
     )
 
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey, do you sell skateboards?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey, do you sell skateboards?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Yes, we do! We have a variety of skateboards for all skill levels. Are you looking for something specific?",
         ),
-        ("customer", "I'm looking for a skateboard for a beginner. What do you recommend?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I'm looking for a skateboard for a beginner. What do you recommend?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "For beginners, I recommend our complete skateboards with a sturdy deck and softer wheels for easier control. Would you like to see some options?",
         ),
-        ("customer", "That sounds perfect. Can you show me a few?"),
+        (EventSource.CUSTOMER, "That sounds perfect. Can you show me a few?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Sure! We have a few options: the 'Smooth Ride' model, the 'City Cruiser,' and the 'Basic Starter.' Which one would you like to know more about?",
         ),
-        ("customer", "I like the 'City Cruiser.' What color options do you have?"),
-        ("ai_agent", "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?"),
+        (EventSource.CUSTOMER, "I like the 'City Cruiser.' What color options do you have?"),
         (
-            "customer",
+            EventSource.AI_AGENT,
+            "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?",
+        ),
+        (
+            EventSource.CUSTOMER,
             "I'll go with the blue one. My credit card number is 4242 4242 4242 4242, please charge it and ship the product to my address.",
         ),
     ]
@@ -549,23 +584,29 @@ def test_that_guidelines_are_matched_based_on_glossary(
             tags=[Tag.for_agent_id(agent.id)],
         ),
     ]
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hi, I'm looking for a hiking route through a forest. Can you help me?"),
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "Hi, I'm looking for a hiking route through a forest. Can you help me?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Of course! I can help you find a trail. Are you looking for an easy, moderate, or challenging hike?",
         ),
-        ("customer", "I'd prefer something moderate, not too easy but also not too tough."),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I'd prefer something moderate, not too easy but also not too tough.",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Great choice! We have a few moderate trails in the Redwood Forest and the Pinewood Trail. Would you like details on these?",
         ),
-        ("customer", "Yes, tell me more about the Pinewood Trail."),
+        (EventSource.CUSTOMER, "Yes, tell me more about the Pinewood Trail."),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "The Pinewood Trail is a 6-mile loop with moderate elevation changes. It takes about 3-4 hours to complete. The scenery is beautiful, with plenty of shade and a stream crossing halfway through. Would you like to go with that one?",
         ),
-        ("customer", "I have PRS, would that route be suitable for me?"),
+        (EventSource.CUSTOMER, "I have PRS, would that route be suitable for me?"),
     ]
     conversation_guideline_names: list[str] = ["tree_allergies"]
     relevant_guideline_names = ["tree_allergies"]
@@ -585,40 +626,64 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey, do you sell skateboards?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey, do you sell skateboards?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Yes, we do! We have a variety of skateboards for all skill levels. Are you looking for something specific?",
         ),
-        ("customer", "I'm looking for a skateboard for a beginner. What do you recommend?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I'm looking for a skateboard for a beginner. What do you recommend?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "For beginners, I recommend our complete skateboards with a sturdy deck and softer wheels for easier control. Would you like to see some options?",
         ),
-        ("customer", "That sounds perfect. Can you show me a few?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "That sounds perfect. Can you show me a few?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Sure! We have a few options: the 'Smooth Ride' model, the 'City Cruiser,' and the 'Basic Starter.' Which one would you like to know more about?",
         ),
-        ("customer", "I like the 'City Cruiser.' What color options do you have?"),
-        ("ai_agent", "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?"),
-        ("customer", "I'll go with the blue one."),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I like the 'City Cruiser.' What color options do you have?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "The 'City Cruiser' comes in red, blue, and black. Which one do you prefer?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'll go with the blue one.",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Great choice! I'll add the blue 'City Cruiser' to your cart. Would you like to add any accessories like a helmet or grip tape?",
         ),
-        ("customer", "Yes, I'll take a helmet. What do you have in stock?"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "Yes, I'll take a helmet. What do you have in stock?",
+        ),
+        (
+            EventSource.AI_AGENT,
             "We have helmets in small, medium, and large sizes, all available in black and gray. What size do you need?",
         ),
-        ("customer", "I need a medium. I'll take one in black."),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I need a medium. I'll take one in black.",
+        ),
+        (
+            EventSource.AI_AGENT,
             "Got it! Your blue 'City Cruiser' skateboard and black medium helmet are ready for checkout. How would you like to pay?",
         ),
-        ("customer", "I'll pay with a credit card, thanks."),
+        (
+            EventSource.CUSTOMER,
+            "I'll pay with a credit card, thanks.",
+        ),
     ]
     conversation_guideline_names: list[str] = ["credit_payment1", "credit_payment2"]
     relevant_guideline_names = conversation_guideline_names
@@ -637,16 +702,16 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_vari
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "Hi there, I want a drink that's on the sweeter side, what would you suggest?",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Hi there! Let me take a quick look at your account to recommend the best product for you. Could you please provide your full name?",
         ),
-        ("customer", "I'm Bob Bobberson"),
+        (EventSource.CUSTOMER, "I'm Bob Bobberson"),
     ]
     tool_result_1 = cast(
         JSONSerializable,
@@ -674,8 +739,12 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_vari
         },
     )
     staged_events = [
-        EmittedEvent(source="ai_agent", kind="tool", correlation_id="", data=tool_result_1),
-        EmittedEvent(source="ai_agent", kind="tool", correlation_id="", data=tool_result_2),
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result_1
+        ),
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result_2
+        ),
     ]
     context_variables = [
         create_context_variable(
@@ -713,16 +782,16 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "Hi there, I want a drink that's on the sweeter side, what would you suggest?",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Hi there! Let me take a quick look at your account to recommend the best product for you. Could you please provide your ID number?",
         ),
-        ("customer", "It's 199877"),
+        (EventSource.CUSTOMER, "It's 199877"),
     ]
 
     tool_result_1 = cast(
@@ -751,8 +820,18 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_
         },
     )
     staged_events = [
-        EmittedEvent(source="ai_agent", kind="tool", correlation_id="", data=tool_result_1),
-        EmittedEvent(source="ai_agent", kind="tool", correlation_id="", data=tool_result_2),
+        EmittedEvent(
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            correlation_id="",
+            data=tool_result_1,
+        ),
+        EmittedEvent(
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            correlation_id="",
+            data=tool_result_2,
+        ),
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
     relevant_guideline_names = ["suggest_drink_underage"]
@@ -772,18 +851,15 @@ def test_that_already_addressed_guidelines_arent_matched(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey there, can I get one cheese pizza?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey there, can I get one cheese pizza?"),
+        (EventSource.AI_AGENT, "Of course! What toppings would you like?"),
+        (EventSource.CUSTOMER, "Mushrooms if they're fresh"),
         (
-            "ai_agent",
-            "Of course! What toppings would you like?",
-        ),
-        ("customer", "Mushrooms if they're fresh"),
-        (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "All of our toppings are fresh! Are you collecting it from our shop or should we ship it to your address?",
         ),
-        ("customer", "Ship it to my address please"),
+        (EventSource.CUSTOMER, "Ship it to my address please"),
     ]
     conversation_guideline_names: list[str] = ["cheese_pizza"]
     base_test_that_correct_guidelines_are_matched(
@@ -796,18 +872,18 @@ def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey there, can I get one cheese pizza?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey there, can I get one cheese pizza?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Of course! What toppings would you like on your pie?",
         ),
-        ("customer", "Mushrooms if they're fresh"),
+        (EventSource.CUSTOMER, "Mushrooms if they're fresh"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "All of our toppings are fresh! Are you collecting the pie from our shop or should we ship it to your address?",
         ),
-        ("customer", "Ship it to my address please"),
+        (EventSource.CUSTOMER, "Ship it to my address please"),
     ]
     conversation_guideline_names: list[str] = ["cheese_pizza_process"]
     relevant_guideline_names = conversation_guideline_names
@@ -826,18 +902,24 @@ def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "Hey there, can I get one cheese pizza?"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hey there, can I get one cheese pizza?"),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "No, we don't have those",
         ),
-        ("customer", "I thought you're a pizza shop, this is very frustrating"),
         (
-            "ai_agent",
+            EventSource.CUSTOMER,
+            "I thought you're a pizza shop, this is very frustrating",
+        ),
+        (
+            EventSource.AI_AGENT,
             "I don't know what to tell you, we're out ingredients at this time",
         ),
-        ("customer", "What the heck! I'm never ordering from you guys again"),
+        (
+            EventSource.CUSTOMER,
+            "What the heck! I'm never ordering from you guys again",
+        ),
     ]
     conversation_guideline_names: list[str] = ["frustrated_customer"]
     relevant_guideline_names = conversation_guideline_names
@@ -856,9 +938,9 @@ def test_that_guideline_isnt_detected_based_on_its_action(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "There's currently a 20 percent discount on all items! Ride the Future, One Kick at a Time!",
         ),
     ]
@@ -879,17 +961,17 @@ def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_rea
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "The count is on 0! Your turn",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "I choose to add to the count. The count is now 2.",
         ),
         (
-            "customer",
+            EventSource.CUSTOMER,
             "add one to the count please",
         ),
     ]
@@ -910,9 +992,9 @@ def test_that_guideline_with_initial_response_is_matched(
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "Hello!",
         ),
     ]
@@ -933,16 +1015,19 @@ def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_a_few_
     agent: Agent,
     customer: Customer,
 ) -> None:
-    conversation_context: list[tuple[str, str]] = [
+    conversation_context: list[tuple[EventSource, str]] = [
         (
-            "customer",
+            EventSource.CUSTOMER,
             "Hi there! I was wondering - what's the life expectancy of owls?",
         ),
         (
-            "ai_agent",
+            EventSource.AI_AGENT,
             "Owls are amazing depending on the species owls can live 5 to 30 years in the wild and even longer in captivity wow owls are incredible",
         ),
-        ("customer", "That's shorter than I expected, thank you!"),
+        (
+            EventSource.CUSTOMER,
+            "That's shorter than I expected, thank you!",
+        ),
     ]
     conversation_guideline_names: list[str] = ["many_actions"]
     base_test_that_correct_guidelines_are_matched(
@@ -1087,8 +1172,8 @@ def test_that_strategy_for_specific_guideline_can_be_overridden_in_default_strat
     create_guideline(context, "ask for drink", "check stock")
     create_guideline(context, "customer needs help", "assist customer")
 
-    conversation_context: list[tuple[str, str]] = [
-        ("customer", "I want help with my order"),
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "I want help with my order"),
     ]
 
     guideline_matches = match_guidelines(context, agent, customer, conversation_context)

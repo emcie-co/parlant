@@ -61,18 +61,27 @@ class PayloadKind(Enum):
     GUIDELINE = auto()
 
 
-CoherenceCheckKind = Literal[
-    "contradiction_with_existing_guideline", "contradiction_with_another_evaluated_guideline"
-]
-EntailmentRelationshipPropositionKind = Literal[
-    "connection_with_existing_guideline", "connection_with_another_evaluated_guideline"
-]
+class CoherenceCheckKind(Enum):
+    CONTRADICTION_WITH_EXISTING_GUIDELINE = "contradiction_with_existing_guideline"
+    CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE = (
+        "contradiction_with_another_evaluated_guideline"
+    )
+
+
+class EntailmentRelationshipPropositionKind(Enum):
+    CONNECTION_WITH_EXISTING_GUIDELINE = "connection_with_existing_guideline"
+    CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE = "connection_with_another_evaluated_guideline"
+
+
+class GuidelinePayloadOperation(Enum):
+    ADD = "add"
+    UPDATE = "update"
 
 
 @dataclass(frozen=True)
 class GuidelinePayload:
     content: GuidelineContent
-    operation: Literal["add", "update"]
+    operation: GuidelinePayloadOperation
     coherence_check: bool
     connection_proposition: bool
     updated_id: Optional[GuidelineId] = None
@@ -190,7 +199,7 @@ _PayloadDocument = Union[_GuidelinePayloadDocument]
 
 
 class _CoherenceCheckDocument(TypedDict):
-    kind: CoherenceCheckKind
+    kind: str
     first: _GuidelineContentDocument
     second: _GuidelineContentDocument
     issue: str
@@ -198,7 +207,7 @@ class _CoherenceCheckDocument(TypedDict):
 
 
 class _ConnectionPropositionDocument(TypedDict):
-    check_kind: EntailmentRelationshipPropositionKind
+    check_kind: str
     source: _GuidelineContentDocument
     target: _GuidelineContentDocument
 
@@ -272,7 +281,7 @@ class EvaluationDocumentStore(EvaluationStore):
     def _serialize_invoice(self, invoice: Invoice) -> _InvoiceDocument:
         def serialize_coherence_check(check: CoherenceCheck) -> _CoherenceCheckDocument:
             return _CoherenceCheckDocument(
-                kind=check.kind,
+                kind=check.kind.value,
                 first=_GuidelineContentDocument(
                     condition=check.first.condition,
                     action=check.first.action,
@@ -289,7 +298,7 @@ class EvaluationDocumentStore(EvaluationStore):
             cp: EntailmentRelationshipProposition,
         ) -> _ConnectionPropositionDocument:
             return _ConnectionPropositionDocument(
-                check_kind=cp.check_kind,
+                check_kind=cp.check_kind.value,
                 source=_GuidelineContentDocument(
                     condition=cp.source.condition,
                     action=cp.source.action,
@@ -319,7 +328,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         condition=payload.content.condition,
                         action=payload.content.action,
                     ),
-                    action=payload.operation,
+                    action=payload.operation.value,
                     updated_id=payload.updated_id,
                     coherence_check=payload.coherence_check,
                     connection_proposition=payload.connection_proposition,
@@ -364,7 +373,7 @@ class EvaluationDocumentStore(EvaluationStore):
 
         def deserialize_coherence_check_document(cc_doc: _CoherenceCheckDocument) -> CoherenceCheck:
             return CoherenceCheck(
-                kind=cc_doc["kind"],
+                kind=CoherenceCheckKind(cc_doc["kind"]),
                 first=deserialize_guideline_content_document(cc_doc["first"]),
                 second=deserialize_guideline_content_document(cc_doc["second"]),
                 issue=cc_doc["issue"],
@@ -375,7 +384,7 @@ class EvaluationDocumentStore(EvaluationStore):
             cp_doc: _ConnectionPropositionDocument,
         ) -> EntailmentRelationshipProposition:
             return EntailmentRelationshipProposition(
-                check_kind=cp_doc["check_kind"],
+                check_kind=EntailmentRelationshipPropositionKind(cp_doc["check_kind"]),
                 source=deserialize_guideline_content_document(cp_doc["source"]),
                 target=deserialize_guideline_content_document(cp_doc["target"]),
             )
@@ -407,7 +416,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         condition=payload_doc["content"]["condition"],
                         action=payload_doc["content"]["action"],
                     ),
-                    operation=payload_doc["action"],
+                    operation=GuidelinePayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],
                     coherence_check=payload_doc["coherence_check"],
                     connection_proposition=payload_doc["connection_proposition"],

@@ -21,8 +21,8 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
-from parlant.core.engines.alpha.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
 from parlant.core.sessions import Event, Session

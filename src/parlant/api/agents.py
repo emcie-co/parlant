@@ -18,7 +18,7 @@ from pydantic import Field
 from typing import Annotated, Optional, Sequence, TypeAlias
 
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
+from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.tags import TagId, TagStore
 
@@ -217,6 +217,32 @@ class AgentUpdateParamsDTO(
     tags: Optional[AgentTagUpdateParamsDTO] = None
 
 
+def _composition_mode_dto_to_composition_mode(dto: CompositionModeDTO) -> CompositionMode:
+    match dto:
+        case CompositionModeDTO.FLUID:
+            return CompositionMode.FLUID
+        case CompositionModeDTO.STRICT_UTTERANCE:
+            return CompositionMode.STRICT_UTTERANCE
+        case CompositionModeDTO.COMPOSITED_UTTERANCE:
+            return CompositionMode.COMPOSITED_UTTERANCE
+        case CompositionModeDTO.FLUID_UTTERANCE:
+            return CompositionMode.FLUID_UTTERANCE
+
+
+def _composition_mode_to_composition_mode_dto(
+    composition_mode: CompositionMode,
+) -> CompositionModeDTO:
+    match composition_mode:
+        case CompositionMode.FLUID:
+            return CompositionModeDTO.FLUID
+        case CompositionMode.STRICT_UTTERANCE:
+            return CompositionModeDTO.STRICT_UTTERANCE
+        case CompositionMode.COMPOSITED_UTTERANCE:
+            return CompositionModeDTO.COMPOSITED_UTTERANCE
+        case CompositionMode.FLUID_UTTERANCE:
+            return CompositionModeDTO.FLUID_UTTERANCE
+
+
 def create_router(
     agent_store: AgentStore,
     tag_store: TagStore,
@@ -265,7 +291,7 @@ def create_router(
             name=params and params.name or "Unnamed Agent",
             description=params and params.description or None,
             max_engine_iterations=params and params.max_engine_iterations or None,
-            composition_mode=params.composition_mode.value
+            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
             if params and params.composition_mode
             else None,
             tags=tags or None,
@@ -277,7 +303,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -309,7 +335,7 @@ def create_router(
                 description=a.description,
                 creation_utc=a.creation_utc,
                 max_engine_iterations=a.max_engine_iterations,
-                composition_mode=CompositionModeDTO(a.composition_mode),
+                composition_mode=_composition_mode_to_composition_mode_dto(a.composition_mode),
                 tags=a.tags,
             )
             for a in agents
@@ -344,7 +370,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -390,7 +416,9 @@ def create_router(
                 params["max_engine_iterations"] = dto.max_engine_iterations
 
             if dto.composition_mode:
-                params["composition_mode"] = dto.composition_mode.value
+                params["composition_mode"] = _composition_mode_dto_to_composition_mode(
+                    dto.composition_mode
+                )
 
             return params
 
@@ -422,7 +450,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 

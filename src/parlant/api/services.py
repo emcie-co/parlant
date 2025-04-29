@@ -12,16 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from enum import Enum
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import Field
 
-from parlant.api.common import apigen_config, ExampleJson, ServiceNameField, ToolNameField
+from parlant.api.common import (
+    ToolDTO,
+    apigen_config,
+    ExampleJson,
+    ServiceNameField,
+    tool_to_dto,
+)
 from parlant.core.common import DefaultBaseModel
 from parlant.core.services.tools.plugins import PluginClient
-from parlant.core.tools import Tool, ToolParameterDescriptor
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
 from parlant.core.tools import ToolService
@@ -42,19 +46,6 @@ class ToolServiceKindDTO(Enum):
 
     SDK = "sdk"
     OPENAPI = "openapi"
-
-
-class ToolParameterTypeDTO(Enum):
-    """
-    The supported data types for tool parameters.
-
-    Each type corresponds to a specific JSON Schema type and validation rules.
-    """
-
-    STRING = "string"
-    NUMBER = "number"
-    INTEGER = "integer"
-    BOOLEAN = "boolean"
 
 
 ServiceParamsURLField: TypeAlias = Annotated[
@@ -156,126 +147,6 @@ class ServiceUpdateParamsDTO(
     openapi: Optional[ServiceUpdateOpenAPIServiceParamsField] = None
 
 
-EnumValueTypeDTO: TypeAlias = str | int
-
-ToolParameterDescriptionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Detailed description of what the parameter does and how it should be used",
-        examples=["Email address of the recipient", "Maximum number of retries allowed"],
-    ),
-]
-
-ToolParameterEnumField: TypeAlias = Annotated[
-    Sequence[EnumValueTypeDTO],
-    Field(
-        description="List of allowed values for string or integer parameters. If provided, the parameter value must be one of these options.",
-        examples=[["high", "medium", "low"], [1, 2, 3, 5, 8, 13]],
-    ),
-]
-
-
-tool_parameter_example: ExampleJson = {
-    "type": "string",
-    "description": "Priority level for the email",
-    "enum": ["high", "medium", "low"],
-}
-
-
-class ToolParameterDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tool_parameter_example},
-):
-    """
-    Defines a parameter that can be passed to a tool.
-
-    Parameters can have different types with optional constraints like enums.
-    Each parameter can include a description to help users understand its purpose.
-    """
-
-    type: ToolParameterTypeDTO
-    description: Optional[ToolParameterDescriptionField] = None
-    enum: Optional[ToolParameterEnumField] = None
-
-
-ToolCreationUTCField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="UTC timestamp when the tool was first registered with the system",
-        examples=["2024-03-24T12:00:00Z"],
-    ),
-]
-
-ToolDescriptionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Detailed description of the tool's purpose and behavior",
-        examples=[
-            "Sends an email to specified recipients with optional attachments",
-            "Processes a payment transaction and returns confirmation details",
-        ],
-    ),
-]
-
-ToolParametersField: TypeAlias = Annotated[
-    dict[str, ToolParameterDTO],
-    Field(
-        description="Dictionary mapping parameter names to their definitions",
-        examples=[
-            {
-                "recipient": {"type": "string", "description": "Email address to send to"},
-                "amount": {"type": "number", "description": "Payment amount in dollars"},
-            }
-        ],
-    ),
-]
-
-ToolRequiredField: TypeAlias = Annotated[
-    Sequence[str],
-    Field(
-        description="List of parameter names that must be provided when calling the tool",
-        examples=[["recipient", "subject"], ["payment_id", "amount"]],
-    ),
-]
-
-
-tool_example: ExampleJson = {
-    "creation_utc": "2024-03-24T12:00:00Z",
-    "name": "send_email",
-    "description": "Sends an email to specified recipients with configurable priority",
-    "parameters": {
-        "to": {"type": "string", "description": "Recipient email address"},
-        "subject": {"type": "string", "description": "Email subject line"},
-        "body": {"type": "string", "description": "Email body content"},
-        "priority": {
-            "type": "string",
-            "description": "Priority level for the email",
-            "enum": ["high", "medium", "low"],
-        },
-    },
-    "required": ["to", "subject", "body"],
-}
-
-
-class ToolDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tool_example},
-):
-    """
-    Represents a single function provided by an integrated service.
-
-    Tools are the primary way for agents to interact with external services.
-    Each tool has defined parameters and can be invoked when those parameters
-    are satisfied.
-    """
-
-    creation_utc: ToolCreationUTCField
-    name: ToolNameField
-    description: ToolDescriptionField
-    parameters: ToolParametersField
-    required: ToolRequiredField
-
-
 ServiceURLField: TypeAlias = Annotated[
     str,
     Field(
@@ -334,27 +205,6 @@ class ServiceDTO(
     kind: ToolServiceKindDTO
     url: ServiceURLField
     tools: Optional[ServiceToolsField] = None
-
-
-def _tool_parameters_to_dto(parameters: ToolParameterDescriptor) -> ToolParameterDTO:
-    return ToolParameterDTO(
-        type=ToolParameterTypeDTO(parameters["type"]),
-        description=parameters["description"] if "description" in parameters else None,
-        enum=parameters["enum"] if "enum" in parameters else None,
-    )
-
-
-def _tool_to_dto(tool: Tool) -> ToolDTO:
-    return ToolDTO(
-        creation_utc=tool.creation_utc,
-        name=tool.name,
-        description=tool.description,
-        parameters={
-            name: _tool_parameters_to_dto(descriptor)
-            for name, (descriptor, _) in tool.parameters.items()
-        },
-        required=tool.required,
-    )
 
 
 def _get_service_kind(service: ToolService) -> ToolServiceKindDTO:
@@ -596,7 +446,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
             name=name,
             kind=_get_service_kind(service),
             url=_get_service_url(service),
-            tools=[_tool_to_dto(t) for t in await service.list_tools()],
+            tools=[tool_to_dto(t) for t in await service.list_tools()],
         )
 
     return router

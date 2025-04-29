@@ -15,7 +15,7 @@ const MessageLog = ({log}: {log: Log}) => {
 	const openLogs = (text: string) => {
 		const element = (
 			<pre ref={ref} className='group rounded-[12px] fixed-scroll font-light font-ibm-plex-mono  border-y-[10px] border-white text-wrap text-[#333] relative overflow-auto h-[100%]'>
-				<div className='invisble w-fit [justify-self:end] z-[999] group-hover:visible flex sticky top-[-4px] -mt-[4px] right-[10px] justify-end'>
+				<div className='invisble w-fit [justify-self:end] z-[999] group-hover:visible flex fixed top-[10px] right-[10px] justify-end'>
 					<div className='flex justify-end bg-white p-[10px] gap-[20px] rounded-lg w-fit'>
 						<Tooltip value='Copy' side='top'>
 							<img src='icons/copy.svg' alt='' onClick={() => copy(text, ref?.current || undefined)} className='cursor-pointer' />

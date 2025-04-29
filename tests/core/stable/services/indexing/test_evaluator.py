@@ -19,10 +19,12 @@ from pytest import raises
 
 from parlant.core.agents import Agent
 from parlant.core.evaluations import (
+    EntailmentRelationshipPropositionKind,
     EvaluationListener,
     EvaluationStatus,
     EvaluationStore,
     GuidelinePayload,
+    GuidelinePayloadOperation,
     PayloadDescriptor,
     PayloadKind,
 )
@@ -54,7 +56,7 @@ async def test_that_a_new_evaluation_starts_with_a_pending_status(
                         condition="the customer greets you",
                         action="greet them back with 'Hello'",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -85,7 +87,7 @@ async def test_that_an_evaluation_completes_when_all_invoices_have_data(
                         condition="the customer greets you",
                         action="greet them back with 'Hello'",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -137,7 +139,7 @@ async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_appr
                         condition="a customer needs assistance with understanding their billing statements",
                         action="guide them through the billing details and explain any charges",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -189,7 +191,7 @@ async def test_that_an_evaluation_of_an_incoherent_guideline_completes_with_an_u
                         condition="Any customer requests a feature not available in the current version",
                         action="Inform them that upcoming features are added only according to the roadmap",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -231,7 +233,7 @@ async def test_that_an_evaluation_of_incoherent_proposed_guidelines_completes_wi
                         condition="any customer requests a feature not available in the current version",
                         action="Inform them that upcoming features are added only according to the roadmap",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -243,7 +245,7 @@ async def test_that_an_evaluation_of_incoherent_proposed_guidelines_completes_wi
                         condition="a VIP customer requests a specific feature that aligns with their business needs but is not on the current product roadmap",
                         action="escalate the request to product management for special consideration",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -287,7 +289,7 @@ async def test_that_an_evaluation_of_multiple_payloads_completes_with_an_invoice
                         condition="the customer greets you",
                         action="greet them back with 'Hello'",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -299,7 +301,7 @@ async def test_that_an_evaluation_of_multiple_payloads_completes_with_an_invoice
                         condition="the customer asks about the weather",
                         action="provide a weather update",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -340,7 +342,7 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
                         condition="the customer greets you",
                         action="greet them back with 'Hello'",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -352,7 +354,7 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
                         condition="the customer greets you",
                         action="greet them back with 'Hola'",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -366,7 +368,7 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
                 condition="the customer asks about the weather",
                 action="provide a weather update",
             ),
-            operation="add",
+            operation=GuidelinePayloadOperation.ADD,
             coherence_check=True,
             connection_proposition=True,
         )
@@ -398,7 +400,7 @@ async def test_that_an_evaluation_validation_failed_due_to_guidelines_duplicatio
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         ),
-        operation="add",
+        operation=GuidelinePayloadOperation.ADD,
         coherence_check=True,
         connection_proposition=True,
     )
@@ -447,7 +449,7 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
                             condition="the customer greets you",
                             action="greet them back with 'Hello'",
                         ),
-                        operation="add",
+                        operation=GuidelinePayloadOperation.ADD,
                         coherence_check=True,
                         connection_proposition=True,
                     ),
@@ -491,7 +493,7 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
                         condition="providing the weather update",
                         action="mention the best time to go for a walk",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -512,7 +514,8 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
     assert invoice_data.entailment_propositions
     assert len(invoice_data.entailment_propositions) == 1
     assert (
-        invoice_data.entailment_propositions[0].check_kind == "connection_with_existing_guideline"
+        invoice_data.entailment_propositions[0].check_kind
+        == EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE
     )
 
     assert invoice_data.entailment_propositions
@@ -543,7 +546,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
                         condition="the customer asks about the weather",
                         action="provide the current weather update",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -555,7 +558,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
                         condition="providing the weather update",
                         action="mention the best time to go for a walk",
                     ),
-                    operation="add",
+                    operation=GuidelinePayloadOperation.ADD,
                     coherence_check=True,
                     connection_proposition=True,
                 ),
@@ -577,7 +580,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
     assert len(invoice_data.entailment_propositions) == 1
     assert (
         invoice_data.entailment_propositions[0].check_kind
-        == "connection_with_another_evaluated_guideline"
+        == EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
     )
     assert (
         invoice_data.entailment_propositions[0].source.condition
@@ -594,7 +597,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
     assert len(invoice_data.entailment_propositions) == 1
     assert (
         invoice_data.entailment_propositions[0].check_kind
-        == "connection_with_another_evaluated_guideline"
+        == EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
     )
 
     assert (

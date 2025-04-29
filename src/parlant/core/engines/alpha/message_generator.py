@@ -27,14 +27,14 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
     MessageEventComposition,
 )
-from parlant.core.engines.alpha.tool_caller import MissingToolData, ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import MissingToolData, ToolInsights
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.sessions import Event
+from parlant.core.sessions import Event, EventKind, EventSource
 from parlant.core.common import DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
@@ -156,7 +156,7 @@ class MessageGenerator(MessageEventComposer):
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[EmittedEvent]:
         for event in staged_events:
-            if event.kind == "tool":
+            if event.kind == EventKind.TOOL:
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
                 tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
                 for tool_call in tool_calls:
@@ -234,10 +234,12 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
-                    return [MessageEventComposition(generation_info, [event])]
+                    return [
+                        MessageEventComposition({"message_generation": generation_info}, [event])
+                    ]
                 else:
                     self._logger.debug("Skipping response; no response deemed necessary")
-                    return [MessageEventComposition(generation_info, [])]
+                    return [MessageEventComposition({"message_generation": generation_info}, [])]
             except Exception as exc:
                 self._logger.warning(
                     f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -332,7 +334,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
 GENERAL INSTRUCTIONS
 -----------------
 You are an AI agent who is part of a system that interacts with a user. The current state of this interaction will be provided to you later in this message.
-You role is to generate a reply message to the current (latest) state of the interaction, based on provided guidelines and background information.
+Your role is to generate a reply message to the current (latest) state of the interaction, based on provided guidelines and background information.
 
 Later in this prompt, you'll be provided with behavioral guidelines and other contextual information you must take into account when generating your response.
 
@@ -361,7 +363,7 @@ Always abide by the following general principles (note these are not the "guidel
             props={},
         )
         if not interaction_history or all(
-            [event.kind != "message" for event in interaction_history]
+            [event.kind != EventKind.MESSAGE for event in interaction_history]
         ):
             builder.add_section(
                 name="message-generator-initial-message-instructions",
@@ -568,8 +570,8 @@ Produce a valid JSON object in the following format: ###
                 event.data["message"] if not event.data.get("flagged", False) else "<N/A>"
                 for event in reversed(interaction_history)
                 if (
-                    event.kind == "message"
-                    and event.source == "customer"
+                    event.kind == EventKind.MESSAGE
+                    and event.source == EventSource.CUSTOMER
                     and isinstance(event.data, dict)
                 )
             ),

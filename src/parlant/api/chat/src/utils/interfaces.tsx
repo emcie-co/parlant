@@ -30,7 +30,8 @@ export interface EventInterface {
 	creation_utc: Date;
 	data: {
 		status?: ServerStatus;
-		fragments?: string[];
+		draft?: string;
+		utterances?: string[];
 		message: string;
 		data?: {exception?: string};
 	};

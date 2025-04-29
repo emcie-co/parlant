@@ -19,6 +19,8 @@ from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
 from parlant.core.sessions import (
+    EventKind,
+    EventSource,
     MessageEventData,
     SessionId,
     StatusEventData,
@@ -38,8 +40,8 @@ class EventBuffer(EventEmitter):
         data: StatusEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
-            source="ai_agent",
-            kind="status",
+            source=EventSource.AI_AGENT,
+            kind=EventKind.STATUS,
             correlation_id=correlation_id,
             data=cast(JSONSerializable, data),
         )
@@ -69,8 +71,8 @@ class EventBuffer(EventEmitter):
             message_data = cast(JSONSerializable, data)
 
         event = EmittedEvent(
-            source="ai_agent",
-            kind="message",
+            source=EventSource.AI_AGENT,
+            kind=EventKind.MESSAGE,
             correlation_id=correlation_id,
             data=message_data,
         )
@@ -86,8 +88,8 @@ class EventBuffer(EventEmitter):
         data: ToolEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
-            source="system",
-            kind="tool",
+            source=EventSource.SYSTEM,
+            kind=EventKind.TOOL,
             correlation_id=correlation_id,
             data=cast(JSONSerializable, data),
         )

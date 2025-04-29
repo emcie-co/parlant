@@ -19,7 +19,7 @@ from typing import Mapping, Optional, Sequence
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
-from parlant.core.engines.alpha.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
@@ -30,7 +30,7 @@ from parlant.core.nlp.generation_info import GenerationInfo
 
 @dataclass(frozen=True)
 class MessageEventComposition:
-    generation_info: GenerationInfo
+    generation_info: Mapping[str, GenerationInfo]
     events: Sequence[Optional[EmittedEvent]]
 
 

@@ -23,7 +23,7 @@ from typing import Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
-from parlant.core.agents import Agent, AgentId
+from parlant.core.agents import Agent, AgentId, CompositionMode
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,
@@ -33,15 +33,16 @@ from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
+from parlant.core.engines.alpha.tool_calling.tool_caller import MissingToolData, ToolInsights
 from parlant.core.engines.alpha.utterance_selector import UtteranceSelector
 from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
 )
-from parlant.core.engines.alpha.tool_caller import ToolInsights, MissingToolData
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
 from parlant.core.sessions import (
     ContextVariable as StoredContextVariable,
+    EventKind,
     GuidelineMatch as StoredGuidelineMatch,
     GuidelineMatchingInspection,
     MessageGenerationInspection,
@@ -507,10 +508,10 @@ class AlphaEngine(Engine):
 
             message_generation_inspections.append(
                 MessageGenerationInspection(
-                    generation=event_generation_result.generation_info,
+                    generations=event_generation_result.generation_info,
                     messages=[
                         e.data.get("message")
-                        if e and e.kind == "message" and isinstance(e.data, dict)
+                        if e and e.kind == EventKind.MESSAGE and isinstance(e.data, dict)
                         else None
                         for e in event_generation_result.events
                     ],
@@ -575,9 +576,13 @@ class AlphaEngine(Engine):
         # modes every now and then. This makes sure that we are
         # composing the message using the right mechanism for this agent.
         match agent.composition_mode:
-            case "fluid":
+            case CompositionMode.FLUID:
                 return self._fluid_message_generator
-            case "strict_utterance" | "composited_utterance" | "fluid_utterance":
+            case (
+                CompositionMode.STRICT_UTTERANCE
+                | CompositionMode.COMPOSITED_UTTERANCE
+                | CompositionMode.FLUID_UTTERANCE
+            ):
                 return self._utterance_selector
 
         raise Exception("Unsupported agent composition mode")
@@ -733,19 +738,6 @@ class AlphaEngine(Engine):
         context: LoadedContext,
         preexecution_state: ToolPreexecutionState,
     ) -> tuple[ToolEventGenerationResult, list[EmittedEvent], ToolInsights] | None:
-        preexecution_guidelines = set(
-            match.guideline
-            for match in [
-                *preexecution_state.ordinary_guideline_matches,
-                *preexecution_state.tool_enabled_guideline_matches,
-            ]
-        )
-
-        if not preexecution_guidelines.symmetric_difference(context.state.guidelines):
-            # The only case where we need to run tools is if a new reason to run a tool
-            # has been detected. If guidelines haven't changed, there's no new reason.
-            return None
-
         result = await self._tool_event_generator.generate_events(
             preexecution_state,
             event_emitter=context.event_emitter,

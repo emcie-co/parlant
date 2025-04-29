@@ -17,6 +17,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import (
     Literal,
     Mapping,
@@ -61,15 +62,22 @@ from parlant.core.persistence.document_database_helper import (
 SessionId = NewType("SessionId", str)
 
 EventId = NewType("EventId", str)
-EventSource: TypeAlias = Literal[
-    "customer",
-    "customer_ui",
-    "human_agent",
-    "human_agent_on_behalf_of_ai_agent",
-    "ai_agent",
-    "system",
-]
-EventKind: TypeAlias = Literal["message", "tool", "status", "custom"]
+
+
+class EventSource(Enum):
+    CUSTOMER = "customer"
+    CUSTOMER_UI = "customer_ui"
+    HUMAN_AGENT = "human_agent"
+    HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT = "human_agent_on_behalf_of_ai_agent"
+    AI_AGENT = "ai_agent"
+    SYSTEM = "system"
+
+
+class EventKind(Enum):
+    MESSAGE = "message"
+    TOOL = "tool"
+    STATUS = "status"
+    CUSTOM = "custom"
 
 
 @dataclass(frozen=True)
@@ -84,21 +92,17 @@ class Event:
     deleted: bool
 
     def is_from_client(self) -> bool:
-        return self.source in list[EventSource](
-            [
-                "customer",
-                "customer_ui",
-            ]
-        )
+        return self.source in [
+            EventSource.CUSTOMER,
+            EventSource.CUSTOMER_UI,
+        ]
 
     def is_from_server(self) -> bool:
-        return self.source in list[EventSource](
-            [
-                "human_agent",
-                "human_agent_on_behalf_of_ai_agent",
-                "ai_agent",
-            ]
-        )
+        return self.source in [
+            EventSource.HUMAN_AGENT,
+            EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+            EventSource.AI_AGENT,
+        ]
 
 
 class Participant(TypedDict):
@@ -111,6 +115,7 @@ class MessageEventData(TypedDict):
     participant: Participant
     flagged: NotRequired[bool]
     tags: NotRequired[Sequence[str]]
+    draft: NotRequired[str]
     utterances: NotRequired[Sequence[tuple[UtteranceId, str]]]
 
 
@@ -177,7 +182,7 @@ class ContextVariable(TypedDict):
 
 @dataclass(frozen=True)
 class MessageGenerationInspection:
-    generation: GenerationInfo
+    generations: Mapping[str, GenerationInfo]
     messages: Sequence[Optional[str]]
 
 
@@ -337,8 +342,8 @@ class _EventDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     session_id: SessionId
-    source: EventSource
-    kind: EventKind
+    source: str
+    kind: str
     offset: int
     correlation_id: str
     data: JSONSerializable
@@ -378,8 +383,14 @@ class _MessageGenerationInspectionDocument_V_0_1_0(TypedDict):
     messages: Sequence[Optional[MessageEventData]]
 
 
-class _MessageGenerationInspectionDocument(TypedDict):
+class _MessageGenerationInspectionDocument_V_0_2_0(TypedDict):
     generation: _GenerationInfoDocument
+    messages: Sequence[Optional[str]]
+
+
+class _MessageGenerationInspectionDocument(TypedDict):
+    generations: Sequence[_GenerationInfoDocument]
+    generation_names: Sequence[str]
     messages: Sequence[Optional[str]]
 
 
@@ -416,8 +427,17 @@ class _InspectionDocument_V_0_2_0(TypedDict, total=False):
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_2_0]
     preparation_iterations: Sequence[_PreparationIterationDocument_V_0_2_0]
+
+
+class _InspectionDocument_V_0_3_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    session_id: SessionId
+    correlation_id: str
+    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_2_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
 class _InspectionDocument(TypedDict, total=False):
@@ -430,7 +450,7 @@ class _InspectionDocument(TypedDict, total=False):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -442,11 +462,11 @@ class SessionDocumentStore(SessionStore):
         self._lock = ReaderWriterLock()
 
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
-        if doc["version"] in ["0.1.0", "0.2.0"]:
+        if doc["version"] in ["0.1.0", "0.2.0", "0.3.0"]:
             doc = cast(_SessionDocument, doc)
             return _SessionDocument(
                 id=doc["id"],
-                version=Version.String("0.3.0"),
+                version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
                 customer_id=doc["customer_id"],
                 agent_id=doc["agent_id"],
@@ -454,16 +474,16 @@ class SessionDocumentStore(SessionStore):
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
             )
-        if doc["version"] == "0.3.0":
+        if doc["version"] == "0.4.0":
             return cast(_SessionDocument, doc)
         return None
 
     async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
-        if doc["version"] in ["0.1.0", "0.2.0"]:
+        if doc["version"] in ["0.1.0", "0.2.0", "0.3.0"]:
             doc = cast(_EventDocument, doc)
             return _EventDocument(
                 id=doc["id"],
-                version=Version.String("0.3.0"),
+                version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
                 session_id=doc["session_id"],
                 source=doc["source"],
@@ -473,7 +493,7 @@ class SessionDocumentStore(SessionStore):
                 data=doc["data"],
                 deleted=doc["deleted"],
             )
-        if doc["version"] == "0.3.0":
+        if doc["version"] == "0.4.0":
             return cast(_EventDocument, doc)
         return None
 
@@ -486,7 +506,7 @@ class SessionDocumentStore(SessionStore):
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument(
+                    _MessageGenerationInspectionDocument_V_0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -500,13 +520,13 @@ class SessionDocumentStore(SessionStore):
 
         async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_InspectionDocument_V_0_2_0, doc)
-            return _InspectionDocument(
+            return _InspectionDocument_V_0_3_0(
                 id=doc["id"],
                 version=Version.String("0.3.0"),
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument(
+                    _MessageGenerationInspectionDocument_V_0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -550,11 +570,35 @@ class SessionDocumentStore(SessionStore):
                 ],
             )
 
+        async def v0_3_0_to_v_0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument_V_0_3_0, doc)
+
+            return _InspectionDocument(
+                id=doc["id"],
+                version=Version.String("0.4.0"),
+                session_id=doc["session_id"],
+                correlation_id=doc["correlation_id"],
+                message_generations=[
+                    _MessageGenerationInspectionDocument(
+                        generations=[mg["generation"]],
+                        generation_names=[
+                            "selection"
+                            if mg["generation"]["schema_name"]
+                            in ["UtteranceCompositionSchema", "UtteranceSelectionSchema"]
+                            else "message_generation"
+                        ],
+                        messages=mg["messages"],
+                    )
+                    for mg in doc["message_generations"]
+                ],
+            )
+
         return await DocumentMigrationHelper[_InspectionDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v_0_2_0,
                 "0.2.0": v0_2_0_to_v_0_3_0,
+                "0.3.0": v0_3_0_to_v_0_4_0,
             },
         ).migrate(doc)
 
@@ -629,8 +673,8 @@ class SessionDocumentStore(SessionStore):
             version=self.VERSION.to_string(),
             creation_utc=event.creation_utc.isoformat(),
             session_id=session_id,
-            source=event.source,
-            kind=event.kind,
+            source=event.source.value,
+            kind=event.kind.value,
             offset=event.offset,
             correlation_id=event.correlation_id,
             data=event.data,
@@ -644,8 +688,8 @@ class SessionDocumentStore(SessionStore):
         return Event(
             id=EventId(event_document["id"]),
             creation_utc=datetime.fromisoformat(event_document["creation_utc"]),
-            source=event_document["source"],
-            kind=event_document["kind"],
+            source=EventSource(event_document["source"]),
+            kind=EventKind(event_document["kind"]),
             offset=event_document["offset"],
             correlation_id=event_document["correlation_id"],
             data=event_document["data"],
@@ -677,7 +721,11 @@ class SessionDocumentStore(SessionStore):
             correlation_id=correlation_id,
             message_generations=[
                 _MessageGenerationInspectionDocument(
-                    generation=serialize_generation_info(m.generation),
+                    generations=[
+                        serialize_generation_info(generation_info)
+                        for generation_info in m.generations.values()
+                    ],
+                    generation_names=list(m.generations.keys()),
                     messages=m.messages,
                 )
                 for m in inspection.message_generations
@@ -724,7 +772,10 @@ class SessionDocumentStore(SessionStore):
         return Inspection(
             message_generations=[
                 MessageGenerationInspection(
-                    generation=deserialize_generation_info(m["generation"]),
+                    generations={
+                        m["generation_names"][i]: deserialize_generation_info(m["generations"][i])
+                        for i in range(len(m["generation_names"]))
+                    },
                     messages=m["messages"],
                 )
                 for m in inspection_document["message_generations"]
@@ -935,7 +986,7 @@ class SessionDocumentStore(SessionStore):
 
             base_filters = {
                 "session_id": {"$eq": session_id},
-                **({"source": {"$eq": source}} if source else {}),
+                **({"source": {"$eq": source.value}} if source else {}),
                 **({"offset": {"$gte": min_offset}} if min_offset else {}),
                 **({"correlation_id": {"$eq": correlation_id}} if correlation_id else {}),
                 **({"deleted": {"$eq": False}} if exclude_deleted else {}),
@@ -943,7 +994,10 @@ class SessionDocumentStore(SessionStore):
 
             if kinds:
                 event_documents = await self._event_collection.find(
-                    cast(Where, {"$or": [{**base_filters, "kind": {"$eq": k}} for k in kinds]})
+                    cast(
+                        Where,
+                        {"$or": [{**base_filters, "kind": {"$eq": k.value}} for k in kinds]},
+                    )
                 )
             else:
                 event_documents = await self._event_collection.find(

@@ -3,6 +3,9 @@ from typing_extensions import override
 from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
     GenericActionableGuidelineMatching,
 )
+from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
+    GenericObservationalGuidelineMatching,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingStrategy,
     GuidelineMatchingStrategyResolver,
@@ -15,10 +18,12 @@ from parlant.core.tags import TagId
 class DefaultGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver):
     def __init__(
         self,
-        generic_strategy: GenericActionableGuidelineMatching,
+        generic_actionable_strategy: GenericActionableGuidelineMatching,
+        generic_observational_strategy: GenericObservationalGuidelineMatching,
         logger: Logger,
     ) -> None:
-        self._generic_strategy = generic_strategy
+        self._generic_actionable_strategy = generic_actionable_strategy
+        self._generic_observational_strategy = generic_observational_strategy
         self._logger = logger
 
         self.guideline_overrides: dict[GuidelineId, GuidelineMatchingStrategy] = {}
@@ -38,4 +43,7 @@ class DefaultGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver
                 )
             return first_tag_strategy
 
-        return self._generic_strategy
+        if guideline.action:
+            return self._generic_actionable_strategy
+        else:
+            return self._generic_observational_strategy

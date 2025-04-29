@@ -92,7 +92,7 @@ from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch impo
     GenericActionableGuidelineMatching,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
-    GenericObservationalGuidelineMatchSchema,
+    GenericObservationalGuidelineMatchesSchema,
     GenericObservationalGuidelineMatchingShot,
     GenericObservationalGuidelineMatching,
 )
@@ -298,7 +298,7 @@ async def container(
         container[EntityCommands] = Singleton(EntityCommands)
         for generation_schema in (
             GenericActionableGuidelineMatchesSchema,
-            GenericObservationalGuidelineMatchSchema,
+            GenericObservationalGuidelineMatchesSchema,
             MessageSchema,
             UtteranceDraftSchema,
             UtteranceSelectionSchema,
@@ -405,12 +405,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[GenericObservationalGuidelineMatchSchema]],
+        container[SchematicGenerator[GenericObservationalGuidelineMatchesSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[GenericObservationalGuidelineMatchSchema],
-            container[SchematicGenerator[GenericObservationalGuidelineMatchSchema]],
+            CachedSchematicGenerator[GenericObservationalGuidelineMatchesSchema],
+            container[SchematicGenerator[GenericObservationalGuidelineMatchesSchema]],
         ).use_cache = False
 
     if isinstance(

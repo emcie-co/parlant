@@ -55,6 +55,7 @@ from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStore,
 )
+from parlant.core.journeys import JourneyDocumentStore, JourneyStore
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
@@ -227,6 +228,9 @@ async def container(
         )
         container[GuidelineStore] = await stack.enter_async_context(
             GuidelineDocumentStore(TransientDocumentDatabase())
+        )
+        container[JourneyStore] = await stack.enter_async_context(
+            JourneyDocumentStore(TransientDocumentDatabase())
         )
         container[RelationshipStore] = await stack.enter_async_context(
             RelationshipDocumentStore(TransientDocumentDatabase())

@@ -61,6 +61,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
+from parlant.core.journeys import JourneyDocumentStore, JourneyStore
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
@@ -390,6 +391,9 @@ async def initialize_container(
     glossary_tags_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "glossary_tags.json")
     )
+    journeys_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "journeys.json")
+    )
 
     try:
         try_define(
@@ -446,6 +450,9 @@ async def initialize_container(
         try_define(
             EvaluationStore,
             await EXIT_STACK.enter_async_context(EvaluationDocumentStore(evaluations_db, migrate)),
+        )
+        c[JourneyStore] = await EXIT_STACK.enter_async_context(
+            JourneyDocumentStore(journeys_db, migrate)
         )
 
         nlp_service_initializer: dict[str, Callable[[], NLPService]] = {

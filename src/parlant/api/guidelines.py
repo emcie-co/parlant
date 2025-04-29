@@ -1209,7 +1209,7 @@ class GuidelineCreationParamsDTO(
     """Parameters for creating a new guideline."""
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
     metadata: Optional[GuidelineMetadataField] = None
     enabled: Optional[GuidelineEnabledField] = None
     tags: Optional[GuidelineTagsField] = None
@@ -1431,7 +1431,7 @@ def create_router(
 
         guideline = await guideline_store.create_guideline(
             condition=params.condition,
-            action=params.action,
+            action=params.action or None,
             metadata=params.metadata or {},
             enabled=params.enabled or True,
             tags=tags or None,
@@ -1583,6 +1583,8 @@ def create_router(
 
         Tool Association rules:
         - Tool services and tools must exist before creating associations
+
+        Action with text can not be updated to None.
         """
         _ = await guideline_store.read_guideline(guideline_id=guideline_id)
 

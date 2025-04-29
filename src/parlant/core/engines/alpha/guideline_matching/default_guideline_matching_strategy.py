@@ -43,7 +43,7 @@ class DefaultGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver
                 )
             return first_tag_strategy
 
-        if guideline.action:
+        if guideline.content.action:
             return self._generic_actionable_strategy
         else:
             return self._generic_observational_strategy

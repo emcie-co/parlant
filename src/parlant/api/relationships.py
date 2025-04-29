@@ -262,7 +262,6 @@ def create_router(
             target_tool=tool_to_dto(cast(Tool, target_tool))
             if relationship.target.type == EntityType.TOOL
             else None,
-            indirect=False,
             kind=_relationship_kind_to_dto(cast(GuidelineRelationshipKind, relationship.kind)),
         )
 

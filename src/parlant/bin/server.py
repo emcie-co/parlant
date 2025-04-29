@@ -44,6 +44,12 @@ from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch impo
     GenericActionableGuidelineMatching,
     GenericActionableGuidelineMatchingShot,
 )
+from parlant.core.engines.alpha.guideline_matching import generic_observational_batch
+from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
+    GenericObservationalGuidelineMatchesSchema,
+    GenericObservationalGuidelineMatching,
+    GenericObservationalGuidelineMatchingShot,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingStrategyResolver,
@@ -303,6 +309,9 @@ async def setup_container() -> AsyncIterator[Container]:
     c[ShotCollection[GenericActionableGuidelineMatchingShot]] = (
         generic_actionable_batch.shot_collection
     )
+    c[ShotCollection[GenericObservationalGuidelineMatchingShot]] = (
+        generic_observational_batch.shot_collection
+    )
     c[ShotCollection[SingleToolBatchShot]] = single_tool_batch.shot_collection
     c[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
 
@@ -472,6 +481,9 @@ async def initialize_container(
     c[
         SchematicGenerator[GenericActionableGuidelineMatchesSchema]
     ] = await nlp_service.get_schematic_generator(GenericActionableGuidelineMatchesSchema)
+    c[
+        SchematicGenerator[GenericObservationalGuidelineMatchesSchema]
+    ] = await nlp_service.get_schematic_generator(GenericObservationalGuidelineMatchesSchema)
     c[SchematicGenerator[MessageSchema]] = await nlp_service.get_schematic_generator(MessageSchema)
     c[SchematicGenerator[UtteranceDraftSchema]] = await nlp_service.get_schematic_generator(
         UtteranceDraftSchema
@@ -499,6 +511,7 @@ async def initialize_container(
     ] = await nlp_service.get_schematic_generator(GuidelineConnectionPropositionsSchema)
 
     c[GenericActionableGuidelineMatching] = Singleton(GenericActionableGuidelineMatching)
+    c[GenericObservationalGuidelineMatching] = Singleton(GenericObservationalGuidelineMatching)
 
     c[DefaultGuidelineMatchingStrategyResolver] = Singleton(
         DefaultGuidelineMatchingStrategyResolver

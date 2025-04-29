@@ -618,15 +618,6 @@ RelationshipIdField: TypeAlias = Annotated[
 ]
 
 
-RelationshipIndirectField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="`True` if there is a path from `source` to `target` but no direct relationship",
-        examples=[True, False],
-    ),
-]
-
-
 relationship_example: ExampleJson = {
     "id": "123",
     "source_guideline": {
@@ -672,5 +663,4 @@ class RelationshipDTO(
     target_tag: Optional[TagDTO] = None
     source_tool: Optional[ToolDTO] = None
     target_tool: Optional[ToolDTO] = None
-    indirect: RelationshipIndirectField
     kind: RelationshipKindDTO

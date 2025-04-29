@@ -20,6 +20,7 @@ from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
+from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import (
     ObjectId,
 )
@@ -34,7 +35,6 @@ from parlant.core.persistence.document_database_helper import (
 from parlant.core.tags import TagId
 
 JourneyId = NewType("JourneyId", str)
-GuidelineId = NewType("GuidelineId", str)
 
 
 @dataclass(frozen=True)

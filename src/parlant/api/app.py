@@ -24,7 +24,7 @@ from starlette.types import Receive, Scope, Send
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.api import agents, index, relationships
+from parlant.api import agents, index, journeys, relationships
 from parlant.api import sessions
 from parlant.api import glossary
 from parlant.api import guidelines
@@ -40,6 +40,7 @@ from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
+from parlant.core.journeys import JourneyStore
 from parlant.core.utterances import UtteranceStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
@@ -99,6 +100,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     guideline_tool_association_store = container[GuidelineToolAssociationStore]
     context_variable_store = container[ContextVariableStore]
     utterance_store = container[UtteranceStore]
+    journey_store = container[JourneyStore]
     service_registry = container[ServiceRegistry]
     nlp_service = container[NLPService]
     application = container[Application]
@@ -282,6 +284,15 @@ async def create_api_app(container: Container) -> ASGIApplication:
             tag_store=tag_store,
             guideline_store=guideline_store,
             service_registry=service_registry,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/journeys",
+        router=journeys.create_router(
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+            tag_store=tag_store,
         ),
     )
 

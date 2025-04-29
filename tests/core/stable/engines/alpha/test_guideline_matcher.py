@@ -63,8 +63,50 @@ from parlant.core.tags import TagId, Tag
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
+OBSERVATIONAL_GUIDELINES_DICT = {
+    "vegetarian_customer": {
+        "condition": "the customer is vegetarian or vegan",
+        "observation": "-",
+    },
+    "lock_card_request_1": {
+        "condition": "the customer indicated that they wish to lock their credit card",
+        "observation": "-",
+    },
+    "lock_card_request_2": {
+        "condition": "the customer lost their credit card",
+        "observation": "-",
+    },
+    "season_is_winter": {
+        "condition": "it is the season of winter",
+        "observation": "-",
+    },
+    "frustrated_customer": {
+        "condition": "the customer is frustrated",
+        "observation": "-",
+    },
+    "unclear_request": {
+        "condition": "the customer indicates that the agent does not understand their request",
+        "observation": "-",
+    },
+    "credit_limits_discussion": {
+        "condition": "credit limits are discussed",
+        "observation": "-",
+    },
+    "unknown_service": {
+        "condition": "The customer is asking for a service you (the agent) has no information about",
+        "observation": "-",
+    },
+    "delivery_order": {
+        "condition": "the customer is in the process of ordering delivery",
+        "observation": "-",
+    },
+    "unanswered_questions": {
+        "condition": "the customer repeatedly ignores the agent's question, and they remain unanswered",
+        "observation": "-",
+    },
+}
 
-GUIDELINES_DICT = {
+ACTIONABLE_GUIDELINES_DICT = {
     "check_drinks_in_stock": {
         "condition": "a customer asks for a drink",
         "action": "check if the drink is available in the following stock: "
@@ -321,8 +363,8 @@ def create_guideline_by_name(
 ) -> Guideline:
     guideline = create_guideline(
         context=context,
-        condition=GUIDELINES_DICT[guideline_name]["condition"],
-        action=GUIDELINES_DICT[guideline_name]["action"],
+        condition=ACTIONABLE_GUIDELINES_DICT[guideline_name]["condition"],
+        action=ACTIONABLE_GUIDELINES_DICT[guideline_name]["action"],
     )
     return guideline
 

@@ -46,7 +46,7 @@ from parlant.client.types import (
     EventInspectionResult,
     Guideline,
     Relationship,
-    GuidelineRelationshipKindDto,
+    RelationshipKindDto,
     GuidelineToolAssociation,
     GuidelineToolAssociationUpdateParams,
     GuidelineTagsUpdateParams,
@@ -439,7 +439,7 @@ class Actions:
         ctx: click.Context,
         source: str,
         target: str,
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
     ) -> Relationship:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -460,7 +460,7 @@ class Actions:
         id: Optional[str],
         source_id: Optional[str],
         target_id: Optional[str],
-        kind: Optional[GuidelineRelationshipKindDto],
+        kind: Optional[RelationshipKindDto],
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -506,7 +506,7 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
         indirect: bool,
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
@@ -1633,8 +1633,17 @@ class Interface:
             return OrderedDict(result)
 
         if relationships:
-            direct = [r for r in relationships if not r.indirect]
-            indirect = [r for r in relationships if r.indirect]
+            direct = [
+                r
+                for r in relationships
+                if entity in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
+            ]
+            indirect = [
+                r
+                for r in relationships
+                if entity
+                not in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
+            ]
 
             if direct:
                 rich.print("\nDirect Relationships:")
@@ -1765,7 +1774,7 @@ class Interface:
         ctx: click.Context,
         source_id: str,
         target_id: str,
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
     ) -> None:
         try:
             relationship = Actions.create_relationship(
@@ -1786,7 +1795,7 @@ class Interface:
         id: Optional[str],
         source_id: Optional[str],
         target_id: Optional[str],
-        kind: Optional[GuidelineRelationshipKindDto],
+        kind: Optional[RelationshipKindDto],
     ) -> None:
         try:
             relationship_id = Actions.remove_relationship(
@@ -1807,7 +1816,7 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
         indirect: bool,
     ) -> None:
         try:
@@ -3166,7 +3175,7 @@ async def async_main() -> None:
         ctx: click.Context,
         source: str,
         target: str,
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
     ) -> None:
         Interface.create_relationship(
             ctx=ctx,
@@ -3206,7 +3215,7 @@ async def async_main() -> None:
         id: Optional[str],
         source: Optional[str],
         target: Optional[str],
-        kind: Optional[GuidelineRelationshipKindDto],
+        kind: Optional[RelationshipKindDto],
     ) -> None:
         if id:
             if source or target or kind:
@@ -3256,7 +3265,7 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: GuidelineRelationshipKindDto,
+        kind: RelationshipKindDto,
         indirect: bool,
     ) -> None:
         if guideline_id and tag:

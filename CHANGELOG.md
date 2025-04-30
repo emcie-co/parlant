@@ -5,6 +5,12 @@ All notable changes to Parlant will be documented here.
 ## [Unreleased]
 TBD
 
+## [2.1.1] - 2025-04-30
+
+### Fixed
+- Fixed rendering relationships in CLI
+- Fixed parlant client using old imports from python client SDK
+
 ## [2.1.0] - 2025-04-29
 
 ### Added

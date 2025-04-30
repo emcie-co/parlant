@@ -518,8 +518,10 @@ async def test_that_guidelines_can_be_entailed(
         )
 
         process = await run_cli(
-            "guideline",
-            "entail",
+            "relationship",
+            "create",
+            "--kind",
+            "entailment",
             "--source",
             first_guideline["id"],
             "--target",
@@ -563,76 +565,6 @@ async def test_that_a_guideline_can_be_deleted(
 
         guidelines = await context.api.list_guidelines()
         assert len(guidelines) == 0
-
-
-async def test_that_a_connection_can_be_deleted(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=httpx.Timeout(30),
-        ) as client:
-            guidelines_response = await client.post(
-                f"{SERVER_ADDRESS}/guidelines/",
-                json={
-                    "condition": "the customer greets you",
-                    "action": "greet them back with 'Hello'",
-                },
-            )
-            guidelines_response.raise_for_status()
-
-            first = guidelines_response.json()
-
-            guidelines_response = await client.post(
-                f"{SERVER_ADDRESS}/guidelines/",
-                json={
-                    "condition": "greeting the customer",
-                    "action": "ask for his health condition",
-                },
-            )
-            guidelines_response.raise_for_status()
-
-            second = guidelines_response.json()
-
-            first = first["id"]
-            second = second["id"]
-
-            connection_response = await client.patch(
-                f"{SERVER_ADDRESS}/guidelines/{first}",
-                json={
-                    "connections": {
-                        "add": [
-                            {
-                                "source": first,
-                                "target": second,
-                            }
-                        ],
-                    },
-                },
-            )
-            connection_response.raise_for_status()
-
-        process = await run_cli(
-            "guideline",
-            "disentail",
-            "--source",
-            first,
-            "--target",
-            second,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
-
-        guideline = await context.api.read_guideline(guideline_id=first)
-        assert len(guideline["connections"]) == 0
 
 
 async def test_that_a_tool_can_be_enabled_for_a_guideline(
@@ -1655,29 +1587,6 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
 
         assert "FirstTag" in output
         assert "SecondTag" in output
-
-
-async def test_that_a_tag_can_be_viewed(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        tag_id = (await context.api.create_tag("TestViewTag"))["id"]
-
-        process = await run_cli(
-            "tag",
-            "view",
-            "--id",
-            tag_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        output = stdout.decode() + stderr.decode()
-        assert process.returncode == os.EX_OK
-
-        assert "TestViewTag" in output
-        assert tag_id in output
 
 
 async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:

@@ -385,16 +385,33 @@ class Actions:
     def create_guideline(
         ctx: click.Context,
         condition: str,
-        action: str,
+        action: Optional[str],
+        tool_id: Optional[str],
         tags: list[str],
     ) -> Guideline:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return client.guidelines.create(
+        guideline = client.guidelines.create(
             condition=condition,
             action=action,
             tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
         )
+
+        if tool_id:
+            service_name, tool_name = tool_id.split(":")
+            client.guidelines.update(
+                guideline_id=guideline.id,
+                tool_associations=GuidelineToolAssociationUpdateParams(
+                    add=[
+                        ToolId(
+                            service_name=service_name,
+                            tool_name=tool_name,
+                        ),
+                    ]
+                ),
+            )
+
+        return guideline
 
     @staticmethod
     def update_guideline(
@@ -1742,14 +1759,16 @@ class Interface:
     def create_guideline(
         ctx: click.Context,
         condition: str,
-        action: str,
-        tags: list[str],
+        action: Optional[str],
+        tool_id: Optional[str],
+        tags: tuple[str],
     ) -> None:
         try:
             guideline = Actions.create_guideline(
                 ctx,
                 condition,
                 action,
+                tool_id,
                 tags=tags,
             )
 
@@ -3007,20 +3026,28 @@ async def async_main() -> None:
         "--action",
         type=str,
         help="The instruction to perform when the guideline applies",
-        required=True,
+        required=False,
+    )
+    @click.option(
+        "--tool-id",
+        type=str,
+        help="The ID of the tool to associate with the guideline, in the format service_name:tool_name",
+        required=False,
     )
     @tag_option(multiple=True)
     @click.pass_context
     def guideline_create(
         ctx: click.Context,
         condition: str,
-        action: str,
+        action: Optional[str],
+        tool_id: Optional[str],
         tag: tuple[str],
     ) -> None:
         Interface.create_guideline(
             ctx=ctx,
             condition=condition,
             action=action,
+            tool_id=tool_id,
             tags=list(tag),
         )
 
@@ -3093,7 +3120,7 @@ async def async_main() -> None:
         Interface.list_guidelines(ctx, tag, hide_disabled)
 
     @guideline.command("tool-enable", help="Allow a guideline to make use of a tool")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=False)
     @click.option(
         "--service",
         type=str,
@@ -3101,14 +3128,37 @@ async def async_main() -> None:
         help="The name of the tool service containing the tool",
         required=True,
     )
-    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=True)
+    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=False)
+    @click.option(
+        "--tool-id",
+        type=str,
+        metavar="ID",
+        help="Tool ID. format: service_name:tool_name",
+        required=False,
+    )
     @click.pass_context
     def guideline_enable_tool(
         ctx: click.Context,
         id: str,
-        service: str,
-        tool: str,
+        service: Optional[str],
+        tool: Optional[str],
+        tool_id: Optional[str],
     ) -> None:
+        if not (service and tool) and not tool_id:
+            Interface.write_error(
+                "At least one of --service, --tool, or --tool-id must be specified"
+            )
+            set_exit_status(1)
+            raise FastExit()
+
+        if service and tool and tool_id:
+            Interface.write_error("Only one of --service, --tool, or --tool-id can be specified")
+            set_exit_status(1)
+            raise FastExit()
+
+        if tool_id:
+            service, tool = tool_id.split(":")
+
         Interface.add_guideline_tool_association(
             ctx=ctx,
             guideline_id=id,

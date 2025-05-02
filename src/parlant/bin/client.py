@@ -523,8 +523,8 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -1559,40 +1559,55 @@ class Interface:
     def _render_relationships(
         entity: Guideline | Tag,
         relationships: list[Relationship],
-        tool_associations: list[GuidelineToolAssociation],
         include_indirect: bool,
     ) -> None:
         def to_direct_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
-            source = rel.source_guideline if rel.source_guideline else rel.source_tag
-            assert source
-            source_type = "Guideline" if rel.source_guideline else "Tag"
+            result: list[tuple[str, str]] = [
+                ("Relationship ID", rel.id),
+                ("Kind", rel.kind),
+            ]
 
-            peer = rel.target_guideline if rel.target_guideline else rel.target_tag
-            assert peer
-            peer_type = "Guideline" if rel.target_guideline else "Tag"
+            # ---- Source side ----
+            if rel.source_guideline:
+                result.extend(
+                    [
+                        ("Source ID", rel.source_guideline.id),
+                        ("Source Type", "Guideline"),
+                        ("Source Condition", rel.source_guideline.condition),
+                        ("Source Action", rel.source_guideline.action),
+                    ]
+                )
+            else:
+                assert rel.source_tag is not None
+                result.extend(
+                    [
+                        ("Source ID", rel.source_tag.id),
+                        ("Source Type", "Tag"),
+                        ("Source Name", rel.source_tag.name),
+                    ]
+                )
 
-            result = OrderedDict(
-                {
-                    "Relationship ID": rel.id,
-                    "Kind": rel.kind,
-                    "Role": "Source"
-                    if source.id == entity.id or source.id == entity.id
-                    else "Target",
-                    "Role Type": source_type,
-                    "Peer Role": "Target" if peer.id == entity.id else "Source",
-                    "Peer Role Type": peer_type,
-                    "Peer ID": peer.id,
-                }
-            )
+            # ---- Target side ----
+            if rel.target_guideline:
+                result.extend(
+                    [
+                        ("Target ID", rel.target_guideline.id),
+                        ("Target Type", "Guideline"),
+                        ("Target Condition", rel.target_guideline.condition),
+                        ("Target Action", rel.target_guideline.action),
+                    ]
+                )
+            else:
+                assert rel.target_tag is not None
+                result.extend(
+                    [
+                        ("Target ID", rel.target_tag.id),
+                        ("Target Type", "Tag"),
+                        ("Target Name", rel.target_tag.name),
+                    ]
+                )
 
-            if isinstance(peer, Guideline):
-                result["Peer Condition"] = peer.condition
-                result["Peer Action"] = peer.action
-
-            elif isinstance(peer, Tag):
-                result["Peer Name"] = peer.name
-
-            return result
+            return OrderedDict(result)
 
         def to_indirect_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
             result = [
@@ -1672,6 +1687,10 @@ class Interface:
                     list(map(lambda r: to_indirect_relationship_item(r), indirect))
                 )
 
+    @staticmethod
+    def _render_tool_associations(
+        tool_associations: list[GuidelineToolAssociation],
+    ) -> None:
         if tool_associations:
             rich.print("\nTool(s) Enabled:")
             Interface._render_guideline_tool_associations(tool_associations)
@@ -1690,7 +1709,7 @@ class Interface:
                 condition,
                 action,
                 tool_id,
-                tags=tags,
+                tags=list(tags),
             )
 
             Interface._write_success(f"Added guideline (id: {guideline.id})")
@@ -1835,8 +1854,8 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         try:
             relationships = Actions.list_relationships(ctx, guideline_id, tag, kind, indirect)
@@ -3297,10 +3316,14 @@ async def async_main() -> None:
             ]
         ),
         help="Relationship kind",
-        required=True,
+        required=False,
     )
     @click.option(
-        "--guideline-id", type=str, metavar="GUIDELINE_ID", help="Guideline ID", required=False
+        "--guideline-id",
+        type=str,
+        metavar="GUIDELINE_ID",
+        help="Guideline ID",
+        required=False,
     )
     @tag_option(required=False)
     @click.option(
@@ -3315,16 +3338,11 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         if guideline_id and tag:
             Interface.write_error("Either --guideline-id or --tag must be provided, not both")
-            set_exit_status(1)
-            raise FastExit()
-
-        if not guideline_id and not tag:
-            Interface.write_error("Either --guideline-id or --tag must be provided")
             set_exit_status(1)
             raise FastExit()
 

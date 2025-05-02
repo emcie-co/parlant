@@ -631,3 +631,57 @@ async def test_that_relationships_can_be_listed_by_guideline_id_without_kind_fil
 
     assert rel1.id in returned_ids
     assert rel2.id in returned_ids
+
+
+async def test_that_relationships_can_be_listed_by_tool_id(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    service_registry = container[ServiceRegistry]
+    relationship_store = container[RelationshipStore]
+
+    @tool
+    def first_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
+        return ToolResult(arg_1 + arg_2)
+
+    @tool
+    def second_tool(context: ToolContext, message: str) -> ToolResult:
+        return ToolResult(f"Echo: {message}")
+
+    @tool
+    def third_tool(context: ToolContext, message: str) -> ToolResult:
+        return ToolResult(f"Echo: {message}")
+
+    async with run_service_server([first_tool, second_tool, third_tool]) as server:
+        await service_registry.update_tool_service(
+            name="test_service",
+            kind="sdk",
+            url=server.url,
+        )
+
+        first_tool_id = ToolId(service_name="test_service", tool_name="first_tool")
+        second_tool_id = ToolId(service_name="test_service", tool_name="second_tool")
+        third_tool_id = ToolId(service_name="test_service", tool_name="third_tool")
+
+        rel1 = await relationship_store.create_relationship(
+            source=RelationshipEntity(id=first_tool_id, type=EntityType.TOOL),
+            target=RelationshipEntity(id=second_tool_id, type=EntityType.TOOL),
+            kind=ToolRelationshipKind.OVERLAP,
+        )
+
+        rel2 = await relationship_store.create_relationship(
+            source=RelationshipEntity(id=first_tool_id, type=EntityType.TOOL),
+            target=RelationshipEntity(id=third_tool_id, type=EntityType.TOOL),
+            kind=ToolRelationshipKind.OVERLAP,
+        )
+
+        response = await async_client.get(
+            f"/relationships?tool_id={first_tool_id.service_name}:{first_tool_id.tool_name}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        relationships = response.json()
+
+        returned_ids = {rel["id"] for rel in relationships}
+
+        assert rel1.id in returned_ids
+        assert rel2.id in returned_ids

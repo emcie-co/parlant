@@ -226,35 +226,6 @@ async def test_that_relationships_can_be_listed_by_tag_id(
     assert relationships[0]["target_tag"]["id"] == tag.id
 
 
-async def test_that_relationship_cannot_be_listed_without_guideline_id_or_tag_id(
-    async_client: httpx.AsyncClient,
-) -> None:
-    response = await async_client.get("/relationships?kind=priority")
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
-async def test_that_relationship_cannot_be_listed_with_both_guideline_id_and_tag_id(
-    async_client: httpx.AsyncClient,
-) -> None:
-    response = await async_client.get("/relationships?guideline_id=1&tag_id=2")
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
-async def test_that_relationship_cannot_be_listed_without_kind(
-    async_client: httpx.AsyncClient,
-    container: Container,
-) -> None:
-    guideline_store = container[GuidelineStore]
-
-    guideline = await guideline_store.create_guideline(
-        condition="condition",
-        action="action",
-    )
-
-    response = await async_client.get(f"/relationships?guideline_id={guideline.id}")
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
 async def test_that_relationship_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -563,3 +534,100 @@ async def test_that_overlap_relationship_can_be_deleted(
 
     with raises(ItemNotFoundError):
         await relationship_store.read_relationship(id=relationship.id)
+
+
+async def test_that_all_relationships_can_be_listed(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g2 = await guideline_store.create_guideline(condition="C", action="D")
+    g3 = await guideline_store.create_guideline(condition="E", action="F")
+
+    r1 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g2.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    r2 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g2.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g3.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    response = await async_client.get("/relationships")
+    assert response.status_code == status.HTTP_200_OK
+
+    relationships = response.json()
+
+    returned_ids = {rel["id"] for rel in relationships}
+
+    assert r1.id in returned_ids
+    assert r2.id in returned_ids
+
+
+async def test_that_relationships_can_be_listed_by_kind_only(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    g1 = await guideline_store.create_guideline(condition="AA", action="BB")
+    g2 = await guideline_store.create_guideline(condition="CC", action="DD")
+
+    priority_relationship = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g2.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    _ = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g2.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g1.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    response = await async_client.get("/relationships?kind=priority")
+    assert response.status_code == status.HTTP_200_OK
+
+    relationships = response.json()
+
+    assert len(relationships) == 1
+    assert relationships[0]["id"] == priority_relationship.id
+    assert relationships[0]["kind"] == "priority"
+
+
+async def test_that_relationships_can_be_listed_by_guideline_id_without_kind_filter_via_api(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    g1 = await guideline_store.create_guideline(condition="X", action="Y")
+    g2 = await guideline_store.create_guideline(condition="Y", action="Z")
+    g3 = await guideline_store.create_guideline(condition="Z", action="W")
+
+    rel1 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g2.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    rel2 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g3.id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=g1.id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    response = await async_client.get(f"/relationships?guideline_id={g1.id}")
+    assert response.status_code == status.HTTP_200_OK
+
+    relationships = response.json()
+
+    returned_ids = {rel["id"] for rel in relationships}
+
+    assert rel1.id in returned_ids
+    assert rel2.id in returned_ids

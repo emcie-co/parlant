@@ -361,7 +361,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_relationships(
-        kind: RelationshipKindQuery,
+        kind: Optional[RelationshipKindQuery] = None,
         indirect: IndirectQuery = True,
         guideline_id: Optional[GuidelineIdQuery] = None,
         tag_id: Optional[TagIdQuery] = None,
@@ -371,11 +371,16 @@ def create_router(
 
         Either `guideline_id` or `tag_id` must be provided.
         """
-        if guideline_id is None and tag_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Either guideline_id or tag_id must be provided",
+        if not guideline_id and not tag_id:
+            relationships = await relationship_store.list_relationships(
+                kind=_relationship_kind_dto_to_kind(kind) if kind else None,
+                indirect=indirect,
             )
+
+            return [
+                await relationship_to_dto(relationship=relationship)
+                for relationship in relationships
+            ]
 
         if guideline_id:
             await guideline_store.read_guideline(guideline_id=guideline_id)
@@ -389,17 +394,17 @@ def create_router(
         )
 
         source_relationships = await relationship_store.list_relationships(
-            kind=_relationship_kind_dto_to_kind(kind),
+            kind=_relationship_kind_dto_to_kind(kind) if kind else None,
             source_id=entity_id,
             indirect=indirect,
         )
 
         target_relationships = await relationship_store.list_relationships(
-            kind=_relationship_kind_dto_to_kind(kind),
+            kind=_relationship_kind_dto_to_kind(kind) if kind else None,
             target_id=entity_id,
             indirect=indirect,
         )
-        relationships = chain(source_relationships, target_relationships)
+        relationships = list(chain(source_relationships, target_relationships))
 
         return [
             await relationship_to_dto(relationship=relationship) for relationship in relationships

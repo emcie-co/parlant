@@ -97,6 +97,14 @@ TagIdQuery: TypeAlias = Annotated[
 ]
 
 
+ToolIdQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="The ID of the tool to list relationships for. Format: service_name:tool_name"
+    ),
+]
+
+
 IndirectQuery: TypeAlias = Annotated[
     bool,
     Query(description="Whether to include indirect relationships"),
@@ -365,13 +373,14 @@ def create_router(
         indirect: IndirectQuery = True,
         guideline_id: Optional[GuidelineIdQuery] = None,
         tag_id: Optional[TagIdQuery] = None,
+        tool_id: Optional[ToolIdQuery] = None,
     ) -> Sequence[RelationshipDTO]:
         """
         List relationships.
 
-        Either `guideline_id` or `tag_id` must be provided.
+        Either `guideline_id` or `tag_id` or `tool_id` must be provided.
         """
-        if not guideline_id and not tag_id:
+        if not guideline_id and not tag_id and not tool_id:
             relationships = await relationship_store.list_relationships(
                 kind=_relationship_kind_dto_to_kind(kind) if kind else None,
                 indirect=indirect,
@@ -382,16 +391,23 @@ def create_router(
                 for relationship in relationships
             ]
 
+        entity_id: GuidelineId | TagId | ToolId
         if guideline_id:
             await guideline_store.read_guideline(guideline_id=guideline_id)
+            entity_id = guideline_id
         elif tag_id:
             await tag_store.read_tag(tag_id=tag_id)
-
-        entity_id = (
-            cast(GuidelineId | TagId, guideline_id)
-            if guideline_id
-            else cast(GuidelineId | TagId, tag_id)
-        )
+            entity_id = tag_id
+        elif tool_id:
+            service_name, tool_name = tool_id.split(":")
+            service = await service_registry.read_tool_service(name=service_name)
+            _ = await service.read_tool(name=tool_name)
+            entity_id = ToolId(service_name, tool_name)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Either `guideline_id` or `tag_id` or `tool_id` must be provided",
+            )
 
         source_relationships = await relationship_store.list_relationships(
             kind=_relationship_kind_dto_to_kind(kind) if kind else None,
@@ -404,6 +420,7 @@ def create_router(
             target_id=entity_id,
             indirect=indirect,
         )
+
         relationships = list(chain(source_relationships, target_relationships))
 
         return [

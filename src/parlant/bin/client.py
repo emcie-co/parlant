@@ -58,6 +58,7 @@ from parlant.client.types import (
     Session,
     Term,
     TermTagsUpdateParams,
+    Tool,
     ToolId,
     Customer,
     CustomerExtraUpdateParams,
@@ -125,13 +126,34 @@ class Actions:
         raise Exception(f"Tag ({tag}) not found")
 
     @staticmethod
+    def _fetch_tool_id(
+        ctx: click.Context,
+        tool_id: ToolId,
+    ) -> ToolId:
+        client = cast(ParlantClient, ctx.obj.client)
+        service = client.services.retrieve(tool_id.service_name)
+        if service.tools and next((t for t in service.tools if t.name == tool_id.tool_name), None):
+            return tool_id
+
+        raise Exception(f"Tool ({tool_id.tool_name}) not found in service ({tool_id.service_name})")
+
+    @staticmethod
     def _parse_relationship_side(
         ctx: click.Context,
         entity_id: str,
-    ) -> tuple[str, str]:
+    ) -> tuple[str | ToolId, str]:
         with suppress(Exception):
             if tag_id := Actions._fetch_tag_id(ctx, entity_id):
                 return tag_id, "tag"
+
+        with suppress(Exception):
+            if ":" in entity_id and (
+                tool_id := Actions._fetch_tool_id(
+                    ctx,
+                    ToolId(service_name=entity_id.split(":")[0], tool_name=entity_id.split(":")[1]),
+                )
+            ):
+                return tool_id, "tool"
 
         client = cast(ParlantClient, ctx.obj.client)
         client.guidelines.retrieve(entity_id)
@@ -464,10 +486,12 @@ class Actions:
         target_id, target_type = Actions._parse_relationship_side(ctx, target)
 
         return client.relationships.create(
-            source_guideline=source_id if source_type == "guideline" else None,
-            source_tag=source_id if source_type == "tag" else None,
-            target_guideline=target_id if target_type == "guideline" else None,
-            target_tag=target_id if target_type == "tag" else None,
+            source_guideline=cast(str, source_id) if source_type == "guideline" else None,
+            source_tag=cast(str, source_id) if source_type == "tag" else None,
+            source_tool=cast(ToolId, source_id) if source_type == "tool" else None,
+            target_guideline=cast(str, target_id) if target_type == "guideline" else None,
+            target_tag=cast(str, target_id) if target_type == "tag" else None,
+            target_tool=cast(ToolId, target_id) if target_type == "tool" else None,
             kind=kind,
         )
 
@@ -487,7 +511,7 @@ class Actions:
 
         assert source_id and target_id and kind
 
-        source_id, source_type = Actions._parse_relationship_side(ctx, source_id)
+        _, source_type = Actions._parse_relationship_side(ctx, source_id)
 
         if relationship := next(
             (
@@ -495,16 +519,19 @@ class Actions:
                 for r in client.relationships.list(
                     guideline_id=source_id if source_type == "guideline" else None,
                     tag_id=source_id if source_type == "tag" else None,
+                    tool_id=source_id if source_type == "tool" else None,
                     kind=kind,
                     indirect=False,
                 )
                 if (
                     (r.source_guideline and source_id == r.source_guideline.id)
                     or (r.source_tag and source_id == r.source_tag.id)
+                    or (r.source_tool and source_id.split(":")[1] == r.source_tool.name)
                 )
                 and (
                     (r.target_guideline and target_id == r.target_guideline.id)
                     or (r.target_tag and target_id == r.target_tag.id)
+                    or (r.target_tool and target_id.split(":")[1] == r.target_tool.name)
                 )
                 and r.kind == kind
             ),
@@ -523,16 +550,25 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
+        tool_id: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
 
         tag_id = Actions._fetch_tag_id(ctx, tag) if tag else None
+        _ = (
+            Actions._fetch_tool_id(
+                ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
+            )
+            if tool_id
+            else None
+        )
 
         return client.relationships.list(
             guideline_id=guideline_id,
             tag_id=tag_id,
+            tool_id=tool_id,
             kind=kind,
             indirect=indirect,
         )
@@ -1583,7 +1619,7 @@ class Interface:
 
     @staticmethod
     def _render_relationships(
-        entity: Guideline | Tag,
+        entity: Guideline | Tag | Tool | None,
         relationships: list[Relationship],
         include_indirect: bool,
     ) -> None:
@@ -1602,13 +1638,21 @@ class Interface:
                         "Source Action": rel.source_guideline.action,
                     }
                 )
-            else:
+            elif rel.source_tag:
                 assert rel.source_tag is not None
                 result.update(
                     {
                         "Source ID": rel.source_tag.id,
                         "Source Type": "Tag",
                         "Source Name": rel.source_tag.name,
+                    }
+                )
+            elif rel.source_tool:
+                assert rel.source_tool is not None
+                result.update(
+                    {
+                        "Source Type": "Tool",
+                        "Source Name": rel.source_tool.name,
                     }
                 )
 
@@ -1621,13 +1665,21 @@ class Interface:
                         "Target Action": rel.target_guideline.action,
                     }
                 )
-            else:
+            elif rel.target_tag:
                 assert rel.target_tag is not None
                 result.update(
                     {
                         "Target ID": rel.target_tag.id,
                         "Target Type": "Tag",
                         "Target Name": rel.target_tag.name,
+                    }
+                )
+            elif rel.target_tool:
+                assert rel.target_tool is not None
+                result.update(
+                    {
+                        "Target Type": "Tool",
+                        "Target Name": rel.target_tool.name,
                     }
                 )
 
@@ -1650,10 +1702,18 @@ class Interface:
                         "Source Action": rel.source_guideline.action,
                     }
                 )
-            else:
+            elif rel.source_tag:
+                assert rel.source_tag is not None
                 result.update(
                     {
-                        "Source Name": cast(Tag, rel.source_tag).name,
+                        "Source Name": rel.source_tag.name,
+                    }
+                )
+            elif rel.source_tool:
+                assert rel.source_tool is not None
+                result.update(
+                    {
+                        "Source Name": rel.source_tool.name,
                     }
                 )
 
@@ -1673,27 +1733,55 @@ class Interface:
                         "Target Action": rel.target_guideline.action,
                     }
                 )
-            else:
+            elif rel.target_tag:
+                assert rel.target_tag is not None
                 result.update(
                     {
-                        "Target Name": cast(Tag, rel.target_tag).name,
+                        "Target Name": rel.target_tag.name,
+                    }
+                )
+            elif rel.target_tool:
+                assert rel.target_tool is not None
+                result.update(
+                    {
+                        "Target Name": rel.target_tool.name,
                     }
                 )
 
             return result
 
         if relationships:
-            direct = [
-                r
-                for r in relationships
-                if entity in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
-            ]
-            indirect = [
-                r
-                for r in relationships
-                if entity
-                not in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
-            ]
+            if entity is None:
+                direct = relationships
+                indirect = []
+            else:
+                direct = [
+                    r
+                    for r in relationships
+                    if entity
+                    in (
+                        r.source_guideline,
+                        r.target_guideline,
+                        r.source_tag,
+                        r.target_tag,
+                        r.source_tool,
+                        r.target_tool,
+                    )
+                ]
+
+                indirect = [
+                    r
+                    for r in relationships
+                    if entity
+                    not in (
+                        r.source_guideline,
+                        r.target_guideline,
+                        r.source_tag,
+                        r.target_tag,
+                        r.source_tool,
+                        r.target_tool,
+                    )
+                ]
 
             if direct:
                 rich.print("\nDirect Relationships:")
@@ -1730,10 +1818,10 @@ class Interface:
                 all_indirect_keys = {key for entry in indirect_items for key in entry.keys()}
 
                 base_order = ["Relationship ID", "Kind"]
-                src_tgt_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
+                source_target_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
                 preferred_order_indirect: list[str] = base_order.copy()
                 for prefix in ("Source", "Target"):
-                    for suffix in src_tgt_suffixes:
+                    for suffix in source_target_suffixes:
                         header = f"{prefix} {suffix}"
                         if header in all_indirect_keys:
                             preferred_order_indirect.append(header)
@@ -1913,20 +2001,48 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
+        tool_id: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
     ) -> None:
         try:
-            relationships = Actions.list_relationships(ctx, guideline_id, tag, kind, indirect)
+            relationships = Actions.list_relationships(
+                ctx,
+                guideline_id=guideline_id,
+                tag=tag,
+                tool_id=tool_id,
+                kind=kind,
+                indirect=indirect,
+            )
 
             if not relationships:
                 rich.print(Text("No data available", style="bold yellow"))
                 return
 
+            entity: Guideline | Tag | Tool | None = None
+            if guideline_id:
+                entity = Actions.view_guideline(ctx, guideline_id).guideline
+            elif tag:
+                entity = Actions.view_tag(ctx, tag)
+            elif tool_id:
+                service = Actions.view_service(ctx, tool_id.split(":")[0])
+                if (
+                    service
+                    and service.tools
+                    and (
+                        tool := next(
+                            (t for t in service.tools if t.name == tool_id.split(":")[1]),
+                            None,
+                        )
+                    )
+                ):
+                    entity = tool
+                else:
+                    Interface.write_error(f"Tool not found: {tool_id}")
+                    set_exit_status(1)
+
             Interface._render_relationships(
-                relationships[0].source_guideline
-                if relationships[0].source_guideline
-                else cast(Tag, relationships[0].source_tag),
+                entity,
                 relationships,
                 include_indirect=indirect or True,
             )
@@ -3278,15 +3394,15 @@ async def async_main() -> None:
     @click.option(
         "--source",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID",
-        help="Source tag or guideline ID",
+        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
+        help="Source tag or guideline ID or tool ID",
         required=True,
     )
     @click.option(
         "--target",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID",
-        help="Target tag or guideline ID",
+        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
+        help="Target tag or guideline ID or tool ID",
         required=True,
     )
     @click.option(
@@ -3296,6 +3412,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
@@ -3336,6 +3453,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
@@ -3375,6 +3493,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
@@ -3386,6 +3505,12 @@ async def async_main() -> None:
         metavar="GUIDELINE_ID",
         help="Guideline ID",
         required=False,
+    )
+    @click.option(
+        "--tool",
+        type=str,
+        metavar="TOOL_ID",
+        help="Tool ID, format: service_name:tool_name",
     )
     @tag_option(required=False)
     @click.option(
@@ -3400,6 +3525,7 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
+        tool: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
     ) -> None:
@@ -3408,7 +3534,7 @@ async def async_main() -> None:
             set_exit_status(1)
             raise FastExit()
 
-        Interface.list_relationships(ctx, guideline_id, tag, kind, indirect)
+        Interface.list_relationships(ctx, guideline_id, tag, tool, kind, indirect)
 
     @cli.group(help="Manage an agent's context variables")
     def variable() -> None:

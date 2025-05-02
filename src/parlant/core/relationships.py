@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import NewType, Optional, Sequence, Union
+from typing import NewType, Optional, Sequence, Union, cast
 from typing_extensions import override, TypedDict, Self
 
 import networkx  # type: ignore
@@ -24,7 +24,7 @@ import networkx  # type: ignore
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.guidelines import GuidelineId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
@@ -107,8 +107,8 @@ class RelationshipStore(ABC):
     @abstractmethod
     async def list_relationships(
         self,
-        kind: RelationshipKind,
-        indirect: bool,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = False,
         source_id: Optional[EntityIdType] = None,
         target_id: Optional[EntityIdType] = None,
     ) -> Sequence[Relationship]: ...
@@ -357,14 +357,12 @@ class RelationshipDocumentStore(RelationshipStore):
     @override
     async def list_relationships(
         self,
-        kind: RelationshipKind,
-        indirect: bool,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = True,
         source_id: Optional[EntityIdType] = None,
         target_id: Optional[EntityIdType] = None,
     ) -> Sequence[Relationship]:
-        assert (source_id or target_id) and not (source_id and target_id)
-
-        async def get_node_relationships(
+        async def get_node_relationships_by_kind(
             source_id: EntityIdType,
             reversed_graph: bool = False,
         ) -> Sequence[Relationship]:
@@ -373,46 +371,72 @@ class RelationshipDocumentStore(RelationshipStore):
 
             _graph = graph.reverse() if reversed_graph else graph
 
-            if indirect:
-                descendant_edges = networkx.bfs_edges(_graph, source_id)
-                relationships = []
+            descendant_edges = networkx.bfs_edges(_graph, source_id)
+            relationships = []
 
-                for edge_source, edge_target in descendant_edges:
-                    edge_data = _graph.get_edge_data(edge_source, edge_target)
+            for edge_source, edge_target in descendant_edges:
+                edge_data = _graph.get_edge_data(edge_source, edge_target)
 
-                    relationship_document = await self._collection.find_one(
-                        filters={"id": {"$eq": edge_data["id"]}},
-                    )
+                relationship_document = await self._collection.find_one(
+                    filters={"id": {"$eq": edge_data["id"]}},
+                )
 
-                    if not relationship_document:
-                        raise ItemNotFoundError(item_id=UniqueId(edge_data["id"]))
+                if not relationship_document:
+                    raise ItemNotFoundError(item_id=UniqueId(edge_data["id"]))
 
-                    relationships.append(self._deserialize(relationship_document))
+                relationships.append(self._deserialize(relationship_document))
 
-                return relationships
-
-            else:
-                successors = _graph.succ[source_id]
-                relationships = []
-
-                for source_id, data in successors.items():
-                    relationship_document = await self._collection.find_one(
-                        filters={"id": {"$eq": data["id"]}},
-                    )
-
-                    if not relationship_document:
-                        raise ItemNotFoundError(item_id=UniqueId(data["id"]))
-
-                    relationships.append(self._deserialize(relationship_document))
-
-                return relationships
+            return relationships
 
         async with self._lock.reader_lock:
-            graph = await self._get_relationships_graph(kind)
+            if not source_id and not target_id:
+                filters = {**({"kind": {"$eq": kind.value}} if kind else {})}
+                return [
+                    self._deserialize(d)
+                    for d in await self._collection.find(filters=cast(Where, filters))
+                ]
 
-            if source_id:
-                relationships = await get_node_relationships(source_id)
-            elif target_id:
-                relationships = await get_node_relationships(target_id, reversed_graph=True)
+            relationships: list[Relationship] = []
+
+            if indirect:
+                for _kind in (
+                    [kind]
+                    if kind
+                    else [
+                        *list(GuidelineRelationshipKind),
+                        *list(ToolRelationshipKind),
+                    ]
+                ):
+                    graph = await self._get_relationships_graph(_kind)
+
+                    if source_id:
+                        relationships.extend(
+                            await get_node_relationships_by_kind(source_id, reversed_graph=False)
+                        )
+                    if target_id:
+                        relationships.extend(
+                            await get_node_relationships_by_kind(target_id, reversed_graph=True)
+                        )
+
+                return relationships
+            else:
+                if source_id:
+                    relationships.extend(
+                        [
+                            self._deserialize(d)
+                            for d in await self._collection.find(
+                                filters={"source": {"$eq": str(source_id)}}
+                            )
+                        ]
+                    )
+                if target_id:
+                    relationships.extend(
+                        [
+                            self._deserialize(d)
+                            for d in await self._collection.find(
+                                filters={"target": {"$eq": str(target_id)}}
+                            )
+                        ]
+                    )
 
         return relationships

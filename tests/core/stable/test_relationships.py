@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from typing import AsyncIterator, Sequence
-from pytest import fixture, raises
+from pytest import fixture
 
 from parlant.core.relationships import (
     EntityType,
@@ -324,28 +324,139 @@ async def test_that_relationships_are_returned_for_target_with_indirect_connecti
     assert len(relationships) == len(set((c.source, c.target) for c in relationships))
 
 
-async def test_that_error_is_raised_when_neither_source_nor_target_is_provided(
-    relationship_store: RelationshipStore,
-) -> None:
-    with raises(AssertionError):
-        await relationship_store.list_relationships(
-            kind=GuidelineRelationshipKind.ENTAILMENT,
-            indirect=False,
-            source_id=None,
-            target_id=None,
-        )
-
-
-async def test_that_error_is_raised_when_both_source_and_target_are_provided(
+async def test_that_all_relationships_can_be_listed(
     relationship_store: RelationshipStore,
 ) -> None:
     a_id = GuidelineId("a")
     b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
 
-    with raises(AssertionError):
-        await relationship_store.list_relationships(
-            kind=GuidelineRelationshipKind.ENTAILMENT,
-            indirect=False,
-            source_id=a_id,
-            target_id=b_id,
+    relationships_data = [
+        (a_id, b_id, GuidelineRelationshipKind.ENTAILMENT),
+        (b_id, c_id, GuidelineRelationshipKind.PRIORITY),
+        (c_id, a_id, GuidelineRelationshipKind.DEPENDENCY),
+    ]
+
+    for source, target, kind in relationships_data:
+        await relationship_store.create_relationship(
+            source=RelationshipEntity(id=source, type=EntityType.GUIDELINE),
+            target=RelationshipEntity(id=target, type=EntityType.GUIDELINE),
+            kind=kind,
         )
+
+    all_relationships = await relationship_store.list_relationships()
+
+    assert len(all_relationships) == len(relationships_data)
+    for source, target, _ in relationships_data:
+        assert has_relationship(all_relationships, (source, target))
+
+
+async def test_that_relationships_can_be_listed_by_kind_without_entity_filters(
+    relationship_store: RelationshipStore,
+) -> None:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=c_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    entailments = await relationship_store.list_relationships(
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    assert len(entailments) == 1
+    assert has_relationship(entailments, (a_id, b_id))
+
+    assert not has_relationship(entailments, (b_id, c_id))
+
+
+async def test_that_relationships_can_be_listed_by_source_id_without_kind_filter(
+    relationship_store: RelationshipStore,
+) -> None:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=c_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    relationships = await relationship_store.list_relationships(source_id=a_id, indirect=False)
+
+    assert len(relationships) == 2
+    assert has_relationship(relationships, (a_id, b_id))
+    assert has_relationship(relationships, (a_id, c_id))
+
+
+async def test_that_relationships_can_be_listed_by_target_id_without_kind_filter(
+    relationship_store: RelationshipStore,
+) -> None:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=c_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    relationships = await relationship_store.list_relationships(target_id=b_id, indirect=False)
+
+    assert len(relationships) == 2
+    assert has_relationship(relationships, (a_id, b_id))
+    assert has_relationship(relationships, (c_id, b_id))
+
+
+async def test_that_relationships_can_be_listed_with_both_source_and_target_filters(
+    relationship_store: RelationshipStore,
+) -> None:
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=b_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=c_id, type=EntityType.GUIDELINE),
+        target=RelationshipEntity(id=a_id, type=EntityType.GUIDELINE),
+        kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    relationships = await relationship_store.list_relationships(
+        source_id=a_id,
+        target_id=a_id,
+        indirect=False,
+    )
+
+    unique_pairs = {(rel.source.id, rel.target.id) for rel in relationships}
+
+    assert unique_pairs == {(a_id, b_id), (c_id, a_id)}

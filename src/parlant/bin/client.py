@@ -1587,53 +1587,51 @@ class Interface:
         relationships: list[Relationship],
         include_indirect: bool,
     ) -> None:
-        def to_direct_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
-            result: list[tuple[str, str]] = [
-                ("Relationship ID", rel.id),
-                ("Kind", rel.kind),
-            ]
+        def to_direct_relationship_item(rel: Relationship) -> dict[str, str]:
+            result: dict[str, str] = {
+                "Relationship ID": rel.id,
+                "Kind": rel.kind,
+            }
 
-            # ---- Source side ----
             if rel.source_guideline:
-                result.extend(
-                    [
-                        ("Source ID", rel.source_guideline.id),
-                        ("Source Type", "Guideline"),
-                        ("Source Condition", rel.source_guideline.condition),
-                        ("Source Action", rel.source_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Source ID": rel.source_guideline.id,
+                        "Source Type": "Guideline",
+                        "Source Condition": rel.source_guideline.condition,
+                        "Source Action": rel.source_guideline.action,
+                    }
                 )
             else:
                 assert rel.source_tag is not None
-                result.extend(
-                    [
-                        ("Source ID", rel.source_tag.id),
-                        ("Source Type", "Tag"),
-                        ("Source Name", rel.source_tag.name),
-                    ]
+                result.update(
+                    {
+                        "Source ID": rel.source_tag.id,
+                        "Source Type": "Tag",
+                        "Source Name": rel.source_tag.name,
+                    }
                 )
 
-            # ---- Target side ----
             if rel.target_guideline:
-                result.extend(
-                    [
-                        ("Target ID", rel.target_guideline.id),
-                        ("Target Type", "Guideline"),
-                        ("Target Condition", rel.target_guideline.condition),
-                        ("Target Action", rel.target_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Target ID": rel.target_guideline.id,
+                        "Target Type": "Guideline",
+                        "Target Condition": rel.target_guideline.condition,
+                        "Target Action": rel.target_guideline.action,
+                    }
                 )
             else:
                 assert rel.target_tag is not None
-                result.extend(
-                    [
-                        ("Target ID", rel.target_tag.id),
-                        ("Target Type", "Tag"),
-                        ("Target Name", rel.target_tag.name),
-                    ]
+                result.update(
+                    {
+                        "Target ID": rel.target_tag.id,
+                        "Target Type": "Tag",
+                        "Target Name": rel.target_tag.name,
+                    }
                 )
 
-            return OrderedDict(result)
+            return result
 
         def to_indirect_relationship_item(rel: Relationship) -> dict[str, str]:
             result = {
@@ -1799,7 +1797,9 @@ class Interface:
                 guideline_with_relationships_and_associations.relationships,
                 include_indirect=False,
             )
-            Interface._render_tool_associations(guideline.tool_associations)
+            Interface._render_tool_associations(
+                guideline_with_relationships_and_associations.tool_associations
+            )
 
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -1835,7 +1835,7 @@ class Interface:
                 include_indirect=True,
             )
             Interface._render_tool_associations(
-                guideline_with_relationships_and_associations.guideline.tool_associations
+                guideline_with_relationships_and_associations.tool_associations
             )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -1928,7 +1928,7 @@ class Interface:
                 if relationships[0].source_guideline
                 else cast(Tag, relationships[0].source_tag),
                 relationships,
-                include_indirect=indirect,
+                include_indirect=indirect or True,
             )
 
         except Exception as e:
@@ -3039,7 +3039,7 @@ async def async_main() -> None:
             condition=condition,
             action=action,
             tool_id=tool_id,
-            tags=list(tag),
+            tags=tag,
         )
 
     @guideline.command("update", help="Update a guideline")
@@ -3148,13 +3148,17 @@ async def async_main() -> None:
             raise FastExit()
 
         if tool_id:
-            service, tool = tool_id.split(":")
+            service_name, tool_name = tool_id.split(":")
+        else:
+            assert service and tool
+            service_name = service
+            tool_name = tool
 
         Interface.add_guideline_tool_association(
             ctx=ctx,
             guideline_id=id,
-            service_name=service,
-            tool_name=tool,
+            service_name=service_name,
+            tool_name=tool_name,
         )
 
     @guideline.command("tool-disable", help="Disallow a guideline to make use of a tool")

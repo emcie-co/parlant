@@ -1,6 +1,6 @@
 from collections import deque
 from itertools import chain
-from typing import Sequence, cast
+from typing import Mapping, Sequence, cast
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
@@ -40,7 +40,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
 
     async def create_batches(
         self,
-        tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]],  # noqa: F821
+        tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]],
         context: ToolCallContext,
     ) -> Sequence[ToolCallBatch]:
         result: list[ToolCallBatch] = []

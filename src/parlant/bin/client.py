@@ -1937,7 +1937,7 @@ class Interface:
             Interface._render_relationships(
                 entity,
                 relationships,
-                include_indirect=indirect,
+                include_indirect=indirect or True,
             )
 
         except Exception as e:
@@ -3048,7 +3048,7 @@ async def async_main() -> None:
             condition=condition,
             action=action,
             tool_id=tool_id,
-            tags=list(tag),
+            tags=tag,
         )
 
     @guideline.command("update", help="Update a guideline")
@@ -3157,13 +3157,17 @@ async def async_main() -> None:
             raise FastExit()
 
         if tool_id:
-            service, tool = tool_id.split(":")
+            service_name, tool_name = tool_id.split(":")
+        else:
+            assert service and tool
+            service_name = service
+            tool_name = tool
 
         Interface.add_guideline_tool_association(
             ctx=ctx,
             guideline_id=id,
-            service_name=service,
-            tool_name=tool,
+            service_name=service_name,
+            tool_name=tool_name,
         )
 
     @guideline.command("tool-disable", help="Disallow a guideline to make use of a tool")

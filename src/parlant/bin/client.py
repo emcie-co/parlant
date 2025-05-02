@@ -523,8 +523,8 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -1769,7 +1769,7 @@ class Interface:
                 condition,
                 action,
                 tool_id,
-                tags=tags,
+                tags=list(tags),
             )
 
             Interface._write_success(f"Added guideline (id: {guideline.id})")
@@ -1918,8 +1918,8 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         try:
             relationships = Actions.list_relationships(ctx, guideline_id, tag, kind, indirect)
@@ -3383,10 +3383,14 @@ async def async_main() -> None:
             ]
         ),
         help="Relationship kind",
-        required=True,
+        required=False,
     )
     @click.option(
-        "--guideline-id", type=str, metavar="GUIDELINE_ID", help="Guideline ID", required=False
+        "--guideline-id",
+        type=str,
+        metavar="GUIDELINE_ID",
+        help="Guideline ID",
+        required=False,
     )
     @tag_option(required=False)
     @click.option(
@@ -3401,16 +3405,11 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         if guideline_id and tag:
             Interface.write_error("Either --guideline-id or --tag must be provided, not both")
-            set_exit_status(1)
-            raise FastExit()
-
-        if not guideline_id and not tag:
-            Interface.write_error("Either --guideline-id or --tag must be provided")
             set_exit_status(1)
             raise FastExit()
 

@@ -1145,22 +1145,48 @@ class Interface:
         rich.print(Text(message, style="bold red"), file=sys.stderr)
 
     @staticmethod
-    def _print_table(data: list[dict[str, Any]]) -> None:
+    def _print_table(
+        data: list[dict[str, Any]],
+        header_order: list[str] | None = None,
+    ) -> None:
+        """Render a list of dictionaries as a rich table.
+
+        If *header_order* is provided, the columns will appear in that order (filtered
+        down to only the headers present in *data*). Any headers found in *data* that
+        are **not** present in *header_order* will be appended to the end in the order
+        of their first appearance.  This allows callers to enforce a consistent column
+        ordering while still gracefully handling extra/unknown fields.
+        """
+
         table = Table(box=box.ROUNDED, border_style="bright_green")
 
         table.add_column("#", header_style="bright_green", overflow="fold")
 
-        headers = (
-            list(OrderedDict({key: None for entry in data for key in entry.keys()}).keys())
-            if data
-            else []
+        if not data:
+            rich.print(table)
+            return
+
+        # Collect all headers that actually appear in *data* (their first appearance
+        # defines the fallback ordering for any that are not covered by *header_order*).
+        discovered_headers: list[str] = list(
+            OrderedDict({key: None for entry in data for key in entry.keys()}).keys()
         )
 
-        for header in headers:
+        if header_order is not None:
+            # Keep only headers that exist in the data
+            ordered_headers = [h for h in header_order if h in discovered_headers]
+
+            # Append any remaining headers discovered in data that were not specified
+            # by *header_order* – preserving discovery order so as not to surprise.
+            ordered_headers.extend([h for h in discovered_headers if h not in ordered_headers])
+        else:
+            ordered_headers = discovered_headers
+
+        for header in ordered_headers:
             table.add_column(header, header_style="bright_green", overflow="fold")
 
         for idx, row in enumerate(data, start=1):
-            row_values = [str(row.get(h, "")) for h in headers]
+            row_values = [str(row.get(h, "")) for h in ordered_headers]
             table.add_row(str(idx), *row_values)
 
         rich.print(table)
@@ -1609,60 +1635,54 @@ class Interface:
 
             return OrderedDict(result)
 
-        def to_indirect_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
-            result = [
-                ("Relationship ID", rel.id),
-                ("Kind", rel.kind),
-                (
-                    "Source ID",
-                    rel.source_guideline.id
-                    if rel.source_guideline
-                    else cast(Tag, rel.source_tag).id,
-                ),
-                ("Source Type", "Guideline" if rel.source_guideline else "Tag"),
-            ]
+        def to_indirect_relationship_item(rel: Relationship) -> dict[str, str]:
+            result = {
+                "Relationship ID": rel.id,
+                "Kind": rel.kind,
+                "Source ID": rel.source_guideline.id
+                if rel.source_guideline
+                else cast(Tag, rel.source_tag).id,
+                "Source Type": "Guideline" if rel.source_guideline else "Tag",
+            }
 
             if rel.source_guideline:
-                result.extend(
-                    [
-                        ("Source Condition", rel.source_guideline.condition),
-                        ("Source Action", rel.source_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Source Condition": rel.source_guideline.condition,
+                        "Source Action": rel.source_guideline.action,
+                    }
                 )
             else:
-                result.extend(
-                    [
-                        ("Source Name", cast(Tag, rel.source_tag).name),
-                    ]
+                result.update(
+                    {
+                        "Source Name": cast(Tag, rel.source_tag).name,
+                    }
                 )
 
-            result.extend(
-                [
-                    (
-                        "Target ID",
-                        rel.target_guideline.id
-                        if rel.target_guideline
-                        else cast(Tag, rel.target_tag).id,
-                    ),
-                    ("Target Type", "Guideline" if rel.target_guideline else "Tag"),
-                ]
+            result.update(
+                {
+                    "Target ID": rel.target_guideline.id
+                    if rel.target_guideline
+                    else cast(Tag, rel.target_tag).id,
+                    "Target Type": "Guideline" if rel.target_guideline else "Tag",
+                }
             )
 
             if rel.target_guideline:
-                result.extend(
-                    [
-                        ("Target Condition", rel.target_guideline.condition),
-                        ("Target Action", rel.target_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Target Condition": rel.target_guideline.condition,
+                        "Target Action": rel.target_guideline.action,
+                    }
                 )
             else:
-                result.extend(
-                    [
-                        ("Target Name", cast(Tag, rel.target_tag).name),
-                    ]
+                result.update(
+                    {
+                        "Target Name": cast(Tag, rel.target_tag).name,
+                    }
                 )
 
-            return OrderedDict(result)
+            return result
 
         if relationships:
             direct = [
@@ -1679,12 +1699,50 @@ class Interface:
 
             if direct:
                 rich.print("\nDirect Relationships:")
-                Interface._print_table(list(map(lambda r: to_direct_relationship_item(r), direct)))
+
+                # Pre-calculate dictionary view of the relationships.
+                direct_items = list(map(lambda r: to_direct_relationship_item(r), direct))
+
+                # Determine a consistent column ordering for the *direct* view so
+                # that headers like "Source Name" appear next to other "Source"-
+                # prefixed fields irrespective of which relationship type happens
+                # to be listed first.
+                all_direct_keys = {key for entry in direct_items for key in entry.keys()}
+
+                base_order = ["Relationship ID", "Kind"]
+                src_tgt_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
+
+                preferred_order: list[str] = base_order.copy()
+                for prefix in ("Source", "Target"):
+                    for suffix in src_tgt_suffixes:
+                        header = f"{prefix} {suffix}"
+                        if header in all_direct_keys:
+                            preferred_order.append(header)
+
+                Interface._print_table(
+                    direct_items,
+                    header_order=preferred_order,
+                )
 
             if indirect and include_indirect:
                 rich.print("\nIndirect Relationships:")
+
+                indirect_items = list(map(lambda r: to_indirect_relationship_item(r), indirect))
+
+                all_indirect_keys = {key for entry in indirect_items for key in entry.keys()}
+
+                base_order = ["Relationship ID", "Kind"]
+                src_tgt_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
+                preferred_order_indirect: list[str] = base_order.copy()
+                for prefix in ("Source", "Target"):
+                    for suffix in src_tgt_suffixes:
+                        header = f"{prefix} {suffix}"
+                        if header in all_indirect_keys:
+                            preferred_order_indirect.append(header)
+
                 Interface._print_table(
-                    list(map(lambda r: to_indirect_relationship_item(r), indirect))
+                    indirect_items,
+                    header_order=preferred_order_indirect,
                 )
 
     @staticmethod
@@ -1739,9 +1797,9 @@ class Interface:
             Interface._render_relationships(
                 guideline_with_relationships_and_associations.guideline,
                 guideline_with_relationships_and_associations.relationships,
-                guideline_with_relationships_and_associations.tool_associations,
                 include_indirect=False,
             )
+            Interface._render_tool_associations(guideline.tool_associations)
 
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -1774,10 +1832,11 @@ class Interface:
             Interface._render_relationships(
                 guideline_with_relationships_and_associations.guideline,
                 guideline_with_relationships_and_associations.relationships,
-                guideline_with_relationships_and_associations.tool_associations,
                 include_indirect=True,
             )
-
+            Interface._render_tool_associations(
+                guideline_with_relationships_and_associations.guideline.tool_associations
+            )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -1869,7 +1928,6 @@ class Interface:
                 if relationships[0].source_guideline
                 else cast(Tag, relationships[0].source_tag),
                 relationships,
-                [],
                 include_indirect=indirect,
             )
 

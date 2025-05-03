@@ -50,7 +50,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.loggers import Logger
 from parlant.core.application import Application
@@ -93,7 +93,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
     relationship_store = container[RelationshipStore]

@@ -30,7 +30,7 @@ from parlant.core.evaluations import (
 )
 from parlant.core.guidelines import GuidelineContent, GuidelineStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
     EvaluationValidationError,
 )
 from parlant.core.tags import Tag
@@ -43,7 +43,7 @@ async def test_that_a_new_evaluation_starts_with_a_pending_status(
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
 
     evaluation_id = await evaluation_service.create_evaluation_task(
@@ -73,7 +73,7 @@ async def test_that_an_evaluation_completes_when_all_invoices_have_data(
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -115,7 +115,7 @@ async def test_that_an_evaluation_of_a_coherent_guideline_completes_with_an_appr
     agent: Agent,
 ) -> None:
     guideline_store = container[GuidelineStore]
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -167,7 +167,7 @@ async def test_that_an_evaluation_of_an_incoherent_guideline_completes_with_an_u
     agent: Agent,
 ) -> None:
     guideline_store = container[GuidelineStore]
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -219,7 +219,7 @@ async def test_that_an_evaluation_of_incoherent_proposed_guidelines_completes_wi
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -275,7 +275,7 @@ async def test_that_an_evaluation_of_multiple_payloads_completes_with_an_invoice
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -329,7 +329,7 @@ async def test_that_an_evaluation_that_failed_due_to_already_running_evaluation_
     agent: Agent,
     no_cache: NoCachedGenerations,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
 
     first_evaluation_id = await evaluation_service.create_evaluation_task(
@@ -393,7 +393,7 @@ async def test_that_an_evaluation_validation_failed_due_to_guidelines_duplicatio
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
 
     duplicate_payload = GuidelinePayload(
         content=GuidelineContent(
@@ -425,7 +425,7 @@ async def test_that_an_evaluation_validation_failed_due_to_duplicate_guidelines_
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     guideline_store = container[GuidelineStore]
 
     guideline = await guideline_store.create_guideline(
@@ -469,7 +469,7 @@ async def test_that_an_evaluation_completes_and_contains_a_connection_propositio
     agent: Agent,
 ) -> None:
     guideline_store = container[GuidelineStore]
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 
@@ -532,7 +532,7 @@ async def test_that_an_evaluation_completes_and_contains_connection_proposition_
     container: Container,
     agent: Agent,
 ) -> None:
-    evaluation_service = container[BehavioralChangeEvaluator]
+    evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
 

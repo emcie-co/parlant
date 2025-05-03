@@ -46,6 +46,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.tools import ToolId
 
 EvaluationId = NewType("EvaluationId", str)
 
@@ -84,7 +85,9 @@ class GuidelinePayload:
     operation: GuidelinePayloadOperation
     coherence_check: bool
     connection_proposition: bool
+    action_proposition: bool
     updated_id: Optional[GuidelineId] = None
+    tool_ids: Optional[Sequence[ToolId]] = None
 
     def __repr__(self) -> str:
         return f"condition: {self.content.condition}, action: {self.content.action}"
@@ -116,8 +119,9 @@ class EntailmentRelationshipProposition:
 
 @dataclass(frozen=True)
 class InvoiceGuidelineData:
-    coherence_checks: Sequence[CoherenceCheck]
+    coherence_checks: Optional[Sequence[CoherenceCheck]]
     entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
+    action_proposition: Optional[str]
     _type: Literal["guideline"] = "guideline"  # Union discrimator for Pydantic
 
 
@@ -184,7 +188,7 @@ class EvaluationStore(ABC):
 
 class _GuidelineContentDocument(TypedDict):
     condition: str
-    action: str
+    action: Optional[str]
 
 
 class _GuidelinePayloadDocument(TypedDict):
@@ -213,8 +217,9 @@ class _ConnectionPropositionDocument(TypedDict):
 
 
 class _InvoiceGuidelineDataDocument(TypedDict):
-    coherence_checks: Sequence[_CoherenceCheckDocument]
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
+    action_proposition: Optional[str]
 
 
 _InvoiceDataDocument = Union[_InvoiceGuidelineDataDocument]
@@ -313,11 +318,18 @@ class EvaluationDocumentStore(EvaluationStore):
             data: InvoiceGuidelineData,
         ) -> _InvoiceGuidelineDataDocument:
             return _InvoiceGuidelineDataDocument(
-                coherence_checks=[serialize_coherence_check(cc) for cc in data.coherence_checks],
+                coherence_checks=(
+                    [serialize_coherence_check(cc) for cc in data.coherence_checks]
+                    if data.coherence_checks
+                    else None
+                ),
                 connection_propositions=(
                     [serialize_connection_proposition(cp) for cp in data.entailment_propositions]
                     if data.entailment_propositions
                     else None
+                ),
+                action_proposition=(
+                    data.action_proposition if data.action_proposition is not None else None
                 ),
             )
 
@@ -326,7 +338,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 return _GuidelinePayloadDocument(
                     content=_GuidelineContentDocument(
                         condition=payload.content.condition,
-                        action=payload.content.action,
+                        action=payload.content.action or None,
                     ),
                     action=payload.operation.value,
                     updated_id=payload.updated_id,
@@ -393,16 +405,25 @@ class EvaluationDocumentStore(EvaluationStore):
             data_doc: _InvoiceGuidelineDataDocument,
         ) -> InvoiceGuidelineData:
             return InvoiceGuidelineData(
-                coherence_checks=[
-                    deserialize_coherence_check_document(cc_doc)
-                    for cc_doc in data_doc["coherence_checks"]
-                ],
+                coherence_checks=(
+                    [
+                        deserialize_coherence_check_document(cc_doc)
+                        for cc_doc in data_doc["coherence_checks"]
+                    ]
+                    if data_doc["coherence_checks"] is not None
+                    else None
+                ),
                 entailment_propositions=(
                     [
                         deserialize_connection_proposition_document(cp_doc)
                         for cp_doc in data_doc["connection_propositions"]
                     ]
                     if data_doc["connection_propositions"] is not None
+                    else None
+                ),
+                action_proposition=(
+                    data_doc["action_proposition"]
+                    if data_doc["action_proposition"] is not None
                     else None
                 ),
             )
@@ -414,7 +435,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 return GuidelinePayload(
                     content=GuidelineContent(
                         condition=payload_doc["content"]["condition"],
-                        action=payload_doc["content"]["action"],
+                        action=payload_doc["content"]["action"] or None,
                     ),
                     operation=GuidelinePayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],

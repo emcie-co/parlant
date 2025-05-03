@@ -55,7 +55,7 @@ from parlant.core.evaluations import (
 )
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
     EvaluationValidationError,
 )
 
@@ -443,7 +443,7 @@ WaitForCompletionQuery: TypeAlias = Annotated[
 
 
 def legacy_create_router(
-    evaluation_service: BehavioralChangeEvaluator,
+    evaluation_service: LegacyBehavioralChangeEvaluator,
     evaluation_store: EvaluationStore,
     evaluation_listener: EvaluationListener,
     agent_store: AgentStore,

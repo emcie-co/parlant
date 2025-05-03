@@ -59,6 +59,10 @@ from parlant.core.evaluations import (
     EvaluationStore,
 )
 from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.services.indexing.guideline_action_proposer import (
+    GuidelineActionProposer,
+    GuidelineActionPropositionSchema,
+)
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
@@ -108,7 +112,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -266,7 +270,7 @@ async def container(
             EvaluationDocumentStore(TransientDocumentDatabase())
         )
         container[EvaluationListener] = PollingEvaluationListener
-        container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
+        container[LegacyBehavioralChangeEvaluator] = LegacyBehavioralChangeEvaluator
         container[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
         container[ServiceRegistry] = await stack.enter_async_context(
@@ -309,6 +313,7 @@ async def container(
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
             GuidelineConnectionPropositionsSchema,
+            GuidelineActionPropositionSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -332,6 +337,7 @@ async def container(
 
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
         container[CoherenceChecker] = Singleton(CoherenceChecker)
+        container[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
 
         container[LocalToolService] = cast(
             LocalToolService,

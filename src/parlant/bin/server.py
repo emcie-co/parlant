@@ -133,7 +133,7 @@ from parlant.core.engines.alpha.message_generator import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -328,7 +328,7 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
-    c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
+    c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[EvaluationListener] = Singleton(PollingEvaluationListener)
 
     c[EntityQueries] = Singleton(EntityQueries)
@@ -555,7 +555,7 @@ async def initialize_container(
 
 async def recover_server_tasks(
     evaluation_store: EvaluationStore,
-    evaluator: BehavioralChangeEvaluator,
+    evaluator: LegacyBehavioralChangeEvaluator,
 ) -> None:
     for evaluation in await evaluation_store.list_evaluations():
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
@@ -608,7 +608,7 @@ async def load_app(params: CLIParams) -> AsyncIterator[ASGIApplication]:
 
         await recover_server_tasks(
             evaluation_store=actual_container[EvaluationStore],
-            evaluator=actual_container[BehavioralChangeEvaluator],
+            evaluator=actual_container[LegacyBehavioralChangeEvaluator],
         )
 
         await create_agent_if_absent(actual_container[AgentStore])

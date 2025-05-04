@@ -307,7 +307,7 @@ def match_guidelines(
 def create_guideline(
     context: ContextOfTest,
     condition: str,
-    action: str = None,
+    action: str | None = None,
     tags: list[TagId] = [],
 ) -> Guideline:
     guideline = Guideline(
@@ -360,7 +360,7 @@ def create_context_variable(
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
-) -> Guideline:
+) -> Guideline | None:
     if guideline_name in ACTIONABLE_GUIDELINES_DICT:
         guideline = create_guideline(
             context=context,
@@ -1287,7 +1287,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_1(
         ),
     ]
     conversation_guideline_names: list[str] = ["vegetarian_customer"]
-    relevant_guideline_names = []
+    relevant_guideline_names: list[str] = []
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -1378,7 +1378,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_2(
         "unknown_service",
         "delivery_order",
     ]
-    relevant_guideline_names = []
+    relevant_guideline_names: list[str] = []
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -1637,7 +1637,7 @@ def test_that_observational_guidelines_arent_wrongly_implied(
     ]
 
     conversation_guideline_names: list[str] = ["season_is_winter"]
-    relevant_guideline_names = []
+    relevant_guideline_names: list[str] = []
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,

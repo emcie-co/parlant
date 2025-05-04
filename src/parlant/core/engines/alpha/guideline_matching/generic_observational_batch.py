@@ -316,6 +316,8 @@ Expected Output
             },
         )
 
+        with open("observational guideline matcher prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
 

@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from ast import literal_eval
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum, auto
 import importlib
 import inspect
@@ -31,6 +32,7 @@ from typing import (
     Sequence,
     TypeAlias,
     get_args,
+    get_origin,
 )
 from pydantic import Field
 from typing_extensions import override, TypedDict
@@ -44,9 +46,13 @@ ToolParameterType = Literal[
     "number",
     "integer",
     "boolean",
+    "date",
+    "datetime",
 ]
 
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
+
+VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime, Enum]
 
 
 class ToolParameterDescriptor(TypedDict, total=False):
@@ -408,6 +414,11 @@ def validate_tool_arguments(
             int,
         ),
         "number": (str, int, float),
+        "datetime": (
+            str,
+            datetime,
+        ),
+        "date": (str, date),
     }
 
     for param_name, arg_value in arguments.items():
@@ -417,7 +428,7 @@ def validate_tool_arguments(
         values = [arg_value]
 
         if param_type == "array":
-            values = arg_value
+            values = literal_eval(arg_value)
 
         for value in values:
             if allowed_values := param_def.get("enum", []):
@@ -428,6 +439,8 @@ def validate_tool_arguments(
                     )
                     raise ToolExecutionError(tool.name, message)
             else:
+                if param_type == "array":
+                    param_type = param_def["item_type"]
                 expected_types = type_map.get(param_type)
                 if expected_types is None:
                     raise ToolExecutionError(
@@ -446,22 +459,46 @@ def normalize_tool_arguments(
     arguments: Mapping[str, Any],
 ) -> Any:
     return {
-        param_name: normalize_tool_argument(parameters[param_name].annotation, argument)
+        param_name: cast_tool_argument(parameters[param_name].annotation, argument)
         for param_name, argument in arguments.items()
     }
 
 
-def normalize_tool_argument(parameter_type: Any, argument: Any) -> Any:
+def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
+    """This function is used to convert the argument values to the type expected by the function."""
     try:
+        # For Optional parameters - use the inner type
+        if get_origin(parameter_type) is Union:
+            args = get_args(parameter_type)
+            parameter_type = next((arg for arg in args if arg is not type(None)), None)
+
+        cast_target = parameter_type
         if getattr(parameter_type, "__name__", None) == "Annotated":
-            parameter_type = get_args(parameter_type)[0]
-        if (
+            cast_target = get_args(parameter_type)[0]
+        elif parameter_type is datetime:
+            return datetime.fromisoformat(argument)
+        elif parameter_type is date:
+            return date.fromisoformat(argument)
+        elif (
             inspect.isclass(parameter_type)
             and issubclass(parameter_type, Enum)
-            or parameter_type in [str, int, float, bool]
+            or parameter_type in VALID_TOOL_BASE_TYPES
         ):
-            return parameter_type(argument)
-        return argument
+            cast_target = parameter_type
+        elif get_origin(parameter_type) is list:
+            item_type = get_args(parameter_type)[0]
+            # Verify items type is valid and cast the list items
+            if item_type in VALID_TOOL_BASE_TYPES or issubclass(item_type, Enum):
+                return [cast_tool_argument(item_type, item) for item in literal_eval(argument)]
+            else:
+                raise TypeError(
+                    f"Unsupported list item type '{item_type}' for parameter '{argument}'."
+                )
+        else:
+            # Note that the parameter_type here may be an inner type (i.e. in cases of Optional ot lists)
+            raise TypeError(f"Unsupported type '{parameter_type}' for parameter '{argument}'.")
+        return cast_target(argument)
+
     except Exception as exc:
         raise ToolExecutionError(
             f"Failed to convert argument '{argument}' into a {parameter_type}"

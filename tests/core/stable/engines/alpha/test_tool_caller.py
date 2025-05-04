@@ -19,6 +19,7 @@ from typing import Annotated, Any, Mapping, Optional, Sequence
 from lagom import Container
 from pytest import fixture
 from typing_extensions import override
+from ast import literal_eval
 
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id
@@ -407,6 +408,10 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
 
     assert "categories" in tool_call.arguments
     assert isinstance(tool_call.arguments["categories"], str)
+    assert literal_eval(tool_call.arguments["categories"]) == [
+        ProductCategory.LAPTOPS.value,
+        ProductCategory.PERIPHERALS.value,
+    ]
     assert ProductCategory.LAPTOPS.value in tool_call.arguments["categories"]
     assert ProductCategory.PERIPHERALS.value in tool_call.arguments["categories"]
 

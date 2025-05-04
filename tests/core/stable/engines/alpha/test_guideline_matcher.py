@@ -68,11 +68,11 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "condition": "the customer is vegetarian or vegan",
         "observation": "-",
     },
-    "lock_card_request_1": {  # TODO add to test 111
+    "lock_card_request_1": {
         "condition": "the customer indicated that they wish to lock their credit card",
         "observation": "-",
     },
-    "lock_card_request_2": {  # TODO add to test 111
+    "lock_card_request_2": {
         "condition": "the customer lost their credit card",
         "observation": "-",
     },
@@ -1787,8 +1787,8 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
             "I'll email the Technology Sector Fund prospectus to the address we have on file for you. Regarding cryptocurrency, our bank recently launched a Cryptocurrency Investment Platform that allows you to invest in major cryptocurrencies like Bitcoin and Ethereum. This platform requires a minimum investment of $500 and includes educational resources to help you understand this asset class. We also offer a Cryptocurrency Index Fund that provides diversified exposure across multiple digital currencies. Would you like information about either of these options?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["credit_limits_discussion"]
-    relevant_guideline_names = ["credit_limits_discussion"]
+    conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
+    relevant_guideline_names = ["lock_card_request_1", "lock_card_request_2"]
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -1797,3 +1797,130 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
         conversation_guideline_names,
         relevant_guideline_names,
     )
+
+
+def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    terms = [
+        create_term(
+            name="blorgnet",
+            description="a figure of speech, meaning being annoyed by whoever you're interacting with",
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+    context_variables = [
+        create_context_variable(
+            name="customer_location",
+            data={"location": "Australia"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+        create_context_variable(
+            name="date",
+            data={"date": "August 15th, 2024"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+    tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:get_season",
+                    "arguments": {},
+                    "result": {"data": "winter", "metadata": {}, "control": {}},
+                }
+            ]
+        },
+    )
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+        ),
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I think I lost my credit card somewhere yesterday.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm sorry to hear about your lost card. I can help you with that right away. For security purposes, could you please verify the last four digits of your card?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It's the Platinum Rewards one.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for that information. To proceed with locking your Platinum Rewards card, I'll need to verify the last four digits of the card number. This helps ensure we're securing the correct card on your account. Could you please provide those digits?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "blorgnet, I just need it locked right now. I have multiple cards and I don't memorize all the numbers.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I understand your concern and the urgency of the situation. Let me try another approach. I can see your account has two Platinum Rewards cards. Would it be helpful if I locked both cards temporarily until we identify which one is missing? Or would you prefer to check your online banking app where you can see the last four digits of your cards?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Just lock all of them. I need to go to a meeting in 5 minutes.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I've placed temporary locks on all your Platinum Rewards cards. This will prevent any unauthorized transactions while keeping your account active. The locks are effective immediately. Would you like me to order replacement cards for you now, or would you prefer to wait in case you find the missing card?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "When will your branch on Main Street be open?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Our Main Street branch is open Monday through Friday from 9:00 AM to 5:00 PM, and Saturday from 9:00 AM to 1:00 PM. It's closed on Sundays. Regarding your cards, would you like me to order replacements for any of them at this time?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "And do they handle international wire transfers there?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Yes, our Main Street branch does handle international wire transfers. You would need to bring a valid ID and the recipient's banking details. The branch can also help with your card situation if you prefer to handle it in person. In the meantime, your cards remain locked for your protection. Is there anything else you need assistance with today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "What's the maximum amount for international transfers?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "For international wire transfers, the maximum amount per transaction is $50,000. However, if you need to send a larger amount, you can complete multiple transactions or speak with a personal banker who may be able to arrange a special transfer with additional verification. The Main Street branch has several personal bankers who can assist with this. Would you like me to schedule an appointment for you?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "What's the maximum amount for international transfers?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = list(OBSERVATIONAL_GUIDELINES_DICT.keys())
+    relevant_guideline_names = [
+        "lock_card_request_1",
+        "lock_card_request_2",
+        "season_is_winter",
+        "frustrated_customer",
+        "unanswered_questions",
+    ]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        staged_events=staged_events,
+        context_variables=context_variables,
+        terms=terms,
+    )
+
+
+# TODO add test with mixed guidelines

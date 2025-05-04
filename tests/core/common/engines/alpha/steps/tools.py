@@ -112,7 +112,20 @@ def given_the_tool_from_service(
                     },
                 },
                 "required": ["category"],
-            }
+            },
+            "available_products_by_categories": {
+                "name": "available_products_by_categories",
+                "description": "",
+                "module_path": "tests.tool_utilities",
+                "parameters": {
+                    "categories": {
+                        "type": "array",
+                        "item_type": "string",
+                        "enum": ["laptops", "peripherals"],
+                    },
+                },
+                "required": ["categories"],
+            },
         },
     }
 
@@ -605,6 +618,52 @@ def given_a_tool(
                 },
             },
             "required": ["keyword"],
+        },
+        "set_a_bbq_appointment": {
+            "name": "set_a_bbq_appointment",
+            "description": "Set a BBQ appointment",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "start_time": {
+                    "type": "datetime",
+                },
+                "description": {
+                    "type": "string",
+                },
+                "participants": {"type": "array", "item_type": "string"},
+                "participants_rating": {"type": "array", "item_type": "number"},
+                "end_time": {
+                    "type": "datetime",
+                },
+                "location": {
+                    "type": "string",
+                    "enum": ["meeting room", "phone booth", "kitchen"],
+                },
+                "alternative_locations": {
+                    "type": "array",
+                    "item_type": "string",
+                    "enum": ["meeting room", "phone booth", "kitchen"],
+                },
+                "meat_to_buy_in_kg": {"type": "number"},
+                "vegetarians": {"type": "integer"},
+            },
+            "required": ["start_time", "description", "participants"],
+        },
+        "find_bbq_appointments": {
+            "name": "find_bbq_appointments",
+            "description": "Find a BBQ appointment in calendar",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "day": {
+                    "type": "date",
+                },
+                "participants": {"type": "array", "item_type": "string"},
+                "location": {
+                    "type": "string",
+                    "enum": ["meeting room", "phone booth", "kitchen"],
+                },
+            },
+            "required": [],
         },
     }
 

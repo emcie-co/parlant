@@ -19,17 +19,10 @@ from pydantic import Field
 
 from parlant.api import common
 from parlant.api.common import (
-    CoherenceCheckDTO,
-    CoherenceCheckKindDTO,
-    ConnectionPropositionDTO,
-    ConnectionPropositionKindDTO,
     EvaluationStatusDTO,
     GuidelineContentDTO,
-    LegacyGuidelinePayloadDTO,
+    GuidelineIdField,
     GuidelinePayloadOperationDTO,
-    LegacyGuidelineInvoiceDataDTO,
-    LegacyInvoiceDataDTO,
-    LegacyPayloadDTO,
     PayloadKindDTO,
     ExampleJson,
     apigen_skip_config,
@@ -37,10 +30,7 @@ from parlant.api.common import (
 )
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
-from parlant.core.agents import AgentId, AgentStore
 from parlant.core.evaluations import (
-    CoherenceCheckKind,
-    EntailmentRelationshipPropositionKind,
     Evaluation,
     EvaluationId,
     EvaluationListener,
@@ -55,11 +45,11 @@ from parlant.core.evaluations import (
 )
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    LegacyBehavioralChangeEvaluator,
+    BehavioralChangeEvaluator,
     EvaluationValidationError,
 )
 
-API_GROUP = "legacy_evaluations"
+API_GROUP = "evaluations"
 
 
 def _evaluation_status_to_dto(
@@ -76,7 +66,176 @@ def _evaluation_status_to_dto(
     )
 
 
-def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
+GuidelinePayloadActionPropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Whether the action proposition is enabled",
+        examples=[True],
+    ),
+]
+
+guideline_payload_example: ExampleJson = {
+    "content": {
+        "condition": "User asks about product pricing",
+        "action": "Provide current price list and any active discounts",
+    },
+    "operation": "add",
+    "updated_id": None,
+    "action_proposition": True,
+}
+
+
+class GuidelinePayloadDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": guideline_payload_example},
+):
+    """Payload data for a Guideline operation"""
+
+    content: GuidelineContentDTO
+    operation: GuidelinePayloadOperationDTO
+    updated_id: Optional[GuidelineIdField] = None
+    action_proposition: GuidelinePayloadActionPropositionField
+
+
+payload_example: ExampleJson = {
+    "kind": "guideline",
+    "guideline": {
+        "content": {
+            "condition": "User asks about product pricing",
+            "action": None,
+        },
+        "operation": "add",
+        "updated_id": None,
+        "action_proposition": True,
+    },
+}
+
+
+class PayloadDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": payload_example},
+):
+    kind: PayloadKindDTO
+    guideline: Optional[GuidelinePayloadDTO] = None
+
+
+action_proposition_example: ExampleJson = {
+    "content": {
+        "condition": "User asks about product pricing",
+        "action": "Provide current price list and any active discounts",
+    },
+}
+
+
+ChecksumField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Checksum of the invoice content",
+        examples=["abc123def456"],
+    ),
+]
+
+ApprovedField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Whether the evaluation task the invoice represents has been approved",
+        examples=[True],
+    ),
+]
+
+
+ErrorField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Error message if the evaluation failed",
+        examples=["Failed to process evaluation due to invalid payload"],
+    ),
+]
+
+
+ActionPropositionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Proposed action proposition",
+        examples=["provide current pricing information"],
+    ),
+]
+
+invoice_example: ExampleJson = {
+    "payload": {
+        "kind": "guideline",
+        "guideline": {
+            "content": {
+                "condition": "when customer asks about pricing",
+                "action": "provide current pricing information",
+            },
+            "operation": "add",
+            "updated_id": None,
+            "action_proposition": True,
+        },
+    },
+    "checksum": "abc123def456",
+    "approved": True,
+    "data": {
+        "guideline": {
+            "action_proposition": {
+                "content": {
+                    "condition": "when customer asks about pricing",
+                    "action": "provide current pricing information",
+                },
+            },
+        }
+    },
+    "error": None,
+}
+
+guideline_invoice_data_example: ExampleJson = {
+    "action_proposition": action_proposition_example,
+}
+
+
+class GuidelineInvoiceDataDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": guideline_invoice_data_example},
+):
+    """Evaluation results for a Guideline, including action propositions"""
+
+    action_proposition: ActionPropositionField
+
+
+invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
+
+
+class InvoiceDataDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": invoice_data_example},
+):
+    """
+    Contains the relevant invoice data.
+
+    At this point only `guideline` is suppoerted.
+    """
+
+    guideline: Optional[GuidelineInvoiceDataDTO] = None
+
+
+class InvoiceDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": invoice_example},
+):
+    """Represents the result of evaluating a single payload in an evaluation task.
+
+    An invoice is a comprehensive record of the evaluation results for a single payload.
+    """
+
+    payload: PayloadDTO
+    checksum: ChecksumField
+    approved: ApprovedField
+    data: Optional[InvoiceDataDTO] = None
+    error: Optional[ErrorField] = None
+
+
+def _payload_from_dto(dto: PayloadDTO) -> Payload:
     if dto.kind == PayloadKindDTO.GUIDELINE:
         if not dto.guideline:
             raise HTTPException(
@@ -91,9 +250,9 @@ def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
             ),
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
-            coherence_check=dto.guideline.coherence_check,
-            connection_proposition=dto.guideline.connection_proposition,
-            action_proposition=False,
+            coherence_check=False,  # Legacy and will be removed in the future
+            connection_proposition=False,  # Legacy and will be removed in the future
+            action_proposition=dto.guideline.action_proposition,
         )
 
     raise HTTPException(
@@ -114,19 +273,18 @@ def _operation_to_operation_dto(
     raise ValueError(f"Unsupported operation: {operation}")
 
 
-def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> LegacyPayloadDTO:
+def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
     if descriptor.kind == PayloadKind.GUIDELINE:
-        return LegacyPayloadDTO(
+        return PayloadDTO(
             kind=PayloadKindDTO.GUIDELINE,
-            guideline=LegacyGuidelinePayloadDTO(
+            guideline=GuidelinePayloadDTO(
                 content=GuidelineContentDTO(
                     condition=descriptor.payload.content.condition,
                     action=descriptor.payload.content.action,
                 ),
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=descriptor.payload.updated_id,
-                coherence_check=descriptor.payload.coherence_check,
-                connection_proposition=descriptor.payload.connection_proposition,
+                action_proposition=descriptor.payload.action_proposition,
             ),
         )
 
@@ -136,65 +294,15 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> LegacyPayloadDT
     )
 
 
-def _coherence_check_kind_to_dto(
-    kind: CoherenceCheckKind,
-) -> CoherenceCheckKindDTO:
-    match kind:
-        case CoherenceCheckKind.CONTRADICTION_WITH_EXISTING_GUIDELINE:
-            return CoherenceCheckKindDTO.CONTRADICTION_WITH_EXISTING_GUIDELINE
-        case CoherenceCheckKind.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE:
-            return CoherenceCheckKindDTO.CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-
-
-def _connection_proposition_kind_to_dto(
-    kind: EntailmentRelationshipPropositionKind,
-) -> ConnectionPropositionKindDTO:
-    match kind:
-        case EntailmentRelationshipPropositionKind.CONNECTION_WITH_EXISTING_GUIDELINE:
-            return ConnectionPropositionKindDTO.CONNECTION_WITH_EXISTING_GUIDELINE
-        case EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE:
-            return ConnectionPropositionKindDTO.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-
-
-def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> LegacyInvoiceDataDTO:
+def _invoice_data_to_dto(
+    kind: PayloadKind,
+    invoice_data: InvoiceData,
+) -> InvoiceDataDTO:
     if kind == PayloadKind.GUIDELINE:
-        return LegacyInvoiceDataDTO(
-            guideline=LegacyGuidelineInvoiceDataDTO(
-                coherence_checks=[
-                    CoherenceCheckDTO(
-                        kind=_coherence_check_kind_to_dto(c.kind),
-                        first=GuidelineContentDTO(
-                            condition=c.first.condition,
-                            action=c.first.action,
-                        ),
-                        second=GuidelineContentDTO(
-                            condition=c.second.condition,
-                            action=c.second.action,
-                        ),
-                        issue=c.issue,
-                        severity=c.severity,
-                    )
-                    for c in invoice_data.coherence_checks
-                ]
-                if invoice_data.coherence_checks
-                else [],
-                connection_propositions=[
-                    ConnectionPropositionDTO(
-                        check_kind=_connection_proposition_kind_to_dto(c.check_kind),
-                        source=GuidelineContentDTO(
-                            condition=c.source.condition,
-                            action=c.source.action,
-                        ),
-                        target=GuidelineContentDTO(
-                            condition=c.target.condition,
-                            action=c.target.action,
-                        ),
-                    )
-                    for c in invoice_data.entailment_propositions
-                ]
-                if invoice_data.entailment_propositions
-                else None,
-            )
+        return InvoiceDataDTO(
+            guideline=GuidelineInvoiceDataDTO(
+                action_proposition=invoice_data.action_proposition,
+            ),
         )
 
     raise HTTPException(
@@ -203,110 +311,7 @@ def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> Legacy
     )
 
 
-LegacyChecksumField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Checksum of the invoice content",
-        examples=["abc123def456"],
-    ),
-]
-
-LegacyApprovedField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="Whether the evaluation task the invoice represents has been approved",
-        examples=[True],
-    ),
-]
-
-
-LegacyErrorField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Error message if the evaluation failed",
-        examples=["Failed to process evaluation due to invalid payload"],
-    ),
-]
-
-
-legacy_invoice_example: ExampleJson = {
-    "payload": {
-        "kind": "guideline",
-        "guideline": {
-            "content": {
-                "condition": "when customer asks about pricing",
-                "action": "provide current pricing information",
-            },
-            "operation": "add",
-            "updated_id": None,
-            "coherence_check": True,
-            "connection_proposition": True,
-        },
-    },
-    "checksum": "abc123def456",
-    "approved": True,
-    "data": {
-        "guideline": {
-            "coherence_checks": [
-                {
-                    "kind": "semantic_overlap",
-                    "first": {
-                        "condition": "when customer asks about pricing",
-                        "action": "provide current pricing information",
-                    },
-                    "second": {
-                        "condition": "if customer inquires about cost",
-                        "action": "share the latest pricing details",
-                    },
-                    "issue": "These guidelines handle similar scenarios",
-                    "severity": "warning",
-                }
-            ],
-            "connection_propositions": [
-                {
-                    "check_kind": "semantic_similarity",
-                    "source": {
-                        "condition": "when customer asks about pricing",
-                        "action": "provide current pricing information",
-                    },
-                    "target": {
-                        "condition": "if customer inquires about cost",
-                        "action": "share the latest pricing details",
-                    },
-                }
-            ],
-        }
-    },
-    "error": None,
-}
-
-
-class LegacyInvoiceDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": legacy_invoice_example},
-):
-    """Represents the result of evaluating a single payload in an evaluation task.
-
-    An invoice is a comprehensive record of the evaluation results for a single payload.
-    """
-
-    payload: LegacyPayloadDTO
-    checksum: LegacyChecksumField
-    approved: LegacyApprovedField
-    data: Optional[LegacyInvoiceDataDTO] = None
-    error: Optional[LegacyErrorField] = None
-
-
-LegacyAgentIdField: TypeAlias = Annotated[
-    AgentId,
-    Field(
-        description="Unique identifier for the agent",
-        examples=["a1g2e3n4t5"],
-    ),
-]
-
-
-legacy_evaluation_creation_params_example: ExampleJson = {
+evaluation_creation_params_example: ExampleJson = {
     "agent_id": "a1g2e3n4t5",
     "payloads": [
         {
@@ -314,28 +319,26 @@ legacy_evaluation_creation_params_example: ExampleJson = {
             "guideline": {
                 "content": {
                     "condition": "when customer asks about pricing",
-                    "action": "provide current pricing information",
+                    "action": None,
                 },
                 "operation": "add",
-                "coherence_check": True,
-                "connection_proposition": True,
+                "action_proposition": True,
             },
         }
     ],
 }
 
 
-class LegacyEvaluationCreationParamsDTO(
+class EvaluationCreationParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": legacy_evaluation_creation_params_example},
+    json_schema_extra={"example": evaluation_creation_params_example},
 ):
     """Parameters for creating a new evaluation task"""
 
-    agent_id: LegacyAgentIdField
-    payloads: Sequence[LegacyPayloadDTO]
+    payloads: Sequence[PayloadDTO]
 
 
-LegacyEvaluationIdPath: TypeAlias = Annotated[
+EvaluationIdPath: TypeAlias = Annotated[
     EvaluationId,
     Path(
         description="Unique identifier of the evaluation to retrieve",
@@ -343,7 +346,7 @@ LegacyEvaluationIdPath: TypeAlias = Annotated[
     ),
 ]
 
-LegacyEvaluationProgressField: TypeAlias = Annotated[
+EvaluationProgressField: TypeAlias = Annotated[
     float,
     Field(
         description="Progress of the evaluation from 0.0 to 100.0",
@@ -353,7 +356,7 @@ LegacyEvaluationProgressField: TypeAlias = Annotated[
     ),
 ]
 
-LegacyCreationUtcField: TypeAlias = Annotated[
+CreationUtcField: TypeAlias = Annotated[
     datetime,
     Field(
         description="UTC timestamp when the evaluation was created",
@@ -361,7 +364,7 @@ LegacyCreationUtcField: TypeAlias = Annotated[
 ]
 
 
-legacy_evaluation_example: ExampleJson = {
+evaluation_example: ExampleJson = {
     "id": "eval_123xz",
     "status": "completed",
     "progress": 100.0,
@@ -422,21 +425,21 @@ legacy_evaluation_example: ExampleJson = {
 }
 
 
-class LegacyEvaluationDTO(
+class EvaluationDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": legacy_evaluation_example},
+    json_schema_extra={"example": evaluation_example},
 ):
     """An evaluation task information tracking analysis of payloads."""
 
-    id: LegacyEvaluationIdPath
+    id: EvaluationIdPath
     status: EvaluationStatusDTO
-    progress: LegacyEvaluationProgressField
-    creation_utc: LegacyCreationUtcField
-    error: Optional[LegacyErrorField] = None
-    invoices: Sequence[LegacyInvoiceDTO]
+    progress: EvaluationProgressField
+    creation_utc: CreationUtcField
+    error: Optional[ErrorField] = None
+    invoices: Sequence[InvoiceDTO]
 
 
-LegacyWaitForCompletionQuery: TypeAlias = Annotated[
+WaitForCompletionQuery: TypeAlias = Annotated[
     int,
     Query(
         description="Maximum time in seconds to wait for evaluation completion",
@@ -445,23 +448,22 @@ LegacyWaitForCompletionQuery: TypeAlias = Annotated[
 ]
 
 
-def legacy_create_router(
-    evaluation_service: LegacyBehavioralChangeEvaluator,
+def create_router(
+    evaluation_service: BehavioralChangeEvaluator,
     evaluation_store: EvaluationStore,
     evaluation_listener: EvaluationListener,
-    agent_store: AgentStore,
 ) -> APIRouter:
     router = APIRouter()
 
     @router.post(
-        "/evaluations",
+        "",
         status_code=status.HTTP_201_CREATED,
         operation_id="create_evaluation",
-        response_model=LegacyEvaluationDTO,
+        response_model=EvaluationDTO,
         responses={
             status.HTTP_201_CREATED: {
                 "description": "Evaluation successfully created. Returns the initial evaluation state.",
-                "content": common.example_json_content(legacy_evaluation_example),
+                "content": common.example_json_content(evaluation_example),
             },
             status.HTTP_422_UNPROCESSABLE_ENTITY: {
                 "description": "Validation error in evaluation parameters"
@@ -471,8 +473,8 @@ def legacy_create_router(
         deprecated=True,
     )
     async def create_evaluation(
-        params: LegacyEvaluationCreationParamsDTO,
-    ) -> LegacyEvaluationDTO:
+        params: EvaluationCreationParamsDTO,
+    ) -> EvaluationDTO:
         """
         Creates a new evaluation task for the specified agent.
 
@@ -484,9 +486,7 @@ def legacy_create_router(
         Returns immediately with the created evaluation's initial state.
         """
         try:
-            agent = await agent_store.read_agent(agent_id=params.agent_id)
             evaluation_id = await evaluation_service.create_evaluation_task(
-                agent=agent,
                 payload_descriptors=[
                     PayloadDescriptor(PayloadKind.GUIDELINE, p)
                     for p in [_payload_from_dto(p) for p in params.payloads]
@@ -504,11 +504,11 @@ def legacy_create_router(
     @router.get(
         "/evaluations/{evaluation_id}",
         operation_id="read_evaluation",
-        response_model=LegacyEvaluationDTO,
+        response_model=EvaluationDTO,
         responses={
             status.HTTP_200_OK: {
                 "description": "Evaluation details successfully retrieved.",
-                "content": common.example_json_content(legacy_evaluation_example),
+                "content": common.example_json_content(evaluation_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Evaluation not found"},
             status.HTTP_422_UNPROCESSABLE_ENTITY: {
@@ -522,9 +522,9 @@ def legacy_create_router(
         deprecated=True,
     )
     async def read_evaluation(
-        evaluation_id: LegacyEvaluationIdPath,
-        wait_for_completion: LegacyWaitForCompletionQuery = 60,
-    ) -> LegacyEvaluationDTO:
+        evaluation_id: EvaluationIdPath,
+        wait_for_completion: WaitForCompletionQuery = 60,
+    ) -> EvaluationDTO:
         """Retrieves the current state of an evaluation.
 
         * If wait_for_completion == 0, returns current state immediately.
@@ -548,14 +548,14 @@ def legacy_create_router(
         evaluation = await evaluation_store.read_evaluation(evaluation_id=evaluation_id)
         return _evaluation_to_dto(evaluation)
 
-    def _evaluation_to_dto(evaluation: Evaluation) -> LegacyEvaluationDTO:
-        return LegacyEvaluationDTO(
+    def _evaluation_to_dto(evaluation: Evaluation) -> EvaluationDTO:
+        return EvaluationDTO(
             id=evaluation.id,
             status=_evaluation_status_to_dto(evaluation.status),
             progress=evaluation.progress,
             creation_utc=evaluation.creation_utc,
             invoices=[
-                LegacyInvoiceDTO(
+                InvoiceDTO(
                     payload=_payload_descriptor_to_dto(
                         PayloadDescriptor(kind=invoice.kind, payload=invoice.payload)
                     ),

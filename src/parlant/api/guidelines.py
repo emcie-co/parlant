@@ -29,7 +29,7 @@ from parlant.api.common import (
     GuidelineMetadataField,
     RelationshipDTO,
     GuidelineTagsField,
-    InvoiceDataDTO,
+    LegacyInvoiceDataDTO,
     PayloadKindDTO,
     RelationshipKindDTO,
     TagDTO,
@@ -39,7 +39,7 @@ from parlant.api.common import (
     guideline_dto_example,
     operation_dto_to_operation,
 )
-from parlant.api.index import InvoiceDTO
+from parlant.api.index import LegacyInvoiceDTO
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import (
     DefaultBaseModel,
@@ -266,7 +266,7 @@ class LegacyGuidelineCreationParamsDTO(
 ):
     """Evaluation invoices to generate Guidelines from."""
 
-    invoices: Sequence[InvoiceDTO]
+    invoices: Sequence[LegacyInvoiceDTO]
 
 
 legacy_guideline_creation_result_example: ExampleJson = {
@@ -392,7 +392,7 @@ class _GuidelineRelationship:
     kind: GuidelineRelationshipKind
 
 
-def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
+def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
     if dto.payload.kind != PayloadKindDTO.GUIDELINE:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -419,6 +419,7 @@ def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
         operation=operation_dto_to_operation(dto.payload.guideline.operation),
         coherence_check=dto.payload.guideline.coherence_check,
         connection_proposition=dto.payload.guideline.connection_proposition,
+        action_proposition=False,
         updated_id=dto.payload.guideline.updated_id,
     )
 
@@ -465,7 +466,7 @@ def _check_kind_dto_to_check_kind(
             raise ValueError(f"Unsupported connection proposition kind: {dto}")
 
 
-def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineData:
+def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuidelineData:
     if not dto.guideline:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -503,7 +504,9 @@ def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineDa
             connection_propositions = None
 
         return InvoiceGuidelineData(
-            coherence_checks=coherence_checks, entailment_propositions=connection_propositions
+            coherence_checks=coherence_checks,
+            entailment_propositions=connection_propositions,
+            action_proposition=None,
         )
     except Exception:
         raise HTTPException(

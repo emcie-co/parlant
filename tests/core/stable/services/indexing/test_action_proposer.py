@@ -14,7 +14,6 @@
 
 from lagom import Container
 
-from parlant.core.agents import Agent
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.guideline_action_proposer import GuidelineActionProposer
 from parlant.core.tools import LocalToolService, ToolId
@@ -22,7 +21,6 @@ from parlant.core.tools import LocalToolService, ToolId
 
 async def test_that_no_action_is_proposed_when_guideline_already_contains_action_or_no_tools(
     container: Container,
-    agent: Agent,
 ) -> None:
     action_proposer = container[GuidelineActionProposer]
 
@@ -32,7 +30,6 @@ async def test_that_no_action_is_proposed_when_guideline_already_contains_action
     )
 
     result = await action_proposer.propose_action(
-        agent=agent,
         guideline=guideline,
         tool_ids=[],
     )
@@ -43,7 +40,6 @@ async def test_that_no_action_is_proposed_when_guideline_already_contains_action
 
 async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are_supplied(
     container: Container,
-    agent: Agent,
 ) -> None:
     local_tool_service = container[LocalToolService]
 
@@ -65,7 +61,6 @@ async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are
     action_proposer = container[GuidelineActionProposer]
 
     result = await action_proposer.propose_action(
-        agent=agent,
         guideline=guideline_without_action,
         tool_ids=[tool_id],
     )

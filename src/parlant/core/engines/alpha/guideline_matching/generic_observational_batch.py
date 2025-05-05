@@ -203,9 +203,8 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             }
             for g in self._guidelines.values()
         ]
-        guidelines_text = "\n".join(
-            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
-            for i, g in self._guidelines.items()
+        conditions_text = "\n".join(
+            f"{i}) {g.content.condition}." for i, g in self._guidelines.items()
         )
 
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
@@ -215,53 +214,29 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             template="""
 GENERAL INSTRUCTIONS
 -----------------
-In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
-Each guideline is composed of two parts:
-- "condition": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at any particular state, and we test against this
-          condition to understand if we should have this guideline participate in generating
-          the next reply to the user.
-- "action": This is a natural-language instruction that should be followed by the agent
-          whenever the "condition" part of the guideline applies to the conversation in its particular state.
-          Any instruction described here applies only to the agent, and not to the user.
+In our system, the behavior of a conversational AI agent is guided by how the current state of its interaction with a customer (also referred to as "the user") compares to a number of pre-defined conditions:
 
+- "condition": This is a natural-language condition that specifies when a guideline should apply. 
+          We evaluate each conversation at its current state against these conditions
+          to determine which guidelines should inform the agent's next reply.
+
+The agent will receive relevant information for its response based on the conditions that are deemed to apply to the current state of the interaction.
 
 Task Description
 ----------------
-Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
-These conditions, along with the interaction details, will be provided later in this message.
-For each condition that is met, determine whether its corresponding action should be taken by the agent or if it has already been addressed previously.
+Your task is to evaluate whether each provided condition applies to the current interaction between an AI agent and a user. For each condition, you must determine a binary True/False decision.
 
+Application Rules:
+1. Historical Relevance: Generally, mark a condition as applicable (YES) if it has been satisfied at ANY point during the conversation history, even if not in the most recent messages.
 
-Process Description
--------------------
-a. Examine Interaction Events: Review the provided interaction events to discern the most recent state of the interaction between the user and the agent.
-b. Evaluate Conditions: Assess the entire interaction to determine whether each condition is still relevant and directly fulfilled based on the most recent interaction state.
-c. Check for Prior Action: Determine whether the condition has already been addressed, i.e., whether it applied in an earlier state and its corresponding action has already been performed.
-d. Guideline Application: A guideline should be applied only if:
-    (1) Its condition is currently met and its action has not been performed yet, or
-    (2) The interaction warrants re-application of its action (e.g., when a recurring condition becomes true again after previously being fulfilled).
+2. Temporal Qualifiers: If a condition contains explicit temporal qualifiers (e.g., "currently discussing," "in the process of," "actively seeking"), evaluate only against the CURRENT state of the conversation.
 
-For each provided guideline, return:
-    (1) Whether its condition is fulfilled.
-    (2) Whether its action needs to be applied at this time. See the following section for more details.
+Example:
+- Condition: "the customer is planning a special occasion dinner"
+- Mark as YES if: The user mentions celebrating an anniversary, birthday, graduation, or other special event; asks for restaurant recommendations for a "special night"; discusses making reservations for a celebration; or inquires about upscale dining options for an important date.
+- Mark as NO if: The user is discussing everyday meal planning, looking for quick casual dining options, or has given no indication of planning any special event-related dining.
 
-
-Insights Regarding Guideline re-activation
--------------------
-A condition typically no longer applies if its corresponding action has already been executed.
-However, there are exceptions where re-application is warranted, such as when the condition is re-applied again. For example, a guideline with the condition "the customer is asking a question" should be applied again whenever the customer asks a question.
-Additionally, actions that involve continuous behavior (e.g., "do not ask the user for their age", or guidelines involving the language the agent should use) should be re-applied whenever their condition is met, even if their action was already taken. Mark these guidelines "guideline_is_continuous" in your output.
-If a guideline's condition has multiple requirements, mark it as continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and help them with their order" should be marked as continuous, since 'helping them with their order' is continuous.
-Actions that forbid certain behaviors are generally considered continuous, as they must be upheld across multiple messages to ensure consistent adherence.
-
-IMPORTANT: guidelines that only require you to say a specific thing are generally not continuous. Once you said the required thing - the guideline is fulfilled.
-
-Conversely, actions dictating one-time behavior (e.g., "send the user our address") should be re-applied more conservatively.
-Only re-apply these if the condition ceased to be true earlier in the conversation before being fulfilled again in the current context.
-
-IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, AND the unfulfilled portions aren't functionallly important but more "cosmetic" in nature (e.g. like saying thanks or anything that doesn't influence the direction of, or is important to the interaction) then output "fully" for `guideline_previously_applied`, and treat the guideline as though it has been fully executed.
-In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is marked as continuous.
+The exact format of your response will be provided later in this prompt.
 
 """,
             props={},
@@ -273,7 +248,7 @@ Examples of Condition Evaluations:
 -------------------
 {formatted_shots}
 """,
-            props={
+            props={  # TODO fix shots
                 "formatted_shots": self._format_shots(shots),
                 "shots": shots,
             },
@@ -286,11 +261,11 @@ Examples of Condition Evaluations:
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
             template="""
-- Guidelines list: ###
+- Conditions List: ###
 {guidelines_text}
 ###
 """,
-            props={"guidelines_text": guidelines_text},
+            props={"guidelines_text": conditions_text},
             status=SectionStatus.ACTIVE,
         )
 

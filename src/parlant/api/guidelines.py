@@ -420,6 +420,7 @@ def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
         coherence_check=dto.payload.guideline.coherence_check,
         connection_proposition=dto.payload.guideline.connection_proposition,
         action_proposition=False,
+        properties_proposition=False,
         updated_id=dto.payload.guideline.updated_id,
     )
 
@@ -507,6 +508,7 @@ def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuide
             coherence_checks=coherence_checks,
             entailment_propositions=connection_propositions,
             action_proposition=None,
+            properties_proposition=None,
         )
     except Exception:
         raise HTTPException(

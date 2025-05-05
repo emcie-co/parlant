@@ -89,6 +89,7 @@ class GuidelinePayload:
     coherence_check: bool  # Legacy and will be removed in the future
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
+    properties_proposition: bool
     updated_id: Optional[GuidelineId] = None
     tool_ids: Optional[Sequence[ToolId]] = None
 
@@ -125,6 +126,7 @@ class InvoiceGuidelineData:
     coherence_checks: Optional[Sequence[CoherenceCheck]]
     entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
     action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
     _type: Literal["guideline"] = "guideline"  # Union discrimator for Pydantic
 
 
@@ -224,6 +226,7 @@ class GuidelinePayloadDocument(TypedDict):
     coherence_check: bool
     connection_proposition: bool
     action_proposition: bool
+    properties_proposition: bool
 
 
 _PayloadDocument = Union[GuidelinePayloadDocument]
@@ -252,6 +255,7 @@ class InvoiceGuidelineDataDocument(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
 _InvoiceDataDocument = Union[InvoiceGuidelineDataDocument]
@@ -416,6 +420,9 @@ class EvaluationDocumentStore(EvaluationStore):
                 action_proposition=(
                     data.action_proposition if data.action_proposition is not None else None
                 ),
+                properties_proposition=(
+                    data.properties_proposition if data.properties_proposition is not None else None
+                ),
             )
 
         def serialize_payload(payload: Payload) -> _PayloadDocument:
@@ -430,6 +437,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     coherence_check=payload.coherence_check,
                     connection_proposition=payload.connection_proposition,
                     action_proposition=payload.action_proposition,
+                    properties_proposition=payload.properties_proposition,
                 )
             else:
                 raise TypeError(f"Unknown payload type: {type(payload)}")
@@ -511,6 +519,11 @@ class EvaluationDocumentStore(EvaluationStore):
                     if data_doc["action_proposition"] is not None
                     else None
                 ),
+                properties_proposition=(
+                    data_doc["properties_proposition"]
+                    if data_doc["properties_proposition"] is not None
+                    else None
+                ),
             )
 
         def deserialize_payload_document(
@@ -528,6 +541,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     coherence_check=payload_doc["coherence_check"],
                     connection_proposition=payload_doc["connection_proposition"],
                     action_proposition=payload_doc["action_proposition"],
+                    properties_proposition=payload_doc["properties_proposition"],
                 )
             else:
                 raise ValueError(f"Unsupported payload kind: {kind}")

@@ -38,6 +38,7 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
                         },
                         "operation": "add",
                         "action_proposition": True,
+                        "properties_proposition": True,
                     },
                 }
             ],
@@ -46,13 +47,9 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
 
     assert response.status_code == status.HTTP_201_CREATED
 
-    evaluation_id = response.json()["id"]
+    evaluation_id = response.raise_for_status().json()["id"]
 
-    content = (
-        (await async_client.get(f"/evaluations/evaluations/{evaluation_id}"))
-        .raise_for_status()
-        .json()
-    )
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
 
     assert content["status"] == "completed"
     assert len(content["invoices"]) == 1
@@ -80,22 +77,19 @@ async def test_that_an_evaluation_can_be_fetched_with_running_status(
                         },
                         "operation": "add",
                         "action_proposition": True,
+                        "properties_proposition": True,
                     },
                 }
             ],
         },
     )
 
-    evaluation_id = response.json()["id"]
+    evaluation_id = response.raise_for_status().json()["id"]
 
     await asyncio.sleep(AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING)
 
     content = (
-        (
-            await async_client.get(
-                f"/evaluations/evaluations/{evaluation_id}", params={"wait_for_completion": 0}
-            )
-        )
+        (await async_client.get(f"/evaluations/{evaluation_id}", params={"wait_for_completion": 0}))
         .raise_for_status()
         .json()
     )
@@ -113,3 +107,42 @@ async def test_that_an_error_is_returned_when_no_payloads_are_provided(
 
     assert "detail" in data
     assert data["detail"] == "No payloads provided for the evaluation task."
+
+
+async def test_that_properties_proposition_is_evaluated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "guideline",
+                    "guideline": {
+                        "content": {
+                            "condition": "the customer asks for a discount",
+                            "action": "check if a discount is applicable",
+                        },
+                        "operation": "add",
+                        "action_proposition": True,
+                        "properties_proposition": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.raise_for_status().json()["id"]
+
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+
+    invoice = content["invoices"][0]
+    assert invoice["approved"]
+
+    assert invoice["data"]
+    assert invoice["data"]["guideline"]["properties_proposition"] is None

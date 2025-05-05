@@ -23,6 +23,7 @@ from parlant.api.common import (
     GuidelineContentDTO,
     GuidelineIdField,
     GuidelinePayloadOperationDTO,
+    JSONSerializableDTO,
     PayloadKindDTO,
     ExampleJson,
     apigen_skip_config,
@@ -74,6 +75,14 @@ GuidelinePayloadActionPropositionField: TypeAlias = Annotated[
     ),
 ]
 
+GuidelinePayloadPropertiesPropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Properties proposition",
+        examples=[{"action_proposition": True}],
+    ),
+]
+
 guideline_payload_example: ExampleJson = {
     "content": {
         "condition": "User asks about product pricing",
@@ -82,6 +91,7 @@ guideline_payload_example: ExampleJson = {
     "operation": "add",
     "updated_id": None,
     "action_proposition": True,
+    "properties_proposition": None,
 }
 
 
@@ -95,6 +105,7 @@ class GuidelinePayloadDTO(
     operation: GuidelinePayloadOperationDTO
     updated_id: Optional[GuidelineIdField] = None
     action_proposition: GuidelinePayloadActionPropositionField
+    properties_proposition: GuidelinePayloadPropertiesPropositionField
 
 
 payload_example: ExampleJson = {
@@ -107,6 +118,7 @@ payload_example: ExampleJson = {
         "operation": "add",
         "updated_id": None,
         "action_proposition": True,
+        "properties_proposition": True,
     },
 }
 
@@ -124,6 +136,10 @@ action_proposition_example: ExampleJson = {
         "condition": "User asks about product pricing",
         "action": "Provide current price list and any active discounts",
     },
+}
+
+properties_proposition_example: ExampleJson = {
+    "continious": True,
 }
 
 
@@ -161,6 +177,14 @@ ActionPropositionField: TypeAlias = Annotated[
     ),
 ]
 
+PropertiesPropositionField: TypeAlias = Annotated[
+    Optional[dict[str, JSONSerializableDTO]],
+    Field(
+        description="Properties proposition",
+        examples=[{"continious": True}],
+    ),
+]
+
 invoice_example: ExampleJson = {
     "payload": {
         "kind": "guideline",
@@ -172,6 +196,7 @@ invoice_example: ExampleJson = {
             "operation": "add",
             "updated_id": None,
             "action_proposition": True,
+            "properties_proposition": True,
         },
     },
     "checksum": "abc123def456",
@@ -183,6 +208,9 @@ invoice_example: ExampleJson = {
                     "condition": "when customer asks about pricing",
                     "action": "provide current pricing information",
                 },
+                "properties_proposition": {
+                    "continious": True,
+                },
             },
         }
     },
@@ -191,6 +219,7 @@ invoice_example: ExampleJson = {
 
 guideline_invoice_data_example: ExampleJson = {
     "action_proposition": action_proposition_example,
+    "properties_proposition": properties_proposition_example,
 }
 
 
@@ -201,6 +230,7 @@ class GuidelineInvoiceDataDTO(
     """Evaluation results for a Guideline, including action propositions"""
 
     action_proposition: ActionPropositionField
+    properties_proposition: Optional[PropertiesPropositionField] = None
 
 
 invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
@@ -253,6 +283,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
             coherence_check=False,  # Legacy and will be removed in the future
             connection_proposition=False,  # Legacy and will be removed in the future
             action_proposition=dto.guideline.action_proposition,
+            properties_proposition=dto.guideline.properties_proposition,
         )
 
     raise HTTPException(
@@ -284,7 +315,8 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
                 ),
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=descriptor.payload.updated_id,
-                action_proposition=descriptor.payload.action_proposition,
+                action_proposition=descriptor.payload.properties_proposition,
+                properties_proposition=descriptor.payload.properties_proposition,
             ),
         )
 
@@ -381,42 +413,16 @@ evaluation_example: ExampleJson = {
                     },
                     "operation": "add",
                     "updated_id": None,
-                    "coherence_check": True,
-                    "connection_proposition": True,
+                    "action_proposition": True,
+                    "properties_proposition": True,
                 },
             },
             "checksum": "abc123def456",
             "approved": True,
             "data": {
                 "guideline": {
-                    "coherence_checks": [
-                        {
-                            "kind": "semantic_overlap",
-                            "first": {
-                                "condition": "when customer asks about pricing",
-                                "action": "provide current pricing information",
-                            },
-                            "second": {
-                                "condition": "if customer inquires about cost",
-                                "action": "share the latest pricing details",
-                            },
-                            "issue": "These guidelines handle similar scenarios",
-                            "severity": "warning",
-                        }
-                    ],
-                    "connection_propositions": [
-                        {
-                            "check_kind": "semantic_similarity",
-                            "source": {
-                                "condition": "when customer asks about pricing",
-                                "action": "provide current pricing information",
-                            },
-                            "target": {
-                                "condition": "if customer inquires about cost",
-                                "action": "share the latest pricing details",
-                            },
-                        }
-                    ],
+                    "action_proposition": "provide current pricing information",
+                    "properties_proposition": {"continious": True},
                 }
             },
             "error": None,
@@ -476,12 +482,7 @@ def create_router(
         params: EvaluationCreationParamsDTO,
     ) -> EvaluationDTO:
         """
-        Creates a new evaluation task for the specified agent.
-
-        An evaluation analyzes proposed changes (payloads) to an agent's guidelines
-        to ensure coherence and consistency with existing guidelines and the agent's
-        configuration. This helps maintain predictable agent behavior by detecting
-        potential conflicts and unintended consequences before applying changes.
+        Creates a new evaluation task for the specified payloads.
 
         Returns immediately with the created evaluation's initial state.
         """
@@ -502,7 +503,7 @@ def create_router(
         return _evaluation_to_dto(evaluation)
 
     @router.get(
-        "/evaluations/{evaluation_id}",
+        "/{evaluation_id}",
         operation_id="read_evaluation",
         response_model=EvaluationDTO,
         responses={

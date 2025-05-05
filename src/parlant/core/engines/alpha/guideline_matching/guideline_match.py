@@ -24,6 +24,7 @@ class PreviouslyAppliedType(Enum):
     NO = "no"
     PARTIALLY = "partially"
     FULLY = "fully"
+    IRRELEVANT = "irrelevant"
 
 
 @dataclass(frozen=True)

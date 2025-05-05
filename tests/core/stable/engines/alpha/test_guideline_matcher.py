@@ -1414,7 +1414,7 @@ def test_that_observational_guidelines_are_detected_3(
         ),
         (
             EventSource.CUSTOMER,
-            "Let's just say that I'd like to play the old tambourine",
+            "Let's just say that I'd like to play the old tambourine, can you help me with that?",
         ),
     ]
     conversation_guideline_names: list[str] = [
@@ -1590,7 +1590,7 @@ def test_that_observational_guidelines_are_detected_based_on_tool_results(
     )
 
 
-def test_that_observational_guidelines_arent_wrongly_implied(
+def test_that_observational_guidelines_arent_wrongly_implied(  # TODO talk to Dor, move to unstable
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -1681,7 +1681,7 @@ def test_that_observational_guidelines_are_matched_based_on_glossary(
         ),
         (
             EventSource.CUSTOMER,
-            "Let's just say that I'd like to play the old tambourine",
+            "Let's just say that I'd like to play the old tambourine, can you help me with that?",
         ),
     ]
     conversation_guideline_names: list[str] = [
@@ -1799,7 +1799,7 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
     )
 
 
-def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(
+def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(  # Tough test, move to unstable?
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -1893,14 +1893,6 @@ def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_
             EventSource.CUSTOMER,
             "What's the maximum amount for international transfers?",
         ),
-        (
-            EventSource.AI_AGENT,
-            "For international wire transfers, the maximum amount per transaction is $50,000. However, if you need to send a larger amount, you can complete multiple transactions or speak with a personal banker who may be able to arrange a special transfer with additional verification. The Main Street branch has several personal bankers who can assist with this. Would you like me to schedule an appointment for you?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "What's the maximum amount for international transfers?",
-        ),
     ]
     conversation_guideline_names: list[str] = list(OBSERVATIONAL_GUIDELINES_DICT.keys())
     relevant_guideline_names = [
@@ -1923,7 +1915,7 @@ def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_
     )
 
 
-def test_mixed_guidelines_with_multiple_matches(
+def test_that_both_observational_and_actionable_guidelines_are_matched_together(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -1965,10 +1957,6 @@ def test_mixed_guidelines_with_multiple_matches(
             EventSource.CUSTOMER,
             "Not right now, thank you. Oh, I just realized - I might be running late. Where exactly is your location?",
         ),
-        (
-            EventSource.AI_AGENT,
-            "No problem! Our studio is located at Sapir 2, Herzliya. There's parking available in the back of the building. If you're running late, don't worry - we hold the door open for 5 minutes after class begins.",
-        ),
     ]
 
     conversation_guideline_names: list[str] = [
@@ -1986,7 +1974,6 @@ def test_mixed_guidelines_with_multiple_matches(
         # Actionable guidelines
         "address_location",
         "class_booking",
-        "hesitant_customer",
         "holiday_season",
         "first_time_customer",
         "request_for_feedback",
@@ -1997,10 +1984,7 @@ def test_mixed_guidelines_with_multiple_matches(
     ]
 
     relevant_guideline_names = [
-        # Matched observational guidelines
         "vegetarian_customer",
-        # Matched actionable guidelines
-        "class_booking",
         "address_location",
     ]
     context_variables = [

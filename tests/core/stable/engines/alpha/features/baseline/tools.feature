@@ -146,11 +146,11 @@ Feature: Tools
 
     Scenario: The agent distinguishes between tools from different services
         Given a guideline "system_check_scheduling" to schedule a system check if the error is critical when the customer complains about an error
-        And a guideline "cs_meeting_scheduleing" to schedule a new customer success meeting when the customer gives feedback regarding their use of the system
+        And a guideline "cs_meeting_scheduling" to schedule a new customer success meeting when the customer gives feedback regarding their use of the system
         And the tool "schedule" from "first_service"
         And the tool "schedule" from "second_service"
         And an association between "system_check_scheduling" and "schedule" from "first_service"
-        And an association between "cs_meeting_scheduleing" and "schedule" from "second_service"
+        And an association between "cs_meeting_scheduling" and "schedule" from "second_service"
         And a customer message, "I'm really happy about the system"
         When processing is triggered
         Then a single tool calls event is emitted

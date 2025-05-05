@@ -53,7 +53,7 @@ ToolParameterType = Literal[
 
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
 
-VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime, Enum]
+VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime]
 
 
 class ToolParameterDescriptor(TypedDict, total=False):

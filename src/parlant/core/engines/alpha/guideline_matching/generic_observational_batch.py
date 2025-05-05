@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
-from typing import Optional
 from typing_extensions import override
 
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -33,21 +32,8 @@ class SegmentPreviouslyAppliedRationale(DefaultBaseModel):
 class GenericObservationalGuidelineMatchSchema(DefaultBaseModel):
     guideline_id: str
     condition: str
-    condition_application_rationale: str
-    condition_applies: bool
-    action: Optional[str] = None
-    guideline_is_continuous: Optional[bool] = None
-    capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls: Optional[
-        bool
-    ] = None
-    guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information: Optional[
-        str
-    ] = None
-    guideline_previously_applied_rationale: Optional[list[SegmentPreviouslyAppliedRationale]] = None
-    guideline_previously_applied: Optional[str] = None
-    is_missing_part_cosmetic_or_functional: Optional[str] = None
-    guideline_should_reapply: Optional[bool] = None
-    applies_score: int
+    rationale: str
+    applies: bool
 
 
 class GenericObservationalGuidelineMatchesSchema(DefaultBaseModel):
@@ -94,26 +80,17 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         matches = []
 
         for match in inference.content.checks:
-            if (match.applies_score >= 6) and (
-                (match.guideline_previously_applied in [None, "no"])
-                or match.guideline_should_reapply
-            ):
+            if match.applies:
                 self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
 
                 matches.append(
                     GuidelineMatch(
                         guideline=self._guidelines[GuidelineId(match.guideline_id)],
-                        score=match.applies_score,
-                        rationale=f'''Condition Application: "{match.condition_application_rationale}"; Guideline Previously Applied: "{"; ".join(
-                            [r.rationale for r in match.guideline_previously_applied_rationale]
-                        )
-                        if match.guideline_previously_applied_rationale
-                        else ""}"''',
-                        guideline_previously_applied=PreviouslyAppliedType(
-                            match.guideline_previously_applied or "no"
-                        ),
-                        guideline_is_continuous=match.guideline_is_continuous or False,
-                        should_reapply=match.guideline_should_reapply or False,
+                        score=10 if match.applies else 1,
+                        rationale=f'''Condition Application: "{match.rationale}"''',
+                        guideline_previously_applied=PreviouslyAppliedType("irrelevant"),
+                        guideline_is_continuous=True,
+                        should_reapply=True,
                     )
                 )
             else:
@@ -158,8 +135,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
 """
         if shot.guidelines:
             formatted_guidelines = "\n".join(
-                f"{i}) condition: {g.condition}, action: {g.action}"
-                for i, g in enumerate(shot.guidelines, start=1)
+                f"{i}) {g.condition}" for i, g in enumerate(shot.guidelines, start=1)
             )
             formatted_shot += f"""
 - **Guidelines**:
@@ -184,22 +160,8 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             {
                 "guideline_id": g.id,
                 "condition": g.content.condition,
-                "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
-                "condition_applies": "<BOOL>",
-                "action": g.content.action,
-                "guideline_is_continuous": "<BOOL: Optional, only necessary if guideline_previously_applied is true. Specifies whether the action is taken one-time, or is continuous>",
-                "capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls": True,
-                "guideline_previously_applied_rationale": [
-                    {
-                        "action_segment": "<action_segment_description>",
-                        "rationale": "<explanation of whether this action segment was already applied; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
-                    }
-                ],
-                "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "<if the guideline DID previously apply, explain here whether or not it needs to re-apply due to it being applicable to new context or information>",
-                "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depanding on whether and to what degree the action was previously preformed>",
-                "is_missing_part_cosmetic_or_functional": "<str: only included if guideline_previously_applied is 'partially'. Value is either 'cosmetic' or 'functional' depending on the nature of the missing segment.",
-                "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
-                "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
+                "rationale": "<Explanation for why the condition is or isn't met>",
+                "applies": "<BOOL>",
             }
             for g in self._guidelines.values()
         ]
@@ -399,16 +361,16 @@ example_1_events = [
 
 example_1_guidelines = [
     GuidelineContent(
-        condition="the customer initiates a purchase.",
-        action="Open a new cart for the customer",
+        condition="the customer is a senior citizen.",
+        action=None,
     ),
     GuidelineContent(
         condition="the customer asks about data security",
-        action="Refer the customer to our privacy policy page",
+        action=None,
     ),
     GuidelineContent(
-        condition="the customer asked to subscribe to our pro plan",
-        action="maintain a helpful tone and thank them for shopping at our store",
+        condition="our pro plan was discussed or mentioned",
+        action=None,
     ),
 ]
 
@@ -416,279 +378,21 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer initiates a purchase",
-            condition_application_rationale="The purchase-related guideline was initiated earlier, but is currently irrelevant since the customer completed the purchase and the conversation has moved to a new topic.",
-            condition_applies=False,
-            applies_score=3,
+            condition="the customer is a senior citizen",
+            rationale="there is no indication regarding the customer's age.",
+            applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about data security",
-            condition_applies=True,
-            condition_application_rationale="The customer specifically inquired about data security policies, making this guideline highly relevant to the ongoing discussion.",
-            action="Refer the customer to our privacy policy page",
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="While the guideline previously applied to a *different question*, this is a subtly different question, effectively making it a new question, so the guideline needs to apply again for this new question",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="REFER the customer to our privacy policy page",
-                    rationale="While the customer has already asked a question to do with data security, and has been REFERRED to the privacy policy page, they now asked another question, so I should tell them once again to refer to the privacy policy page, perhaps stressing it more this time.",
-                )
-            ],
-            guideline_previously_applied="yes",
-            guideline_is_continuous=False,
-            guideline_should_reapply=True,
-            applies_score=9,
+            rationale="The customer specifically inquired about data security policies.",
+            applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asked to subscribe to our pro plan",
-            condition_applies=True,
-            condition_application_rationale="The customer recently asked to subscribe to the pro plan. The conversation is beginning to drift elsewhere, but still deals with the pro plan",
-            action="maintain a helpful tone and thank them for shopping at our store",
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="We're still dealing with the same current need and context",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="MAINTAIN a helpful tone",
-                    rationale="a helpful tone was MAINTAINED (i.e. held up)",
-                ),
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="THANK them for shopping at our store",
-                    rationale="the agent didn't THANK (i.e. say 'thank you') the customer for shopping at our store, making the guideline partially fulfilled. By this, it should be treated as if it was fully followed",
-                ),
-            ],
-            guideline_previously_applied="partially",
-            is_missing_part_cosmetic_or_functional="cosmetic",
-            guideline_is_continuous=False,
-            guideline_should_reapply=False,
-            applies_score=6,
-        ),
-    ]
-)
-
-example_2_events = [
-    _make_event("11", EventSource.CUSTOMER, "I'm looking for a job, what do you have available?"),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "Hi there! we have plenty of opportunities for you, where are you located?",
-    ),
-    _make_event("34", EventSource.CUSTOMER, "I'm looking for anything around the bay area"),
-    _make_event(
-        "56",
-        EventSource.AI_AGENT,
-        "That's great. We have a number of positions available over there. What kind of role are you interested in?",
-    ),
-    _make_event(
-        "78", EventSource.CUSTOMER, "Anything to do with training and maintaining AI agents"
-    ),
-]
-
-example_2_guidelines = [
-    GuidelineContent(
-        condition="the customer indicates that they are looking for a job.",
-        action="ask the customer for their location",
-    ),
-    GuidelineContent(
-        condition="the customer asks about job openings.",
-        action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 opennings overall",
-    ),
-    GuidelineContent(
-        condition="discussing job opportunities.", action="maintain a positive, assuring tone"
-    ),
-]
-
-example_2_expected = GenericObservationalGuidelineMatchesSchema(
-    checks=[
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer indicates that they are looking for a job.",
-            condition_application_rationale="The current discussion is about the type of job the customer is looking for",
-            condition_applies=True,
-            action="ask the customer for their location",
-            guideline_is_continuous=False,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="No new context here; the customer's location couldn't have changed so quickly",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="ASK the customer for their location",
-                    rationale="The agent ASKED for the customer's location earlier in the interaction. There is no need to ASK for it again, as it is already known.",
-                )
-            ],
-            guideline_previously_applied="fully",
-            guideline_should_reapply=False,
-            applies_score=3,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asks about job openings.",
-            condition_applies=True,
-            condition_application_rationale="the customer asked about job openings, and the discussion still revolves around this request",
-            action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 openings overall",
-            guideline_is_continuous=False,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="No new context here",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="EMPHASIZE we have plenty of relevant positions",
-                    rationale="The agent already has EMPHASIZED (i.e. clearly stressed) that we have open positions",
-                ),
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="EMPHASIZE we have over 10,000 openings overall",
-                    rationale="The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k opennings overall. The means the guideline partially applies and should be treated as if it was fully applied. However, since the customer is narrowing down their search, this point should be EMPHASIZED again to clarify that it still holds true.",
-                ),
-            ],
-            guideline_previously_applied="partially",
-            is_missing_part_cosmetic_or_functional="functional",
-            guideline_should_reapply=True,
-            applies_score=7,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="discussing job opportunities.",
-            condition_applies=True,
-            condition_application_rationale="the discussion is about job opportunities that are relevant to the customer, so the condition applies.",
-            action="maintain a positive, assuring tone",
-            guideline_is_continuous=True,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="This is a naturally continuous guideline, so the context is always considered 'new' as long as the condition applies",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="MAINTAIN a positive, assuring tone",
-                    rationale="The agent's tone is already MAINTAINED (i.e. held up) as positive. But since this action describes a continuous action, the guideline should be re-applied.",
-                ),
-            ],
-            guideline_previously_applied="fully",
-            guideline_should_reapply=True,
-            applies_score=9,
-        ),
-    ]
-)
-
-
-example_3_events = [
-    _make_event("11", EventSource.CUSTOMER, "Hi there, what is the S&P500 trading at right now?"),
-    _make_event("23", EventSource.AI_AGENT, "Hello! It's currently priced at just about 6,000$."),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "Better than I hoped. And what's the weather looking like today?",
-    ),
-    _make_event("56", EventSource.AI_AGENT, "It's 5 degrees Celsius in London today"),
-    _make_event(
-        "78", EventSource.CUSTOMER, "Bummer. Does S&P500 still trade at 6,000$ by the way?"
-    ),
-]
-
-example_3_guidelines = [
-    GuidelineContent(
-        condition="the customer asks about the value of a stock.",
-        action="provide the price using the 'check_stock_price' tool",
-    ),
-    GuidelineContent(
-        condition="the weather at a certain location is discussed.",
-        action="check the weather at that location using the 'check_weather' tool",
-    ),
-    GuidelineContent(
-        condition="the customer asked about the weather.",
-        action="provide the customre with the temperature and the chances of precipitation",
-    ),
-]
-
-example_3_expected = GenericObservationalGuidelineMatchesSchema(
-    checks=[
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asks about the value of a stock.",
-            condition_application_rationale="The customer asked what does the S&P500 trade at",
-            condition_applies=True,
-            action="provide the price using the 'check_stock_price' tool",
-            guideline_is_continuous=False,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="The agent previously PROVIDED the price, but that was several messages ago. The actual price may have driften since then.",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="PROVIDE the price using the aforementioned tool",
-                    rationale="Several messages ago, the agent previously PROVIDED (i.e. gave or reported) the price of that stock following the customer's question, but since the price might have changed since since those several exchanges between the agent and the customer, it should be checked and PROVIDED again.",
-                ),
-            ],
-            guideline_previously_applied="fully",
-            guideline_should_reapply=True,
-            applies_score=9,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the weather at a certain location is discussed.",
-            condition_application_rationale="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
-            condition_applies=False,
-            applies_score=3,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asked about the weather.",
-            condition_application_rationale="The customer asked about the weather earlier, though the conversation has somewhat moved on to a new topic",
-            condition_applies=True,
-            action="provide the customer with the temperature and the chances of precipitation",
-            guideline_is_continuous=False,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="No new context; a weather prediction doesn't change so frequently as to require updating within 1 less than hour",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="PROVIDE the temperature",
-                    rationale="The action segment was fulfilled by PROVIDING (i.e. giving or reporting) the temperature",
-                ),
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="PROVIDE the changes of precipitation",
-                    rationale="The agent did not PROVIDE (i.e. giving or reporting) the chances of precipitation. This means the guideline as a whole was only partially applied.",
-                ),
-            ],
-            guideline_previously_applied="partially",
-            is_missing_part_cosmetic_or_functional="functional",
-            guideline_should_reapply=True,
-            applies_score=6,
-        ),
-    ]
-)
-
-example_4_events = [
-    _make_event("11", EventSource.CUSTOMER, "Hey there, I'd like to book an appointment please"),
-    _make_event("23", EventSource.AI_AGENT, "Hi, sure thing. With whom and at what time?"),
-    _make_event("11", EventSource.CUSTOMER, "Great! With John D. please, thank you."),
-]
-
-example_4_guidelines = [
-    GuidelineContent(
-        condition="the customer wants to book an appointment",
-        action="get the name of the person they want to meet and the time they want to meet them",
-    ),
-]
-
-example_4_expected = GenericObservationalGuidelineMatchesSchema(
-    checks=[
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer wants to book an appointment",
-            condition_application_rationale="The customer has specifically asked to book an appointment",
-            condition_applies=True,
-            action="get the name of the person they want to meet and the time they want to meet them",
-            guideline_is_continuous=False,
-            capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="No new context",
-            guideline_previously_applied_rationale=[
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="GET the name of the person they want to meet",
-                    rationale="The action segment was fulfilled by GETTING (i.e. clarifying) the person's name",
-                ),
-                SegmentPreviouslyAppliedRationale(
-                    action_segment="GET at what time they want to meet",
-                    rationale="The agent did not yet GET (i.e clarify) the time of the appointment. This means the guideline as a whole was only partially applied.",
-                ),
-            ],
-            guideline_previously_applied="partially",
-            is_missing_part_cosmetic_or_functional="functional",
-            guideline_should_reapply=True,
-            applies_score=8,
+            condition="our pro plan was discussed or mentioned",
+            rationale="The customer asked to subscribe to the pro plan",
+            applies=True,
         ),
     ]
 )
@@ -700,24 +404,6 @@ _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
         interaction_events=example_1_events,
         guidelines=example_1_guidelines,
         expected_result=example_1_expected,
-    ),
-    GenericObservationalGuidelineMatchingShot(
-        description="",
-        interaction_events=example_2_events,
-        guidelines=example_2_guidelines,
-        expected_result=example_2_expected,
-    ),
-    GenericObservationalGuidelineMatchingShot(
-        description="",
-        interaction_events=example_3_events,
-        guidelines=example_3_guidelines,
-        expected_result=example_3_expected,
-    ),
-    GenericObservationalGuidelineMatchingShot(
-        description="",
-        interaction_events=example_4_events,
-        guidelines=example_4_guidelines,
-        expected_result=example_4_expected,
     ),
 ]
 

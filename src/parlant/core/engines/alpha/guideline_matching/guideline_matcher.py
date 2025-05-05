@@ -139,7 +139,9 @@ class GuidelineMatcher:
                 )
 
             with self._logger.operation("Processing batches"):
-                batch_tasks = [batch.process() for batch in batches[0]]
+                batch_tasks = [
+                    batch.process() for strategy_batches in batches for batch in strategy_batches
+                ]
                 batch_results = await async_utils.safe_gather(*batch_tasks)
 
         t_end = time.time()

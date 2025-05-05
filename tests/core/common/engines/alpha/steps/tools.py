@@ -1133,7 +1133,7 @@ def given_the_tool_with_always_as_overlap(
         },
         "register_for_confusing_sweepstake": {
             "name": "register_for_confusing_sweepstake",
-            "description": "Register for a sweepstake with more confusing paramater options",
+            "description": "Register for a sweepstake with more confusing parameter options",
             "module_path": "tests.tool_utilities",
             "parameters": {
                 "first_name": (
@@ -1284,7 +1284,7 @@ def given_the_tool_with_always_as_overlap(
                 },
                 "pincode": {
                     "type": "string",
-                    "description": "the pincode for the account the coins are transfered from",
+                    "description": "the pincode for the account the coins are transferred from",
                 },
             },
             "required": ["amount", "from_account", "to_account", "pincode"],

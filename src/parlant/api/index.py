@@ -59,8 +59,6 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
     EvaluationValidationError,
 )
 
-API_GROUP = "legacy_evaluations"
-
 
 def _evaluation_status_to_dto(
     status: EvaluationStatus,

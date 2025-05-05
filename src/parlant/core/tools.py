@@ -31,6 +31,7 @@ from typing import (
     Optional,
     Sequence,
     TypeAlias,
+    Union,
     get_args,
     get_origin,
 )

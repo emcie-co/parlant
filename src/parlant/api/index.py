@@ -94,6 +94,7 @@ def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
             coherence_check=dto.guideline.coherence_check,
             connection_proposition=dto.guideline.connection_proposition,
             action_proposition=False,
+            properties_proposition=False,
         )
 
     raise HTTPException(

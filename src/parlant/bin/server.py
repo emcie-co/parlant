@@ -65,6 +65,10 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceSelector,
 )
 from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.services.indexing.guideline_action_proposer import (
+    GuidelineActionProposer,
+    GuidelineActionPropositionSchema,
+)
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
@@ -130,6 +134,7 @@ from parlant.core.engines.alpha.message_generator import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
+    BehavioralChangeEvaluator,
     LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
@@ -325,7 +330,10 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
+    c[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
+
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
+    c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
     c[EvaluationListener] = Singleton(PollingEvaluationListener)
 
     c[EntityQueries] = Singleton(EntityQueries)
@@ -509,6 +517,9 @@ async def initialize_container(
     c[
         SchematicGenerator[GuidelineConnectionPropositionsSchema]
     ] = await nlp_service.get_schematic_generator(GuidelineConnectionPropositionsSchema)
+    c[
+        SchematicGenerator[GuidelineActionPropositionSchema]
+    ] = await nlp_service.get_schematic_generator(GuidelineActionPropositionSchema)
 
     c[GenericActionableGuidelineMatching] = Singleton(GenericActionableGuidelineMatching)
     c[GenericObservationalGuidelineMatching] = Singleton(GenericObservationalGuidelineMatching)

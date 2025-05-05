@@ -131,6 +131,7 @@ class LegacyGuidelineEvaluator:
                     coherence_checks=payload_coherence_checks,
                     entailment_propositions=None,
                     action_proposition=None,
+                    properties_proposition=None,
                 )
                 for payload_coherence_checks in coherence_checks
             ]
@@ -141,6 +142,7 @@ class LegacyGuidelineEvaluator:
                     coherence_checks=[],
                     entailment_propositions=payload_connection_propositions,
                     action_proposition=None,
+                    properties_proposition=None,
                 )
                 for payload_connection_propositions in connection_propositions
             ]
@@ -151,6 +153,7 @@ class LegacyGuidelineEvaluator:
                     coherence_checks=[],
                     entailment_propositions=None,
                     action_proposition=None,
+                    properties_proposition=None,
                 )
                 for _ in payloads
             ]
@@ -535,6 +538,7 @@ class GuidelineEvaluator:
                 coherence_checks=None,
                 entailment_propositions=None,
                 action_proposition=payload_action.content.action,
+                properties_proposition=None,
             )
             for payload_action in actions
         ]
@@ -544,7 +548,9 @@ class GuidelineEvaluator:
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[GuidelineActionProposition]:
-        guidelines_to_evaluate = [(p.content, p.tool_ids) for p in payloads if p.action_proposition]
+        guidelines_to_evaluate = [
+            (p.content, p.tool_ids) for p in payloads if p.properties_proposition
+        ]
 
         return await async_utils.safe_gather(
             *[

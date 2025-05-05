@@ -693,6 +693,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
                             coherence_check=i["payload"]["coherence_check"],
                             connection_proposition=i["payload"]["connection_proposition"],
                             action_proposition=False,
+                            properties_proposition=False,
                         ),
                         checksum=i["checksum"],
                         state_version=i["state_version"],
@@ -701,6 +702,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
                             coherence_checks=i["data"]["coherence_checks"],
                             connection_propositions=i["data"]["connection_propositions"],
                             action_proposition=None,
+                            properties_proposition=None,
                         )
                         if i["data"] is not None
                         else None,

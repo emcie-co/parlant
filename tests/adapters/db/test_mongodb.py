@@ -739,6 +739,7 @@ async def test_evaluation_creation(
                     coherence_check=False,
                     connection_proposition=False,
                     action_proposition=True,
+                    properties_proposition=True,
                 )
             ]
 
@@ -784,6 +785,7 @@ async def test_evaluation_update(
                     coherence_check=False,
                     connection_proposition=False,
                     action_proposition=True,
+                    properties_proposition=True,
                 )
             ]
 
@@ -795,6 +797,7 @@ async def test_evaluation_update(
                 coherence_checks=[],
                 entailment_propositions=None,
                 action_proposition="Provide a list of book recommendations",
+                properties_proposition=None,
             )
 
             invoice = Invoice(

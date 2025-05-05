@@ -8,6 +8,7 @@ Introduction of guideline properties evaluation
 Make guideline action optional
 Introduction of guideline action proposer
 Added choices to insights of invalid and missing tool parameters
+Added and improved support for tool parameter types: date, datetime, optional (bug fix) and lists of other allowed types
 
 ## [2.1.2] - 2025-05-07
 

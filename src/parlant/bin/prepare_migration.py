@@ -684,12 +684,13 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
                     InvoiceDocument(
                         kind=i["kind"],
                         payload=GuidelinePayloadDocument(
-                            action=i["payload"]["action"],
-                            updated_id=i["payload"]["updated_id"],
                             content=GuidelineContentDocument(
                                 condition=i["payload"]["content"]["condition"],
                                 action=i["payload"]["content"]["action"],
                             ),
+                            tool_ids=[],
+                            action=i["payload"]["action"],
+                            updated_id=i["payload"]["updated_id"],
                             coherence_check=i["payload"]["coherence_check"],
                             connection_proposition=i["payload"]["connection_proposition"],
                             action_proposition=False,

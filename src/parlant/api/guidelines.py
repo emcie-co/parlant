@@ -416,6 +416,7 @@ def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
             condition=dto.payload.guideline.content.condition,
             action=dto.payload.guideline.content.action,
         ),
+        tool_ids=[],
         operation=operation_dto_to_operation(dto.payload.guideline.operation),
         coherence_check=dto.payload.guideline.coherence_check,
         connection_proposition=dto.payload.guideline.connection_proposition,

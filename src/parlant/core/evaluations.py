@@ -85,13 +85,13 @@ class GuidelinePayloadOperation(Enum):
 @dataclass(frozen=True)
 class GuidelinePayload:
     content: GuidelineContent
+    tool_ids: Sequence[ToolId]
     operation: GuidelinePayloadOperation
     coherence_check: bool  # Legacy and will be removed in the future
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
     properties_proposition: bool
     updated_id: Optional[GuidelineId] = None
-    tool_ids: Optional[Sequence[ToolId]] = None
 
     def __repr__(self) -> str:
         return f"condition: {self.content.condition}, action: {self.content.action}"
@@ -221,6 +221,7 @@ class GuidelinePayloadDocument_v0_1_0(TypedDict):
 
 class GuidelinePayloadDocument(TypedDict):
     content: GuidelineContentDocument
+    tool_ids: Sequence[ToolId]
     action: Literal["add", "update"]
     updated_id: Optional[GuidelineId]
     coherence_check: bool
@@ -432,6 +433,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         condition=payload.content.condition,
                         action=payload.content.action or None,
                     ),
+                    tool_ids=payload.tool_ids,
                     action=payload.operation.value,
                     updated_id=payload.updated_id,
                     coherence_check=payload.coherence_check,
@@ -536,6 +538,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         condition=payload_doc["content"]["condition"],
                         action=payload_doc["content"]["action"] or None,
                     ),
+                    tool_ids=payload_doc["tool_ids"],
                     operation=GuidelinePayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],
                     coherence_check=payload_doc["coherence_check"],

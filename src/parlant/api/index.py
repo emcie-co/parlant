@@ -87,6 +87,7 @@ def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
                 condition=dto.guideline.content.condition,
                 action=dto.guideline.content.action,
             ),
+            tool_ids=[],
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
             coherence_check=dto.guideline.coherence_check,

@@ -26,6 +26,7 @@ from parlant.api.common import (
     JSONSerializableDTO,
     PayloadKindDTO,
     ExampleJson,
+    ToolIdDTO,
     apigen_config,
     operation_dto_to_operation,
 )
@@ -49,6 +50,7 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
     EvaluationValidationError,
 )
+from parlant.core.tools import ToolId
 
 API_GROUP = "evaluations"
 
@@ -88,6 +90,7 @@ guideline_payload_example: ExampleJson = {
         "condition": "User asks about product pricing",
         "action": "Provide current price list and any active discounts",
     },
+    "tool_ids": ["google_calendar:get_events"],
     "operation": "add",
     "updated_id": None,
     "action_proposition": True,
@@ -102,6 +105,7 @@ class GuidelinePayloadDTO(
     """Payload data for a Guideline operation"""
 
     content: GuidelineContentDTO
+    tool_ids: Sequence[ToolIdDTO]
     operation: GuidelinePayloadOperationDTO
     updated_id: Optional[GuidelineIdField] = None
     action_proposition: GuidelinePayloadActionPropositionField
@@ -278,6 +282,10 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
                 condition=dto.guideline.content.condition,
                 action=dto.guideline.content.action,
             ),
+            tool_ids=[
+                ToolId(service_name=t.service_name, tool_name=t.tool_name)
+                for t in dto.guideline.tool_ids
+            ],
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
             coherence_check=False,  # Legacy and will be removed in the future
@@ -313,6 +321,10 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
                     condition=descriptor.payload.content.condition,
                     action=descriptor.payload.content.action,
                 ),
+                tool_ids=[
+                    ToolIdDTO(service_name=t.service_name, tool_name=t.tool_name)
+                    for t in descriptor.payload.tool_ids
+                ],
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=descriptor.payload.updated_id,
                 action_proposition=descriptor.payload.properties_proposition,

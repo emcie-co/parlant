@@ -36,6 +36,9 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
                         },
+                        "tool_ids": [
+                            {"service_name": "google_calendar", "tool_name": "get_events"}
+                        ],
                         "operation": "add",
                         "action_proposition": True,
                         "properties_proposition": True,
@@ -78,6 +81,9 @@ async def test_that_an_evaluation_can_be_fetched_with_running_status(
                         "operation": "add",
                         "action_proposition": True,
                         "properties_proposition": True,
+                        "tool_ids": [
+                            {"service_name": "google_calendar", "tool_name": "get_events"}
+                        ],
                     },
                 }
             ],
@@ -126,6 +132,9 @@ async def test_that_properties_proposition_is_evaluated(
                         "operation": "add",
                         "action_proposition": True,
                         "properties_proposition": True,
+                        "tool_ids": [
+                            {"service_name": "google_calendar", "tool_name": "get_events"}
+                        ],
                     },
                 }
             ],

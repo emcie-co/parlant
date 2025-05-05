@@ -24,7 +24,11 @@ from starlette.types import Receive, Scope, Send
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.api import agents, index, journeys, relationships
+from parlant.api import agents
+from parlant.api import evaluations
+from parlant.api import index
+from parlant.api import journeys
+from parlant.api import relationships
 from parlant.api import sessions
 from parlant.api import glossary
 from parlant.api import guidelines
@@ -50,6 +54,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
+    BehavioralChangeEvaluator,
     LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.loggers import Logger
@@ -93,7 +98,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
     session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
-    evaluation_service = container[LegacyBehavioralChangeEvaluator]
+    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
+    evaluation_service = container[BehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
     relationship_store = container[RelationshipStore]
@@ -208,7 +214,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/index",
         router=index.legacy_create_router(
-            evaluation_service=evaluation_service,
+            evaluation_service=legacy_evaluation_service,
             evaluation_store=evaluation_store,
             evaluation_listener=evaluation_listener,
             agent_store=agent_store,
@@ -293,6 +299,15 @@ async def create_api_app(container: Container) -> ASGIApplication:
             journey_store=journey_store,
             guideline_store=guideline_store,
             tag_store=tag_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/evaluations",
+        router=evaluations.create_router(
+            evaluation_service=evaluation_service,
+            evaluation_store=evaluation_store,
+            evaluation_listener=evaluation_listener,
         ),
     )
 

@@ -132,7 +132,7 @@ class Actions:
     ) -> ToolId:
         client = cast(ParlantClient, ctx.obj.client)
         service = client.services.retrieve(tool_id.service_name)
-        if service.tools and next((t for t in service.tools if t.name == tool_id.tool_name), None):
+        if next((t for t in service.tools or [] if t.name == tool_id.tool_name), None):
             return tool_id
 
         raise Exception(f"Tool ({tool_id.tool_name}) not found in service ({tool_id.service_name})")

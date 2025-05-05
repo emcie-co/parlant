@@ -16,7 +16,7 @@ import asyncio
 from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 
 from parlant.core import async_utils
-from parlant.core.agents import Agent, AgentStore
+from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import md5_checksum
 from parlant.core.evaluations import (
@@ -49,6 +49,7 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.tags import Tag
 
 
 class EvaluationError(Exception):
@@ -394,8 +395,8 @@ class LegacyBehavioralChangeEvaluator:
         await self.validate_payloads(agent, payload_descriptors)
 
         evaluation = await self._evaluation_store.create_evaluation(
-            agent.id,
             payload_descriptors,
+            tags=[Tag.for_agent_id(agent.id)],
         )
 
         await self._background_task_service.start(
@@ -433,7 +434,9 @@ class LegacyBehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
-            agent = await self._agent_store.read_agent(agent_id=evaluation.agent_id)
+            agent = await self._agent_store.read_agent(
+                agent_id=AgentId(cast(str, Tag.extract_agent_id(evaluation.tags[0])))
+            )
 
             guideline_evaluation_data = await self._guideline_evaluator.evaluate(
                 agent=agent,
@@ -504,7 +507,6 @@ class GuidelineEvaluator:
 
     async def evaluate(
         self,
-        agent: Agent,
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[InvoiceGuidelineData]:
@@ -515,7 +517,6 @@ class GuidelineEvaluator:
 
         action_proposer_task = asyncio.create_task(
             self._propose_actions(
-                agent,
                 payloads,
                 progress_report,
             )
@@ -540,7 +541,6 @@ class GuidelineEvaluator:
 
     async def _propose_actions(
         self,
-        agent: Agent,
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[GuidelineActionProposition]:
@@ -549,9 +549,9 @@ class GuidelineEvaluator:
         return await async_utils.safe_gather(
             *[
                 self._guideline_action_proposer.propose_action(
-                    agent=agent,
                     guideline=p_content,
                     tool_ids=p_tool_ids or [],
+                    progress_report=progress_report,
                 )
                 for p_content, p_tool_ids in guidelines_to_evaluate
             ]
@@ -581,44 +581,18 @@ class BehavioralChangeEvaluator:
 
     async def validate_payloads(
         self,
-        agent: Agent,
         payload_descriptors: Sequence[PayloadDescriptor],
     ) -> None:
         if not payload_descriptors:
             raise EvaluationValidationError("No payloads provided for the evaluation task.")
 
-        guideline_payloads = [p for k, p in payload_descriptors if k == PayloadKind.GUIDELINE]
-
-        if guideline_payloads:
-
-            async def _check_for_duplications() -> None:
-                seen_guidelines = set((g.content) for g in guideline_payloads)
-                if len(seen_guidelines) < len(guideline_payloads):
-                    raise EvaluationValidationError(
-                        "Duplicate guideline found among the provided guidelines."
-                    )
-
-                existing_guidelines = await self._entity_queries.find_guidelines_for_agent(agent.id)
-
-                if guideline := next(
-                    iter(g for g in existing_guidelines if (g.content) in seen_guidelines),
-                    None,
-                ):
-                    raise EvaluationValidationError(
-                        f"Duplicate guideline found against existing guidelines: {str(guideline)} in {agent.id} guideline_set"
-                    )
-
-            await _check_for_duplications()
-
     async def create_evaluation_task(
         self,
-        agent: Agent,
         payload_descriptors: Sequence[PayloadDescriptor],
     ) -> EvaluationId:
-        await self.validate_payloads(agent, payload_descriptors)
+        await self.validate_payloads(payload_descriptors)
 
         evaluation = await self._evaluation_store.create_evaluation(
-            agent.id,
             payload_descriptors,
         )
 
@@ -657,10 +631,7 @@ class BehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
-            agent = await self._agent_store.read_agent(agent_id=evaluation.agent_id)
-
             guideline_evaluation_data = await self._guideline_evaluator.evaluate(
-                agent=agent,
                 payloads=[
                     invoice.payload
                     for invoice in evaluation.invoices
@@ -680,7 +651,7 @@ class BehavioralChangeEvaluator:
                         payload=evaluation.invoices[i].payload,
                         checksum=invoice_checksum,
                         state_version=state_version,
-                        approved=True if not result.coherence_checks else False,
+                        approved=True,
                         data=result,
                         error=None,
                     )

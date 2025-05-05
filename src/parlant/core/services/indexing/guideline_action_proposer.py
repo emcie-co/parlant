@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from parlant.core.agents import Agent
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -36,7 +35,6 @@ class GuidelineActionProposer:
 
     async def propose_action(
         self,
-        agent: Agent,
         guideline: GuidelineContent,
         tool_ids: Sequence[ToolId],
         progress_report: Optional[ProgressReport] = None,
@@ -57,7 +55,7 @@ class GuidelineActionProposer:
                 tool = await service.read_tool(tid.tool_name)
                 tools.append(tool)
 
-            proposition = await self._generate_action(agent, guideline, tools, tool_ids)
+            proposition = await self._generate_action(guideline, tools, tool_ids)
 
             if progress_report:
                 await progress_report.increment()
@@ -72,14 +70,11 @@ class GuidelineActionProposer:
 
     async def _build_prompt(
         self,
-        agent: Agent,
         guideline: GuidelineContent,
         tools: Sequence[Tool],
         tool_ids: Sequence[ToolId],
     ) -> PromptBuilder:
         builder = PromptBuilder()
-
-        builder.add_agent_identity(agent)
 
         builder.add_section(
             name="guideline-action-proposer-general-instructions",
@@ -136,12 +131,11 @@ Expected output (JSON):
 
     async def _generate_action(
         self,
-        agent: Agent,
         guideline: GuidelineContent,
         tools: Sequence[Tool],
         tool_ids: Sequence[ToolId],
     ) -> GuidelineActionPropositionSchema:
-        prompt = await self._build_prompt(agent, guideline, tools, tool_ids)
+        prompt = await self._build_prompt(guideline, tools, tool_ids)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,

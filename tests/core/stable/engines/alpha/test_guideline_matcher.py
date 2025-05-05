@@ -80,7 +80,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "condition": "it is the season of winter",
         "observation": "-",
     },
-    "frustrated_customer": {
+    "frustrated_customer_observational": {
         "condition": "the customer is frustrated",
         "observation": "-",
     },
@@ -1317,8 +1317,8 @@ def test_that_observational_guidelines_are_detected_2(
             "I'm looking to modify an order I made through the online store",
         ),
     ]
-    conversation_guideline_names: list[str] = ["frustrated_customer"]
-    relevant_guideline_names = ["frustrated_customer"]
+    conversation_guideline_names: list[str] = ["frustrated_customer_observational"]
+    relevant_guideline_names = ["frustrated_customer_observational"]
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -1907,7 +1907,7 @@ def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_
         "lock_card_request_1",
         "lock_card_request_2",
         "season_is_winter",
-        "frustrated_customer",
+        "frustrated_customer_observational",
         "unanswered_questions",
     ]
     base_test_that_correct_guidelines_are_matched(
@@ -1923,4 +1923,100 @@ def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_
     )
 
 
-# TODO add test with mixed guidelines
+def test_mixed_guidelines_with_multiple_matches(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I'm looking for a class to help me relax. It's been a stressful winter.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome! I understand that winter can be stressful. We have several relaxation classes available. Would you like to hear about our meditation or yoga options?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'd be interested in booking a meditation class, but I'm not sure which one is right for me.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We have beginner meditation every Monday at 6 PM, and advanced sessions on Thursdays at 7 PM. Both are excellent for stress relief. Which would work better for your schedule?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Monday at 6 PM sounds perfect. How do I book it?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great choice! I can book you for the Monday 6 PM meditation class. Could you please provide your name and contact information?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm Taylor Smith, phone is 555-123-4567. By the way, do you have any vegan food options in your café?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thanks, Taylor! I've booked your Monday 6 PM meditation class. And yes, our café offers several vegan options including smoothies, salads, and plant-based protein bowls. Would you like to order something to enjoy after your class?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Not right now, thank you. Oh, I just realized - I might be running late. Where exactly is your location?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "No problem! Our studio is located at Sapir 2, Herzliya. There's parking available in the back of the building. If you're running late, don't worry - we hold the door open for 5 minutes after class begins.",
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = [
+        # Observational Guidelines
+        "vegetarian_customer",
+        "season_is_winter",
+        "frustrated_customer_observational",
+        "unclear_request",
+        "credit_limits_discussion",
+        "unknown_service",
+        "delivery_order",
+        "unanswered_questions",
+        "lock_card_request_1",
+        "lock_card_request_2",
+        # Actionable guidelines
+        "address_location",
+        "class_booking",
+        "hesitant_customer",
+        "holiday_season",
+        "first_time_customer",
+        "request_for_feedback",
+        "large_pizza_crust",
+        "announce_deals",
+        "summer_sale",
+        "frustrated_customer",
+    ]
+
+    relevant_guideline_names = [
+        # Matched observational guidelines
+        "vegetarian_customer",
+        # Matched actionable guidelines
+        "class_booking",
+        "address_location",
+    ]
+    context_variables = [
+        create_context_variable(
+            name="season",
+            data={"season": "Spring"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=context_variables,
+    )

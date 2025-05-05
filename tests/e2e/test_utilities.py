@@ -26,7 +26,9 @@ import sys
 import time
 from typing import Any, AsyncIterator, Iterator, Optional, TypedDict, cast
 
-from tests.test_utilities import SERVER_ADDRESS, SERVER_PORT
+from random import randint
+
+from tests.test_utilities import SERVER_ADDRESS, SERVER_ADDRESS_BASE, SERVER_PORT
 
 
 class _ServiceDTO(TypedDict):
@@ -74,9 +76,22 @@ def is_server_responsive(port: int) -> bool:
 def run_server(
     context: ContextOfTest,
     extra_args: list[str] = [],
+    port: int = SERVER_PORT,
+    randomize_port: bool = False,
+    port_retries: int = 3,
 ) -> Iterator[subprocess.Popen[str]]:
-    if is_server_responsive(int(SERVER_PORT)):
-        raise Exception(f"Server already running on chosen port {SERVER_PORT}")
+    if randomize_port:
+        port = randint(10000, 50000)
+        retry = port_retries
+        while retry > 0 and is_server_responsive(int(port)):
+            time.sleep(0.5)
+            port = randint(10000, 50000)
+            retry -= 1
+
+        if retry == 0:
+            raise Exception(f"Cannot run server on random ports for {port_retries} retries")
+    elif is_server_responsive(int(port)):
+        raise Exception(f"Server already running on chosen port {port}")
 
     exec_args = [
         "poetry",
@@ -85,7 +100,7 @@ def run_server(
         CLI_SERVER_PATH.as_posix(),
         "run",
         "-p",
-        str(SERVER_PORT),
+        str(port),
     ]
 
     exec_args.extend(extra_args)
@@ -101,6 +116,11 @@ def run_server(
             env={**os.environ, "PARLANT_HOME": context.home_dir.as_posix()},
         ) as process:
             try:
+                # If port is randomized, wait for server to be responsive
+                if randomize_port:
+                    while not is_server_responsive(int(port)):
+                        time.sleep(0.5)
+                context.api.set_port(port)
                 yield process
             except Exception as exc:
                 caught_exception = exc
@@ -132,12 +152,16 @@ def run_server(
 
     finally:
         if caught_exception:
+            process.terminate()
             raise caught_exception
 
 
 class API:
     def __init__(self, server_address: str = SERVER_ADDRESS) -> None:
         self.server_address = server_address
+
+    def set_port(self, port: int) -> None:
+        self.server_address = f"{SERVER_ADDRESS_BASE}:{port}"
 
     @asynccontextmanager
     async def make_client(

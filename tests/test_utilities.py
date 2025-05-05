@@ -90,7 +90,8 @@ T = TypeVar("T")
 GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
 
 SERVER_PORT = 8089
-SERVER_ADDRESS = f"http://localhost:{SERVER_PORT}"
+SERVER_ADDRESS_BASE = "http://localhost"
+SERVER_ADDRESS = f"{SERVER_ADDRESS_BASE}:{SERVER_PORT}"
 
 PLUGIN_SERVER_PORT = 8091
 OPENAPI_SERVER_PORT = 8092
@@ -551,12 +552,11 @@ async def create_schematic_generation_result_collection(
 
 @asynccontextmanager
 async def run_service_server(
-    tools: list[ToolEntry],
-    plugin_data: Mapping[str, Any] = {},
+    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port=PLUGIN_SERVER_PORT
 ) -> AsyncIterator[PluginServer]:
     async with PluginServer(
         tools=tools,
-        port=PLUGIN_SERVER_PORT,
+        port=port,
         host="127.0.0.1",
         plugin_data=plugin_data,
     ) as server:

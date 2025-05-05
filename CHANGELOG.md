@@ -4,6 +4,8 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 - Remove interaction history from utterance recomposition prompt
+- Added validation mechanism for argument values of tool parameters with enum
+- Added support for tool parameter types: date, datetime, optional (bug fix) and lists of other allowed types
 
 ## [2.1.1] - 2025-04-30
 

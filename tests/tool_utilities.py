@@ -300,3 +300,17 @@ async def search_electronic_products(
         products = [item for item in products if item["vendor"].lower() == vendor.lower()]
 
     return ToolResult({"available_products": products, "total_results": len(products)})
+
+
+async def reset_password(
+    username: str,
+    phone_number: Optional[str] = "",
+    email: Optional[str] = "",
+) -> ToolResult:
+    if phone_number == "" and email == "":
+        return ToolResult({"result": "no email or phone number provided - request rejected"})
+    return ToolResult(
+        {
+            "result": f"password for {username} was reset. An email with further instructions was sent to the account's email address."
+        }
+    )

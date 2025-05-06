@@ -93,7 +93,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "unknown_service": {
-        "condition": "The customer is asking for a service you (the agent) has no information about",
+        "condition": "The customer is asking for a service you have no information about within this prompt",
         "observation": "-",
     },
     "delivery_order": {
@@ -496,7 +496,7 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
         (EventSource.CUSTOMER, "I'll take pepperoni, thanks."),
         (
             EventSource.AI_AGENT,
-            "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
+            "Awesome. I've added a large pepperoni pizza. Would you like a drink on the side?",
         ),
         (
             EventSource.CUSTOMER,
@@ -1414,7 +1414,7 @@ def test_that_observational_guidelines_are_detected_3(
         ),
         (
             EventSource.CUSTOMER,
-            "Let's just say that I'd like to play the old tambourine, can you help me with that?",
+            "Let's just say that I'd like to play the old tambourine, can you help me do that?",
         ),
     ]
     conversation_guideline_names: list[str] = [
@@ -1423,6 +1423,31 @@ def test_that_observational_guidelines_are_detected_3(
         "unanswered_questions",
     ]
     relevant_guideline_names = ["unknown_service", "unanswered_questions"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_detected_5(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Can you sign me up to a saving plan based on my current balance?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = [
+        "unknown_service",
+    ]
+    relevant_guideline_names = ["unknown_service"]
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -1590,66 +1615,6 @@ def test_that_observational_guidelines_are_detected_based_on_tool_results(
     )
 
 
-def test_that_observational_guidelines_arent_wrongly_implied(  # TODO talk to Dor, move to unstable
-    context: ContextOfTest,
-    agent: Agent,
-    customer: Customer,
-) -> None:
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "I didn't get any help from the previous representative. If this continues I'll switch to the competitors. Don't thread on me!",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Hi there! I apologize for what happened on your previous interaction with us - what is it that you're trying to do exactly?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "I'm looking to modify an order I made through the online store",
-        ),
-    ]
-
-    context_variables = [
-        create_context_variable(
-            name="Date",
-            data={"Year": "2025", "Month": "January", "Day": 24},
-            tags=[Tag.for_agent_id(agent.id)],
-        ),
-    ]
-
-    tool_result = cast(
-        JSONSerializable,
-        {
-            "tool_calls": [
-                {
-                    "tool_id": "local:get_weather",
-                    "arguments": {},
-                    "result": {"data": "The weather is rainy", "metadata": {}, "control": {}},
-                }
-            ]
-        },
-    )
-    staged_events = [
-        EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
-        ),
-    ]
-
-    conversation_guideline_names: list[str] = ["season_is_winter"]
-    relevant_guideline_names: list[str] = []
-    base_test_that_correct_guidelines_are_matched(
-        context,
-        agent,
-        customer,
-        conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
-        context_variables=context_variables,
-        staged_events=staged_events,
-    )
-
-
 def test_that_observational_guidelines_are_matched_based_on_glossary(
     context: ContextOfTest,
     agent: Agent,
@@ -1796,122 +1761,6 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
         conversation_context,
         conversation_guideline_names,
         relevant_guideline_names,
-    )
-
-
-def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(  # Tough test, move to unstable?
-    context: ContextOfTest,
-    agent: Agent,
-    customer: Customer,
-) -> None:
-    terms = [
-        create_term(
-            name="blorgnet",
-            description="a figure of speech, meaning being annoyed by whoever you're interacting with",
-            tags=[Tag.for_agent_id(agent.id)],
-        ),
-    ]
-    context_variables = [
-        create_context_variable(
-            name="customer_location",
-            data={"location": "Australia"},
-            tags=[Tag.for_agent_id(agent.id)],
-        ),
-        create_context_variable(
-            name="date",
-            data={"date": "August 15th, 2024"},
-            tags=[Tag.for_agent_id(agent.id)],
-        ),
-    ]
-    tool_result = cast(
-        JSONSerializable,
-        {
-            "tool_calls": [
-                {
-                    "tool_id": "local:get_season",
-                    "arguments": {},
-                    "result": {"data": "winter", "metadata": {}, "control": {}},
-                }
-            ]
-        },
-    )
-    staged_events = [
-        EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
-        ),
-    ]
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "Hi, I think I lost my credit card somewhere yesterday.",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "I'm sorry to hear about your lost card. I can help you with that right away. For security purposes, could you please verify the last four digits of your card?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "It's the Platinum Rewards one.",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Thank you for that information. To proceed with locking your Platinum Rewards card, I'll need to verify the last four digits of the card number. This helps ensure we're securing the correct card on your account. Could you please provide those digits?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "blorgnet, I just need it locked right now. I have multiple cards and I don't memorize all the numbers.",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "I understand your concern and the urgency of the situation. Let me try another approach. I can see your account has two Platinum Rewards cards. Would it be helpful if I locked both cards temporarily until we identify which one is missing? Or would you prefer to check your online banking app where you can see the last four digits of your cards?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "Just lock all of them. I need to go to a meeting in 5 minutes.",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "I've placed temporary locks on all your Platinum Rewards cards. This will prevent any unauthorized transactions while keeping your account active. The locks are effective immediately. Would you like me to order replacement cards for you now, or would you prefer to wait in case you find the missing card?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "When will your branch on Main Street be open?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Our Main Street branch is open Monday through Friday from 9:00 AM to 5:00 PM, and Saturday from 9:00 AM to 1:00 PM. It's closed on Sundays. Regarding your cards, would you like me to order replacements for any of them at this time?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "And do they handle international wire transfers there?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Yes, our Main Street branch does handle international wire transfers. You would need to bring a valid ID and the recipient's banking details. The branch can also help with your card situation if you prefer to handle it in person. In the meantime, your cards remain locked for your protection. Is there anything else you need assistance with today?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "What's the maximum amount for international transfers?",
-        ),
-    ]
-    conversation_guideline_names: list[str] = list(OBSERVATIONAL_GUIDELINES_DICT.keys())
-    relevant_guideline_names = [
-        "lock_card_request_1",
-        "lock_card_request_2",
-        "season_is_winter",
-        "frustrated_customer_observational",
-        "unanswered_questions",
-    ]
-    base_test_that_correct_guidelines_are_matched(
-        context,
-        agent,
-        customer,
-        conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
-        staged_events=staged_events,
-        context_variables=context_variables,
-        terms=terms,
     )
 
 

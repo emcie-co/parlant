@@ -15,6 +15,7 @@
 import asyncio
 import json
 import os
+from random import randint
 import tempfile
 from typing import Any
 import httpx
@@ -28,7 +29,7 @@ from tests.e2e.test_utilities import (
     run_server,
 )
 from tests.test_utilities import (
-    OPENAPI_SERVER_URL,
+    OPENAPI_SERVER_BASE_URL,
     SERVER_ADDRESS,
     rng_app,
     run_openapi_server,
@@ -38,7 +39,9 @@ from tests.test_utilities import (
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
 
 
-async def run_cli(*args: str, address=SERVER_ADDRESS, **kwargs: Any) -> asyncio.subprocess.Process:
+async def run_cli(
+    *args: str, address: str = SERVER_ADDRESS, **kwargs: Any
+) -> asyncio.subprocess.Process:
     exec_args = [
         "poetry",
         "run",
@@ -51,7 +54,7 @@ async def run_cli(*args: str, address=SERVER_ADDRESS, **kwargs: Any) -> asyncio.
     return await asyncio.create_subprocess_exec(*exec_args, **kwargs)
 
 
-async def run_cli_and_get_exit_status(*args: str, address=SERVER_ADDRESS) -> int:
+async def run_cli_and_get_exit_status(*args: str, address: str = SERVER_ADDRESS) -> int:
     exec_args = [
         "poetry",
         "run",
@@ -1075,9 +1078,11 @@ async def test_that_an_openapi_service_can_be_added_via_file(
     service_kind = "openapi"
 
     with run_server(context, randomize_port=True):
-        async with run_openapi_server(rng_app()):
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response = await client.get(f"{url}/openapi.json")
                 response.raise_for_status()
                 openapi_json = response.text
 
@@ -1097,7 +1102,7 @@ async def test_that_an_openapi_service_can_be_added_via_file(
                         "--source",
                         source,
                         "--url",
-                        OPENAPI_SERVER_URL,
+                        url,
                         address=context.api.server_address,
                     )
                     == os.EX_OK
@@ -1119,8 +1124,10 @@ async def test_that_an_openapi_service_can_be_added_via_url(
     service_kind = "openapi"
 
     with run_server(context, randomize_port=True):
-        async with run_openapi_server(rng_app()):
-            source = OPENAPI_SERVER_URL + "/openapi.json"
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            source = url + "/openapi.json"
 
             assert (
                 await run_cli_and_get_exit_status(
@@ -1133,7 +1140,7 @@ async def test_that_an_openapi_service_can_be_added_via_url(
                     "--source",
                     source,
                     "--url",
-                    OPENAPI_SERVER_URL,
+                    url,
                     address=context.api.server_address,
                 )
                 == os.EX_OK
@@ -1194,8 +1201,10 @@ async def test_that_a_service_can_be_deleted(
     service_name = "test_service_to_delete"
 
     with run_server(context, randomize_port=True):
-        async with run_openapi_server(rng_app()):
-            await context.api.create_openapi_service(service_name, OPENAPI_SERVER_URL)
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            await context.api.create_openapi_service(service_name, url)
 
         process = await run_cli(
             "service",
@@ -1225,9 +1234,11 @@ async def test_that_services_can_be_listed(
     service_name_2 = "test_openapi_service_2"
 
     with run_server(context, randomize_port=True):
-        async with run_openapi_server(rng_app()):
-            await context.api.create_openapi_service(service_name_1, OPENAPI_SERVER_URL)
-            await context.api.create_openapi_service(service_name_2, OPENAPI_SERVER_URL)
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            await context.api.create_openapi_service(service_name_1, url)
+            await context.api.create_openapi_service(service_name_2, url)
 
         process = await run_cli(
             "service",
@@ -1249,11 +1260,12 @@ async def test_that_services_can_be_listed(
 async def test_that_a_service_can_be_viewed(
     context: ContextOfTest,
 ) -> None:
+    port = randint(10000, 50000)
     service_name = "test_service_view"
-    service_url = OPENAPI_SERVER_URL
+    service_url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
 
     with run_server(context, randomize_port=True):
-        async with run_openapi_server(rng_app()):
+        async with run_openapi_server(rng_app(port=port), port=port):
             await context.api.create_openapi_service(service_name, service_url)
 
         process = await run_cli(

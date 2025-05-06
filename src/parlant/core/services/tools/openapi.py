@@ -26,10 +26,12 @@ from openapi_parser.parser import (
 )
 from types import TracebackType
 from typing import Any, Awaitable, Callable, Mapping, NamedTuple, Optional, Sequence, cast
+from pydantic import ValidationError
 from typing_extensions import override
 
 from parlant.core.tools import (
     Tool,
+    ToolError,
     ToolOverlap,
     ToolParameterOptions,
     ToolResult,
@@ -228,4 +230,9 @@ class OpenAPIClient(ToolService):
         _ = context
         tool = await self.read_tool(name)
         validate_tool_arguments(tool, arguments)
-        return await self._tools[name].func(**arguments)
+        try:
+            return await self._tools[name].func(**arguments)
+        except ValidationError as e:
+            raise ToolError(f"Parameter validation error: {str(e)}")
+        except Exception as e:
+            raise ToolError(f"Error calling tool {name}: {str(e)}")

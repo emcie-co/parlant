@@ -100,7 +100,7 @@ class GuidelineContentDTO(
     """
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
 
 
 class GuidelinePayloadOperationDTO(Enum):

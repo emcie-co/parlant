@@ -19,6 +19,7 @@ from contextlib import suppress
 import json
 import os
 from pathlib import Path
+import time
 from urllib.parse import urlparse
 import click
 import click.shell_completion
@@ -27,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import requests
 import rich
+from rich.progress import Progress, TimeElapsedColumn, BarColumn, TaskProgressColumn
 from rich import box
 from rich.table import Table
 from rich.text import Text
@@ -47,12 +49,15 @@ from parlant.client.types import (
     Guideline,
     Relationship,
     RelationshipKindDto,
+    GuidelinePayload,
+    GuidelineContent,
     GuidelineToolAssociation,
     GuidelineToolAssociationUpdateParams,
     GuidelineTagsUpdateParams,
     GuidelineWithRelationshipsAndToolAssociations,
     GuidelineMetadataUpdateParams,
     OpenApiServiceParams,
+    Payload,
     SdkServiceParams,
     Service,
     Session,
@@ -412,12 +417,74 @@ class Actions:
         tags: list[str],
     ) -> Guideline:
         client = cast(ParlantClient, ctx.obj.client)
+        tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
 
-        guideline = client.guidelines.create(
-            condition=condition,
-            action=action,
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
-        )
+        if tool_id and action is None:
+            evaluation = client.evaluations.create(
+                payloads=[
+                    Payload(
+                        kind="guideline",
+                        guideline=GuidelinePayload(
+                            content=GuidelineContent(condition=condition),
+                            tool_ids=[
+                                ToolId(
+                                    service_name=tool_id.split(":")[0],
+                                    tool_name=tool_id.split(":")[1],
+                                )
+                            ],
+                            operation="add",
+                            action_proposition=True,
+                            properties_proposition=True,
+                        ),
+                    )
+                ]
+            )
+
+            with Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(style="bold blue"),
+                "{task.completed}/{task.total}",
+                TimeElapsedColumn(),
+            ) as progress:
+                progress_task = progress.add_task("Evaluating guideline\n", total=100)
+
+                while True:
+                    time.sleep(0.2)
+                    evaluation_result = client.evaluations.retrieve(
+                        evaluation.id,
+                        wait_for_completion=0,
+                    )
+
+                    if evaluation_result.status in ["pending", "running"]:
+                        progress.update(progress_task, completed=int(evaluation_result.progress))
+                        continue
+
+                    if evaluation_result.status == "completed":
+                        progress.update(progress_task, completed=100)
+
+                        invoice = evaluation_result.invoices[0]
+                        assert invoice.approved
+                        assert invoice.data
+                        assert invoice.data.guideline
+                        assert invoice.payload.guideline
+
+                        guideline = client.guidelines.create(
+                            condition=condition,
+                            action=invoice.data.guideline.action_proposition,
+                            tags=tags,
+                            metadata=invoice.data.guideline.properties_proposition or {},
+                        )
+
+                    elif evaluation_result.status == "failed":
+                        raise ValueError(evaluation_result.error)
+
+        else:
+            guideline = client.guidelines.create(
+                condition=condition,
+                action=action,
+                tags=tags,
+            )
 
         if tool_id:
             service_name, tool_name = tool_id.split(":")

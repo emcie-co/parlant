@@ -469,7 +469,7 @@ class Actions:
                         assert invoice.data.guideline
                         assert invoice.payload.guideline
 
-                        guideline = client.guidelines.create(
+                        return client.guidelines.create(
                             condition=condition,
                             action=invoice.data.guideline.action_proposition,
                             tags=tags,

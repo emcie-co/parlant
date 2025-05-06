@@ -13,13 +13,19 @@
 # limitations under the License.
 
 import asyncio
+from lagom import Container
 from fastapi import status
 import httpx
 
 
+from parlant.core.services.tools.plugins import tool
+from parlant.core.tools import ToolResult, ToolContext
+from parlant.core.services.tools.service_registry import ServiceRegistry
+
 from tests.core.stable.services.indexing.test_evaluator import (
     AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING,
 )
+from tests.test_utilities import run_service_server
 
 
 async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_status(
@@ -155,3 +161,58 @@ async def test_that_properties_proposition_is_evaluated(
 
     assert invoice["data"]
     assert invoice["data"]["guideline"]["properties_proposition"] is None
+
+
+async def test_that_action_proposition_is_evaluated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    @tool
+    def my_tool(context: ToolContext, arg_1: int, arg_2: int) -> ToolResult:
+        return ToolResult(arg_1 + arg_2)
+
+    service_registry = container[ServiceRegistry]
+
+    async with run_service_server([my_tool]) as server:
+        await service_registry.update_tool_service(
+            name="my_service",
+            kind="sdk",
+            url=server.url,
+        )
+
+        response = await async_client.post(
+            "/evaluations",
+            json={
+                "payloads": [
+                    {
+                        "kind": "guideline",
+                        "guideline": {
+                            "content": {
+                                "condition": "the customer asks for a discount",
+                            },
+                            "tool_ids": [{"service_name": "my_service", "tool_name": "my_tool"}],
+                            "operation": "add",
+                            "action_proposition": True,
+                            "properties_proposition": False,
+                        },
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        evaluation_id = response.raise_for_status().json()["id"]
+
+        content = (
+            (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+        )
+
+        assert content["status"] == "completed"
+        assert len(content["invoices"]) == 1
+
+        invoice = content["invoices"][0]
+        assert invoice["approved"]
+
+        assert invoice["data"]
+        assert isinstance(invoice["data"]["guideline"]["action_proposition"], str)

@@ -552,7 +552,7 @@ async def create_schematic_generation_result_collection(
 
 @asynccontextmanager
 async def run_service_server(
-    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port=PLUGIN_SERVER_PORT
+    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port: int = PLUGIN_SERVER_PORT
 ) -> AsyncIterator[PluginServer]:
     async with PluginServer(
         tools=tools,
@@ -642,9 +642,21 @@ async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
     config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    yield
-    server.should_exit = True
-    await task
+
+    try:
+        await asyncio.sleep(0.1)
+        yield
+    finally:
+        server.should_exit = True
+        await asyncio.sleep(0.1)
+
+        # If it's still running close it more agressively
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 async def get_json(address: str, params: dict[str, str] = {}) -> Any:

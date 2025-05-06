@@ -397,6 +397,88 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
     ]
 )
 
+example_2_events = [
+    _make_event(
+        "11", EventSource.CUSTOMER, "I'm looking for recipe recommendations for a dinner for 5"
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Sounds good! Are you interested in just entrees or do you need help planning the entire meal and experience?",
+    ),
+    _make_event(
+        "34", EventSource.CUSTOMER, "I have the evening planned, just looking for enterees."
+    ),
+    _make_event(
+        "56",
+        EventSource.AI_AGENT,
+        "Great. Are there any dietery limitations I should be aware of?",
+    ),
+    _make_event(
+        "88",
+        EventSource.CUSTOMER,
+        "I have some minor nut allergies",
+    ),
+    _make_event(
+        "98",
+        EventSource.AI_AGENT,
+        "I see. Should I avoid recipes with all nuts then?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "You can use peanuts. I'm not allergic to those.",
+    ),
+    _make_event(
+        "98",
+        EventSource.AI_AGENT,
+        "Thanks for clarifying! Are there any particular cuisines or ingredients you'd like to feature in your dinner?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "I'd love something Mediterranean inspired. We all enjoy seafood too if you have any good options.",
+    ),
+]
+
+example_2_guidelines = [
+    GuidelineContent(
+        condition="food allergies are discussed",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="the customer is allergic to almonds",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="the conversation is currently about peanut allergies",
+        action=None,
+    ),
+]
+
+example_2_expected = GenericObservationalGuidelineMatchesSchema(
+    checks=[
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="food allergies are discussed",
+            rationale="nut allergies were discussed earlier in the interaction",
+            applies=True,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer is allergic to almonds",
+            rationale="While the customer has some nut allergies, we do not know if they are for almonds specifically",
+            applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the conversation is currently about peanut allergies",
+            rationale="peanut allergies were discussed, but the conversation has moved on from the subject",
+            applies=False,
+        ),
+    ]
+)
+
 
 _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
     GenericObservationalGuidelineMatchingShot(

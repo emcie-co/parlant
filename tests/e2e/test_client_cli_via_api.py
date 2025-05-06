@@ -18,7 +18,6 @@ import os
 import tempfile
 from typing import Any
 import httpx
-import pytest
 
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tools import ToolResult, ToolContext
@@ -540,77 +539,6 @@ async def test_that_a_guideline_can_be_deleted(
         assert len(guidelines) == 0
 
 
-<<<<<<< HEAD
-=======
-async def test_that_a_connection_can_be_deleted(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context, randomize_port=True):
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=httpx.Timeout(30),
-        ) as client:
-            guidelines_response = await client.post(
-                f"{context.api.server_address}/guidelines/",
-                json={
-                    "condition": "the customer greets you",
-                    "action": "greet them back with 'Hello'",
-                },
-            )
-            guidelines_response.raise_for_status()
-
-            first = guidelines_response.json()
-
-            guidelines_response = await client.post(
-                f"{context.api.server_address}/guidelines/",
-                json={
-                    "condition": "greeting the customer",
-                    "action": "ask for his health condition",
-                },
-            )
-            guidelines_response.raise_for_status()
-
-            second = guidelines_response.json()
-
-            first = first["id"]
-            second = second["id"]
-
-            connection_response = await client.patch(
-                f"{context.api.server_address}/guidelines/{first}",
-                json={
-                    "connections": {
-                        "add": [
-                            {
-                                "source": first,
-                                "target": second,
-                            }
-                        ],
-                    },
-                },
-            )
-            connection_response.raise_for_status()
-
-        process = await run_cli(
-            "guideline",
-            "disentail",
-            "--source",
-            first,
-            "--target",
-            second,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            address=context.api.server_address,
-        )
-        stdout_view, stderr_view = await process.communicate()
-        output_view = stdout_view.decode() + stderr_view.decode()
-        assert "Traceback (most recent call last):" not in output_view
-        assert process.returncode == os.EX_OK
-
-        guideline = await context.api.read_guideline(guideline_id=first)
-        assert len(guideline["connections"]) == 0
-
-
->>>>>>> 74af4cbd (Added the ability to randomize server port and pass it to the client. Changed test_client_cli_via_api tests to use it.)
 async def test_that_a_tool_can_be_enabled_for_a_guideline(
     context: ContextOfTest,
 ) -> None:
@@ -1582,30 +1510,6 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
         assert "SecondTag" in output
 
 
-<<<<<<< HEAD
-=======
-async def test_that_a_tag_can_be_viewed(context: ContextOfTest) -> None:
-    with run_server(context, randomize_port=True):
-        tag_id = (await context.api.create_tag("TestViewTag"))["id"]
-
-        process = await run_cli(
-            "tag",
-            "view",
-            "--id",
-            tag_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            address=context.api.server_address,
-        )
-        stdout, stderr = await process.communicate()
-        output = stdout.decode() + stderr.decode()
-        assert process.returncode == os.EX_OK
-
-        assert "TestViewTag" in output
-        assert tag_id in output
-
-
->>>>>>> 74af4cbd (Added the ability to randomize server port and pass it to the client. Changed test_client_cli_via_api tests to use it.)
 async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
     with run_server(context, randomize_port=True):
         tag_id = (await context.api.create_tag("TestViewTag"))["id"]

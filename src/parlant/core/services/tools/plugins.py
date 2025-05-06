@@ -15,7 +15,7 @@
 from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import enum
 import inspect
 import json
@@ -126,7 +126,7 @@ class _ToolDecoratorParams(TypedDict, total=False):
     overlap: ToolOverlap
 
 
-_ToolParameterType = Union[str, int, float, bool, list[Any], None]
+_ToolParameterType = Union[str, int, float, bool, date, datetime, list[Any], None]
 
 
 class _ToolParameterInfo(NamedTuple):
@@ -336,6 +336,8 @@ def _tool_decorator_impl(
             int: "integer",
             float: "number",
             bool: "boolean",
+            date: "date",
+            datetime: "datetime",
         }
 
         parameters = list(inspect.signature(func).parameters.values())

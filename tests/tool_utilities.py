@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
-import enum
+from datetime import date, datetime
 from enum import Enum
 import json
 from typing import Optional
+
 
 from parlant.core.utterances import Utterance
 from parlant.core.tools import ToolResult
 
 
-class Categories(enum.Enum):
+class Categories(Enum):
     GRAPHICSCARD = "Graphics Card"
     PROCESSOR = "Processor"
     STORAGE = "Storage"
@@ -66,7 +66,7 @@ def expert_answer(user_query: str) -> ToolResult:
     return ToolResult(answers[user_query])
 
 
-class ProductType(enum.Enum):
+class ProductType(Enum):
     DRINKS = "drinks"
     TOPPINGS = "toppings"
 
@@ -136,7 +136,7 @@ def check_vegetable_price(vegetable: str) -> ToolResult:
     return ToolResult(f"1 kg of {vegetable} costs 3$")
 
 
-class ProductCategory(enum.Enum):
+class ProductCategory(Enum):
     LAPTOPS = "laptops"
     PERIPHERALS = "peripherals"
 
@@ -148,6 +148,15 @@ def available_products_by_category(category: ProductCategory) -> ToolResult:
     }
 
     return ToolResult(products_by_category[category])
+
+
+def available_products_by_categories(categories: list[ProductCategory]) -> ToolResult:
+    products_by_category = {
+        ProductCategory.LAPTOPS: ["Lenovo", "Dell"],
+        ProductCategory.PERIPHERALS: ["Razer Keyboard", "Logitech Mouse"],
+    }
+
+    return ToolResult([products_by_category[category] for category in categories])
 
 
 def recommend_drink(user_is_adult: bool) -> ToolResult:
@@ -193,7 +202,7 @@ def try_unlock_card(last_6_digits: Optional[str] = None) -> ToolResult:
     try:
         if not last_6_digits:
             return ToolResult({"failure": "need to specify the last 6 digits of the card"})
-        return ToolResult({"success": "card succesfuly unlocked"})
+        return ToolResult({"success": "card successfully unlocked"})
     except BaseException:
         return ToolResult({"failure": "system error"})
 
@@ -274,7 +283,7 @@ def get_qualification_info() -> ToolResult:
 def transfer_coins(amount: int, from_account: str, to_account: str, pincode: str) -> ToolResult:
     if from_account == "Mark Corrigan" and to_account == "Sophie Chapman":
         if pincode == "1234":
-            return ToolResult(data="Transaction succesful: Transaction number: 83933")
+            return ToolResult(data="Transaction successful: Transaction number: 83933")
         else:
             return ToolResult(data="Transaction failed: incorrect pincode")
     return ToolResult(data="Transaction failed: one of the provided accounts does not exist")
@@ -319,3 +328,39 @@ async def search_electronic_products(
         products = [item for item in products if item["vendor"].lower() == vendor.lower()]
 
     return ToolResult({"available_products": products, "total_results": len(products)})
+
+
+class MeetingLocation(Enum):
+    ROOM = "meeting room"
+    BOOTH = "phone booth"
+    KITCHEN = "kitchen"
+
+
+async def set_a_bbq_appointment(
+    start_time: datetime,
+    description: str,
+    participants: list[str],
+    participants_rating: Optional[list[float]] = None,
+    end_time: Optional[datetime] = None,
+    location: MeetingLocation = MeetingLocation.ROOM,
+    alternative_locations: Optional[list[MeetingLocation]] = None,
+    meat_to_buy_in_kg: Optional[float] = None,
+    vegetarians: Optional[int] = None,
+) -> ToolResult:
+    return ToolResult(
+        {
+            "result": "success",
+            "message": f"BBQ appointment set successfully in {location} at {start_time} with {len(participants)} participants ({vegetarians} vegetarians).",
+            "description": description,
+        },
+    )
+
+
+async def find_bbq_appointments(
+    day: Optional[date] = None,
+    participants: Optional[list[str]] = None,
+    location: Optional[MeetingLocation] = MeetingLocation.ROOM,
+) -> ToolResult:
+    return ToolResult(
+        {"result": "success"},
+    )

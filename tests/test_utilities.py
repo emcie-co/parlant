@@ -19,6 +19,7 @@ import json
 import logging
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from random import randint
 from time import sleep
 from typing import (
     Any,
@@ -552,8 +553,10 @@ async def create_schematic_generation_result_collection(
 
 @asynccontextmanager
 async def run_service_server(
-    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port: int = PLUGIN_SERVER_PORT
+    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port: int = 0
 ) -> AsyncIterator[PluginServer]:
+    if port == 0:
+        port = randint(50001, 65535)
     async with PluginServer(
         tools=tools,
         port=port,
@@ -566,7 +569,8 @@ async def run_service_server(
             await server.shutdown()
 
 
-OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"
+OPENAPI_SERVER_BASE_URL = "http://localhost"
+OPENAPI_SERVER_URL = f"{OPENAPI_SERVER_BASE_URL}:{OPENAPI_SERVER_PORT}"
 
 
 async def one_required_query_param(
@@ -610,8 +614,8 @@ async def one_required_query_param_one_required_body_param(
     return JSONResponse({"result": f"{body.body_param}: {query_param}"})
 
 
-def rng_app() -> FastAPI:
-    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+def rng_app(port: int = OPENAPI_SERVER_PORT) -> FastAPI:
+    app = FastAPI(servers=[{"url": f"{OPENAPI_SERVER_BASE_URL}:{port}"}])
 
     @app.middleware("http")
     async def debug_request(
@@ -638,8 +642,8 @@ async def dto_object(dto: DummyDTO) -> JSONResponse:
 
 
 @asynccontextmanager
-async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
-    config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
+async def run_openapi_server(app: FastAPI, port: int = OPENAPI_SERVER_PORT) -> AsyncIterator[None]:
+    config = uvicorn.Config(app=app, port=port)
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
 
@@ -650,7 +654,7 @@ async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
         server.should_exit = True
         await asyncio.sleep(0.1)
 
-        # If it's still running close it more agressively
+        # If it's still running close it more aggressively
         if not task.done():
             task.cancel()
             try:

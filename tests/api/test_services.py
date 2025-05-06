@@ -14,6 +14,7 @@
 
 import json
 import os
+from random import randint
 import tempfile
 from fastapi import status
 import httpx
@@ -23,7 +24,12 @@ from parlant.core.services.tools.plugins import tool
 from parlant.core.tools import ToolResult, ToolContext
 from parlant.core.services.tools.service_registry import ServiceRegistry
 
-from tests.test_utilities import OPENAPI_SERVER_URL, rng_app, run_openapi_server, run_service_server
+from tests.test_utilities import (
+    OPENAPI_SERVER_BASE_URL,
+    rng_app,
+    run_openapi_server,
+    run_service_server,
+)
 
 
 async def test_that_sdk_service_is_created(
@@ -70,15 +76,17 @@ async def test_that_sdk_service_fails_to_create_due_to_url_not_starting_with_htt
 async def test_that_openapi_service_is_created_with_url_source(
     async_client: httpx.AsyncClient,
 ) -> None:
-    async with run_openapi_server(rng_app()):
-        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        source = f"{url}/openapi.json"
 
         response = await async_client.put(
             "/services/my_openapi_service",
             json={
                 "kind": "openapi",
                 "openapi": {
-                    "url": OPENAPI_SERVER_URL,
+                    "url": url,
                     "source": source,
                 },
             },
@@ -88,7 +96,7 @@ async def test_that_openapi_service_is_created_with_url_source(
 
         assert content["name"] == "my_openapi_service"
         assert content["kind"] == "openapi"
-        assert content["url"] == OPENAPI_SERVER_URL
+        assert content["url"] == url
 
 
 async def test_that_openapi_service_is_created_with_file_source(
@@ -164,8 +172,10 @@ async def test_that_sdk_service_is_created_and_deleted(
 async def test_that_openapi_service_is_created_and_deleted(
     async_client: httpx.AsyncClient,
 ) -> None:
-    async with run_openapi_server(rng_app()):
-        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        source = f"{url}/openapi.json"
 
         _ = (
             await async_client.put(
@@ -173,7 +183,7 @@ async def test_that_openapi_service_is_created_and_deleted(
                 json={
                     "kind": "openapi",
                     "openapi": {
-                        "url": OPENAPI_SERVER_URL,
+                        "url": url,
                         "source": source,
                     },
                 },
@@ -207,14 +217,16 @@ async def test_that_services_can_be_listed(
         .json()
     )
 
-    async with run_openapi_server(rng_app()):
-        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        source = f"{url}/openapi.json"
         response = await async_client.put(
             "/services/my_openapi_service",
             json={
                 "kind": "openapi",
                 "openapi": {
-                    "url": OPENAPI_SERVER_URL,
+                    "url": url,
                     "source": source,
                 },
             },
@@ -233,7 +245,7 @@ async def test_that_services_can_be_listed(
     openapi_service = next((p for p in services if p["name"] == "my_openapi_service"), None)
     assert openapi_service is not None
     assert openapi_service["kind"] == "openapi"
-    assert openapi_service["url"] == OPENAPI_SERVER_URL
+    assert openapi_service["url"] == url
 
 
 async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and_tools(
@@ -241,13 +253,14 @@ async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and
     container: Container,
 ) -> None:
     service_registry = container[ServiceRegistry]
-
-    async with run_openapi_server(rng_app()):
-        source = f"{OPENAPI_SERVER_URL}/openapi.json"
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        source = f"{url}/openapi.json"
         await service_registry.update_tool_service(
             name="my_openapi_service",
             kind="openapi",
-            url=OPENAPI_SERVER_URL,
+            url=url,
             source=source,
         )
 
@@ -257,7 +270,7 @@ async def test_that_reading_an_existing_openapi_service_returns_its_metadata_and
 
     assert service_data["name"] == "my_openapi_service"
     assert service_data["kind"] == "openapi"
-    assert service_data["url"] == OPENAPI_SERVER_URL
+    assert service_data["url"] == url
 
     tools = service_data["tools"]
     assert len(tools) > 0

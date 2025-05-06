@@ -81,7 +81,8 @@ class GuidelineActionProposer:
             template="""
 Your task is to craft a *then* clause for a conversational AI guideline that should be executed when the guideline's *when* condition is true.
 
-You will receive the *when* condition and a list of tools (including their descriptions and parameters). Your output should **only** be a JSON object following the required schema and contain a single field `action` with the textual instruction for the agent.
+You will receive the *when* condition and a list of tools (including their descriptions and parameters).
+Your output should **only** be a JSON object following the required schema and contain two fields: `action` with the textual instruction for the agent and `rationale` with the rationale for the action.
 
 Guidelines for writing the action:
 1. Be concise but explicit about invoking the tool(s).
@@ -121,7 +122,7 @@ Expected output (JSON):
 ```json
 {{
   "action": "<SINGLE-LINE-INSTRUCTION>",
-  "rationale": "<RATIONALE>"
+  "rationale": "<RATIONALE FOR THE ACTION>"
 }}
 ```
 """,

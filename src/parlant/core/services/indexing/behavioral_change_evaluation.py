@@ -548,11 +548,9 @@ class GuidelineEvaluator:
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[GuidelineActionProposition]:
-        guidelines_to_evaluate = [
-            (p.content, p.tool_ids) for p in payloads if p.properties_proposition
-        ]
+        guidelines_to_evaluate = [(p.content, p.tool_ids) for p in payloads if p.action_proposition]
 
-        return await async_utils.safe_gather(
+        results = await async_utils.safe_gather(
             *[
                 self._guideline_action_proposer.propose_action(
                     guideline=p_content,
@@ -562,6 +560,7 @@ class GuidelineEvaluator:
                 for p_content, p_tool_ids in guidelines_to_evaluate
             ]
         )
+        return results
 
 
 class BehavioralChangeEvaluator:

@@ -63,6 +63,10 @@ from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionPropositionSchema,
 )
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousPropositionSchema,
+)
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.embedding import EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
@@ -314,6 +318,7 @@ async def container(
             ActionsContradictionTestsSchema,
             GuidelineConnectionPropositionsSchema,
             GuidelineActionPropositionSchema,
+            GuidelineContinuousPropositionSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -338,6 +343,7 @@ async def container(
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
         container[CoherenceChecker] = Singleton(CoherenceChecker)
         container[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
+        container[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
 
         container[LocalToolService] = cast(
             LocalToolService,

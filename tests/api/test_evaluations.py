@@ -160,7 +160,7 @@ async def test_that_properties_proposition_is_evaluated(
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["properties_proposition"] is None
+    assert invoice["data"]["guideline"]["properties_proposition"] == {"continuous": False}
 
 
 async def test_that_action_proposition_is_evaluated(

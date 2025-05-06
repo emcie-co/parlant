@@ -49,6 +49,10 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousProposition,
+)
 from parlant.core.tags import Tag
 
 
@@ -503,10 +507,12 @@ class GuidelineEvaluator:
         logger: Logger,
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
+        guideline_continuous_proposer: GuidelineContinuousProposer,
     ) -> None:
         self._logger = logger
         self._entity_queries = entity_queries
         self._guideline_action_proposer = guideline_action_proposer
+        self._guideline_continuous_proposer = guideline_continuous_proposer
 
     async def evaluate(
         self,
@@ -517,6 +523,9 @@ class GuidelineEvaluator:
         action_proposer_task: Optional[
             asyncio.Task[Optional[Sequence[GuidelineActionProposition]]]
         ] = None
+        continuous_proposer_task: Optional[
+            asyncio.Task[Optional[Sequence[GuidelineContinuousProposition]]]
+        ] = None
 
         action_proposer_task = asyncio.create_task(
             self._propose_actions(
@@ -526,21 +535,61 @@ class GuidelineEvaluator:
         )
         tasks.append(action_proposer_task)
 
+        continuous_proposer_task = asyncio.create_task(
+            self._propose_continuous_propositions(
+                payloads,
+                progress_report,
+            )
+        )
+        tasks.append(continuous_proposer_task)
+
         if tasks:
             await async_utils.safe_gather(*tasks)
 
-        actions: Sequence[GuidelineActionProposition] = []
-        if action_proposer_task:
-            actions = action_proposer_task.result()
+        actions = action_proposer_task.result()
+        continuous_propositions = continuous_proposer_task.result()
+
+        if actions and continuous_propositions:
+            return [
+                InvoiceGuidelineData(
+                    coherence_checks=None,
+                    entailment_propositions=None,
+                    action_proposition=payload_action.content.action,
+                    properties_proposition={"continuous": payload_continuous.is_continuous},
+                )
+                for payload_action, payload_continuous in zip(actions, continuous_propositions)
+            ]
+
+        if actions:
+            return [
+                InvoiceGuidelineData(
+                    coherence_checks=None,
+                    entailment_propositions=None,
+                    action_proposition=payload_action.content.action,
+                    properties_proposition=None,
+                )
+                for payload_action in actions
+            ]
+
+        if continuous_propositions:
+            return [
+                InvoiceGuidelineData(
+                    coherence_checks=None,
+                    entailment_propositions=None,
+                    action_proposition=None,
+                    properties_proposition={"continuous": payload_continuous.is_continuous},
+                )
+                for payload_continuous in continuous_propositions
+            ]
 
         return [
             InvoiceGuidelineData(
                 coherence_checks=None,
                 entailment_propositions=None,
-                action_proposition=payload_action.content.action,
+                action_proposition=None,
                 properties_proposition=None,
             )
-            for payload_action in actions
+            for _ in payloads
         ]
 
     async def _propose_actions(
@@ -562,6 +611,24 @@ class GuidelineEvaluator:
         )
         return results
 
+    async def _propose_continuous_propositions(
+        self,
+        payloads: Sequence[Payload],
+        progress_report: ProgressReport,
+    ) -> Sequence[GuidelineContinuousProposition]:
+        guidelines_to_evaluate = [p.content for p in payloads if p.properties_proposition]
+
+        results = await async_utils.safe_gather(
+            *[
+                self._guideline_continuous_proposer.propose_continuous(
+                    guideline=p_content,
+                    progress_report=progress_report,
+                )
+                for p_content in guidelines_to_evaluate
+            ]
+        )
+        return results
+
 
 class BehavioralChangeEvaluator:
     def __init__(
@@ -572,6 +639,7 @@ class BehavioralChangeEvaluator:
         evaluation_store: EvaluationStore,
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
+        guideline_continuous_proposer: GuidelineContinuousProposer,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -582,6 +650,7 @@ class BehavioralChangeEvaluator:
             logger=logger,
             entity_queries=entity_queries,
             guideline_action_proposer=guideline_action_proposer,
+            guideline_continuous_proposer=guideline_continuous_proposer,
         )
 
     async def validate_payloads(

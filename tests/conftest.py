@@ -117,6 +117,7 @@ from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     LegacyBehavioralChangeEvaluator,
+    BehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -275,6 +276,7 @@ async def container(
         )
         container[EvaluationListener] = PollingEvaluationListener
         container[LegacyBehavioralChangeEvaluator] = LegacyBehavioralChangeEvaluator
+        container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
         container[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
         container[ServiceRegistry] = await stack.enter_async_context(

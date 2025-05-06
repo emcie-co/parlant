@@ -72,6 +72,10 @@ from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionPropositionSchema,
 )
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousPropositionSchema,
+)
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
@@ -334,6 +338,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
     c[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
+    c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
 
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
@@ -538,6 +543,7 @@ async def initialize_container(
         GuidelineConnectionPropositionsSchema,
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
+        GuidelineContinuousPropositionSchema,
     ):
         try_define(SchematicGenerator[schema], await nlp_service.get_schematic_generator(schema))  # type: ignore
 

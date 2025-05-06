@@ -108,51 +108,71 @@ def run_server(
     caught_exception: Exception | None = None
 
     try:
-        with subprocess.Popen(
+        process = subprocess.Popen(
             args=exec_args,
             text=True,
             stdout=sys.stdout,
             stderr=sys.stdout,
             env={**os.environ, "PARLANT_HOME": context.home_dir.as_posix()},
-        ) as process:
-            try:
-                # If port is randomized, wait for server to be responsive
-                if randomize_port:
-                    while not is_server_responsive(int(port)):
-                        time.sleep(0.5)
-                context.api.set_port(port)
-                yield process
-            except Exception as exc:
-                caught_exception = exc
+        )
 
-            if process.poll() is not None:
-                return
+        # If port is randomized, wait for server to be responsive
+        if randomize_port:
+            timeout = 30
+            start_time = time.time()
+            while not is_server_responsive(int(port)):
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Server failed to start within {timeout} seconds")
+                    time.sleep(0.5)
 
-            process.send_signal(signal.SIGINT)
+        context.api.set_port(port)
 
-            for _ in range(5):
-                if process.poll() is not None:
-                    return
-                time.sleep(0.5)
-
-            process.terminate()
-
-            for _ in range(5):
-                if process.poll() is not None:
-                    return
-                time.sleep(0.5)
-
-            LOGGER.error(
-                "Server process had to be killed. stderr="
-                + (process.stderr and process.stderr.read() or "None")
-            )
-
-            process.kill()
-            process.wait()
+        try:
+            yield process
+        except Exception as exc:
+            caught_exception = exc
 
     finally:
+        if process is not None:
+            try:
+                # First try a graceful shutdown (SIGINT)
+                if process.poll() is None:
+                    process.send_signal(signal.SIGINT)
+
+                for _ in range(10):
+                    if process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+
+                # If still running, try terminating (SIGTERM)
+                if process.poll() is None:
+                    process.terminate()
+
+                for _ in range(5):
+                    if process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+
+                # If still running, force kill
+                if process.poll() is None:
+                    LOGGER.error(
+                        "Server process had to be killed. stderr="
+                        + (process.stderr and process.stderr.read() or "None")
+                    )
+                    process.kill()
+                    process.wait(timeout=5)
+
+            except Exception as e:
+                LOGGER.error(f"Error while shutting down server process: {e}")
+                # Make sure process is killed as a last resort
+                try:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=1)
+                except Exception:
+                    pass
+
         if caught_exception:
-            process.terminate()
             raise caught_exception
 
 
@@ -526,31 +546,31 @@ class API:
         extra: Optional[dict[str, Any]] = {},
     ) -> Any:
         async with self.make_client() as client:
-            respone = await client.post("/customers", json={"name": name, "extra": extra})
-            respone.raise_for_status()
+            response = await client.post("/customers", json={"name": name, "extra": extra})
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def list_customers(
         self,
     ) -> Any:
         async with self.make_client() as client:
-            respone = await client.get("/customers")
-            respone.raise_for_status()
+            response = await client.get("/customers")
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def read_customer(self, id: str) -> Any:
         async with self.make_client() as client:
-            respone = await client.get(f"/customers/{id}")
-            respone.raise_for_status()
+            response = await client.get(f"/customers/{id}")
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def add_customer_tag(self, id: str, tag_id: str) -> None:
         async with self.make_client() as client:
-            respone = await client.patch(f"/customers/{id}", json={"tags": {"add": [tag_id]}})
-            respone.raise_for_status()
+            response = await client.patch(f"/customers/{id}", json={"tags": {"add": [tag_id]}})
+            response.raise_for_status()
 
     async def create_evaluation(self, agent_id: str, payloads: Any) -> Any:
         async with self.make_client() as client:
@@ -571,8 +591,8 @@ class API:
 
     async def list_utterances(self) -> Any:
         async with self.make_client() as client:
-            utterances_reponse = await client.get(
+            utterances_response = await client.get(
                 "/utterances",
             )
-            utterances_reponse.raise_for_status()
-            return utterances_reponse.json()
+            utterances_response.raise_for_status()
+            return utterances_response.json()

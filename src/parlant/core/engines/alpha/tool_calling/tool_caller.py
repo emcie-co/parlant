@@ -70,6 +70,7 @@ class ProblematicToolData:
     description: Optional[str] = field(default=None)
     examples: Optional[Sequence[str]] = field(default=None)
     precedence: Optional[int] = field(default=DEFAULT_PARAMETER_PRECEDENCE)
+    choices: Optional[Sequence[str]] = field(default=None)
 
 
 @dataclass(frozen=True, kw_only=True)

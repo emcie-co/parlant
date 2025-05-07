@@ -25,6 +25,7 @@ from parlant.core.engines.types import Context
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
+from parlant.core.journeys import Journey
 from parlant.core.sessions import Event, Session
 from parlant.core.tools import ToolId
 
@@ -52,6 +53,7 @@ class ResponseState:
     context_variables: list[tuple[ContextVariable, ContextVariableValue]]
     glossary_terms: set[Term]
     ordinary_guideline_matches: list[GuidelineMatch]
+    journeys: list[Journey]
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights

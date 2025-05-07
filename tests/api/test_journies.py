@@ -13,11 +13,14 @@ from parlant.core.common import ItemNotFoundError
 
 async def test_that_a_journey_can_be_created(
     async_client: httpx.AsyncClient,
+    container: Container,
 ) -> None:
+    guideline_store = container[GuidelineStore]
+
     payload = {
         "title": "Customer Onboarding",
         "description": "Guide new customers through onboarding steps",
-        "condition": "Customer asks for onboarding help",
+        "conditions": ["Customer asks for onboarding help"],
     }
     response = await async_client.post("/journeys", json=payload)
 
@@ -27,8 +30,39 @@ async def test_that_a_journey_can_be_created(
 
     assert journey["title"] == payload["title"]
     assert journey["description"] == payload["description"]
-    assert journey["condition"] == payload["condition"]
     assert journey["tags"] == []
+
+    assert len(journey["conditions"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
+    assert guideline.id == journey["conditions"][0]
+
+
+async def test_that_a_journey_can_be_created_with_multiple_conditions(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    payload = {
+        "title": "Customer Onboarding",
+        "description": "Guide new customers through onboarding steps",
+        "conditions": ["Customer asks for onboarding help", "Customer wants to signup"],
+    }
+    response = await async_client.post("/journeys", json=payload)
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    journey = response.json()
+
+    assert journey["title"] == payload["title"]
+    assert journey["description"] == payload["description"]
+    assert journey["tags"] == []
+
+    assert len(journey["conditions"]) == 2
+    first_guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
+    second_guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][1])
+    assert first_guideline.id == journey["conditions"][0]
+    assert second_guideline.id == journey["conditions"][1]
 
 
 async def test_that_a_journey_can_be_created_with_tags(
@@ -45,7 +79,7 @@ async def test_that_a_journey_can_be_created_with_tags(
         json={
             "title": "Product Support",
             "description": "Assist customers with product issues",
-            "condition": "Customer reports an issue",
+            "conditions": ["Customer reports an issue"],
             "tags": [tag1.id, tag2.id],
         },
     )
@@ -62,7 +96,10 @@ async def test_that_a_journey_can_be_created_with_tags(
 
 async def test_that_journeys_can_be_listed(
     async_client: httpx.AsyncClient,
+    container: Container,
 ) -> None:
+    guideline_store = container[GuidelineStore]
+
     _ = (
         (
             await async_client.post(
@@ -70,7 +107,7 @@ async def test_that_journeys_can_be_listed(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "condition": "Customer asks for onboarding help",
+                    "conditions": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -81,12 +118,20 @@ async def test_that_journeys_can_be_listed(
     journeys = (await async_client.get("/journeys")).raise_for_status().json()
 
     assert len(journeys) == 1
-    assert journeys[0]["title"] == "Customer Onboarding"
+    first_journey = journeys[0]
+    assert first_journey["title"] == "Customer Onboarding"
+
+    assert len(first_journey["conditions"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=first_journey["conditions"][0])
+    assert guideline.id == first_journey["conditions"][0]
 
 
 async def test_that_a_journey_can_be_read(
     async_client: httpx.AsyncClient,
+    container: Container,
 ) -> None:
+    guideline_store = container[GuidelineStore]
+
     journey = (
         (
             await async_client.post(
@@ -94,7 +139,7 @@ async def test_that_a_journey_can_be_read(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "condition": "Customer asks for onboarding help",
+                    "conditions": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -106,7 +151,10 @@ async def test_that_a_journey_can_be_read(
 
     assert journey_dto["title"] == "Customer Onboarding"
     assert journey_dto["description"] == "Guide new customers"
-    assert journey_dto["condition"] == "Customer asks for onboarding help"
+
+    assert len(journey_dto["conditions"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey_dto["conditions"][0])
+    assert guideline.id == journey_dto["conditions"][0]
 
 
 @mark.parametrize(
@@ -124,16 +172,11 @@ async def test_that_a_journey_can_be_read(
             "Updated description",
             "Customer asks for onboarding help",
         ),
-        (
-            {"condition": "Customer requests onboarding"},
-            "Customer Onboarding",
-            "Guide new customers",
-            "Customer requests onboarding",
-        ),
     ],
 )
 async def test_that_a_journey_can_be_updated(
     async_client: httpx.AsyncClient,
+    container: Container,
     update_payload: dict[str, Any],
     expected_title: str,
     expected_description: str,
@@ -146,7 +189,7 @@ async def test_that_a_journey_can_be_updated(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "condition": "Customer asks for onboarding help",
+                    "conditions": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -160,10 +203,9 @@ async def test_that_a_journey_can_be_updated(
 
     assert updated_journey["title"] == expected_title
     assert updated_journey["description"] == expected_description
-    assert updated_journey["condition"] == expected_condition
 
 
-async def test_that_tags_can_be_added_and_removed_from_a_journey(
+async def test_that_tags_can_be_added_to_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -180,7 +222,7 @@ async def test_that_tags_can_be_added_and_removed_from_a_journey(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "condition": "Customer asks for onboarding help",
+                    "conditions": ["Customer asks for onboarding help"],
                     "tags": [tag1.id],
                 },
             )
@@ -189,21 +231,39 @@ async def test_that_tags_can_be_added_and_removed_from_a_journey(
         .json()
     )
 
-    update_payload = {"tags": [tag2.id, tag3.id]}
+    update_payload = {"tags": {"add": [tag2.id, tag3.id]}}
     response = await async_client.patch(f"/journeys/{journey['id']}", json=update_payload)
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert tag1.id not in updated_journey["tags"]
+    assert tag1.id in updated_journey["tags"]
     assert tag2.id in updated_journey["tags"]
     assert tag3.id in updated_journey["tags"]
 
-    update_payload = {"tags": [tag3.id]}
+
+async def test_that_tags_can_be_removed_from_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    journey_store = container[JourneyStore]
+
+    tag2 = await tag_store.create_tag("tag2")
+    tag3 = await tag_store.create_tag("tag3")
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+        tags=[tag2.id, tag3.id],
+    )
+
+    update_payload = {"tags": {"remove": [tag2.id]}}
     _ = (
-        await async_client.patch(f"/journeys/{journey['id']}", json=update_payload)
+        await async_client.patch(f"/journeys/{journey.id}", json=update_payload)
     ).raise_for_status()
     journey_after_second_update = (
-        (await async_client.get(f"/journeys/{journey['id']}")).raise_for_status().json()
+        (await async_client.get(f"/journeys/{journey.id}")).raise_for_status().json()
     )
     assert tag2.id not in journey_after_second_update["tags"]
     assert tag3.id in journey_after_second_update["tags"]
@@ -224,7 +284,7 @@ async def test_that_a_journey_can_be_deleted(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        condition=guideline.id,
+        conditions=[guideline.id],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -232,3 +292,107 @@ async def test_that_a_journey_can_be_deleted(
 
     with raises(ItemNotFoundError):
         await journey_store.read_journey(journey.id)
+
+
+async def test_that_a_tag_can_be_added_to_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    journey_store = container[JourneyStore]
+
+    tag = await tag_store.create_tag("new_tag")
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"tags": {"add": [tag.id]}},
+    )
+    response.raise_for_status()
+    updated_journey = response.json()
+
+    assert tag.id in updated_journey["tags"]
+
+
+async def test_that_a_tag_can_be_removed_from_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    journey_store = container[JourneyStore]
+
+    tag = await tag_store.create_tag("removable_tag")
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+        tags=[tag.id],
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"tags": {"remove": [tag.id]}},
+    )
+    response.raise_for_status()
+    updated_journey = response.json()
+
+    assert tag.id not in updated_journey["tags"]
+
+
+async def test_that_conditions_can_be_added_to_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    condition = await guideline_store.create_guideline(
+        condition="New Condition",
+        action=None,
+    )
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"conditions": {"add": [condition.id]}},
+    )
+    response.raise_for_status()
+    updated_journey = response.json()
+
+    assert condition.id in updated_journey["conditions"]
+
+
+async def test_that_conditions_can_be_removed_from_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    condition = await guideline_store.create_guideline(
+        condition="Removable Condition",
+        action=None,
+    )
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[condition.id],
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"conditions": {"remove": [condition.id]}},
+    )
+    response.raise_for_status()
+    updated_journey = response.json()
+
+    assert condition.id not in updated_journey["conditions"]

@@ -337,6 +337,7 @@ class AlphaEngine(Engine):
                 context_variables=[],
                 glossary_terms=set(),
                 ordinary_guideline_matches=[],
+                journeys=[],
                 tool_enabled_guideline_matches={},
                 tool_events=[],
                 tool_insights=ToolInsights(),
@@ -367,13 +368,35 @@ class AlphaEngine(Engine):
         # between ordinary and tool-enabled ones.
         (
             guideline_matching_result,
-            context.state.ordinary_guideline_matches,
-            context.state.tool_enabled_guideline_matches,
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
         ) = await self._load_matched_guidelines(context)
 
         # Matched guidelines may use glossary terms, so we need to ground our
         # response by reevaluating the relevant terms given these new guidelines.
         context.state.glossary_terms.update(await self._load_glossary_terms(context))
+
+        # Match relevant journeys, retrieving them in a
+        context.state.journeys = list(
+            await self._entity_queries.find_journeys_for_agent(
+                context.agent.id,
+                list(
+                    chain(
+                        ordinary_guideline_matches,
+                        tool_enabled_guideline_matches.keys(),
+                    )
+                ),
+            )
+        )
+
+        (
+            context.state.ordinary_guideline_matches,
+            context.state.tool_enabled_guideline_matches,
+        ) = await self._entity_queries.filter_guideline_matches_by_activated_journeys(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            context.state.journeys,
+        )
 
         # Infer any needed tool calls and execute them,
         # adding the resulting tool events to the session.

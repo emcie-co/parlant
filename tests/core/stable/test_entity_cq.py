@@ -15,8 +15,10 @@
 from lagom import Container
 
 from parlant.core.agents import Agent, AgentStore
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineStore
+from parlant.core.journeys import JourneyStore
 from parlant.core.tags import Tag, TagId
 
 
@@ -108,3 +110,228 @@ async def test_that_guideline_with_not_hierarchy_tag_is_not_returned(
 
     assert len(result) == 1
     assert result[0].id == first_guideline.id
+
+
+async def test_that_journey_is_activated_when_guideline_matches(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    result = await entity_queries.find_journeys_for_agent(
+        agent.id,
+        [
+            GuidelineMatch(
+                guideline=journey_guideline,
+                score=10,
+                rationale="",
+            )
+        ],
+    )
+
+    assert len(result) == 1
+    assert result[0].id == journey.id
+
+
+async def test_that_journey_is_not_activated_when_guideline_matches(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    _ = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    result = await entity_queries.find_journeys_for_agent(
+        agent.id,
+        [],
+    )
+
+    assert len(result) == 0
+
+
+async def test_that_journey_with_relevant_agent_tag_activates_when_guideline_matches(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    await journey_store.upsert_tag(
+        journey_id=journey.id,
+        tag_id=Tag.for_agent_id(agent.id),
+    )
+
+    result = await entity_queries.find_journeys_for_agent(
+        agent.id,
+        [
+            GuidelineMatch(
+                guideline=journey_guideline,
+                score=10,
+                rationale="",
+            )
+        ],
+    )
+
+    assert len(result) == 1
+    assert result[0].id == journey.id
+
+
+async def test_that_journey_with_not_relevant_agent_tag_is_not_activated_when_guideline_matches(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    await journey_store.upsert_tag(
+        journey_id=journey.id,
+        tag_id=Tag.for_agent_id("not_relevant_agent"),
+    )
+
+    result = await entity_queries.find_journeys_for_agent(
+        agent.id,
+        [
+            GuidelineMatch(
+                guideline=journey_guideline,
+                score=10,
+                rationale="",
+            )
+        ],
+    )
+
+    assert len(result) == 0
+
+
+async def test_that_guideline_matches_are_not_filtered_by_activated_journeys(
+    container: Container,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="condition 2",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_journey_id(journey.id),
+    )
+
+    guideline_with_journey_tag = await guideline_store.read_guideline(
+        guideline_id=guideline.id,
+    )
+
+    result = await entity_queries.filter_guideline_matches_by_activated_journeys(
+        [
+            GuidelineMatch(
+                guideline=guideline_with_journey_tag,
+                score=10,
+                rationale="",
+            )
+        ],
+        {},
+        [journey],
+    )
+
+    assert len(result[0]) == 1
+    assert result[0][0].guideline.id == guideline.id
+
+
+async def test_that_guideline_tagged_with_not_activated_journey_is_filtered_out_when_matched(
+    container: Container,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey_guideline = await guideline_store.create_guideline(
+        condition="condition 1",
+    )
+
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[journey_guideline.id],
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="condition 2",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=Tag.for_journey_id(journey.id),
+    )
+
+    guideline_with_journey_tag = await guideline_store.read_guideline(
+        guideline_id=guideline.id,
+    )
+
+    result = await entity_queries.filter_guideline_matches_by_activated_journeys(
+        [
+            GuidelineMatch(
+                guideline=guideline_with_journey_tag,
+                score=10,
+                rationale="",
+            )
+        ],
+        {},
+        [],
+    )
+
+    assert len(result[0]) == 0

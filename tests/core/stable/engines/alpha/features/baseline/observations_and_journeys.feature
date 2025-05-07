@@ -56,7 +56,7 @@ Feature: Observations and Journeys
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
     Scenario: Multistep journey is aborted when the journey description requires so
-#        Given a journey "reset_password_journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise refuse to continue with resetting their password. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
+#        Given a journey "reset_password_journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise refuse to continue with resetting their password, without explaining the reason for the refusal. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
 #        And the tool "reset_password"
 #        And an association between "reset_password" and "reset_password_journey"
         Given a customer message, "I want to reset my password"
@@ -69,7 +69,7 @@ Feature: Observations and Journeys
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted
-        And the message contains that the password cannot be reset at this time, or has otherwise failed
+        And the message contains an answer indicating that the password cannot be reset at this time, or has otherwise failed to reset
 
 
     Scenario: Critical guideline overrides journey

@@ -364,6 +364,7 @@ def given_a_tool(
                 "first_name": (
                     {
                         "type": "string",
+                        "enum": ["Sushi", "Mushi", "Tushi"],
                     },
                     ToolParameterOptions(precedence=1),
                 ),
@@ -482,6 +483,50 @@ def given_a_tool(
                 "entry_type",
                 "n_entries",
             ],
+        },
+        "calculate_salary": {
+            "name": "calculate_salary",
+            "description": "Calculate the salary of an employee according to other employees",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "name": {
+                    "type": "string",
+                    "enum": ["John n Coke", "Mike Andike", "Bruno Twix", "Chris Pikrim"],
+                },
+                "manager": (
+                    {
+                        "type": "string",
+                        "enum": ["Mike Andike", "Bruno Twix", "Jay Libelly"],
+                    },
+                    ToolParameterOptions(hidden=True),
+                ),
+                "director": (
+                    {
+                        "type": "string",
+                        "enum": ["Bruno Twix", "Jay Libelly", "John n Coke"],
+                    },
+                    ToolParameterOptions(hidden=True),
+                ),
+                "friend": (
+                    {
+                        "type": "string",
+                        "enum": ["Chris Pikrim", "Jay Libelly", "Mike Andike"],
+                    },
+                    ToolParameterOptions(display_name="homie"),
+                ),
+                "mistress": {
+                    "type": "string",
+                    "enum": ["Jay Libelly", "Chris Pikrim", "Mike Andike"],
+                },
+                "cleaner": (
+                    {
+                        "type": "string",
+                        "enum": ["Mike Andike", "Bruno Twix", "Chris Pikrim"],
+                    },
+                    ToolParameterOptions(display_name="The robot"),
+                ),
+            },
+            "required": ["name", "manager", "director", "cleaner"],
         },
         "get_products_by_type": {
             "name": "get_products_by_type",

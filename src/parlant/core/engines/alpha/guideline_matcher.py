@@ -257,7 +257,7 @@ class GenericGuidelineMatchingBatch(GuidelineMatchingBatch):
                     }
                 ],
                 "guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information": "<if the guideline DID previously apply, explain here whether or not it needs to re-apply due to it being applicable to new context or information>",
-                "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depanding on whether and to what degree the action was previously preformed>",
+                "guideline_previously_applied": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was previously preformed>",
                 "is_missing_part_cosmetic_or_functional": "<str: only included if guideline_previously_applied is 'partially'. Value is either 'cosmetic' or 'functional' depending on the nature of the missing segment.",
                 "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
                 "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
@@ -321,7 +321,7 @@ IMPORTANT: guidelines that only require you to say a specific thing are generall
 Conversely, actions dictating one-time behavior (e.g., "send the user our address") should be re-applied more conservatively.
 Only re-apply these if the condition ceased to be true earlier in the conversation before being fulfilled again in the current context.
 
-IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, AND the unfulfilled portions aren't functionallly important but more "cosmetic" in nature (e.g. like saying thanks or anything that doesn't influence the direction of, or is important to the interaction) then output "fully" for `guideline_previously_applied`, and treat the guideline as though it has been fully executed.
+IMPORTANT: Some guidelines include multiple actions. If only a portion of those actions were fulfilled earlier in the conversation, AND the unfulfilled portions aren't functionally important but more "cosmetic" in nature (e.g. like saying thanks or anything that doesn't influence the direction of, or is important to the interaction) then output "fully" for `guideline_previously_applied`, and treat the guideline as though it has been fully executed.
 In such cases, re-apply the guideline only if its condition becomes true again later in the conversation, unless it is marked as continuous.
 
 """,
@@ -681,7 +681,7 @@ example_2_guidelines = [
     ),
     GuidelineContent(
         condition="the customer asks about job openings.",
-        action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 opennings overall",
+        action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 openings overall",
     ),
     GuidelineContent(
         condition="discussing job opportunities.", action="maintain a positive, assuring tone"
@@ -725,7 +725,7 @@ example_2_expected = GenericGuidelineMatchesSchema(
                 ),
                 SegmentPreviouslyAppliedRationale(
                     action_segment="EMPHASIZE we have over 10,000 openings overall",
-                    rationale="The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k opennings overall. The means the guideline partially applies and should be treated as if it was fully applied. However, since the customer is narrowing down their search, this point should be EMPHASIZED again to clarify that it still holds true.",
+                    rationale="The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k openings overall. The means the guideline partially applies and should be treated as if it was fully applied. However, since the customer is narrowing down their search, this point should be EMPHASIZED again to clarify that it still holds true.",
                 ),
             ],
             guideline_previously_applied="partially",
@@ -781,7 +781,7 @@ example_3_guidelines = [
     ),
     GuidelineContent(
         condition="the customer asked about the weather.",
-        action="provide the customre with the temperature and the chances of precipitation",
+        action="provide the customer with the temperature and the chances of precipitation",
     ),
 ]
 
@@ -795,7 +795,7 @@ example_3_expected = GenericGuidelineMatchesSchema(
             action="provide the price using the 'check_stock_price' tool",
             guideline_is_continuous=False,
             capitalize_exact_words_from_action_in_the_explanations_to_avoid_semantic_pitfalls=True,
-            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="The agent previously PROVIDED the price, but that was several messages ago. The actual price may have driften since then.",
+            guideline_current_application_refers_to_a_new_or_subtly_different_context_or_information="The agent previously PROVIDED the price, but that was several messages ago. The actual price may have drifted since then.",
             guideline_previously_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="PROVIDE the price using the aforementioned tool",

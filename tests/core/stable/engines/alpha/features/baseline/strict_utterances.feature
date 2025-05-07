@@ -65,3 +65,16 @@ Feature: Strict Utterance
         When processing is triggered
         Then a single message event is emitted
         And the message contains the text "You're on the Business plan."
+
+    Scenario: A tool with invalid parameters and a strict utterance uses the invalid value in utterance
+        Given an empty session
+        And a guideline "registering_for_a_sweepstake" to register to a sweepstake when the customer wants to participate in a sweepstake
+        And the tool "register_for_sweepstake"
+        And an association between "registering_for_a_sweepstake" and "register_for_sweepstake"
+        And a customer message, "Hi, my first name is Nushi, Please register me for a sweepstake with 3 entries"
+        And an utterance, "Hi {{std.invalid_params.first_name}}, you are not eligible to participate in the sweepstake"
+        And an utterance, "Hi {{std.customer.name}}, we are happy to register you for the sweepstake"
+        And an utterance, "Dear customer, please check if you have water in your tank"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And the message contains the text "not eligible to participate in the sweepstake"

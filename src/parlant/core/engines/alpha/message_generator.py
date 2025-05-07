@@ -27,7 +27,11 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
     MessageEventComposition,
 )
-from parlant.core.engines.alpha.tool_calling.tool_caller import MissingToolData, ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    MissingToolData,
+    ToolInsights,
+    InvalidToolData,
+)
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_match import GuidelineMatch
@@ -421,7 +425,7 @@ To generate an optimal response that aligns with all guidelines and the current 
 
 3. REVISION CRITERIA
    The response requires further revision if any of these conditions are met:
-   - Facts or services are offered without clear sourcing from this prompt - deonted by all_facts_and_services_sourced_from_prompt being false
+   - Facts or services are offered without clear sourcing from this prompt - denoted by all_facts_and_services_sourced_from_prompt being false
    - Guidelines or insights are broken (except when properly prioritized, or when broken due to insufficient data) - denoted by either `instructions_broken_due_to_missing_data` or `instructions_broken_only_due_to_prioritization`
    - The response repeats previous messages - denoted by `is_repeat_message` being true.
 
@@ -512,7 +516,7 @@ INTERACTION CONTEXT
 MISSING DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
-in order to run tools. The tools would have run, if they only had this data available.
+in order to run tools. The tools would have run, if they only had this data available and the rest of the data was valid.
 If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data: ###
 {formatted_missing_data}
 ###
@@ -521,6 +525,25 @@ If it makes sense in the current state of the interaction, you may choose to inf
                 props={
                     "formatted_missing_data": self._format_missing_data(tool_insights.missing_data),
                     "missing_data": tool_insights.missing_data,
+                },
+            )
+
+        if tool_insights.invalid_data:
+            builder.add_section(
+                name="message-generator-invalid-data-for-tools",
+                template="""
+INVALID DATA FOR TOOL REQUIRED CALLS:
+-------------------------------------
+The following is a description of data that has been provided but are not valid values for their tool parameters in order to run tools.
+The tools would have run, if they only had this data available and there was no missing data.
+You should inform the user about this invalid data: ###
+{formatted_invalid_data}
+###
+
+""",
+                props={
+                    "formatted_invalid_data": self._format_invalid_data(tool_insights.invalid_data),
+                    "invalid_data": tool_insights.invalid_data,
                 },
             )
 
@@ -559,6 +582,19 @@ Produce a valid JSON object in the following format: ###
                     **({"examples": d.examples} if d.examples else {}),
                 }
                 for d in missing_data
+            ]
+        )
+
+    def _format_invalid_data(self, invalid_data: Sequence[InvalidToolData]) -> str:
+        return json.dumps(
+            [
+                {
+                    "datum_name": d.parameter,
+                    **({"description": d.description} if d.description else {}),
+                    **({"significance": d.significance} if d.significance else {}),
+                    **({"examples": d.examples} if d.examples else {}),
+                }
+                for d in invalid_data
             ]
         )
 
@@ -1342,10 +1378,10 @@ example_9_expected = MessageSchema(
     last_message_of_customer=("You are not being helpful. Transfer me to a human."),
     guidelines=[],
     context_evaluation=ContextEvaluation(
-        most_recent_customer_inquiries_or_needs="The customer wants to be transfered to a human",
-        parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="The system has given me no information on how to transfer a customer to a human representitive",
+        most_recent_customer_inquiries_or_needs="The customer wants to be transferred to a human",
+        parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="The system has given me no information on how to transfer a customer to a human representative",
         topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="None, I can only apologize and explain myself",
-        what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I lack information on how to transfer the customer to a human representitive",
+        what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have="I lack information on how to transfer the customer to a human representative",
         was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=False,
         should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=True,
     ),
@@ -1356,7 +1392,7 @@ example_9_expected = MessageSchema(
         InstructionEvaluation(
             number=1,
             instruction="The customer is dissatisfied with my service, meaning I should apologize and attempt to assist them with their issue",
-            evaluation="I should apologize and attempt to medigate the issue",
+            evaluation="I should apologize and attempt to mitigate the issue",
             data_available="Not needed",
         ),
     ],
@@ -1364,7 +1400,7 @@ example_9_expected = MessageSchema(
         Revision(
             revision_number=1,
             content=(
-                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representitive at this moment. I'd recommend calling us by phone, hopefuly they'd be able to help you there."
+                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I'd recommend calling us by phone, hopefuly they'd be able to help you there."
             ),
             factual_information_provided=[],
             offered_services=[
@@ -1386,7 +1422,7 @@ example_9_expected = MessageSchema(
         Revision(
             revision_number=2,
             content=(
-                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representitive at this moment. I recommend visiting one of our branches, and getting help from a human representative there"
+                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I recommend visiting one of our branches, and getting help from a human representative there"
             ),
             factual_information_provided=[],
             offered_services=[

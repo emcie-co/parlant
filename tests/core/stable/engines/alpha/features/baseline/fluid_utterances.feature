@@ -22,3 +22,11 @@ Feature: Fluid Utterance
         When messages are emitted
         Then the message doesn't contain the text "I do not know"
         And the message mentions the color green
+
+    Scenario: Reverting to fluid generation when a full utterance match isn't found (fluid utterance)
+        Given a customer message, "I say that a banana is green, and an apple is purple. What did I say was the color of a banana?"
+        And an utterance, "Sorry, I do not know"
+        And an utterance, "I'm not sure. The answer might be {{generative.answer}}. How's that?"
+        When messages are emitted
+        Then the message doesn't contain the text "I do not know"
+        And the message mentions the color green

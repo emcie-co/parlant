@@ -52,6 +52,7 @@ from parlant.core.sessions import (
     EventSource,
     MessageEventData,
     Participant,
+    ToolCall,
     ToolEventData,
 )
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -70,9 +71,9 @@ class UtteranceDraftSchema(DefaultBaseModel):
 
 
 class UtteranceSelectionSchema(DefaultBaseModel):
+    rationale: Optional[str] = None
     chosen_template_id: Optional[str] = None
     match_quality: Optional[str] = None
-    rationale: Optional[str] = None
 
 
 class UtteranceRevisionSchema(DefaultBaseModel):
@@ -148,6 +149,7 @@ class StandardFieldExtraction(UtteranceFieldExtractionMethod):
                 variable.name: value.data for variable, value in context.context_variables
             },
             "missing_params": self._extract_missing_params(context.tool_insights),
+            "invalid_params": self._extract_invalid_params(context.tool_insights),
         }
 
     def _extract_missing_params(
@@ -155,6 +157,15 @@ class StandardFieldExtraction(UtteranceFieldExtractionMethod):
         tool_insights: ToolInsights,
     ) -> list[str]:
         return [missing_data.parameter for missing_data in tool_insights.missing_data]
+
+    def _extract_invalid_params(
+        self,
+        tool_insights: ToolInsights,
+    ) -> dict[str, str]:
+        return {
+            invalid_data.parameter: invalid_data.invalid_value
+            for invalid_data in tool_insights.invalid_data
+        }
 
 
 class ToolBasedFieldExtraction(UtteranceFieldExtractionMethod):
@@ -165,15 +176,25 @@ class ToolBasedFieldExtraction(UtteranceFieldExtractionMethod):
         field_name: str,
         context: UtteranceContext,
     ) -> tuple[bool, JSONSerializable]:
-        if not context.staged_events:
-            return False, None
+        tool_calls_in_order_of_importance: list[ToolCall] = []
 
-        for tool_event in [e for e in context.staged_events if e.kind == EventKind.TOOL]:
-            data = cast(ToolEventData, tool_event.data)
+        tool_calls_in_order_of_importance.extend(
+            tc
+            for e in context.staged_events
+            if e.kind == EventKind.TOOL
+            for tc in cast(ToolEventData, e.data)["tool_calls"]
+        )
 
-            for tool_call in data["tool_calls"]:
-                if value := tool_call["result"]["utterance_fields"].get(field_name, None):
-                    return True, value
+        tool_calls_in_order_of_importance.extend(
+            tc
+            for e in reversed(context.interaction_history)
+            if e.kind == EventKind.TOOL
+            for tc in cast(ToolEventData, e.data)["tool_calls"]
+        )
+
+        for tool_call in tool_calls_in_order_of_importance:
+            if value := tool_call["result"]["utterance_fields"].get(field_name, None):
+                return True, value
 
         return False, None
 
@@ -752,6 +773,34 @@ If it makes sense in the current state of the interaction, you may choose to inf
                 },
             )
 
+        if tool_insights.invalid_data:
+            builder.add_section(
+                name="utterance-selector-invalid-data-for-tools",
+                template="""
+INVALID DATA FOR TOOL CALLS:
+-------------------------------------
+The following is a description of invalid data that has been deemed necessary
+in order to run tools. The tools would have run, if they only had this data available.
+You should inform the user about this invalid data: ###
+{formatted_invalid_data}
+###
+""",
+                props={
+                    "formatted_invalid_data": json.dumps(
+                        [
+                            {
+                                "datum_name": d.parameter,
+                                **({"description": d.description} if d.description else {}),
+                                **({"significance": d.significance} if d.significance else {}),
+                                **({"examples": d.examples} if d.examples else {}),
+                            }
+                            for d in tool_insights.invalid_data
+                        ]
+                    ),
+                    "invalid_data": tool_insights.invalid_data,
+                },
+            )
+
         builder.add_section(
             name="utterance-selector-output-format",
             template="""
@@ -829,48 +878,39 @@ Produce a valid JSON object in the following format: ###
             [f'Template ID: {u.id} """\n{u.value}\n"""\n' for u in utterances]
         )
 
-        customer_messages = [
-            e
-            for e in context.interaction_history
-            if e.source == EventSource.CUSTOMER and e.kind == EventKind.MESSAGE
-        ]
-
-        if customer_messages:
-            last_customer_message = cast(MessageEventData, customer_messages[-1].data)["message"]
-            last_customer_message_text = f"Please note that the user's last message to which you'd be replying is: ###\n{last_customer_message}\n###\n"
-        else:
-            last_customer_message_text = ""
-
         builder.add_section(
-            name="utterance-selector-selection",
+            name="utterance-selector-selection-task-description",
             template="""
 1. You are an AI agent who is part of a system that interacts with a user.
 2. A draft reply to the user has been generated by a human operator.
 3. You are presented with a number of Jinja2 reply templates to choose from. These templates have been pre-approved by business stakeholders for producing fluent customer-facing AI conversations.
 4. Your role is to choose (classify) the pre-approved reply template that MOST faithfully captures the human operator's draft reply.
 5. Note that there may be multiple relevant choices. Out of those, you must choose the MOST suitable one that is MOST LIKE the human operator's draft reply.
-6. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procederal instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.
+6. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procederal instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
+        )
 
+        builder.add_interaction_history(context.interaction_history)
+
+        builder.add_section(
+            name="utterance-selector-selection-inputs",
+            template="""
 {formatted_guidelines}
-
-{last_customer_message_text}
 
 Pre-approved reply templates: ###
 {formatted_utterances}
 ###
 
-Draft message: ###
+Draft reply message: ###
 {draft_message}
 ###
 
 Output a JSON object with a two properties:
-1. "chosen_template_id" containing the selected template ID.
-2. "match_quality": which can be ONLY ONE OF "low", "partial", "high".
+1. "rationale": reason about the most appropriate template choice to capture the draft message's main intent
+2. "chosen_template_id" containing the selected template ID.
+3. "match_quality": which can be ONLY ONE OF "low", "partial", "high".
     a. "low": You couldn't find a template that even comes close
     b. "partial": You found a template that conveys at least some of the draft message's content
     c. "high": You found a template that captures the draft message in both form and function
-
-If you've had to fall back to a "partial" match template because you couldn't find a good template to use, in that case you should output a third property "rationale" explaining why none of the templates had high quality match.
 """,
             props={
                 "draft_message": draft_message,
@@ -879,7 +919,6 @@ If you've had to fall back to a "partial" match template because you couldn't fi
                 "guidelines": context.guidelines,
                 "formatted_guidelines": formatted_guidelines,
                 "composition_mode": context.agent.composition_mode,
-                "last_customer_message_text": last_customer_message_text,
             },
         )
 
@@ -950,6 +989,12 @@ If you've had to fall back to a "partial" match template because you couldn't fi
             else:
                 raise FluidUtteranceFallback()
 
+        if (
+            selection_response.content.match_quality == "partial"
+            and composition_mode == CompositionMode.FLUID_UTTERANCE
+        ):
+            raise FluidUtteranceFallback()
+
         utterance_id = UtteranceId(selection_response.content.chosen_template_id)
 
         utterance = next((u.value for u in utterances if u.id == utterance_id), None)
@@ -964,7 +1009,16 @@ If you've had to fall back to a "partial" match template because you couldn't fi
                 "selection": selection_response.info,
             }, _UtteranceSelectionResult.no_match(draft=draft_response.content.message)
 
-        rendered_utterance = await self._render_utterance(context, utterance)
+        try:
+            rendered_utterance = await self._render_utterance(context, utterance)
+        except Exception as exc:
+            self._logger.error(f"Failed to render utterance '{utterance_id}' ('{utterance}')")
+            self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
+
+            return {
+                "draft": draft_response.info,
+                "selection": selection_response.info,
+            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.message)
 
         match composition_mode:
             case CompositionMode.COMPOSITED_UTTERANCE:
@@ -1012,13 +1066,9 @@ If you've had to fall back to a "partial" match template because you couldn't fi
                 args[field_name] = value
             else:
                 self._logger.error(f"Utterance field extraction: missing '{field_name}'")
-                return DEFAULT_NO_MATCH_UTTERANCE
+                raise KeyError(f"Missing field '{field_name}' in utterance")
 
-        try:
-            return jinja2.Template(utterance).render(**args)
-        except Exception as exc:
-            self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
-            return DEFAULT_NO_MATCH_UTTERANCE
+        return jinja2.Template(utterance).render(**args)
 
     async def _recompose(
         self, context: UtteranceContext, raw_message: str
@@ -1028,14 +1078,13 @@ If you've had to fall back to a "partial" match template because you couldn't fi
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_interaction_history(context.interaction_history)
 
         builder.add_section(
             name="utterance-selector-composition",
             template="""\
-Please revise this message's style as you see fit, trying to make it continue the above conversation more naturally.
+Please revise this message's style as you see fit.
 Make sure NOT to add, remove, or hallucinate information nor add or remove key words (nouns, verbs) to the message.
-Just make it flow more with the conversation (if that's even needed—otherwise you can leave it as-is if it's already perfect): ###
+Message: ###
 {raw_message}
 ###
 
@@ -1046,7 +1095,7 @@ Respond with a JSON object {{ "revised_utterance": "<message>" }}
 
         result = await self._utterance_composition_generator.generate(
             builder,
-            hints={"temperature": 0.25},
+            hints={"temperature": 1},
         )
 
         self._logger.debug(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")

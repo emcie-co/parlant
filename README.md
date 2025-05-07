@@ -3,10 +3,10 @@
 <!--<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />-->
 
 
+<h1>Parlant</h1>
+  <h3>The Conversation Modeling Engine</h3>
 
-  <h3>Parlant: The Conversation Modeling Engine</h3>
-
-**Stop fighting with prompts and take charge of GenAI interactions!**
+Parlant is the open-source framework for safe, compliant, and custom generative AI conversations. It gives you the power of LLMs without the unpredictability.
 
   <a href="https://trendshift.io/repositories/12768" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12768" alt="emcie-co%2Fparlant | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
@@ -54,6 +54,10 @@ parlant guideline create \
 # Now start a new conversation and greet the agent
 ```
 
+## Quick Demo
+<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/ParlantGIF.gif?raw=true" />
+
+
 ## What is Conversation Modeling?
 You've built an AI agent—that's great! However, when you actually test it, you see it's not handling many customer interactions properly, and your business experts are displeased with it. What do you do?
 
@@ -65,12 +69,9 @@ A conversation model is a structured, domain-specific set of principles, actions
 
 The problem of getting your AI agent to say what _you_ want it to say is a hard one, experienced by virtually anyone building customer-facing agents. Here's how Conversation Modeling compares to other approaches to solving this problem.
 
-- **Flow engines** (such as [Rasa](https://github.com/RasaHQ/rasa), [Botpress](https://github.com/botpress/botpress) or [LangFlow](https://github.com/langflow-ai/langflow)) _force_ the user to interact according to predefined flows. In contrast, a **CM engine** dynamically _adapts_ to a user's natural interaction patterns while conforming to your rules.
+- **Flow engines** _force_ the user to interact according to predefined flows. In contrast, a **CM engine** dynamically _adapts_ to a user's natural interaction patterns while conforming to your rules.
 
-- **Free-form prompt engineering** (such as with [LangGraph](https://www.langchain.com/langgraph) or [LlamaIndex](https://docs.llamaindex.ai/)) leads to _inconsistency_, frequently failing to uphold requirements. Conversely, a **CM engine** leverages structure to _enforce_ conformance to a Conversation Model.
-
-## Quick Demo
-<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/ParlantGIF.gif?raw=true" />
+- **Free-form prompt engineering** leads to _inconsistency_, frequently failing to uphold requirements. Conversely, a **CM engine** leverages structure to _enforce_ conformance to a Conversation Model.
 
 
 ## Who uses Parlant?

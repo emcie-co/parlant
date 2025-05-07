@@ -30,7 +30,6 @@ from typing import (
     Optional,
     Sequence,
     TypeAlias,
-    Union,
     get_args,
 )
 from pydantic import Field
@@ -47,15 +46,13 @@ ToolParameterType = Literal[
     "boolean",
 ]
 
-EnumValueType = Union[str, int]
-
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
 
 
 class ToolParameterDescriptor(TypedDict, total=False):
     type: ToolParameterType
     item_type: ToolParameterType
-    enum: Sequence[EnumValueType]
+    enum: Sequence[str]
     description: str
     examples: Sequence[str]
 

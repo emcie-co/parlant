@@ -216,6 +216,25 @@ def register_for_sweepstake(
     return ToolResult({"result": "success"})
 
 
+class Employees(Enum):
+    EMPLOYEE = "John n Coke"
+    MANAGER = "Mike Andike"
+    DIRECTOR = "Bruno Twix"
+    CEO = "Jay Libelly"
+    THAT_GUY = "Chris Pikrim"
+
+
+def calculate_salary(
+    name: Employees,
+    manager: Employees,
+    director: Employees,
+    friend: Employees,
+    mistress: Employees,
+    cleaner: Employees,
+) -> ToolResult:
+    return ToolResult({"salary": 100})
+
+
 async def get_electronic_products_by_type(
     product_type: ElectronicProductType,
 ) -> ToolResult:

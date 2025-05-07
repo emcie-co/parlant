@@ -545,3 +545,19 @@ def then_the_number_of_missing_is_exactly(
     assert (
         len(missing_data) == number_of_missing
     ), f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
+
+
+@step(then, parsers.parse("the number of invalid parameters is exactly {number_of_invalid:d}"))
+def then_the_number_of_invalid_is_exactly(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    number_of_invalid: int,
+) -> None:
+    latest_context = next(
+        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+    )
+    invalid_data = latest_context.state.tool_insights.invalid_data
+
+    assert (
+        len(invalid_data) == number_of_invalid
+    ), f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"

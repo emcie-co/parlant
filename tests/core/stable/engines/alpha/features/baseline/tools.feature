@@ -326,7 +326,7 @@ Feature: Tools
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
         And an agent message, "Can you confirm the transformation?"
-        And a customer message, "Actually I want to transter 2000 pleases"
+        And a customer message, "Actually I want to transfer 2000 please"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 2000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
@@ -337,8 +337,8 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "Im Mark Corrigan. I want to transfer $3200 from my account to Sophie Chapman. The pincode is 1234"
-        And a tool event with data, { "tool_calls": [{ "tool_id": "local:transfer_coins", "arguments": [{"amount": 3200, "from_account": "Mark Corrigan", "to_account":"Sophie Chapman", "pincode": "1234"}], "result": { "data": "Transaction succesful: Transaction number: 83933", "metadata": {} }}]}
-        And an agent message, "The transaction was succesful. Can I help with anything else"
+        And a tool event with data, { "tool_calls": [{ "tool_id": "local:transfer_coins", "arguments": [{"amount": 3200, "from_account": "Mark Corrigan", "to_account":"Sophie Chapman", "pincode": "1234"}], "result": { "data": "Transaction successful: Transaction number: 83933", "metadata": {} }}]}
+        And an agent message, "The transaction was successful. Can I help with anything else"
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
@@ -353,8 +353,8 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "I want to transfer $1500 from Mark Jackobs account to Gal Gadot. The pincode is 1234"
-        And a tool event with data, { "tool_calls": [{ "tool_id": "local:transfer_coins", "arguments": [{ "amount": 1500, "from_account": "Mark Jackobs", "to_account":"Gal Gadot", "pincode": "1234"}], "result": { "data": "Transaction succesful: Transaction number: 83933", "metadata": {} }}]}
-        And an agent message, "The transaction was succesful. Can I help with anything else"
+        And a tool event with data, { "tool_calls": [{ "tool_id": "local:transfer_coins", "arguments": [{ "amount": 1500, "from_account": "Mark Jackobs", "to_account":"Gal Gadot", "pincode": "1234"}], "result": { "data": "Transaction successful: Transaction number: 83933", "metadata": {} }}]}
+        And an agent message, "The transaction was successful. Can I help with anything else"
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
@@ -473,7 +473,7 @@ Feature: Tools
         And an agent message, " Alright, no problem! Can you tell me the name of the person you want to send money to, and how much you'd like to transfer?"
         And a customer message, "Actually, do you work tomorrow? What are your working hours?"
         And an agent message, "Yes, I’m available every day from 9 AM to 5 PM. Would you like to go ahead with the transfer now, or is there something else you need?"
-        And a customer message, "If I come tommorow will that be ok?"
+        And a customer message, "If I come tomorrow will that be ok?"
         And an agent message, "Yes, that works! Feel free to come tomorrow. Would you like to go ahead with the transfer now, or is there anything else you need help with?"
         And a customer message, "Yeah, I think I’m ready. My name is Mark Corrigan. I need to transfer to my dear friend Sophie Chapman "
         And an agent message, "Hi again, Mark! So, how much would you like to transfer today?"
@@ -550,7 +550,7 @@ Feature: Tools
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains laptop as keyword and Dell as vendom and 300 as max price and 10 as min price 
+        And the tool calls event contains laptop as keyword and Dell as vendor and 300 as max price and 10 as min price 
 
     Scenario: Tool caller include only required argument when asked to 
         Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
@@ -574,3 +574,32 @@ Feature: Tools
         And the tool calls event contains a call to "local:search_electronic_products" with Dell vendor and laptop keyword
         And the tool calls event contains a call to "local:search_electronic_products" with Samsung vendor and SSD keyword
 
+    Scenario: When tool have a mix of missing and invalid parameters, the message generator communicates the invalids with the missing, by precedence
+        Given an empty session
+        And a guideline "registering_for_a_sweepstake" to register to a sweepstake when the customer wants to participate in a sweepstake
+        And the tool "register_for_sweepstake"
+        And an association between "registering_for_a_sweepstake" and "register_for_sweepstake"
+        And a customer message, "Hi, my first name is Nushi, Please register me for a sweepstake with 3 entries"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message mentions that parameters are missing
+        And the number of missing parameters is exactly 1
+        And the message mentions that parameters are invalid
+        And the number of invalid parameters is exactly 1
+        And the message mentions mentions last name
+
+    Scenario: A tool with both missing and invalid parameters, some hidden and some have display names, communicate the problems correctly
+        Given an empty session
+        And a guideline "calculate your salary" to calculate the salary of a person when the customer wants to know their salary
+        And the tool "calculate_salary"
+        And an association between "calculate your salary" and "calculate_salary"
+        And a customer message, "Hi, My name is Chris Pikrim, I work in Mike Andike's team. My mistress KittyKat and my friend Shuki asked me for my salary, so I would like you to calculate my salary. Please provide me with all details regarding missing or invalid data."
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message mentions that parameters are missing
+        And the number of missing parameters is exactly 1
+        And the message mentions that parameters are invalid
+        And the number of invalid parameters is exactly 2
+        And the message mentions the robot, mistress and homie

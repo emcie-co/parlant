@@ -57,7 +57,6 @@ from parlant.core.tools import (
     ToolParameterType,
     ToolResult,
     ToolContext,
-    EnumValueType,
     ToolResultError,
     normalize_tool_arguments,
     validate_tool_arguments,
@@ -326,8 +325,8 @@ def _tool_decorator_impl(
 
             if issubclass(param_info.resolved_type, enum.Enum):
                 assert all(
-                    type(e.value) in get_args(EnumValueType) for e in param_info.resolved_type
-                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be in {[t.__name__ for t in get_args(EnumValueType)]}"
+                    type(e.value) is str for e in param_info.resolved_type
+                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be strings"
 
     def _describe_parameters(
         func: ToolFunction,

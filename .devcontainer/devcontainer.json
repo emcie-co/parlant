@@ -30,7 +30,8 @@
         "mutantdino.resourcemonitor",
         "njpwerner.autodocstring",
         "tamasfe.even-better-toml",
-        "zeshuaro.vscode-python-poetry"
+        "zeshuaro.vscode-python-poetry",
+        "streetsidesoftware.code-spell-checker"
       ]
     }
   },

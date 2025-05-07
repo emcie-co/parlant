@@ -269,7 +269,7 @@ async def load_modules(
 
         if configure_module := getattr(module, "configure_module", None):
             LOGGER.info(f"Configuring module '{module.__name__}'")
-            if new_container := await configure_module(container):
+            if new_container := await configure_module(container.clone()):
                 container = new_container
 
         if initialize_module := getattr(module, "initialize_module", None):
@@ -326,6 +326,10 @@ async def initialize_container(
     log_level: str,
     migrate: bool,
 ) -> None:
+    def try_define(t: type, value: object) -> None:
+        if t not in c.defined_types:
+            c[t] = value
+
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
 
     c[Logger].set_level(
@@ -378,33 +382,60 @@ async def initialize_container(
     )
 
     try:
-        c[AgentStore] = await EXIT_STACK.enter_async_context(AgentDocumentStore(agents_db, migrate))
-        c[ContextVariableStore] = await EXIT_STACK.enter_async_context(
-            ContextVariableDocumentStore(context_variables_db)
+        try_define(
+            AgentStore, await EXIT_STACK.enter_async_context(AgentDocumentStore(agents_db, migrate))
         )
-        c[TagStore] = await EXIT_STACK.enter_async_context(TagDocumentStore(tags_db, migrate))
-        c[CustomerStore] = await EXIT_STACK.enter_async_context(
-            CustomerDocumentStore(customers_db, migrate)
-        )
-        c[UtteranceStore] = await EXIT_STACK.enter_async_context(
-            UtteranceDocumentStore(utterance_db)
-        )
-        c[GuidelineStore] = await EXIT_STACK.enter_async_context(
-            GuidelineDocumentStore(guidelines_db, migrate)
-        )
-        c[GuidelineToolAssociationStore] = await EXIT_STACK.enter_async_context(
-            GuidelineToolAssociationDocumentStore(guideline_tool_associations_db, migrate)
-        )
-        c[RelationshipStore] = await EXIT_STACK.enter_async_context(
-            RelationshipDocumentStore(relationships_db, migrate)
-        )
-        c[SessionStore] = await EXIT_STACK.enter_async_context(
-            SessionDocumentStore(sessions_db, migrate)
-        )
-        c[SessionListener] = PollingSessionListener
 
-        c[EvaluationStore] = await EXIT_STACK.enter_async_context(
-            EvaluationDocumentStore(evaluations_db, migrate)
+        try_define(
+            ContextVariableStore,
+            await EXIT_STACK.enter_async_context(
+                ContextVariableDocumentStore(context_variables_db)
+            ),
+        )
+
+        try_define(
+            TagStore, await EXIT_STACK.enter_async_context(TagDocumentStore(tags_db, migrate))
+        )
+
+        try_define(
+            CustomerStore,
+            await EXIT_STACK.enter_async_context(CustomerDocumentStore(customers_db, migrate)),
+        )
+
+        try_define(
+            UtteranceStore,
+            await EXIT_STACK.enter_async_context(UtteranceDocumentStore(utterance_db)),
+        )
+
+        try_define(
+            GuidelineStore,
+            await EXIT_STACK.enter_async_context(GuidelineDocumentStore(guidelines_db, migrate)),
+        )
+
+        try_define(
+            GuidelineToolAssociationStore,
+            await EXIT_STACK.enter_async_context(
+                GuidelineToolAssociationDocumentStore(guideline_tool_associations_db, migrate)
+            ),
+        )
+
+        try_define(
+            RelationshipStore,
+            await EXIT_STACK.enter_async_context(
+                RelationshipDocumentStore(relationships_db, migrate)
+            ),
+        )
+
+        try_define(
+            SessionStore,
+            await EXIT_STACK.enter_async_context(SessionDocumentStore(sessions_db, migrate)),
+        )
+
+        try_define(SessionListener, PollingSessionListener)
+
+        try_define(
+            EvaluationStore,
+            await EXIT_STACK.enter_async_context(EvaluationDocumentStore(evaluations_db, migrate)),
         )
 
         nlp_service_initializer: dict[str, Callable[[], NLPService]] = {
@@ -419,86 +450,81 @@ async def initialize_container(
             "litellm": load_litellm,
         }
 
-        c[ServiceRegistry] = await EXIT_STACK.enter_async_context(
-            ServiceDocumentRegistry(
-                database=services_db,
-                event_emitter_factory=c[EventEmitterFactory],
-                correlator=c[ContextualCorrelator],
-                nlp_services={nlp_service_name: nlp_service_initializer[nlp_service_name]()},
-                logger=c[Logger],
-                allow_migration=migrate,
-            )
+        try_define(
+            ServiceRegistry,
+            await EXIT_STACK.enter_async_context(
+                ServiceDocumentRegistry(
+                    database=services_db,
+                    event_emitter_factory=c[EventEmitterFactory],
+                    correlator=c[ContextualCorrelator],
+                    nlp_services={nlp_service_name: nlp_service_initializer[nlp_service_name]()},
+                    logger=c[Logger],
+                    allow_migration=migrate,
+                )
+            ),
         )
 
         nlp_service = await c[ServiceRegistry].read_nlp_service(nlp_service_name)
-
-        c[NLPService] = nlp_service
+        try_define(NLPService, nlp_service)
 
         embedder_factory = EmbedderFactory(c)
-        c[GlossaryStore] = await EXIT_STACK.enter_async_context(
-            GlossaryVectorStore(
-                vector_db=await EXIT_STACK.enter_async_context(
-                    ChromaDatabase(c[Logger], PARLANT_HOME_DIR, embedder_factory),
-                ),
-                document_db=glossary_tags_db,
-                embedder_type=type(await nlp_service.get_embedder()),
-                embedder_factory=embedder_factory,
-            )
+        try_define(
+            GlossaryStore,
+            await EXIT_STACK.enter_async_context(
+                GlossaryVectorStore(
+                    vector_db=await EXIT_STACK.enter_async_context(
+                        ChromaDatabase(c[Logger], PARLANT_HOME_DIR, embedder_factory),
+                    ),
+                    document_db=glossary_tags_db,
+                    embedder_type=type(await nlp_service.get_embedder()),
+                    embedder_factory=embedder_factory,
+                )
+            ),
         )
     except MigrationRequired as e:
         c[Logger].critical(str(e))
         die("Please re-run with `--migrate` to migrate your data to the new version.")
-
     except ServerOutdated as e:
         c[Logger].critical(str(e))
         die(
-            "Your server is old and does not support your new data. Please upgrade to the latest version."
+            "Your runtime data came from a higher server version and is not supported.\nPlease upgrade to the latest version of Parlant."
         )
 
-    c[
-        SchematicGenerator[GenericGuidelineMatchesSchema]
-    ] = await nlp_service.get_schematic_generator(GenericGuidelineMatchesSchema)
-    c[SchematicGenerator[MessageSchema]] = await nlp_service.get_schematic_generator(MessageSchema)
-    c[SchematicGenerator[UtteranceDraftSchema]] = await nlp_service.get_schematic_generator(
-        UtteranceDraftSchema
-    )
-    c[SchematicGenerator[UtteranceSelectionSchema]] = await nlp_service.get_schematic_generator(
-        UtteranceSelectionSchema
-    )
-    c[SchematicGenerator[UtteranceRevisionSchema]] = await nlp_service.get_schematic_generator(
-        UtteranceRevisionSchema
-    )
-    c[
-        SchematicGenerator[UtteranceFieldExtractionSchema]
-    ] = await nlp_service.get_schematic_generator(UtteranceFieldExtractionSchema)
-    c[SchematicGenerator[SingleToolBatchSchema]] = await nlp_service.get_schematic_generator(
-        SingleToolBatchSchema
-    )
-    c[
-        SchematicGenerator[ConditionsEntailmentTestsSchema]
-    ] = await nlp_service.get_schematic_generator(ConditionsEntailmentTestsSchema)
-    c[
-        SchematicGenerator[ActionsContradictionTestsSchema]
-    ] = await nlp_service.get_schematic_generator(ActionsContradictionTestsSchema)
-    c[
-        SchematicGenerator[GuidelineConnectionPropositionsSchema]
-    ] = await nlp_service.get_schematic_generator(GuidelineConnectionPropositionsSchema)
+    for schema in (
+        GenericGuidelineMatchesSchema,
+        MessageSchema,
+        UtteranceDraftSchema,
+        UtteranceSelectionSchema,
+        UtteranceRevisionSchema,
+        UtteranceFieldExtractionSchema,
+        SingleToolBatchSchema,
+        ConditionsEntailmentTestsSchema,
+        ActionsContradictionTestsSchema,
+        GuidelineConnectionPropositionsSchema,
+    ):
+        try_define(SchematicGenerator[schema], await nlp_service.get_schematic_generator(schema))  # type: ignore
 
-    c[GenericGuidelineMatching] = Singleton(GenericGuidelineMatching)
+    try_define(GenericGuidelineMatching, Singleton(GenericGuidelineMatching))
 
-    c[DefaultGuidelineMatchingStrategyResolver] = Singleton(
-        DefaultGuidelineMatchingStrategyResolver
+    try_define(
+        DefaultGuidelineMatchingStrategyResolver,
+        Singleton(DefaultGuidelineMatchingStrategyResolver),
     )
-    c[GuidelineMatchingStrategyResolver] = lambda container: container[
-        DefaultGuidelineMatchingStrategyResolver
-    ]
-    c[GuidelineMatcher] = Singleton(GuidelineMatcher)
 
-    c[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
-    c[ToolCallBatcher] = lambda c: c[DefaultToolCallBatcher]
-    c[ToolCaller] = Singleton(ToolCaller)
+    try_define(
+        GuidelineMatchingStrategyResolver,
+        lambda container: container[DefaultGuidelineMatchingStrategyResolver],
+    )
 
-    c[RelationalGuidelineResolver] = Singleton(RelationalGuidelineResolver)
+    try_define(GuidelineMatcher, Singleton(GuidelineMatcher))
+
+    try_define(DefaultToolCallBatcher, Singleton(DefaultToolCallBatcher))
+
+    try_define(ToolCallBatcher, lambda c: c[DefaultToolCallBatcher])
+
+    try_define(ToolCaller, Singleton(ToolCaller))
+
+    try_define(RelationalGuidelineResolver, Singleton(RelationalGuidelineResolver))
 
 
 async def recover_server_tasks(

@@ -184,6 +184,9 @@ const SessionView = (): ReactElement => {
 	useEffect(scrollToLastMessage, [messages?.length, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
 	useEffect(() => {
+		if (showThinking) lastMessageRef?.current?.scrollIntoView({behavior: 'smooth'});
+	}, [showThinking]);
+	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
 	}, [agents, agent?.id]);
 
@@ -260,6 +263,13 @@ const SessionView = (): ReactElement => {
 										</div>
 									</React.Fragment>
 								))}
+								{(showTyping || showThinking) && (
+									<div ref={lastMessageRef} className='flex snap-end flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
+										<div className='bubblesWrapper snap-end' aria-hidden="true">
+											<div className='bubbles' />
+										</div>
+									</div>
+								)}
 							</div>
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
@@ -304,7 +314,7 @@ const SessionView = (): ReactElement => {
 										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
 									/>
 									<p className={twMerge('absolute invisible left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter', (showTyping || showThinking) && 'visible')}>
-										{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}
+										{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is thinking...`}
 									</p>
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />

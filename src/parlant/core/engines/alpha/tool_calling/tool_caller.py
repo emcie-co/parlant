@@ -62,8 +62,8 @@ class ToolCallResult:
     result: ToolResult
 
 
-@dataclass(frozen=True)
-class MissingToolData:
+@dataclass(frozen=True, kw_only=True)
+class ProblematicToolData:
     parameter: str
     significance: Optional[str] = field(default=None)
     description: Optional[str] = field(default=None)
@@ -71,9 +71,20 @@ class MissingToolData:
     precedence: Optional[int] = field(default=DEFAULT_PARAMETER_PRECEDENCE)
 
 
+@dataclass(frozen=True, kw_only=True)
+class MissingToolData(ProblematicToolData):
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class InvalidToolData(ProblematicToolData):
+    invalid_value: str
+
+
 @dataclass(frozen=True)
 class ToolInsights:
     missing_data: Sequence[MissingToolData] = field(default_factory=list)
+    invalid_data: Sequence[InvalidToolData] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -191,16 +202,21 @@ class ToolCaller:
 
             # Aggregate insights from all batch results (e.g., missing data across batches)
             aggregated_missing_data: list[MissingToolData] = []
+            aggregated_invalid_data: list[InvalidToolData] = []
             for result in batch_results:
                 if result.insights and result.insights.missing_data:
                     aggregated_missing_data.extend(result.insights.missing_data)
+                if result.insights and result.insights.invalid_data:
+                    aggregated_invalid_data.extend(result.insights.invalid_data)
 
             return ToolCallInferenceResult(
                 total_duration=t_end - t_start,
                 batch_count=len(batches),
                 batch_generations=[result.generation_info for result in batch_results],
                 batches=[result.tool_calls for result in batch_results],
-                insights=ToolInsights(missing_data=aggregated_missing_data),
+                insights=ToolInsights(
+                    missing_data=aggregated_missing_data, invalid_data=aggregated_invalid_data
+                ),
             )
 
     async def _run_tool(

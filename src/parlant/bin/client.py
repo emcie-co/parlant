@@ -1128,22 +1128,48 @@ class Interface:
         rich.print(Text(message, style="bold red"), file=sys.stderr)
 
     @staticmethod
-    def _print_table(data: list[dict[str, Any]]) -> None:
+    def _print_table(
+        data: list[dict[str, Any]],
+        header_order: list[str] | None = None,
+    ) -> None:
+        """Render a list of dictionaries as a rich table.
+
+        If *header_order* is provided, the columns will appear in that order (filtered
+        down to only the headers present in *data*). Any headers found in *data* that
+        are **not** present in *header_order* will be appended to the end in the order
+        of their first appearance.  This allows callers to enforce a consistent column
+        ordering while still gracefully handling extra/unknown fields.
+        """
+
         table = Table(box=box.ROUNDED, border_style="bright_green")
 
         table.add_column("#", header_style="bright_green", overflow="fold")
 
-        headers = (
-            list(OrderedDict({key: None for entry in data for key in entry.keys()}).keys())
-            if data
-            else []
+        if not data:
+            rich.print(table)
+            return
+
+        # Collect all headers that actually appear in *data* (their first appearance
+        # defines the fallback ordering for any that are not covered by *header_order*).
+        discovered_headers: list[str] = list(
+            OrderedDict({key: None for entry in data for key in entry.keys()}).keys()
         )
 
-        for header in headers:
+        if header_order is not None:
+            # Keep only headers that exist in the data
+            ordered_headers = [h for h in header_order if h in discovered_headers]
+
+            # Append any remaining headers discovered in data that were not specified
+            # by *header_order* – preserving discovery order so as not to surprise.
+            ordered_headers.extend([h for h in discovered_headers if h not in ordered_headers])
+        else:
+            ordered_headers = discovered_headers
+
+        for header in ordered_headers:
             table.add_column(header, header_style="bright_green", overflow="fold")
 
         for idx, row in enumerate(data, start=1):
-            row_values = [str(row.get(h, "")) for h in headers]
+            row_values = [str(row.get(h, "")) for h in ordered_headers]
             table.add_row(str(idx), *row_values)
 
         rich.print(table)
@@ -1542,122 +1568,175 @@ class Interface:
     def _render_relationships(
         entity: Guideline | Tag,
         relationships: list[Relationship],
-        tool_associations: list[GuidelineToolAssociation],
         include_indirect: bool,
     ) -> None:
-        def to_direct_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
-            source = rel.source_guideline if rel.source_guideline else rel.source_tag
-            assert source
-            source_type = "Guideline" if rel.source_guideline else "Tag"
+        def to_direct_relationship_item(rel: Relationship) -> dict[str, str]:
+            result: dict[str, str] = {
+                "Relationship ID": rel.id,
+                "Kind": rel.kind,
+            }
 
-            peer = rel.target_guideline if rel.target_guideline else rel.target_tag
-            assert peer
-            peer_type = "Guideline" if rel.target_guideline else "Tag"
-
-            result = OrderedDict(
-                {
-                    "Relationship ID": rel.id,
-                    "Kind": rel.kind,
-                    "Role": "Source"
-                    if source.id == entity.id or source.id == entity.id
-                    else "Target",
-                    "Role Type": source_type,
-                    "Peer Role": "Target" if peer.id == entity.id else "Source",
-                    "Peer Role Type": peer_type,
-                    "Peer ID": peer.id,
-                }
-            )
-
-            if isinstance(peer, Guideline):
-                result["Peer Condition"] = peer.condition
-                result["Peer Action"] = peer.action
-
-            elif isinstance(peer, Tag):
-                result["Peer Name"] = peer.name
+            if rel.source_guideline:
+                result.update(
+                    {
+                        "Source ID": rel.source_guideline.id,
+                        "Source Type": "Guideline",
+                        "Source Condition": rel.source_guideline.condition,
+                        "Source Action": rel.source_guideline.action or "",
+                    }
+                )
+            elif rel.source_tag:
+                assert rel.source_tag is not None
+                result.update(
+                    {
+                        "Source ID": rel.source_tag.id,
+                        "Source Type": "Tag",
+                        "Source Name": rel.source_tag.name,
+                    }
+                )
+            if rel.target_guideline:
+                result.update(
+                    {
+                        "Target ID": rel.target_guideline.id,
+                        "Target Type": "Guideline",
+                        "Target Condition": rel.target_guideline.condition,
+                        "Target Action": rel.target_guideline.action or "",
+                    }
+                )
+            elif rel.target_tag:
+                assert rel.target_tag is not None
+                result.update(
+                    {
+                        "Target ID": rel.target_tag.id,
+                        "Target Type": "Tag",
+                        "Target Name": rel.target_tag.name,
+                    }
+                )
 
             return result
 
-        def to_indirect_relationship_item(rel: Relationship) -> OrderedDict[str, str]:
-            result = [
-                ("Relationship ID", rel.id),
-                ("Kind", rel.kind),
-                (
-                    "Source ID",
-                    rel.source_guideline.id
-                    if rel.source_guideline
-                    else cast(Tag, rel.source_tag).id,
-                ),
-                ("Source Type", "Guideline" if rel.source_guideline else "Tag"),
-            ]
+        def to_indirect_relationship_item(rel: Relationship) -> dict[str, str]:
+            result = {
+                "Relationship ID": rel.id,
+                "Kind": rel.kind,
+                "Source ID": rel.source_guideline.id
+                if rel.source_guideline
+                else cast(Tag, rel.source_tag).id,
+                "Source Type": "Guideline" if rel.source_guideline else "Tag",
+            }
 
             if rel.source_guideline:
-                result.extend(
-                    [
-                        ("Source Condition", rel.source_guideline.condition),
-                        ("Source Action", rel.source_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Source Condition": rel.source_guideline.condition,
+                        "Source Action": rel.source_guideline.action,
+                    }
                 )
-            else:
-                result.extend(
-                    [
-                        ("Source Name", cast(Tag, rel.source_tag).name),
-                    ]
+            elif rel.source_tag:
+                assert rel.source_tag is not None
+                result.update(
+                    {
+                        "Source Name": rel.source_tag.name,
+                    }
                 )
 
-            result.extend(
-                [
-                    (
-                        "Target ID",
-                        rel.target_guideline.id
-                        if rel.target_guideline
-                        else cast(Tag, rel.target_tag).id,
-                    ),
-                    ("Target Type", "Guideline" if rel.target_guideline else "Tag"),
-                ]
+            result.update(
+                {
+                    "Target ID": rel.target_guideline.id
+                    if rel.target_guideline
+                    else cast(Tag, rel.target_tag).id,
+                    "Target Type": "Guideline" if rel.target_guideline else "Tag",
+                }
             )
 
             if rel.target_guideline:
-                result.extend(
-                    [
-                        ("Target Condition", rel.target_guideline.condition),
-                        ("Target Action", rel.target_guideline.action),
-                    ]
+                result.update(
+                    {
+                        "Target Condition": rel.target_guideline.condition,
+                        "Target Action": rel.target_guideline.action or "",
+                    }
                 )
-            else:
-                result.extend(
-                    [
-                        ("Target Name", cast(Tag, rel.target_tag).name),
-                    ]
+            elif rel.target_tag:
+                assert rel.target_tag is not None
+                result.update(
+                    {
+                        "Target Name": rel.target_tag.name,
+                    }
                 )
 
-            return OrderedDict(result)
+            return result
 
         if relationships:
-            direct = [
+            direct = direct = [
                 r
                 for r in relationships
-                if entity in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
+                if entity
+                in (
+                    r.source_guideline,
+                    r.target_guideline,
+                    r.source_tag,
+                    r.target_tag,
+                )
             ]
             indirect = [
                 r
                 for r in relationships
                 if entity
-                not in (r.source_guideline, r.target_guideline, r.source_tag, r.target_tag)
+                not in (
+                    r.source_guideline,
+                    r.target_guideline,
+                    r.source_tag,
+                    r.target_tag,
+                )
             ]
 
             if direct:
                 rich.print("\nDirect Relationships:")
-                Interface._print_table(list(map(lambda r: to_direct_relationship_item(r), direct)))
+
+                # Pre-calculate dictionary view of the relationships.
+                direct_items = list(map(lambda r: to_direct_relationship_item(r), direct))
+
+                # Determine a consistent column ordering for the *direct* view so
+                # that headers like "Source Name" appear next to other "Source"-
+                # prefixed fields irrespective of which relationship type happens
+                # to be listed first.
+                all_direct_keys = {key for entry in direct_items for key in entry.keys()}
+
+                base_order = ["Relationship ID", "Kind"]
+                src_tgt_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
+
+                preferred_order: list[str] = base_order.copy()
+                for prefix in ("Source", "Target"):
+                    for suffix in src_tgt_suffixes:
+                        header = f"{prefix} {suffix}"
+                        if header in all_direct_keys:
+                            preferred_order.append(header)
+
+                Interface._print_table(
+                    direct_items,
+                    header_order=preferred_order,
+                )
 
             if indirect and include_indirect:
                 rich.print("\nIndirect Relationships:")
-                Interface._print_table(
-                    list(map(lambda r: to_indirect_relationship_item(r), indirect))
-                )
 
-        if tool_associations:
-            rich.print("\nTool(s) Enabled:")
-            Interface._render_guideline_tool_associations(tool_associations)
+                indirect_items = list(map(lambda r: to_indirect_relationship_item(r), indirect))
+
+                all_indirect_keys = {key for entry in indirect_items for key in entry.keys()}
+
+                base_order = ["Relationship ID", "Kind"]
+                source_target_suffixes = ["ID", "Type", "Name", "Condition", "Action"]
+                preferred_order_indirect: list[str] = base_order.copy()
+                for prefix in ("Source", "Target"):
+                    for suffix in source_target_suffixes:
+                        header = f"{prefix} {suffix}"
+                        if header in all_indirect_keys:
+                            preferred_order_indirect.append(header)
+
+                Interface._print_table(
+                    indirect_items,
+                    header_order=preferred_order_indirect,
+                )
 
     @staticmethod
     def create_guideline(
@@ -1701,8 +1780,10 @@ class Interface:
             Interface._render_relationships(
                 guideline_with_relationships_and_associations.guideline,
                 guideline_with_relationships_and_associations.relationships,
-                guideline_with_relationships_and_associations.tool_associations,
                 include_indirect=False,
+            )
+            Interface._render_guideline_tool_associations(
+                guideline_with_relationships_and_associations.tool_associations
             )
 
         except Exception as e:
@@ -1736,8 +1817,10 @@ class Interface:
             Interface._render_relationships(
                 guideline_with_relationships_and_associations.guideline,
                 guideline_with_relationships_and_associations.relationships,
-                guideline_with_relationships_and_associations.tool_associations,
                 include_indirect=True,
+            )
+            Interface._render_guideline_tool_associations(
+                guideline_with_relationships_and_associations.tool_associations
             )
 
         except Exception as e:
@@ -1826,12 +1909,15 @@ class Interface:
                 rich.print(Text("No data available", style="bold yellow"))
                 return
 
+            entity: Guideline | Tag | None = None
+            if guideline_id:
+                entity = Actions.view_guideline(ctx, guideline_id).guideline
+            else:
+                entity = Actions.view_tag(ctx, cast(str, tag))
+
             Interface._render_relationships(
-                relationships[0].source_guideline
-                if relationships[0].source_guideline
-                else cast(Tag, relationships[0].source_tag),
+                entity,
                 relationships,
-                [],
                 include_indirect=indirect,
             )
 

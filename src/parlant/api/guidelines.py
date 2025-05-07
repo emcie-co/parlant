@@ -1624,7 +1624,7 @@ def create_router(
                 except Exception:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Tool not found for service '{service_name}' and tool '{tool_name}'",
+                        detail=f"Tool not found (service='{service_name}', tool='{tool_name}')",
                     )
 
                 await guideline_tool_association_store.create_association(

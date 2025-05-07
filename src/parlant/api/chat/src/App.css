@@ -44,3 +44,44 @@ body {
 img {
 	user-select: none;
 }
+
+.bubblesWrapper {
+	height: fit-content;
+	width: fit-content;
+	background-color: #F5F9F7;
+	padding: 10px;
+	margin: 10px;
+	margin-inline: 20px;
+	border-radius: 15px;
+}
+
+.bubbles {
+	height: 15px;
+	width: 31px;
+	aspect-ratio: 2.5;
+	--_g: no-repeat radial-gradient(farthest-side, #333333 90%, #0000);
+	background: var(--_g), var(--_g), var(--_g);
+	background-size: 25% 50%;
+	animation: l43 1s infinite linear;
+}
+
+@keyframes l43 {
+	0% {
+	  background-position: calc(0*100%/2) 50%, calc(1*100%/2) 50%, calc(2*100%/2) 50%;
+	}
+	20% {
+	  background-position: calc(0*100%/2) 0, calc(1*100%/2) 50%, calc(2*100%/2) 50%;
+	}
+	40% {
+	  background-position: calc(0*100%/2) 100%, calc(1*100%/2) 0, calc(2*100%/2) 50%;
+	}
+	60% {
+	  background-position: calc(0*100%/2) 50%, calc(1*100%/2) 100%, calc(2*100%/2) 0;
+	}
+	80% {
+	  background-position: calc(0*100%/2) 50%, calc(1*100%/2) 50%, calc(2*100%/2) 100%;
+	}
+	100% {
+	  background-position: calc(0*100%/2) 50%, calc(1*100%/2) 50%, calc(2*100%/2) 50%;
+	}
+}

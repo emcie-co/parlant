@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence
+import json
+from typing import Any, Optional, Sequence
 
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
@@ -9,7 +10,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.common import DefaultBaseModel
 from parlant.core.services.indexing.common import ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tools import Tool, ToolId
+from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
 
 
 class GuidelineActionProposition(DefaultBaseModel):
@@ -18,8 +19,8 @@ class GuidelineActionProposition(DefaultBaseModel):
 
 
 class GuidelineActionPropositionSchema(DefaultBaseModel):
-    action: str
     rationale: str
+    action: str
 
 
 class GuidelineActionProposer:
@@ -68,6 +69,52 @@ class GuidelineActionProposer:
             rationale=proposition.rationale,
         )
 
+    def _add_tool_definitions_section(
+        self,
+        tool: tuple[ToolId, Tool],
+    ) -> dict[str, Any]:
+        def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
+            descriptor, options = spec
+
+            result: dict[str, Any] = {"schema": {"type": descriptor["type"]}}
+
+            if descriptor["type"] == "array":
+                result["schema"]["items"] = {"type": descriptor["item_type"]}
+
+                if enum := descriptor.get("enum"):
+                    result["schema"]["items"]["enum"] = enum
+            else:
+                if enum := descriptor.get("enum"):
+                    result["schema"]["enum"] = enum
+
+            if options.description:
+                result["description"] = options.description
+            elif description := descriptor.get("description"):
+                result["description"] = description
+
+            if examples := descriptor.get("examples"):
+                result["extraction_examples__only_for_reference"] = examples
+
+            return json.dumps(result)
+
+        def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
+            return {
+                "tool_name": t_id.to_string(),
+                "description": t.description,
+                "optional_arguments": {
+                    name: _get_param_spec(spec)
+                    for name, spec in t.parameters.items()
+                    if name not in t.required
+                },
+                "required_parameters": {
+                    name: _get_param_spec(spec)
+                    for name, spec in t.parameters.items()
+                    if name in t.required
+                },
+            }
+
+        return _get_tool_spec(tool[0], tool[1])
+
     async def _build_prompt(
         self,
         guideline: GuidelineContent,
@@ -79,39 +126,139 @@ class GuidelineActionProposer:
         builder.add_section(
             name="guideline-action-proposer-general-instructions",
             template="""
-Your task is to craft a *then* clause for a conversational AI guideline that should be executed when the guideline's *when* condition is true.
+In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
+Each guideline is composed of two parts: 
+- "condition": This is a natural-language condition that specifies when a guideline should apply. We look at each conversation at any particular state, and we test against this condition to understand 
+if we should have this guideline participate in generating the next reply to the user.
+- "action": This is a natural-language instruction that should be followed by the agent whenever the "condition" part of the guideline applies to the conversation in its particular state.
+Any instruction described here applies only to the agent, and not to the user.
+Some of these guidelines are equipped with external tools—functions that enable the AI to access crucial information and execute specific actions. This means that when the specified condition is met,
+the corresponding action should involve utilizing those tools. 
 
-You will receive the *when* condition and a list of tools (including their descriptions and parameters).
-Your output should **only** be a JSON object following the required schema and contain two fields: `action` with the textual instruction for the agent and `rationale` with the rationale for the action.
+Your task is given a guideline's condition and a tool description (or a list of tools) to provide an action that shortly and concisely describe an action that aligns with the tool purpose.
+You will receive a tool description that includes the tool signature, a description of the tool (if exists), and the types and descriptions of its parameters.
+If available, use the tool description to incorporate any relevant information that may inform how the tool should be used.
+Note that the tool name and description may be uninformative, so you may need to infer the tool's purpose from its parameters.
 
-Guidelines for writing the action:
-1. Be concise but explicit about invoking the tool(s).
-2. Mention the tool name(s).
-3. Do not include angle brackets, markdown, or additional commentary outside the JSON.
+""",
+        )
+        builder.add_section(
+            name="guideline-action-proposer-example",
+            template="""
+Examples:
+1. 
+Condition: Asked to get the weather forecast for a city  
+Tool description:
+{{
+    "tool_name": "local:get_weather",
+    "description": "Get the current weather and forecast for a specific city",
+    "optional_arguments": {{
+        "unit": {{"schema": {{"type": "string"}}, "description": "Temperature unit: Celsius or Fahrenheit"}}
+    }},
+    "required_parameters": {{
+        "city": {{"schema": {{"type": "string"}}, "description": "The city to get the weather for"}}
+    }}
+}}
+Action: Provide current weather and forecast
+
+2.  
+Condition: Asked to send an email  
+Tool description:
+{{
+    "tool_name": "local:send_email",
+    "description": "Send an email to a recipient",
+    "optional_arguments": {{}},
+    "required_parameters": {{
+        "to": {{"schema": {{"type": "string"}}, "description": "Recipient email address"}},
+        "subject": {{"schema": {{"type": "string"}}, "description": "Subject of the email"}},
+        "body": {{"schema": {{"type": "string"}}, "description": "Content of the email"}}
+    }}
+}}
+Action: Send the specified email
+
+3.  
+Condition: A recurring invoice has failed to process due to an expired payment method.  
+Tool description:
+{{
+    "tool_name": "local:send_payment_failure_notification",
+    "description": "Notify the user that a payment attempt failed",
+    "required_parameters": {{
+        "user_id": {{"schema": {{"type": "string"}}, "description": "The ID of the user to notify"}},
+        "invoice_id": {{"schema": {{"type": "string"}}, "description": "The invoice that failed to process"}}
+    }}
+}}
+Action: Notify the user that payment for their invoice could not be processed.
+
+4.  
+Condition: A scheduled backup did not complete within its expected time window.  
+Tool descriptions:
+[
+  {{
+    "tool_name": "local:check_backup_status",
+    "description": "Check the current or last-known status of a backup job",
+    "required_parameters": {{
+        "job_id": {{"schema": {{"type": "string"}}, "description": "Identifier of the backup job"}}
+    }}
+  }},
+  {{
+    "tool_name": "local:send_alert",
+    "description": "Send an alert to system administrators",
+    "required_parameters": {{
+        "message": {{"schema": {{"type": "string"}}, "description": "The alert message"}},
+        "recipients": {{"schema": {{"type": "array", "items": {{"type": "string"}}}}, "description": "List of recipient user IDs"}}
+    }}
+  }}
+]
+Action: Check the status of the backup job and alert administrators if it failed.
+
+5.  
+Condition: A weather alert has been issued for a location where outdoor company events are scheduled.  
+Tool descriptions:
+[
+  {{
+    "tool_name": "local:check_weather_alerts",
+    "description": "Get current weather alerts for a region",
+    "required_parameters": {{
+        "location": {{"schema": {{"type": "string"}}, "description": "City or region to check"}}
+    }}
+  }},
+  {{
+    "tool_name": "local:reschedule_event",
+    "description": "Reschedule or cancel an event based on external factors",
+    "required_parameters": {{
+        "event_id": {{"schema": {{"type": "string"}}, "description": "ID of the event"}},
+        "reason": {{"schema": {{"type": "string"}}, "description": "Reason for rescheduling"}}
+    }}
+  }}
+]
+Action: Check for severe weather and reschedule outdoor events if necessary.
+
+--------------------------------------------------------------------------------
 """,
         )
 
         builder.add_section(
             name="guideline-action-proposer-guideline",
             template="""
-Guideline *when* condition:
-+--------------------------
-+{condition}
-+""",
+Guideline Condition:
+--------------------------
+{condition}
+""",
             props={"condition": guideline.condition},
         )
 
         tools_text = "\n".join(
-            f"- {tid.to_string()}: {tool.description or 'No description'}"
+            f"- {tid.to_string()}: {self._add_tool_definitions_section((tid, tool))}"
             for tid, tool in zip(tool_ids, tools)
         )
         builder.add_section(
             name="guideline-action-proposer-tools",
             template="""
-Relevant tools:
-+--------------
-+{tools_text}
-+""",
+
+Relevant Tools:
+--------------
+{tools_text}
+""",
             props={"tools_text": tools_text},
         )
 
@@ -121,12 +268,14 @@ Relevant tools:
 Expected output (JSON):
 ```json
 {{
-  "action": "<SINGLE-LINE-INSTRUCTION>",
-  "rationale": "<RATIONALE FOR THE ACTION>"
+    "rationale": "<RATIONALE>"
+    "action": "<SINGLE-LINE-INSTRUCTION>",
 }}
 ```
 """,
         )
+        with open("proposed_action_prompt.txt", "a") as f:
+            f.write(builder.build())
 
         return builder
 

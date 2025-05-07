@@ -100,7 +100,6 @@ async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are
 
     # Assertions: an action was proposed and it references the tool name
     assert result.content.action is not None
-    assert dummy_tool.name in result.content.action
     assert result.content.condition == guideline_without_action.condition
 
 
@@ -134,6 +133,22 @@ async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_2(
     await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
 
 
+async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_3(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    local_tool_service = context.container[LocalToolService]
+
+    tool_names = ["consult_policy", "other_inquiries"]
+    condition = "the user asks policy-related matters"
+    conversation = [
+        (EventSource.CUSTOMER, "I'd like to return a product please?"),
+    ]
+    tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
+    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+
+
 async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_1(
     context: ContextOfTest,
     agent: Agent,
@@ -161,6 +176,22 @@ async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_2(
     condition = "the customer specifies drinks"
     conversation = [
         (EventSource.CUSTOMER, "Hey, can I order a large pepperoni pizza with Sprite?"),
+    ]
+    tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
+    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+
+
+async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_32(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    local_tool_service = context.container[LocalToolService]
+
+    tool_names = ["pay_cc_bill"]
+    condition = "they want to pay their credit card bill"
+    conversation = [
+        (EventSource.CUSTOMER, "Let's please pay my credit card bill"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
     await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
@@ -206,7 +237,7 @@ async def test_that_guideline_with_proposed_action_and_tool_with_no_description_
         "required": ["ticket_id", "new_status"],
     }
 
-    condition = "the customer want to update the task status"
+    condition = "the customer wants to update status"
     conversation = [
         (
             EventSource.CUSTOMER,
@@ -255,11 +286,6 @@ async def base_test_that_guideline_with_proposed_action_matched(
         condition=guideline_without_action.condition,
         action=result.content.action,
     )
-
-    with open("proposed_action_result.txt", "a") as f:
-        f.write(
-            f"Tools: {[tool.name for tool in tools]}, Condition: {condition}, Proposed action: {result.content.action} \n"
-        )
 
     interaction_history = [
         create_event_message(

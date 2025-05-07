@@ -210,7 +210,7 @@ Examples of Condition Evaluations:
 -------------------
 {formatted_shots}
 """,
-            props={  # TODO fix shots
+            props={
                 "formatted_shots": self._format_shots(shots),
                 "shots": shots,
             },

@@ -332,7 +332,9 @@ The following are observations that were deemed relevant to the interaction with
         journeys: Sequence[Guideline],  # TODO change to actual class when possible
     ) -> PromptBuilder:
         if journeys:
-            journeys_string = ""
+            journeys_string = """Journey 1: 
+condition: the customer wants to reset their password
+journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer """
             self.add_section(
                 name=BuiltInSection.JOURNEYS,
                 template="""

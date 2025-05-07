@@ -260,6 +260,8 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
 
         builder.add_agent_identity(context.agent)
         builder.add_context_variables(context.context_variables)
+        builder.add_journeys([])
+        builder.add_observations([])
         builder.add_interaction_history(context.interaction_history)
         builder.add_glossary(context.terms)
         builder.add_staged_events(context.staged_events)
@@ -732,7 +734,8 @@ EXAMPLES
             },
         )
         builder.add_context_variables(context_variables)
-
+        builder.add_journeys([])
+        builder.add_observations([])
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._get_guideline_matches_text(

@@ -414,7 +414,9 @@ To generate an optimal response that aligns with all guidelines and the current 
 1. INSIGHT GATHERING (Pre-Revision)
    - Before starting revisions, identify up to three key insights from:
      * Explicit or implicit customer requests
+     * Relevant parts of an active journey
      * Relevant principles from this prompt
+     * Observations that you find particularly important
      * Notable patterns or conclusions from the interaction
    - Each insight should be actionable and directly relevant to crafting the response
    - Only include absolutely necessary insights; fewer is better
@@ -423,7 +425,7 @@ To generate an optimal response that aligns with all guidelines and the current 
 2. INITIAL RESPONSE
    - Draft an initial response based on:
      * Primary customer needs
-     * Applicable guidelines
+     * Applicable guidelines, journeys and observations
      * Gathered insights
    - Focus on addressing the core request first
 
@@ -472,6 +474,9 @@ For instance, if a guideline explicitly prohibits a specific action (e.g., "neve
 
 In cases of conflict, prioritize the business's values and ensure your decisions align with their overarching goals.
 
+Journeys are unlike guidelines and insights - you may only follow them if you find it useful, unless they explicitly dictate an action you must take at this moment.
+Prioritize guidelines over journeys, in cases of conflict.
+
 """,  # noqa
         )
         builder.add_section(
@@ -496,6 +501,8 @@ INTERACTION CONTEXT
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
+        builder.add_journeys([None])
+        builder.add_observations([])
         builder.add_section(
             name="message-generator-guideline-descriptions",
             template=self.get_guideline_matches_text(
@@ -574,6 +581,8 @@ Produce a valid JSON object in the following format: ###
             },
         )
 
+        with open("message generator prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _format_missing_data(self, missing_data: Sequence[MissingToolData]) -> str:

@@ -208,6 +208,8 @@ class MessageGenerator(MessageEventComposer):
             tool_insights=tool_insights,
             shots=await self.shots(),
         )
+        with open("message generator prompt.txt", "w") as f:
+            f.write(prompt.build())
 
         last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
 

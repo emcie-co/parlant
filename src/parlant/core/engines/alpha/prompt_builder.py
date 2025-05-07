@@ -307,7 +307,7 @@ Prioritize their data over any other sources and use their details to complete y
 
         return self
 
-    def add_observations(
+    def add_observations(  # TODO change after I have the class, INCLUDING REFERENCES
         self,
         observations: Sequence[Guideline],
     ) -> PromptBuilder:
@@ -329,12 +329,13 @@ The following are observations that were deemed relevant to the interaction with
 
     def add_journeys(
         self,
-        journeys: Sequence[Guideline],  # TODO change to actual class when possible
+        journeys: Sequence[Guideline],  # TODO change after I have the class, INCLUDING REFERENCES
     ) -> PromptBuilder:
         if journeys:
             journeys_string = """Journey 1: 
 condition: the customer wants to reset their password
-journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer """
+journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise refuse to continue with resetting their password. 4. use the tool reset_password with the provided information 5. report the result to the customer"""
+            # journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. use the tool reset_password with the provided information 4. report the result to the customer"""
             self.add_section(
                 name=BuiltInSection.JOURNEYS,
                 template="""

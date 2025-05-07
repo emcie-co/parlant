@@ -111,7 +111,7 @@ Feature: Fluid Utterance
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
     Scenario: Multistep journey is aborted when the journey description requires so (fluid utterance)
-        Given a journey "reset_password_journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey "reset_password_journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise refuse to continue with resetting their password. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -127,12 +127,12 @@ Feature: Fluid Utterance
         And a agent message, "Great! And what's the account's associated email address or phone number?"
         And a customer message, "the email is leonardobarbosa@gmail.br"
         And a agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
-        And a customer message, "Ok I guess..."
+        And a customer message, "What? Just reset my password please"
         When processing is triggered
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted
-        And the message contains that the password resetting has failed, or something completely unrelated to password resetting
+        And the message contains that the password cannot be reset at this time, or has otherwise failed
 
     Scenario: Critical guideline overrides journey (fluid utterance)
         Given a journey "reset_password_journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password

@@ -405,6 +405,12 @@ _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
         guidelines=example_1_guidelines,
         expected_result=example_1_expected,
     ),
+    GenericObservationalGuidelineMatchingShot(
+        description="",
+        interaction_events=example_2_events,
+        guidelines=example_2_guidelines,
+        expected_result=example_2_expected,
+    ),
 ]
 
 shot_collection = ShotCollection[GenericObservationalGuidelineMatchingShot](_baseline_shots)

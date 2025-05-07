@@ -23,6 +23,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
+from parlant.core.journeys import Journey
 from parlant.core.sessions import Event
 from parlant.core.tools import ToolId
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -50,6 +51,7 @@ class MessageEventComposer:
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],

@@ -17,6 +17,7 @@ from itertools import chain
 from typing import Mapping, Optional, Sequence
 
 from parlant.core.customers import Customer
+from parlant.core.journeys import Journey
 from parlant.core.tools import ToolContext
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -107,6 +108,7 @@ class ToolEventGenerator:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        active_journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
     ) -> ToolEventGenerationResult:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
@@ -128,6 +130,7 @@ class ToolEventGenerator:
             terms,
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
+            active_journeys,
             staged_events,
             tool_context,
         )

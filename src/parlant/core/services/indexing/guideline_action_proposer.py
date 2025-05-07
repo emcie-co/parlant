@@ -274,8 +274,6 @@ Expected output (JSON):
 ```
 """,
         )
-        with open("proposed_action_prompt.txt", "a") as f:
-            f.write(builder.build())
 
         return builder
 

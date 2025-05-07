@@ -96,8 +96,7 @@ class JourneyDTO(
     id: JourneyIdPath
     title: JourneyTitleField
     description: str
-    condition: JourneyConditionField
-    condition_id: GuidelineId
+    conditions: Sequence[GuidelineId]
     tags: JourneyTagsField
 
 
@@ -111,8 +110,92 @@ class JourneyCreationParamsDTO(
 
     title: JourneyTitleField
     description: str
-    condition: JourneyConditionField
+    conditions: Sequence[JourneyConditionField]
     tags: Optional[JourneyTagsField] = None
+
+
+JourneyConditionUpdateAddField: TypeAlias = Annotated[
+    list[GuidelineId],
+    Field(
+        default=None,
+        description="List of condition IDs to add to the journey",
+        examples=[["guid_123xz", "guid_456abc"]],
+    ),
+]
+
+JourneyConditionUpdateRemoveField: TypeAlias = Annotated[
+    list[GuidelineId],
+    Field(
+        default=None,
+        description="List of condition IDs to remove from the journey",
+        examples=[["guid_123xz", "guid_456abc"]],
+    ),
+]
+
+journey_condition_update_params_example: ExampleJson = {
+    "add": [
+        "guid_123xz",
+        "guid_456abc",
+    ],
+    "remove": [
+        "guid_789def",
+        "guid_012ghi",
+    ],
+}
+
+
+class JourneyConditionUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": journey_condition_update_params_example},
+):
+    """
+    Parameters for updating an existing journey's conditions.
+    """
+
+    add: Optional[JourneyConditionUpdateAddField] = None
+    remove: Optional[JourneyConditionUpdateRemoveField] = None
+
+
+JourneyTagUpdateAddField: TypeAlias = Annotated[
+    list[TagId],
+    Field(
+        default=None,
+        description="List of tag IDs to add to the journey",
+        examples=[["tag1", "tag2"]],
+    ),
+]
+
+JourneyTagUpdateRemoveField: TypeAlias = Annotated[
+    list[TagId],
+    Field(
+        default=None,
+        description="List of tag IDs to remove from the journey",
+        examples=[["tag1", "tag2"]],
+    ),
+]
+
+journey_tag_update_params_example: ExampleJson = {
+    "add": [
+        "t9a8g703f4",
+        "tag_456abc",
+    ],
+    "remove": [
+        "tag_789def",
+        "tag_012ghi",
+    ],
+}
+
+
+class JourneyTagUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": journey_tag_update_params_example},
+):
+    """
+    Parameters for updating an existing journey's tags.
+    """
+
+    add: Optional[JourneyTagUpdateAddField] = None
+    remove: Optional[JourneyTagUpdateRemoveField] = None
 
 
 class JourneyUpdateParamsDTO(
@@ -126,8 +209,8 @@ class JourneyUpdateParamsDTO(
 
     title: Optional[JourneyTitleField] = None
     description: Optional[str] = None
-    condition: Optional[JourneyConditionField] = None
-    tags: Optional[JourneyTagsField] = None
+    conditions: Optional[JourneyConditionUpdateParamsDTO] = None
+    tags: Optional[JourneyTagUpdateParamsDTO] = None
 
 
 def create_router(
@@ -162,16 +245,19 @@ def create_router(
         The journey will be initialized with the provided title, description, and condition.
         A unique identifier will be automatically generated.
         """
-        guideline = await guideline_store.create_guideline(
-            condition=params.condition,
-            action=None,
-            tags=params.tags,
-        )
+        guidelines = [
+            await guideline_store.create_guideline(
+                condition=condition,
+                action=None,
+                tags=params.tags,
+            )
+            for condition in params.conditions
+        ]
 
         journey = await journey_store.create_journey(
             title=params.title,
             description=params.description,
-            condition=guideline.id,
+            conditions=[g.id for g in guidelines],
             tags=params.tags,
         )
 
@@ -179,8 +265,7 @@ def create_router(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            condition=guideline.content.condition,  # Return the actual condition text
-            condition_id=journey.condition,
+            conditions=[g.id for g in guidelines],
             tags=journey.tags,
         )
 
@@ -200,20 +285,16 @@ def create_router(
         """
         Retrieves a list of all journeys in the system.
         """
-        journeys = await journey_store.list_journeys()
+        journeys = await journey_store.list_journeys(tags=[])
 
         result = []
         for journey in journeys:
-            # Get the guideline to include the condition text
-            guideline = await guideline_store.read_guideline(guideline_id=journey.condition)
-
             result.append(
                 JourneyDTO(
                     id=journey.id,
                     title=journey.title,
                     description=journey.description,
-                    condition=guideline.content.condition,
-                    condition_id=journey.condition,
+                    conditions=journey.conditions,
                     tags=journey.tags,
                 )
             )
@@ -242,14 +323,12 @@ def create_router(
         Retrieves details of a specific journey by ID.
         """
         journey = await journey_store.read_journey(journey_id=journey_id)
-        guideline = await guideline_store.read_guideline(guideline_id=journey.condition)
 
         return JourneyDTO(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            condition=guideline.content.condition,
-            condition_id=journey.condition,
+            conditions=journey.conditions,
             tags=journey.tags,
         )
 
@@ -281,13 +360,21 @@ def create_router(
         Only the provided attributes will be updated; others will remain unchanged.
         """
         journey = await journey_store.read_journey(journey_id=journey_id)
-        guideline = await guideline_store.read_guideline(guideline_id=journey.condition)
 
-        if params.condition:
-            guideline = await guideline_store.update_guideline(
-                guideline_id=journey.condition,
-                params={"condition": params.condition},
-            )
+        if params.conditions:
+            if params.conditions.add:
+                for condition in params.conditions.add:
+                    await guideline_store.create_guideline(
+                        condition=condition,
+                        action=None,
+                    )
+
+                    await journey_store.add_condition(journey_id=journey_id, condition=condition)
+
+            if params.conditions.remove:
+                for condition in params.conditions.remove:
+                    await guideline_store.delete_guideline(guideline_id=condition)
+                    await journey_store.remove_condition(journey_id=journey_id, condition=condition)
 
         update_params: JourneyUpdateParams = {}
         if params.title:
@@ -302,13 +389,13 @@ def create_router(
             )
 
         if params.tags:
-            for tag in journey.tags:
-                await journey_store.remove_tag(journey_id=journey_id, tag_id=tag)
-                await guideline_store.remove_tag(guideline_id=journey.condition, tag_id=tag)
+            if params.tags.add:
+                for tag in params.tags.add:
+                    await journey_store.upsert_tag(journey_id=journey_id, tag_id=tag)
 
-            for tag in params.tags:
-                await journey_store.upsert_tag(journey_id=journey_id, tag_id=tag)
-                await guideline_store.upsert_tag(guideline_id=journey.condition, tag_id=tag)
+            if params.tags.remove:
+                for tag in params.tags.remove:
+                    await journey_store.remove_tag(journey_id=journey_id, tag_id=tag)
 
         journey = await journey_store.read_journey(journey_id=journey_id)
 
@@ -316,8 +403,7 @@ def create_router(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            condition=guideline.content.condition,
-            condition_id=journey.condition,
+            conditions=journey.conditions,
             tags=journey.tags,
         )
 
@@ -348,6 +434,7 @@ def create_router(
         journey = await journey_store.read_journey(journey_id=journey_id)
 
         await journey_store.delete_journey(journey_id=journey_id)
-        await guideline_store.delete_guideline(guideline_id=journey.condition)
+        for condition in journey.conditions:
+            await guideline_store.delete_guideline(guideline_id=condition)
 
     return router

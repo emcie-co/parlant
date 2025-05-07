@@ -23,6 +23,7 @@ from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_i
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import (
     ObjectId,
+    Where,
 )
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -40,23 +41,25 @@ JourneyId = NewType("JourneyId", str)
 @dataclass(frozen=True)
 class Journey:
     id: JourneyId
-    condition: GuidelineId
+    conditions: Sequence[GuidelineId]
     title: str
     description: str
     tags: Sequence[TagId]
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 class JourneyUpdateParams(TypedDict, total=False):
     title: str
     description: str
-    condition: GuidelineId
 
 
 class JourneyStore(ABC):
     @abstractmethod
     async def create_journey(
         self,
-        condition: GuidelineId,
+        conditions: Sequence[GuidelineId],
         title: str,
         description: str,
         tags: Optional[Sequence[TagId]] = None,
@@ -65,6 +68,7 @@ class JourneyStore(ABC):
     @abstractmethod
     async def list_journeys(
         self,
+        tags: Sequence[TagId],
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -87,6 +91,20 @@ class JourneyStore(ABC):
     ) -> None: ...
 
     @abstractmethod
+    async def add_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def remove_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool: ...
+
+    @abstractmethod
     async def upsert_tag(
         self,
         journey_id: JourneyId,
@@ -106,7 +124,7 @@ class _JourneyDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
-    condition: GuidelineId
+    conditions: Sequence[GuidelineId]
     title: str
     description: str
 
@@ -175,7 +193,7 @@ class JourneyDocumentStore(JourneyStore):
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             creation_utc=datetime.now(timezone.utc).isoformat(),
-            condition=journey.condition,
+            conditions=journey.conditions,
             title=journey.title,
             description=journey.description,
         )
@@ -190,7 +208,7 @@ class JourneyDocumentStore(JourneyStore):
 
         return Journey(
             id=JourneyId(journey_document["id"]),
-            condition=journey_document["condition"],
+            conditions=journey_document["conditions"],
             title=journey_document["title"],
             description=journey_document["description"],
             tags=tags,
@@ -199,7 +217,7 @@ class JourneyDocumentStore(JourneyStore):
     @override
     async def create_journey(
         self,
-        condition: GuidelineId,
+        conditions: Sequence[GuidelineId],
         title: str,
         description: str,
         tags: Optional[Sequence[TagId]] = None,
@@ -207,7 +225,7 @@ class JourneyDocumentStore(JourneyStore):
         async with self._lock.writer_lock:
             journey = Journey(
                 id=JourneyId(generate_id()),
-                condition=condition,
+                conditions=conditions,
                 title=title,
                 description=description,
                 tags=tags or [],
@@ -234,11 +252,35 @@ class JourneyDocumentStore(JourneyStore):
     @override
     async def list_journeys(
         self,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Journey]:
+        filters: Where = {}
+
         async with self._lock.reader_lock:
+            if tags is not None:
+                if len(tags) == 0:
+                    journey_ids = {
+                        doc["journey_id"]
+                        for doc in await self._tag_association_collection.find(filters={})
+                    }
+                    filters = (
+                        {"$and": [{"id": {"$ne": id}} for id in journey_ids]} if journey_ids else {}
+                    )
+                else:
+                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_associations = await self._tag_association_collection.find(
+                        filters=tag_filters
+                    )
+                    journey_ids = {assoc["journey_id"] for assoc in tag_associations}
+
+                    if not journey_ids:
+                        return []
+
+                    filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
+
             return [
                 await self._deserialize_journey(d)
-                for d in await self._journeys_collection.find(filters={})
+                for d in await self._journeys_collection.find(filters=filters)
             ]
 
     @override
@@ -299,6 +341,48 @@ class JourneyDocumentStore(JourneyStore):
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+    @override
+    async def add_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool:
+        async with self._lock.writer_lock:
+            journey = await self.read_journey(journey_id)
+
+            if condition in journey.conditions:
+                return False
+
+            conditions = list(journey.conditions) + [condition]
+
+            await self._journeys_collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params=cast(_JourneyDocument, {"conditions": conditions}),
+            )
+
+            return True
+
+    @override
+    async def remove_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool:
+        async with self._lock.writer_lock:
+            journey = await self.read_journey(journey_id)
+
+            if condition not in journey.conditions:
+                return False
+
+            conditions = [c for c in journey.conditions if c != condition]
+
+            await self._journeys_collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params=cast(_JourneyDocument, {"conditions": conditions}),
+            )
+
+            return True
 
     @override
     async def upsert_tag(

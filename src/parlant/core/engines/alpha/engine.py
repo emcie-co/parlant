@@ -529,6 +529,7 @@ class AlphaEngine(Engine):
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+            active_journeys=context.state.journeys,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
             tool_insights=context.state.tool_insights,
             staged_events=context.state.tool_events,
@@ -778,6 +779,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            active_journeys=context.state.journeys,
             staged_events=context.state.tool_events,
         )
 

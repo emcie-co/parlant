@@ -27,6 +27,7 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -148,6 +149,7 @@ class ToolCaller:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        active_journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_context: ToolContext,
     ) -> ToolCallInferenceResult:

@@ -32,6 +32,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolInsights,
     InvalidToolData,
 )
+from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -135,6 +136,7 @@ class MessageGenerator(MessageEventComposer):
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
@@ -150,6 +152,7 @@ class MessageGenerator(MessageEventComposer):
                         interaction_history,
                         terms,
                         ordinary_guideline_matches,
+                        active_journeys,
                         tool_enabled_guideline_matches,
                         tool_insights,
                         staged_events,
@@ -178,6 +181,7 @@ class MessageGenerator(MessageEventComposer):
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],

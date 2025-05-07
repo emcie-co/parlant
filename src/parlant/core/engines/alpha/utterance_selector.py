@@ -39,6 +39,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.journeys import Journey
 from parlant.core.utterances import Utterance, UtteranceId, UtteranceStore
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -383,6 +384,7 @@ class UtteranceSelector(MessageEventComposer):
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
@@ -392,16 +394,17 @@ class UtteranceSelector(MessageEventComposer):
                 with self._logger.scope("UtteranceSelector"):
                     with self._logger.operation("Utterance selection and rendering"):
                         return await self._do_generate_events(
-                            event_emitter,
-                            agent,
-                            customer,
-                            context_variables,
-                            interaction_history,
-                            terms,
-                            ordinary_guideline_matches,
-                            tool_enabled_guideline_matches,
-                            tool_insights,
-                            staged_events,
+                            event_emitter=event_emitter,
+                            agent=agent,
+                            customer=customer,
+                            context_variables=context_variables,
+                            interaction_history=interaction_history,
+                            terms=terms,
+                            ordinary_guideline_matches=ordinary_guideline_matches,
+                            active_journeys=active_journeys,
+                            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+                            tool_insights=tool_insights,
+                            staged_events=staged_events,
                         )
             except FluidUtteranceFallback:
                 return await self._message_generator.generate_events(
@@ -412,6 +415,7 @@ class UtteranceSelector(MessageEventComposer):
                     interaction_history,
                     terms,
                     ordinary_guideline_matches,
+                    active_journeys,
                     tool_enabled_guideline_matches,
                     tool_insights,
                     staged_events,
@@ -453,6 +457,7 @@ class UtteranceSelector(MessageEventComposer):
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        active_journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:

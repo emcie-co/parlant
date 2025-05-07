@@ -187,6 +187,7 @@ async def test_that_a_tool_from_a_local_service_gets_called_with_an_enum_paramet
         terms=[],
         ordinary_guideline_matches=[],
         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        active_journeys=[],
         staged_events=[],
         tool_context=await tool_context(container, agent),
     )
@@ -253,6 +254,7 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_parameter(
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )
@@ -329,6 +331,7 @@ async def test_that_a_plugin_tool_is_called_with_required_parameters_with_defaul
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )
@@ -393,6 +396,7 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )
@@ -462,6 +466,7 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )
@@ -558,6 +563,7 @@ async def test_that_a_tool_with_a_parameter_attached_to_a_choice_provider_gets_t
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=tool_context_larry,
         )
@@ -569,6 +575,7 @@ async def test_that_a_tool_with_a_parameter_attached_to_a_choice_provider_gets_t
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=tool_context_harry,
         )
@@ -581,6 +588,7 @@ async def test_that_a_tool_with_a_parameter_attached_to_a_choice_provider_gets_t
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=tool_context_harry,
         )
@@ -655,6 +663,7 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )
@@ -919,6 +928,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
         terms=[],
         ordinary_guideline_matches=[],
         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        active_journeys=[],
         staged_events=[],
         tool_context=await tool_context(container, agent),
     )

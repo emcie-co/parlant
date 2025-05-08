@@ -68,7 +68,7 @@ class JourneyStore(ABC):
     @abstractmethod
     async def list_journeys(
         self,
-        tags: Sequence[TagId],
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod

@@ -396,3 +396,32 @@ async def test_that_conditions_can_be_removed_from_a_journey(
     updated_journey = response.json()
 
     assert condition.id not in updated_journey["conditions"]
+
+
+async def test_that_journeys_can_be_filtered_by_tag(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    journey_store = container[JourneyStore]
+
+    tag = await tag_store.create_tag("tag1")
+    journey = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+        tags=[tag.id],
+    )
+
+    _ = await journey_store.create_journey(
+        title="Customer Onboarding",
+        description="Guide new customers",
+        conditions=[],
+    )
+
+    response = await async_client.get(f"/journeys?tag_id={tag.id}")
+    response.raise_for_status()
+    journeys = response.json()
+
+    assert len(journeys) == 1
+    assert journeys[0]["id"] == journey.id

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Query, status
 from pydantic import Field
 from typing import Annotated, Optional, Sequence, TypeAlias
 
@@ -213,6 +213,15 @@ class JourneyUpdateParamsDTO(
     tags: Optional[JourneyTagUpdateParamsDTO] = None
 
 
+TagIdQuery: TypeAlias = Annotated[
+    Optional[TagId],
+    Query(
+        description="The tag ID to filter journeys by",
+        examples=["tag:123"],
+    ),
+]
+
+
 def create_router(
     journey_store: JourneyStore,
     guideline_store: GuidelineStore,
@@ -281,11 +290,18 @@ def create_router(
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_journeys() -> Sequence[JourneyDTO]:
+    async def list_journeys(
+        tag_id: TagIdQuery = None,
+    ) -> Sequence[JourneyDTO]:
         """
         Retrieves a list of all journeys in the system.
         """
-        journeys = await journey_store.list_journeys(tags=[])
+        if tag_id:
+            journeys = await journey_store.list_journeys(
+                tags=[tag_id],
+            )
+        else:
+            journeys = await journey_store.list_journeys()
 
         result = []
         for journey in journeys:

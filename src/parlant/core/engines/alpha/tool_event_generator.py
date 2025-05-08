@@ -129,8 +129,8 @@ class ToolEventGenerator:
             interaction_history,
             terms,
             ordinary_guideline_matches,
-            tool_enabled_guideline_matches,
             active_journeys,
+            tool_enabled_guideline_matches,
             staged_events,
             tool_context,
         )

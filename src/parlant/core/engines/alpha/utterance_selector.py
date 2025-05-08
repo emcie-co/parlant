@@ -109,6 +109,7 @@ class UtteranceContext:
     interaction_history: Sequence[Event]
     terms: Sequence[Term]
     ordinary_guideline_matches: Sequence[GuidelineMatch]
+    active_journeys: Sequence[Journey]
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]]
     tool_insights: ToolInsights
     staged_events: Sequence[EmittedEvent]
@@ -239,8 +240,7 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
 
         builder.add_agent_identity(context.agent)
         builder.add_context_variables(context.context_variables)
-        builder.add_journeys([])
-        builder.add_observations([])
+        builder.add_journeys(context.active_journeys)
         builder.add_interaction_history(context.interaction_history)
         builder.add_glossary(context.terms)
         builder.add_staged_events(context.staged_events)
@@ -437,8 +437,8 @@ class UtteranceSelector(MessageEventComposer):
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         active_journeys: Sequence[Journey],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
@@ -484,6 +484,7 @@ class UtteranceSelector(MessageEventComposer):
             interaction_history=interaction_history,
             terms=terms,
             ordinary_guideline_matches=ordinary_guideline_matches,
+            active_journeys=active_journeys,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             tool_insights=tool_insights,
             staged_events=staged_events,
@@ -592,6 +593,7 @@ Example {i} - {shot.description}: ###
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
@@ -713,8 +715,7 @@ EXAMPLES
             },
         )
         builder.add_context_variables(context_variables)
-        builder.add_journeys([])
-        builder.add_observations([])
+        builder.add_journeys(active_journeys)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._get_guideline_matches_text(
@@ -907,6 +908,7 @@ If you've had to fall back to a "partial" match template because you couldn't fi
             interaction_history=context.interaction_history,
             terms=context.terms,
             ordinary_guideline_matches=context.ordinary_guideline_matches,
+            active_journeys=context.active_journeys,
             tool_enabled_guideline_matches=context.tool_enabled_guideline_matches,
             staged_events=context.staged_events,
             tool_insights=context.tool_insights,

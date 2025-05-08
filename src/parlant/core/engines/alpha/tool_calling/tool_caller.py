@@ -94,6 +94,7 @@ class ToolCallContext:
     interaction_history: Sequence[Event]
     terms: Sequence[Term]
     ordinary_guideline_matches: Sequence[GuidelineMatch]
+    active_journeys: Sequence[Journey]
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]]
     staged_events: Sequence[EmittedEvent]
 
@@ -137,8 +138,8 @@ class ToolCaller:
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         active_journeys: Sequence[Journey],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
         tool_context: ToolContext,
     ) -> ToolCallInferenceResult:
@@ -180,6 +181,7 @@ class ToolCaller:
                         interaction_history=interaction_history,
                         terms=terms,
                         ordinary_guideline_matches=ordinary_guideline_matches,
+                        active_journeys=active_journeys,
                         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
                         staged_events=staged_events,
                     ),

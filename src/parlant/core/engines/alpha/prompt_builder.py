@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional, Sequence, cast
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.journeys import Journey
 from parlant.core.sessions import Event, EventKind, EventSource, MessageEventData, ToolEventData
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.utils import (
@@ -307,7 +308,7 @@ Prioritize their data over any other sources and use their details to complete y
 
         return self
 
-    def add_observations(  # TODO change after I have the class, INCLUDING REFERENCES
+    def add_observations(  # Here for future reference, not currently in use
         self,
         observations: Sequence[Guideline],
     ) -> PromptBuilder:
@@ -329,13 +330,19 @@ The following are observations that were deemed relevant to the interaction with
 
     def add_journeys(
         self,
-        journeys: Sequence[Guideline],  # TODO change after I have the class, INCLUDING REFERENCES
+        journeys: Sequence[Journey],  # TODO change after I have the class, INCLUDING REFERENCES
     ) -> PromptBuilder:
         if journeys:
-            journeys_string = """Journey 1: 
-condition: the customer wants to reset their password
-journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise refuse to continue with resetting their password. 4. use the tool reset_password with the provided information 5. report the result to the customer"""
-            # journey: follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. use the tool reset_password with the provided information 4. report the result to the customer"""
+            journeys_string = "\n\n".join(
+                [
+                    f"""##
+Journey {i}: {journey.title}
+{journey.description}
+"""
+                    for journey, i in enumerate(journeys, start=1)
+                ]
+            )
+
             self.add_section(
                 name=BuiltInSection.JOURNEYS,
                 template="""
@@ -343,7 +350,7 @@ The following are 'journeys' - predefined processes from the business you repres
 
 If a conversation is already in progress along a journey path, continue with the next appropriate step. For journeys with multiple steps:
 1. Identify which steps have already been completed
-2. Perform only the next logical step in the sequence
+2. Perform only the next logical step (either by the journey's steps or by your deduction) in the sequence
 3. Reserve subsequent steps for later in the conversation
 
 Follow each journey exactly as specified. If a journey indicates multiple actions should be taken in a single step, follow those instructions. Otherwise, take only one step at a time to avoid overwhelming the customer.

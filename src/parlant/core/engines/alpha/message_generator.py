@@ -200,6 +200,7 @@ class MessageGenerator(MessageEventComposer):
             terms=terms,
             ordinary_guideline_matches=ordinary_guideline_matches,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=active_journeys,
             staged_events=staged_events,
             tool_insights=tool_insights,
             shots=await self.shots(),
@@ -328,6 +329,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        active_journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
         shots: Sequence[MessageGeneratorShot],
@@ -499,8 +501,7 @@ INTERACTION CONTEXT
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
-        builder.add_journeys([])
-        builder.add_observations([])
+        builder.add_journeys(active_journeys)
         builder.add_section(
             name="message-generator-guideline-descriptions",
             template=self.get_guideline_matches_text(

@@ -59,6 +59,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
                         context.tool_enabled_guideline_matches.keys(),
                     )
                 ),
+                active_journeys=context.active_journeys,
                 tool_enabled_guideline_matches={},
                 staged_events=context.staged_events,
             )

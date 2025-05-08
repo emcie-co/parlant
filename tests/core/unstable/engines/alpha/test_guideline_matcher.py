@@ -717,7 +717,7 @@ def test_that_guidelines_are_not_considered_done_when_they_strictly_arent(
     )
 
 
-def test_that_observational_guidelines_arent_wrongly_implied(  # TODO talk to Dor, move to unstable
+def test_that_observational_guidelines_arent_wrongly_implied(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -777,7 +777,7 @@ def test_that_observational_guidelines_arent_wrongly_implied(  # TODO talk to Do
     )
 
 
-def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(  # TODO Tough test, move to unstable?
+def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,

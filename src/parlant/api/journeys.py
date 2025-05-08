@@ -77,7 +77,7 @@ journey_example: ExampleJson = {
     "id": "IUCGT-lvpS",
     "title": "Customer Onboarding",
     "description": "A journey to guide new customers through our product features",
-    "condition": "when customer needs help with onboarding",
+    "condition": "customer needs help with onboarding",
     "condition_id": "guid_123xz",
     "tags": ["tag1", "tag2"],
 }
@@ -251,7 +251,7 @@ def create_router(
         """
         Creates a new journey in the system.
 
-        The journey will be initialized with the provided title, description, and condition.
+        The journey will be initialized with the provided title, description, and conditions.
         A unique identifier will be automatically generated.
         """
         guidelines = [
@@ -380,16 +380,10 @@ def create_router(
         if params.conditions:
             if params.conditions.add:
                 for condition in params.conditions.add:
-                    await guideline_store.create_guideline(
-                        condition=condition,
-                        action=None,
-                    )
-
                     await journey_store.add_condition(journey_id=journey_id, condition=condition)
 
             if params.conditions.remove:
                 for condition in params.conditions.remove:
-                    await guideline_store.delete_guideline(guideline_id=condition)
                     await journey_store.remove_condition(journey_id=journey_id, condition=condition)
 
         update_params: JourneyUpdateParams = {}

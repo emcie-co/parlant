@@ -168,7 +168,7 @@ def when_messages_are_emitted(
             interaction_history=context.events,
             terms=[],
             ordinary_guideline_matches=list(context.guideline_matches.values()),
-            active_journeys=[],
+            journeys=[],
             tool_enabled_guideline_matches={},
             tool_insights=ToolInsights(),
             staged_events=[],

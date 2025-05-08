@@ -376,7 +376,7 @@ class AlphaEngine(Engine):
         # response by reevaluating the relevant terms given these new guidelines.
         context.state.glossary_terms.update(await self._load_glossary_terms(context))
 
-        # Match relevant journeys, retrieving them in a
+        # Match relevant journeys.
         context.state.journeys = list(
             await self._entity_queries.find_journeys_for_agent(
                 context.agent.id,
@@ -389,6 +389,7 @@ class AlphaEngine(Engine):
             )
         )
 
+        # Filter out journey-dependent guidelines that are not relevant to the activated journeys.
         (
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
@@ -529,7 +530,7 @@ class AlphaEngine(Engine):
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
-            active_journeys=context.state.journeys,
+            journeys=context.state.journeys,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
             tool_insights=context.state.tool_insights,
             staged_events=context.state.tool_events,
@@ -779,7 +780,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
-            active_journeys=context.state.journeys,
+            journeys=context.state.journeys,
             staged_events=context.state.tool_events,
         )
 

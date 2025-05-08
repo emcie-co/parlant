@@ -108,7 +108,7 @@ class ToolEventGenerator:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
-        active_journeys: Sequence[Journey],
+        journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
     ) -> ToolEventGenerationResult:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
@@ -130,7 +130,7 @@ class ToolEventGenerator:
             terms,
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
-            active_journeys,
+            journeys,
             staged_events,
             tool_context,
         )

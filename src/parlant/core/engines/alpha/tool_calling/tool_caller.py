@@ -149,7 +149,7 @@ class ToolCaller:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
-        active_journeys: Sequence[Journey],
+        journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_context: ToolContext,
     ) -> ToolCallInferenceResult:

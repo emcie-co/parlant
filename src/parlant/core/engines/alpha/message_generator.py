@@ -1420,7 +1420,7 @@ example_9_expected = MessageSchema(
         Revision(
             revision_number=1,
             content=(
-                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I'd recommend calling us by phone, hopefuly they'd be able to help you there."
+                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I'd recommend calling us by phone, hopefully they'd be able to help you there."
             ),
             factual_information_provided=[],
             offered_services=[
@@ -1489,7 +1489,7 @@ example_9_expected = MessageSchema(
 )
 
 example_9_shot = MessageGeneratorShot(
-    description="Handling a frustrated customer when no options for assistance are available to the agent. Assume the agent works for a large electronic store, and that its role (as described in its prompt) is to assist potential customers. Assume the prompt did not specify a method for transfering customers to human representatives",
+    description="Handling a frustrated customer when no options for assistance are available to the agent. Assume the agent works for a large electronic store, and that its role (as described in its prompt) is to assist potential customers. Assume the prompt did not specify a method for transferring customers to human representatives",
     expected_result=example_7_expected,
 )
 

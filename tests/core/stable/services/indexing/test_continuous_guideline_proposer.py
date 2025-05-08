@@ -63,7 +63,7 @@ async def test_that_continuous_guidelines_mark_as_continuous(
         ),
         GuidelineContent(
             condition="The user is showing signs of frustration",
-            action="Respond with empathy and provide supportive assistance",
+            action="Tell them it's going to be ok and respond with empathy and provide supportive assistance",
         ),
         GuidelineContent(
             condition="The user mentions they have dietary restrictions.",

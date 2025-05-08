@@ -805,6 +805,7 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
     assert len(tool_calls) == 0 or tool_calls[0] == []
     assert len(insights.missing_data) == 1 and insights.missing_data[0].parameter == "passenger_id"
     assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
+    assert len(insights.invalid_data[0].choices) > 0
 
 
 async def test_that_tool_calling_batchers_can_be_overridden(

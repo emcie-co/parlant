@@ -588,6 +588,7 @@ Feature: Tools
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 1
         And the message mentions mentions last name
+        And the message mentions mentions Sushi Mushi and Tushi
 
     Scenario: A tool with both missing and invalid parameters, some hidden and some have display names, communicate the problems correctly
         Given an empty session
@@ -602,7 +603,8 @@ Feature: Tools
         And the number of missing parameters is exactly 1
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 2
-        And the message mentions the robot, mistress and hom
+        And the message mentions the robot, mistress and homie
+        And the message mentions Chris Pikrim, Mike Andike, Jay Libelly and Bruno Twix
 
     Scenario: Tool caller chooses the right tool for scheduling when three are overlapping
         Given a customer named "Hailey"

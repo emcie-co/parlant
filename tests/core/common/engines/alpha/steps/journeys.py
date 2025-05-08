@@ -23,7 +23,9 @@ from tests.core.common.utils import ContextOfTest
 
 @step(
     given,
-    parsers.parse("a journey {journey_title} to {journey_description} when {a_condition_holds}"),
+    parsers.parse(
+        "a journey titled {journey_title} to {journey_description} when {a_condition_holds}"
+    ),
 )
 def given_a_journey_to_when(
     context: ContextOfTest,
@@ -34,11 +36,13 @@ def given_a_journey_to_when(
     guideline_store = context.container[GuidelineStore]
     journey_store = context.container[JourneyStore]
 
-    conditioning_guideline: Guideline = guideline_store.create_guideline(
-        condition=a_condition_holds, action=None
+    conditioning_guideline: Guideline = context.sync_await(
+        guideline_store.create_guideline(condition=a_condition_holds, action=None)
     )
-    journey_store.create_journey(
-        conditions=[conditioning_guideline.id],
-        title=journey_title,
-        description=journey_description,
+    context.sync_await(
+        journey_store.create_journey(
+            conditions=[conditioning_guideline.id],
+            title=journey_title,
+            description=journey_description,
+        )
     )

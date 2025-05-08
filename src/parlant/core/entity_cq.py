@@ -207,18 +207,24 @@ class EntityQueries:
         journey_ids = [journey.id for journey in journeys]
 
         for match in ordinary_guideline_matches:
-            for tag in match.guideline.tags:
-                journey_id = Tag.extract_journey_id(tag)
-                if journey_id is None or journey_id in journey_ids:
-                    relevant_ordinary_guideline_matches.append(match)
-                    break
+            if match.guideline.tags:
+                for tag in match.guideline.tags:
+                    journey_id = Tag.extract_journey_id(tag)
+                    if journey_id is None or journey_id in journey_ids:
+                        relevant_ordinary_guideline_matches.append(match)
+                        break
+            else:
+                relevant_ordinary_guideline_matches.append(match)
 
         for match, tool_ids in tool_enabled_guideline_matches.items():
-            for tag in match.guideline.tags:
-                journey_id = Tag.extract_journey_id(tag)
-                if journey_id is None or journey_id in journey_ids:
-                    relevant_tool_enabled_guideline_matches[match] = tool_ids
-                    break
+            if match.guideline.tags:
+                for tag in match.guideline.tags:
+                    journey_id = Tag.extract_journey_id(tag)
+                    if journey_id is None or journey_id in journey_ids:
+                        relevant_tool_enabled_guideline_matches[match] = tool_ids
+                        break
+            else:
+                relevant_tool_enabled_guideline_matches[match] = tool_ids
 
         return relevant_ordinary_guideline_matches, relevant_tool_enabled_guideline_matches
 

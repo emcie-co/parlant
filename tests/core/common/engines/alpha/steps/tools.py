@@ -459,6 +459,26 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["keyword"],
     },
+    "reset_password": {
+        "name": "reset_password",
+        "description": "Reset's a password for an account based on its username. Must provide either phone number or email address for verification.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "username": {
+                "type": "string",
+                "description": "The account's username",
+            },
+            "phone_number": {
+                "type": "string",
+                "description": "The account's associated phone number",
+            },
+            "email": {
+                "type": "string",
+                "description": "The account's associated email address",
+            },
+        },
+        "required": ["username"],
+    },
 }
 
 

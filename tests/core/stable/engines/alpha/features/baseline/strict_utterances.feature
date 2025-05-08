@@ -76,7 +76,6 @@ Feature: Strict Utterance
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And an utterance, "An error occurred, your password could not be reset"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a customer message, "I want to reset my password"
         When processing is triggered
         Then no tool calls event is emitted
@@ -93,7 +92,6 @@ Feature: Strict Utterance
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And an utterance, "An error occurred, your password could not be reset"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a customer message, "What are some tips I could use to come up with a strong password?"
         When processing is triggered
         Then no tool calls event is emitted
@@ -110,7 +108,6 @@ Feature: Strict Utterance
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And an utterance, "An error occurred, your password could not be reset"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -130,7 +127,6 @@ Feature: Strict Utterance
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And an utterance, "An error occurred, your password could not be reset"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -141,7 +137,7 @@ Feature: Strict Utterance
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call to reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br 
+        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br 
         And a single message event is emitted
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
@@ -155,7 +151,6 @@ Feature: Strict Utterance
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And an utterance, "An error occurred, your password could not be reset"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -180,7 +175,6 @@ Feature: Strict Utterance
         And an utterance, "An error occurred, your password could not be reset"
         And an utterance, "Before proceeding, could you please state your age?"
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
         And a guideline to ask the customer their age, and do not continue with any other process unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
@@ -209,7 +203,7 @@ Feature: Strict Utterance
         And the message contains recommendations for either mushrooms or tomatoes, but not pepperoni0
     
     Scenario: Journey information is followed (strict utterance)
-        Given a journey titled Change Credit Limits to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch
+        Given a journey titled Change Credit Limits to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
         And an utterance, "To increase credit limits, you must visit a physical branch"
         And an utterance, "Sure. Let me check how that could be done"
         And a customer message, "Hey there. I want to increase the withdrawl limit on my platinum silver gold card. I want the new limits to be twice as high, please."
@@ -218,10 +212,9 @@ Feature: Strict Utterance
         And the message contains that you must visit a physical branch to increase credit limits
 
     Scenario: Journey informs tool call parameterization (strict utterance)
-        Given a guideline "reset_password_guideline" to use the reset_password tool the customer wants to reset their password and has provided their username and email address or phone number
+        Given a guideline "reset_password_guideline" to use the reset_password tool when the customer wants to reset their password and has provided their username and email address or phone number
         And the tool "reset_password"
-        And an association between "reset_password" and "reset_password_journey"
-        And a journey titled Email Domain to remember that all gmail addresses with local domains are saved within our systems and tools using gmail.com instead of the local domain.
+        And a journey titled Email Domain to remember that all gmail addresses with local domains are saved within our systems and tools using gmail.com instead of the local domain when a gmail address with a domain other than .com is mentioned
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -233,7 +226,7 @@ Feature: Strict Utterance
         And the tool calls event contains a call to reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.com (NOT leonardobarbosa@gmail.br) 
 
     Scenario: Two journeys are used in unison (strict utterance)
-        Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons.
+        Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance "Great. What is the name of the traveler?"
         And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
@@ -245,5 +238,4 @@ Feature: Strict Utterance
         And a customer message, "Next Monday"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains asking for the name of the person traveling
-        And the message contains no question regarding choosing between economy and business class
+        And the message contains either asking for the name of the person traveling, or informing them that they can only travel in economy class

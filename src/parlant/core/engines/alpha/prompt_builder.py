@@ -335,11 +335,11 @@ The following are observations that were deemed relevant to the interaction with
         if journeys:
             journeys_string = "\n\n".join(
                 [
-                    f"""##
+                    f"""
 Journey {i}: {journey.title}
 {journey.description}
 """
-                    for journey, i in enumerate(journeys, start=1)
+                    for i, journey in enumerate(journeys, start=1)
                 ]
             )
 

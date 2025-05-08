@@ -728,6 +728,7 @@ async def test_that_a_tool_with_an_invalid_choice_provider_parameter_and_a_missi
             terms=[],
             ordinary_guideline_matches=[],
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            active_journeys=[],
             staged_events=[],
             tool_context=await tool_context(container, agent),
         )

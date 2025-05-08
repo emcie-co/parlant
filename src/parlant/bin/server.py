@@ -548,6 +548,16 @@ async def initialize_container(
         try_define(SchematicGenerator[schema], await nlp_service.get_schematic_generator(schema))  # type: ignore
 
     try_define(
+        GenericObservationalGuidelineMatching,
+        Singleton(GenericObservationalGuidelineMatching),
+    )
+
+    try_define(
+        GenericActionableGuidelineMatching,
+        Singleton(GenericActionableGuidelineMatching),
+    )
+
+    try_define(
         DefaultGuidelineMatchingStrategyResolver,
         Singleton(DefaultGuidelineMatchingStrategyResolver),
     )

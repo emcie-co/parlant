@@ -503,7 +503,7 @@ INTERACTION CONTEXT
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
-        builder.add_journeys([None])
+        builder.add_journeys([])
         builder.add_observations([])
         builder.add_section(
             name="message-generator-guideline-descriptions",

@@ -330,7 +330,7 @@ The following are observations that were deemed relevant to the interaction with
 
     def add_journeys(
         self,
-        journeys: Sequence[Journey],  # TODO change after I have the class, INCLUDING REFERENCES
+        journeys: Sequence[Journey],
     ) -> PromptBuilder:
         if journeys:
             journeys_string = "\n\n".join(

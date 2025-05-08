@@ -191,7 +191,7 @@ Feature: Strict Utterance
         And the message contains asking the customer for their age
         And the message contains no questions about the customer's email address or phone number
 
-    Scenario: Observation is followed to inform decision (strict utterance)
+    Scenario: Simple journey is followed to inform decision (strict utterance)
         Given a guideline "recommend_pizza" to recommend either tomato, mushrooms or pepperoni when the customer asks for topping recommendations
         And an utterance, "I recommend tomatoes"
         And an utterance, "I recommend tomatoes or mushrooms"
@@ -200,7 +200,7 @@ Feature: Strict Utterance
         And an utterance, "I recommend mushrooms"
         And an utterance, "I recommend mushrooms or pepperoni"
         And an utterance, "I recommend pepperoni"
-        And an observation to remember that this means that the customer is vegetarian when the customer has a name that begins with R
+        And a journey titled Vegetarian Customer to remember that this means that the customer is vegetarian when the customer has a name that begins with R
         And a customer message, "Hey, there. How are you?"
         And an agent message, "I'm doing alright, thank you! What's your name?"
         And a customer message, "Rajon, have we spoken before? I want one large pie but I'm not sure which topping to get, what do you recommend?"
@@ -217,11 +217,11 @@ Feature: Strict Utterance
         Then a single message event is emitted
         And the message contains that you must visit a physical branch to increase credit limits
 
-    Scenario: Observation informs tool call parameterization (strict utterance)
+    Scenario: Journey informs tool call parameterization (strict utterance)
         Given a guideline "reset_password_guideline" to use the reset_password tool the customer wants to reset their password and has provided their username and email address or phone number
         And the tool "reset_password"
         And an association between "reset_password" and "reset_password_journey"
-        And an observation to remember that all gmail addresses with local domains are saved within our systems and tools using gmail.com instead of the local domain.
+        And a journey titled Email Domain to remember that all gmail addresses with local domains are saved within our systems and tools using gmail.com instead of the local domain.
         And a customer message, "I want to reset my password"
         And a agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -232,12 +232,12 @@ Feature: Strict Utterance
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.com (NOT leonardobarbosa@gmail.br) 
 
-    Scenario: Observation and journey are used in unison (strict utterance)
+    Scenario: Two journeys are used in unison (strict utterance)
         Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons.
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance "Great. What is the name of the traveler?"
         And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And an observation "no_economy" to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
+        And a journey titled No Economy to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
         And an agent message, "Great! From and to where would are you looking to fly?"
         And a customer message, "From LAX to JFK"

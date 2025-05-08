@@ -1,4 +1,4 @@
-Feature: Observations and Journeys
+Feature: Journeys
     Background:
         Given the alpha engine
         And an agent
@@ -86,7 +86,7 @@ Feature: Observations and Journeys
         And the message contains asking the customer for their age
         And the message contains no questions about the customer's email address or phone number
 
-    Scenario: Observation is followed to inform decision
+    Scenario: Simple journey is followed to inform decision
         Given a guideline "recommend_pizza" to recommend either tomato, mushrooms or pepperoni when the customer asks for topping recommendations
         And a journey titled Vegetarian Customers to know that this means that the customer is vegetarian when the customer has a name that begins with R
         And a customer message, "Hey, there. How are you?"
@@ -103,7 +103,7 @@ Feature: Observations and Journeys
         Then a single message event is emitted
         And the message contains that you must visit a physical branch to increase credit limits
 
-    Scenario: Observation informs tool call parameterization
+    Scenario: Journey informs tool call parameterization
         Given a guideline "reset_password_guideline" to use the reset_password tool the customer wants to reset their password and has provided their username and email address or phone number
         And the tool "reset_password"
         And an association between "reset_password" and "reset_password_journey"
@@ -118,7 +118,7 @@ Feature: Observations and Journeys
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.com (NOT leonardobarbosa@gmail.br) 
 
-    Scenario: Observation and journey are used in unison
+    Scenario: Two journeys are used in unison
         Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons.
         And a journey titled Business Adult Only to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."

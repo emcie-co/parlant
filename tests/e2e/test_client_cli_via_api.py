@@ -15,6 +15,7 @@
 import asyncio
 import json
 import os
+from random import randint
 import tempfile
 from typing import Any
 import httpx
@@ -25,13 +26,11 @@ from parlant.core.tools import ToolResult, ToolContext
 from tests.e2e.test_utilities import (
     CLI_CLIENT_PATH,
     ContextOfTest,
-    is_server_responsive,
     run_server,
 )
 from tests.test_utilities import (
-    OPENAPI_SERVER_URL,
+    OPENAPI_SERVER_BASE_URL,
     SERVER_ADDRESS,
-    SERVER_PORT,
     rng_app,
     run_openapi_server,
     run_service_server,
@@ -40,27 +39,29 @@ from tests.test_utilities import (
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
 
 
-async def run_cli(*args: str, **kwargs: Any) -> asyncio.subprocess.Process:
+async def run_cli(
+    *args: str, address: str = SERVER_ADDRESS, **kwargs: Any
+) -> asyncio.subprocess.Process:
     exec_args = [
         "poetry",
         "run",
         "python",
         CLI_CLIENT_PATH.as_posix(),
         "--server",
-        SERVER_ADDRESS,
+        address,
     ] + list(args)
 
     return await asyncio.create_subprocess_exec(*exec_args, **kwargs)
 
 
-async def run_cli_and_get_exit_status(*args: str) -> int:
+async def run_cli_and_get_exit_status(*args: str, address: str = SERVER_ADDRESS) -> int:
     exec_args = [
         "poetry",
         "run",
         "python",
         CLI_CLIENT_PATH.as_posix(),
         "--server",
-        SERVER_ADDRESS,
+        address,
     ] + list(args)
 
     process = await asyncio.create_subprocess_exec(*exec_args)
@@ -71,10 +72,7 @@ async def test_that_an_agent_can_be_added(context: ContextOfTest) -> None:
     name = "TestAgent"
     description = "This is a test agent"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "agent",
             "create",
@@ -86,6 +84,7 @@ async def test_that_an_agent_can_be_added(context: ContextOfTest) -> None:
             str(123),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -105,6 +104,7 @@ async def test_that_an_agent_can_be_added(context: ContextOfTest) -> None:
             "Test Agent With No Description",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -126,10 +126,7 @@ async def test_that_an_agent_can_be_updated(
     new_description = "Updated description"
     new_max_engine_iterations = 5
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "agent",
             "update",
@@ -143,6 +140,7 @@ async def test_that_an_agent_can_be_updated(
             "strict-utterance",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -161,18 +159,12 @@ async def test_that_an_agent_can_be_deleted(
 ) -> None:
     name = "Test Agent"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         agent = await context.api.create_agent(name=name)
 
         assert (
             await run_cli_and_get_exit_status(
-                "agent",
-                "delete",
-                "--id",
-                agent["id"],
+                "agent", "delete", "--id", agent["id"], address=context.api.server_address
             )
             == os.EX_OK
         )
@@ -190,10 +182,7 @@ async def test_that_sessions_can_be_listed(
     second_title = "Second Title"
     third_title = "Third Title"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         agent_id = (await context.api.get_first_agent())["id"]
         _ = await context.api.create_session(
             agent_id=agent_id, customer_id=first_customer, title=first_title
@@ -210,6 +199,7 @@ async def test_that_sessions_can_be_listed(
             "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output_list = stdout.decode() + stderr.decode()
@@ -226,6 +216,7 @@ async def test_that_sessions_can_be_listed(
             first_customer,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output_list = stdout.decode() + stderr.decode()
@@ -241,10 +232,7 @@ async def test_that_session_can_be_updated(
 ) -> None:
     session_title = "Old Title"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         agent_id = (await context.api.get_first_agent())["id"]
         session_id = (await context.api.create_session(agent_id=agent_id, title=session_title))[
             "id"
@@ -258,6 +246,7 @@ async def test_that_session_can_be_updated(
                 session_id,
                 "--title",
                 "New Title",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -273,10 +262,7 @@ async def test_that_a_term_can_be_created_with_synonyms(
     description = "when and then statements"
     synonyms = "rule, principle"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "glossary",
             "create",
@@ -288,6 +274,7 @@ async def test_that_a_term_can_be_created_with_synonyms(
             synonyms,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -301,10 +288,7 @@ async def test_that_a_term_can_be_created_without_synonyms(
     term_name = "guideline_no_synonyms"
     description = "simple guideline with no synonyms"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "glossary",
             "create",
@@ -314,6 +298,7 @@ async def test_that_a_term_can_be_created_without_synonyms(
             description,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -337,10 +322,7 @@ async def test_that_a_term_can_be_updated(
     new_description = "then and when statements "
     new_synonyms = "instructions"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         term_to_update = await context.api.create_term(name, description, synonyms)
 
         process = await run_cli(
@@ -356,6 +338,7 @@ async def test_that_a_term_can_be_updated(
             new_synonyms,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -375,10 +358,7 @@ async def test_that_a_term_can_be_deleted(
     description = "to be deleted"
     synonyms = "rule, principle"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         term = await context.api.create_term(name, description, synonyms)
 
         process = await run_cli(
@@ -388,6 +368,7 @@ async def test_that_a_term_can_be_deleted(
             term["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -404,10 +385,7 @@ async def test_that_a_guideline_can_be_added(
     condition = "the customer greets you"
     action = "greet them back with 'Hello'"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "guideline",
             "create",
@@ -417,6 +395,7 @@ async def test_that_a_guideline_can_be_added(
             action,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -434,10 +413,7 @@ async def test_that_a_guideline_can_be_updated(
     initial_action = "offer assistance"
     updated_action = "provide detailed support information"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         guideline = await context.api.create_guideline(condition=condition, action=initial_action)
 
         process = await run_cli(
@@ -451,6 +427,7 @@ async def test_that_a_guideline_can_be_updated(
             updated_action,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -474,10 +451,7 @@ async def test_that_guidelines_can_be_entailed(
     condition2 = "customer ask about a certain subject"
     action2 = "offer detailed explanation"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         process = await run_cli(
             "guideline",
             "create",
@@ -487,6 +461,7 @@ async def test_that_guidelines_can_be_entailed(
             action1,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -502,6 +477,7 @@ async def test_that_guidelines_can_be_entailed(
             action2,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -528,6 +504,7 @@ async def test_that_guidelines_can_be_entailed(
             second_guideline["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         await process.communicate()
         await process.wait()
@@ -542,10 +519,7 @@ async def test_that_guidelines_can_be_entailed(
 async def test_that_a_guideline_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         guideline = await context.api.create_guideline(
             condition="the customer greets you", action="greet them back with 'Hello'"
         )
@@ -557,6 +531,7 @@ async def test_that_a_guideline_can_be_deleted(
             guideline["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -570,10 +545,7 @@ async def test_that_a_guideline_can_be_deleted(
 async def test_that_a_tool_can_be_enabled_for_a_guideline(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         guideline = await context.api.create_guideline(
             condition="the customer wants to get meeting details",
             action="get meeting event information",
@@ -599,6 +571,7 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
                     service_kind,
                     "--url",
                     server.url,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -613,6 +586,7 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
                     service_name,
                     "--tool",
                     tool_name,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -629,10 +603,7 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
 async def test_that_a_tool_can_be_disabled_for_a_guideline(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         guideline = await context.api.create_guideline(
             condition="the customer wants to get meeting details",
             action="get meeting event information",
@@ -658,6 +629,7 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                     service_kind,
                     "--url",
                     server.url,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -674,6 +646,7 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                     service_name,
                     "--tool",
                     tool_name,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -692,10 +665,7 @@ async def test_that_variables_can_be_listed(
     name2 = "VAR2"
     description2 = "SECOND"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         _ = await context.api.create_context_variable(name1, description1)
         _ = await context.api.create_context_variable(name2, description2)
 
@@ -704,6 +674,7 @@ async def test_that_variables_can_be_listed(
             "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
 
         stdout, stderr = await process.communicate()
@@ -722,10 +693,7 @@ async def test_that_a_variable_can_be_added(
     name = "test_variable_cli"
     description = "Variable added via CLI"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         service_name = "local_service"
         tool_name = "fetch_event_data"
         service_kind = "sdk"
@@ -747,6 +715,7 @@ async def test_that_a_variable_can_be_added(
                     service_kind,
                     "--url",
                     server.url,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -765,6 +734,7 @@ async def test_that_a_variable_can_be_added(
                     tool_name,
                     "--freshness-rules",
                     freshness_rules,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -799,10 +769,7 @@ async def test_that_a_variable_can_be_updated(
     tool_name = "fetch_account_balance"
     freshness_rules = "0 0,6,12,18 * * *"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(name, description)
 
         service_name = "local_service"
@@ -826,6 +793,7 @@ async def test_that_a_variable_can_be_updated(
                     service_kind,
                     "--url",
                     server.url,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -844,6 +812,7 @@ async def test_that_a_variable_can_be_updated(
                     tool_name,
                     "--freshness-rules",
                     freshness_rules,
+                    context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -864,10 +833,7 @@ async def test_that_a_variable_can_be_deleted(
     name = "test_variable_to_delete"
     description = "Variable to be deleted via CLI"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(name, description)
 
         process = await run_cli(
@@ -877,6 +843,7 @@ async def test_that_a_variable_can_be_deleted(
             variable["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -895,10 +862,7 @@ async def test_that_a_variable_value_can_be_set_with_json(
     key = "test_key"
     data: dict[str, Any] = {"test": "data", "type": 27}
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(variable_name, variable_description)
 
         process = await run_cli(
@@ -912,6 +876,7 @@ async def test_that_a_variable_value_can_be_set_with_json(
             json.dumps(data),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -930,10 +895,7 @@ async def test_that_a_variable_value_can_be_set_with_string(
     key = "test_key"
     data = "test_string"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(variable_name, variable_description)
 
         process = await run_cli(
@@ -947,6 +909,7 @@ async def test_that_a_variable_value_can_be_set_with_string(
             data,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -969,10 +932,7 @@ async def test_that_a_variables_values_can_be_retrieved(
         "key3": "data3",
     }
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(variable_name, variable_description)
 
         for key, data in values.items():
@@ -987,6 +947,7 @@ async def test_that_a_variables_values_can_be_retrieved(
             variable["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_get_all_values, stderr_get_all = await process.communicate()
         output_get_all_values = stdout_get_all_values.decode() + stderr_get_all.decode()
@@ -1008,6 +969,7 @@ async def test_that_a_variables_values_can_be_retrieved(
             specific_key,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
@@ -1024,10 +986,7 @@ async def test_that_a_variable_value_can_be_deleted(
     key = "DEFAULT"
     value = "test-value"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         variable = await context.api.create_context_variable(name, description="")
         _ = await context.api.update_context_variable_value(
             variable_id=variable["id"],
@@ -1043,6 +1002,7 @@ async def test_that_a_variable_value_can_be_deleted(
                 variable["id"],
                 "--key",
                 key,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1054,10 +1014,7 @@ async def test_that_a_variable_value_can_be_deleted(
 async def test_that_a_message_can_be_inspected(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         guideline = await context.api.create_guideline(
             condition="the customer talks about cows",
             action="address the customer by his first name and say you like Pepsi",
@@ -1099,6 +1056,7 @@ async def test_that_a_message_can_be_inspected(
             reply_event["id"],
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
 
         stdout, stderr = await process.communicate()
@@ -1119,13 +1077,12 @@ async def test_that_an_openapi_service_can_be_added_via_file(
     service_name = "test_openapi_service"
     service_kind = "openapi"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with run_openapi_server(rng_app()):
+    with run_server(context, randomize_port=True):
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{OPENAPI_SERVER_URL}/openapi.json")
+                response = await client.get(f"{url}/openapi.json")
                 response.raise_for_status()
                 openapi_json = response.text
 
@@ -1145,7 +1102,8 @@ async def test_that_an_openapi_service_can_be_added_via_file(
                         "--source",
                         source,
                         "--url",
-                        OPENAPI_SERVER_URL,
+                        url,
+                        address=context.api.server_address,
                     )
                     == os.EX_OK
                 )
@@ -1165,12 +1123,11 @@ async def test_that_an_openapi_service_can_be_added_via_url(
     service_name = "test_openapi_service_via_url"
     service_kind = "openapi"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with run_openapi_server(rng_app()):
-            source = OPENAPI_SERVER_URL + "/openapi.json"
+    with run_server(context, randomize_port=True):
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            source = url + "/openapi.json"
 
             assert (
                 await run_cli_and_get_exit_status(
@@ -1183,7 +1140,8 @@ async def test_that_an_openapi_service_can_be_added_via_url(
                     "--source",
                     source,
                     "--url",
-                    OPENAPI_SERVER_URL,
+                    url,
+                    address=context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -1211,10 +1169,7 @@ async def test_that_a_sdk_service_can_be_added(
         and displayed such that the customer can easily read and understand it."""
         return ToolResult(param * 2)
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         async with run_service_server([sample_tool]) as server:
             assert (
                 await run_cli_and_get_exit_status(
@@ -1226,6 +1181,7 @@ async def test_that_a_sdk_service_can_be_added(
                     service_kind,
                     "--url",
                     server.url,
+                    address=context.api.server_address,
                 )
                 == os.EX_OK
             )
@@ -1244,12 +1200,11 @@ async def test_that_a_service_can_be_deleted(
 ) -> None:
     service_name = "test_service_to_delete"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with run_openapi_server(rng_app()):
-            await context.api.create_openapi_service(service_name, OPENAPI_SERVER_URL)
+    with run_server(context, randomize_port=True):
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            await context.api.create_openapi_service(service_name, url)
 
         process = await run_cli(
             "service",
@@ -1258,6 +1213,7 @@ async def test_that_a_service_can_be_deleted(
             service_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
         output_view = stdout_view.decode() + stderr_view.decode()
@@ -1277,19 +1233,19 @@ async def test_that_services_can_be_listed(
     service_name_1 = "test_openapi_service_1"
     service_name_2 = "test_openapi_service_2"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with run_openapi_server(rng_app()):
-            await context.api.create_openapi_service(service_name_1, OPENAPI_SERVER_URL)
-            await context.api.create_openapi_service(service_name_2, OPENAPI_SERVER_URL)
+    with run_server(context, randomize_port=True):
+        port = randint(10000, 50000)
+        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+        async with run_openapi_server(rng_app(port=port), port=port):
+            await context.api.create_openapi_service(service_name_1, url)
+            await context.api.create_openapi_service(service_name_2, url)
 
         process = await run_cli(
             "service",
             "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
 
         stdout, stderr = await process.communicate()
@@ -1304,14 +1260,12 @@ async def test_that_services_can_be_listed(
 async def test_that_a_service_can_be_viewed(
     context: ContextOfTest,
 ) -> None:
+    port = randint(10000, 50000)
     service_name = "test_service_view"
-    service_url = OPENAPI_SERVER_URL
+    service_url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
 
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
-        async with run_openapi_server(rng_app()):
+    with run_server(context, randomize_port=True):
+        async with run_openapi_server(rng_app(port=port), port=port):
             await context.api.create_openapi_service(service_name, service_url)
 
         process = await run_cli(
@@ -1321,6 +1275,7 @@ async def test_that_a_service_can_be_viewed(
             service_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
 
         stdout, stderr = await process.communicate()
@@ -1340,10 +1295,7 @@ async def test_that_a_service_can_be_viewed(
 
 
 async def test_that_customers_can_be_listed(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         await context.api.create_customer(name="First Customer")
         await context.api.create_customer(name="Second Customer")
 
@@ -1352,6 +1304,7 @@ async def test_that_customers_can_be_listed(context: ContextOfTest) -> None:
             "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
@@ -1362,16 +1315,14 @@ async def test_that_customers_can_be_listed(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_can_be_added(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         assert (
             await run_cli_and_get_exit_status(
                 "customer",
                 "create",
                 "--name",
                 "TestCustomer",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1381,10 +1332,7 @@ async def test_that_a_customer_can_be_added(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_can_be_updated(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer = await context.api.create_customer("TestCustomer")
 
         assert (
@@ -1395,6 +1343,7 @@ async def test_that_a_customer_can_be_updated(context: ContextOfTest) -> None:
                 customer["id"],
                 "--name",
                 "UpdatedTestCustomer",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1404,10 +1353,7 @@ async def test_that_a_customer_can_be_updated(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_can_be_viewed(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
 
         process = await run_cli(
@@ -1417,6 +1363,7 @@ async def test_that_a_customer_can_be_viewed(context: ContextOfTest) -> None:
             customer_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
@@ -1427,10 +1374,7 @@ async def test_that_a_customer_can_be_viewed(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_can_be_deleted(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
 
         assert (
@@ -1439,6 +1383,7 @@ async def test_that_a_customer_can_be_deleted(context: ContextOfTest) -> None:
                 "delete",
                 "--id",
                 customer_id,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1448,10 +1393,7 @@ async def test_that_a_customer_can_be_deleted(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_extra_can_be_added(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
 
         assert (
@@ -1464,6 +1406,7 @@ async def test_that_a_customer_extra_can_be_added(context: ContextOfTest) -> Non
                 "key1",
                 "--value",
                 "value1",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1473,10 +1416,7 @@ async def test_that_a_customer_extra_can_be_added(context: ContextOfTest) -> Non
 
 
 async def test_that_a_customer_extra_can_be_deleted(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (
             await context.api.create_customer(name="TestCustomer", extra={"key1": "value1"})
         )["id"]
@@ -1489,6 +1429,7 @@ async def test_that_a_customer_extra_can_be_deleted(context: ContextOfTest) -> N
                 customer_id,
                 "--key",
                 "key1",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1498,10 +1439,7 @@ async def test_that_a_customer_extra_can_be_deleted(context: ContextOfTest) -> N
 
 
 async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
         tag_id = (await context.api.create_tag(name="TestTag"))["id"]
 
@@ -1513,6 +1451,7 @@ async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
                 customer_id,
                 "--tag",
                 "TestTag",
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1522,10 +1461,7 @@ async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
 
 
 async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
         tag_id = (await context.api.create_tag(name="TestTag"))["id"]
         await context.api.add_customer_tag(customer_id, tag_id)
@@ -1538,6 +1474,7 @@ async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> Non
                 customer_id,
                 "--tag",
                 tag_id,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1547,10 +1484,7 @@ async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> Non
 
 
 async def test_that_a_tag_can_be_added(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         tag_name = "TestTag"
 
         assert (
@@ -1559,6 +1493,7 @@ async def test_that_a_tag_can_be_added(context: ContextOfTest) -> None:
                 "create",
                 "--name",
                 tag_name,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1568,10 +1503,7 @@ async def test_that_a_tag_can_be_added(context: ContextOfTest) -> None:
 
 
 async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         await context.api.create_tag("FirstTag")
         await context.api.create_tag("SecondTag")
 
@@ -1580,6 +1512,7 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
             "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
         output = stdout.decode() + stderr.decode()
@@ -1590,10 +1523,7 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
 
 
 async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            pass
-
+    with run_server(context, randomize_port=True):
         tag_id = (await context.api.create_tag("TestViewTag"))["id"]
         new_name = "UpdatedTagName"
 
@@ -1605,6 +1535,7 @@ async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
                 tag_id,
                 "--name",
                 new_name,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1614,10 +1545,7 @@ async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
 
 
 async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            await asyncio.sleep(0.05)
-
+    with run_server(context, randomize_port=True):
         tmp_file = tempfile.NamedTemporaryFile(delete=False)
         tmp_file_path = tmp_file.name
         tmp_file.close()
@@ -1627,6 +1555,7 @@ async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> Non
                 "utterance",
                 "init",
                 tmp_file_path,
+                address=context.api.server_address,
             )
             == os.EX_OK
         )
@@ -1641,10 +1570,7 @@ async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> Non
 
 
 async def test_that_utterances_can_be_loaded(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            await asyncio.sleep(0.05)
-
+    with run_server(context, randomize_port=True):
         await context.api.create_tag("testTag1")
         await context.api.create_tag("testTag2")
 
@@ -1685,9 +1611,7 @@ async def test_that_utterances_can_be_loaded(context: ContextOfTest) -> None:
 
         assert (
             await run_cli_and_get_exit_status(
-                "utterance",
-                "load",
-                tmp_file_path,
+                "utterance", "load", tmp_file_path, address=context.api.server_address
             )
             == os.EX_OK
         )
@@ -1704,10 +1628,7 @@ async def test_that_utterances_can_be_loaded(context: ContextOfTest) -> None:
 
 
 async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            await asyncio.sleep(0.05)
-
+    with run_server(context, randomize_port=True):
         first_guideline = await context.api.create_guideline(
             condition="the customer greets you",
             action="greet them back with 'Hello'",
@@ -1739,6 +1660,7 @@ async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
                 first_guideline["id"],
                 "--id",
                 second_guideline["id"],
+                address=context.api.server_address,
             )
         ) == os.EX_OK
 
@@ -1750,10 +1672,7 @@ async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
 
 
 async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
-    with run_server(context):
-        while not is_server_responsive(SERVER_PORT):
-            await asyncio.sleep(0.05)
-
+    with run_server(context, randomize_port=True):
         first_guideline = await context.api.create_guideline(
             condition="the customer greets you",
             action="greet them back with 'Hello'",
@@ -1772,6 +1691,7 @@ async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
                 first_guideline["id"],
                 "--id",
                 second_guideline["id"],
+                address=context.api.server_address,
             )
         ) == os.EX_OK
 

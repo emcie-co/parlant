@@ -19,6 +19,7 @@ import json
 import logging
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from random import randint
 from time import sleep
 from typing import (
     Any,
@@ -90,7 +91,8 @@ T = TypeVar("T")
 GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
 
 SERVER_PORT = 8089
-SERVER_ADDRESS = f"http://localhost:{SERVER_PORT}"
+SERVER_ADDRESS_BASE = "http://localhost"
+SERVER_ADDRESS = f"{SERVER_ADDRESS_BASE}:{SERVER_PORT}"
 
 PLUGIN_SERVER_PORT = 8091
 OPENAPI_SERVER_PORT = 8092
@@ -546,12 +548,13 @@ async def create_schematic_generation_result_collection(
 
 @asynccontextmanager
 async def run_service_server(
-    tools: list[ToolEntry],
-    plugin_data: Mapping[str, Any] = {},
+    tools: list[ToolEntry], plugin_data: Mapping[str, Any] = {}, port: int = 0
 ) -> AsyncIterator[PluginServer]:
+    if port == 0:
+        port = randint(50001, 65535)
     async with PluginServer(
         tools=tools,
-        port=PLUGIN_SERVER_PORT,
+        port=port,
         host="127.0.0.1",
         plugin_data=plugin_data,
     ) as server:
@@ -561,7 +564,8 @@ async def run_service_server(
             await server.shutdown()
 
 
-OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"
+OPENAPI_SERVER_BASE_URL = "http://localhost"
+OPENAPI_SERVER_URL = f"{OPENAPI_SERVER_BASE_URL}:{OPENAPI_SERVER_PORT}"
 
 
 async def one_required_query_param(
@@ -605,8 +609,8 @@ async def one_required_query_param_one_required_body_param(
     return JSONResponse({"result": f"{body.body_param}: {query_param}"})
 
 
-def rng_app() -> FastAPI:
-    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+def rng_app(port: int = OPENAPI_SERVER_PORT) -> FastAPI:
+    app = FastAPI(servers=[{"url": f"{OPENAPI_SERVER_BASE_URL}:{port}"}])
 
     @app.middleware("http")
     async def debug_request(
@@ -633,13 +637,25 @@ async def dto_object(dto: DummyDTO) -> JSONResponse:
 
 
 @asynccontextmanager
-async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
-    config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
+async def run_openapi_server(app: FastAPI, port: int = OPENAPI_SERVER_PORT) -> AsyncIterator[None]:
+    config = uvicorn.Config(app=app, port=port)
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    yield
-    server.should_exit = True
-    await task
+
+    try:
+        await asyncio.sleep(0.1)
+        yield
+    finally:
+        server.should_exit = True
+        await asyncio.sleep(0.1)
+
+        # If it's still running close it more aggressively
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 async def get_json(address: str, params: dict[str, str] = {}) -> Any:

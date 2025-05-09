@@ -19,6 +19,7 @@ from contextlib import suppress
 import json
 import os
 from pathlib import Path
+import time
 from urllib.parse import urlparse
 import click
 import click.shell_completion
@@ -27,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import requests
 import rich
+from rich.progress import Progress, TimeElapsedColumn, BarColumn, TaskProgressColumn
 from rich import box
 from rich.table import Table
 from rich.text import Text
@@ -47,17 +49,21 @@ from parlant.client.types import (
     Guideline,
     Relationship,
     RelationshipKindDto,
+    GuidelinePayload,
+    GuidelineContent,
     GuidelineToolAssociation,
     GuidelineToolAssociationUpdateParams,
     GuidelineTagsUpdateParams,
     GuidelineWithRelationshipsAndToolAssociations,
     GuidelineMetadataUpdateParams,
     OpenApiServiceParams,
+    Payload,
     SdkServiceParams,
     Service,
     Session,
     Term,
     TermTagsUpdateParams,
+    Tool,
     ToolId,
     Customer,
     CustomerExtraUpdateParams,
@@ -125,13 +131,34 @@ class Actions:
         raise Exception(f"Tag ({tag}) not found")
 
     @staticmethod
+    def _fetch_tool_id(
+        ctx: click.Context,
+        tool_id: ToolId,
+    ) -> ToolId:
+        client = cast(ParlantClient, ctx.obj.client)
+        service = client.services.retrieve(tool_id.service_name)
+        if next((t for t in service.tools or [] if t.name == tool_id.tool_name), None):
+            return tool_id
+
+        raise Exception(f"Tool ({tool_id.tool_name}) not found in service ({tool_id.service_name})")
+
+    @staticmethod
     def _parse_relationship_side(
         ctx: click.Context,
         entity_id: str,
-    ) -> tuple[str, str]:
+    ) -> tuple[str | ToolId, str]:
         with suppress(Exception):
             if tag_id := Actions._fetch_tag_id(ctx, entity_id):
                 return tag_id, "tag"
+
+        with suppress(Exception):
+            if ":" in entity_id and (
+                tool_id := Actions._fetch_tool_id(
+                    ctx,
+                    ToolId(service_name=entity_id.split(":")[0], tool_name=entity_id.split(":")[1]),
+                )
+            ):
+                return tool_id, "tool"
 
         client = cast(ParlantClient, ctx.obj.client)
         client.guidelines.retrieve(entity_id)
@@ -385,16 +412,95 @@ class Actions:
     def create_guideline(
         ctx: click.Context,
         condition: str,
-        action: str,
+        action: Optional[str],
+        tool_id: Optional[str],
         tags: list[str],
     ) -> Guideline:
         client = cast(ParlantClient, ctx.obj.client)
+        tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
 
-        return client.guidelines.create(
-            condition=condition,
-            action=action,
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
-        )
+        if tool_id and action is None:
+            evaluation = client.evaluations.create(
+                payloads=[
+                    Payload(
+                        kind="guideline",
+                        guideline=GuidelinePayload(
+                            content=GuidelineContent(condition=condition),
+                            tool_ids=[
+                                ToolId(
+                                    service_name=tool_id.split(":")[0],
+                                    tool_name=tool_id.split(":")[1],
+                                )
+                            ],
+                            operation="add",
+                            action_proposition=True,
+                            properties_proposition=True,
+                        ),
+                    )
+                ]
+            )
+
+            with Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(style="bold blue"),
+                "{task.completed}/{task.total}",
+                TimeElapsedColumn(),
+            ) as progress:
+                progress_task = progress.add_task("Evaluating guideline\n", total=100)
+
+                while True:
+                    time.sleep(0.2)
+                    evaluation_result = client.evaluations.retrieve(
+                        evaluation.id,
+                        wait_for_completion=0,
+                    )
+
+                    if evaluation_result.status in ["pending", "running"]:
+                        progress.update(progress_task, completed=int(evaluation_result.progress))
+                        continue
+
+                    if evaluation_result.status == "completed":
+                        progress.update(progress_task, completed=100)
+
+                        invoice = evaluation_result.invoices[0]
+                        assert invoice.approved
+                        assert invoice.data
+                        assert invoice.data.guideline
+                        assert invoice.payload.guideline
+
+                        return client.guidelines.create(
+                            condition=condition,
+                            action=invoice.data.guideline.action_proposition,
+                            tags=tags,
+                            metadata=invoice.data.guideline.properties_proposition or {},
+                        )
+
+                    elif evaluation_result.status == "failed":
+                        raise ValueError(evaluation_result.error)
+
+        else:
+            guideline = client.guidelines.create(
+                condition=condition,
+                action=action,
+                tags=tags,
+            )
+
+        if tool_id:
+            service_name, tool_name = tool_id.split(":")
+            client.guidelines.update(
+                guideline_id=guideline.id,
+                tool_associations=GuidelineToolAssociationUpdateParams(
+                    add=[
+                        ToolId(
+                            service_name=service_name,
+                            tool_name=tool_name,
+                        ),
+                    ]
+                ),
+            )
+
+        return guideline
 
     @staticmethod
     def update_guideline(
@@ -447,10 +553,12 @@ class Actions:
         target_id, target_type = Actions._parse_relationship_side(ctx, target)
 
         return client.relationships.create(
-            source_guideline=source_id if source_type == "guideline" else None,
-            source_tag=source_id if source_type == "tag" else None,
-            target_guideline=target_id if target_type == "guideline" else None,
-            target_tag=target_id if target_type == "tag" else None,
+            source_guideline=cast(str, source_id) if source_type == "guideline" else None,
+            source_tag=cast(str, source_id) if source_type == "tag" else None,
+            source_tool=cast(ToolId, source_id) if source_type == "tool" else None,
+            target_guideline=cast(str, target_id) if target_type == "guideline" else None,
+            target_tag=cast(str, target_id) if target_type == "tag" else None,
+            target_tool=cast(ToolId, target_id) if target_type == "tool" else None,
             kind=kind,
         )
 
@@ -470,7 +578,7 @@ class Actions:
 
         assert source_id and target_id and kind
 
-        source_id, source_type = Actions._parse_relationship_side(ctx, source_id)
+        _, source_type = Actions._parse_relationship_side(ctx, source_id)
 
         if relationship := next(
             (
@@ -478,16 +586,19 @@ class Actions:
                 for r in client.relationships.list(
                     guideline_id=source_id if source_type == "guideline" else None,
                     tag_id=source_id if source_type == "tag" else None,
+                    tool_id=source_id if source_type == "tool" else None,
                     kind=kind,
                     indirect=False,
                 )
                 if (
                     (r.source_guideline and source_id == r.source_guideline.id)
                     or (r.source_tag and source_id == r.source_tag.id)
+                    or (r.source_tool and source_id.split(":")[1] == r.source_tool.name)
                 )
                 and (
                     (r.target_guideline and target_id == r.target_guideline.id)
                     or (r.target_tag and target_id == r.target_tag.id)
+                    or (r.target_tool and target_id.split(":")[1] == r.target_tool.name)
                 )
                 and r.kind == kind
             ),
@@ -506,16 +617,25 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        tool_id: Optional[str],
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
 
         tag_id = Actions._fetch_tag_id(ctx, tag) if tag else None
+        _ = (
+            Actions._fetch_tool_id(
+                ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
+            )
+            if tool_id
+            else None
+        )
 
         return client.relationships.list(
             guideline_id=guideline_id,
             tag_id=tag_id,
+            tool_id=tool_id,
             kind=kind,
             indirect=indirect,
         )
@@ -1566,7 +1686,7 @@ class Interface:
 
     @staticmethod
     def _render_relationships(
-        entity: Guideline | Tag,
+        entity: Guideline | Tag | Tool | None,
         relationships: list[Relationship],
         include_indirect: bool,
     ) -> None:
@@ -1610,6 +1730,14 @@ class Interface:
                         "Target ID": rel.target_tag.id,
                         "Target Type": "Tag",
                         "Target Name": rel.target_tag.name,
+                    }
+                )
+            elif rel.target_tool:
+                assert rel.target_tool is not None
+                result.update(
+                    {
+                        "Target Type": "Tool",
+                        "Target Name": rel.target_tool.name,
                     }
                 )
 
@@ -1742,15 +1870,17 @@ class Interface:
     def create_guideline(
         ctx: click.Context,
         condition: str,
-        action: str,
-        tags: list[str],
+        action: Optional[str],
+        tool_id: Optional[str],
+        tags: tuple[str],
     ) -> None:
         try:
             guideline = Actions.create_guideline(
                 ctx,
                 condition,
                 action,
-                tags=tags,
+                tool_id,
+                tags=list(tags),
             )
 
             Interface._write_success(f"Added guideline (id: {guideline.id})")
@@ -1899,11 +2029,19 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        tool_id: Optional[str],
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         try:
-            relationships = Actions.list_relationships(ctx, guideline_id, tag, kind, indirect)
+            relationships = Actions.list_relationships(
+                ctx,
+                guideline_id=guideline_id,
+                tag=tag,
+                tool_id=tool_id,
+                kind=kind,
+                indirect=indirect,
+            )
 
             if not relationships:
                 rich.print(Text("No data available", style="bold yellow"))
@@ -1918,7 +2056,7 @@ class Interface:
             Interface._render_relationships(
                 entity,
                 relationships,
-                include_indirect=indirect,
+                include_indirect=indirect or True,
             )
 
         except Exception as e:
@@ -3007,21 +3145,29 @@ async def async_main() -> None:
         "--action",
         type=str,
         help="The instruction to perform when the guideline applies",
-        required=True,
+        required=False,
+    )
+    @click.option(
+        "--tool-id",
+        type=str,
+        help="The ID of the tool to associate with the guideline, in the format service_name:tool_name",
+        required=False,
     )
     @tag_option(multiple=True)
     @click.pass_context
     def guideline_create(
         ctx: click.Context,
         condition: str,
-        action: str,
+        action: Optional[str],
+        tool_id: Optional[str],
         tag: tuple[str],
     ) -> None:
         Interface.create_guideline(
             ctx=ctx,
             condition=condition,
             action=action,
-            tags=list(tag),
+            tool_id=tool_id,
+            tags=tag,
         )
 
     @guideline.command("update", help="Update a guideline")
@@ -3093,7 +3239,7 @@ async def async_main() -> None:
         Interface.list_guidelines(ctx, tag, hide_disabled)
 
     @guideline.command("tool-enable", help="Allow a guideline to make use of a tool")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=False)
     @click.option(
         "--service",
         type=str,
@@ -3101,19 +3247,46 @@ async def async_main() -> None:
         help="The name of the tool service containing the tool",
         required=True,
     )
-    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=True)
+    @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=False)
+    @click.option(
+        "--tool-id",
+        type=str,
+        metavar="ID",
+        help="Tool ID. format: service_name:tool_name",
+        required=False,
+    )
     @click.pass_context
     def guideline_enable_tool(
         ctx: click.Context,
         id: str,
-        service: str,
-        tool: str,
+        service: Optional[str],
+        tool: Optional[str],
+        tool_id: Optional[str],
     ) -> None:
+        if not (service and tool) and not tool_id:
+            Interface.write_error(
+                "At least one of --service, --tool, or --tool-id must be specified"
+            )
+            set_exit_status(1)
+            raise FastExit()
+
+        if service and tool and tool_id:
+            Interface.write_error("Only one of --service, --tool, or --tool-id can be specified")
+            set_exit_status(1)
+            raise FastExit()
+
+        if tool_id:
+            service_name, tool_name = tool_id.split(":")
+        else:
+            assert service and tool
+            service_name = service
+            tool_name = tool
+
         Interface.add_guideline_tool_association(
             ctx=ctx,
             guideline_id=id,
-            service_name=service,
-            tool_name=tool,
+            service_name=service_name,
+            tool_name=tool_name,
         )
 
     @guideline.command("tool-disable", help="Disallow a guideline to make use of a tool")
@@ -3233,15 +3406,15 @@ async def async_main() -> None:
     @click.option(
         "--source",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID",
-        help="Source tag or guideline ID",
+        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
+        help="Source tag or guideline ID or tool ID",
         required=True,
     )
     @click.option(
         "--target",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID",
-        help="Target tag or guideline ID",
+        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
+        help="Target tag or guideline ID or tool ID",
         required=True,
     )
     @click.option(
@@ -3251,6 +3424,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
@@ -3291,6 +3465,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
@@ -3330,13 +3505,24 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "overlap",
             ]
         ),
         help="Relationship kind",
-        required=True,
+        required=False,
     )
     @click.option(
-        "--guideline-id", type=str, metavar="GUIDELINE_ID", help="Guideline ID", required=False
+        "--guideline-id",
+        type=str,
+        metavar="GUIDELINE_ID",
+        help="Guideline ID",
+        required=False,
+    )
+    @click.option(
+        "--tool",
+        type=str,
+        metavar="TOOL_ID",
+        help="Tool ID, format: service_name:tool_name",
     )
     @tag_option(required=False)
     @click.option(
@@ -3351,20 +3537,16 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
-        indirect: bool,
+        tool: Optional[str],
+        kind: Optional[RelationshipKindDto],
+        indirect: Optional[bool],
     ) -> None:
         if guideline_id and tag:
             Interface.write_error("Either --guideline-id or --tag must be provided, not both")
             set_exit_status(1)
             raise FastExit()
 
-        if not guideline_id and not tag:
-            Interface.write_error("Either --guideline-id or --tag must be provided")
-            set_exit_status(1)
-            raise FastExit()
-
-        Interface.list_relationships(ctx, guideline_id, tag, kind, indirect)
+        Interface.list_relationships(ctx, guideline_id, tag, tool, kind, indirect)
 
     @cli.group(help="Manage an agent's context variables")
     def variable() -> None:

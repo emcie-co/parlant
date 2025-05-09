@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
-from typing import Sequence
+from typing import Sequence, cast
+from lagom import Container
+from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id, JSONSerializable
@@ -26,24 +29,71 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
-from parlant.core.glossary import Term
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
-    GuidelineMatchingStrategyResolver,
 )
-from parlant.core.engines.alpha.guideline_match import (
+from parlant.core.glossary import Term
+from parlant.core.nlp.generation import SchematicGenerator
+
+from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.sessions import EventKind, EventSource
 from parlant.core.loggers import Logger
-from parlant.core.sessions import EventSource
 from parlant.core.glossary import TermId
 
-from parlant.core.tags import Tag, TagId
-from tests.core.common.utils import ContextOfTest, create_event_message
+from parlant.core.tags import TagId, Tag
+from tests.core.common.utils import create_event_message
+from tests.test_utilities import SyncAwaiter
 
+OBSERVATIONAL_GUIDELINES_DICT = {
+    "vegetarian_customer": {
+        "condition": "the customer is vegetarian or vegan",
+        "observation": "-",
+    },
+    "lock_card_request_1": {
+        "condition": "the customer indicated that they wish to lock their credit card",
+        "observation": "-",
+    },
+    "lock_card_request_2": {
+        "condition": "the customer lost their credit card",
+        "observation": "-",
+    },
+    "season_is_winter": {
+        "condition": "it is the season of winter",
+        "observation": "-",
+    },
+    "frustrated_customer_observational": {
+        "condition": "the customer is frustrated",
+        "observation": "-",
+    },
+    "unclear_request": {
+        "condition": "the customer indicates that the agent does not understand their request",
+        "observation": "-",
+    },
+    "credit_limits_discussion": {
+        "condition": "credit limits are discussed",
+        "observation": "-",
+    },
+    "unknown_service": {
+        "condition": "The customer is asking for a service you have no information about within this prompt",
+        "observation": "-",
+    },
+    "delivery_order": {
+        "condition": "the customer is in the process of ordering delivery",
+        "observation": "-",
+    },
+    "unanswered_questions": {
+        "condition": "the customer repeatedly ignores the agent's question, and they remain unanswered",
+        "observation": "-",
+    },
+}
 
-GUIDELINES_DICT = {
+ACTIONABLE_GUIDELINES_DICT = {
     "check_drinks_in_stock": {
         "condition": "a customer asks for a drink",
         "action": "check if the drink is available in the following stock: "
@@ -71,7 +121,7 @@ GUIDELINES_DICT = {
     "class_booking": {
         "condition": "the customer asks about booking a class or an appointment",
         "action": "Provide available times and facilitate the booking process, "
-        "ensuring to clarify any necessary details such as class type, date, and requirements.",
+        "ensuring to clarify any necessary details such as class type.",
     },
     "class_cancellation": {
         "condition": "the customer wants to cancel a class or an appointment",
@@ -182,15 +232,30 @@ GUIDELINES_DICT = {
         "condition": "the customer asked a question about birds",
         "action": "answer their question enthusiastically, while not using punctuation. Also say that the kingfisher is your favorite bird",
     },
-    "second_thanks": {
-        "condition": "the customer is thanking you for the second time in the interaction",
-        "action": "compliment the customer for their manners",
-    },
-    "pay_cc_bill": {
-        "condition": "the customer wants to pay their credit card bill",
-        "action": "determine which card and how much they want to pay",
-    },
 }
+
+
+@dataclass
+class ContextOfTest:
+    container: Container
+    sync_await: SyncAwaiter
+    guidelines: list[Guideline]
+    schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema]
+    logger: Logger
+
+
+@fixture
+def context(
+    sync_await: SyncAwaiter,
+    container: Container,
+) -> ContextOfTest:
+    return ContextOfTest(
+        container,
+        sync_await,
+        guidelines=list(),
+        logger=container[Logger],
+        schematic_generator=container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
+    )
 
 
 def match_guidelines(
@@ -202,11 +267,6 @@ def match_guidelines(
     terms: Sequence[Term] = [],
     staged_events: Sequence[EmittedEvent] = [],
 ) -> Sequence[GuidelineMatch]:
-    guideline_matcher = GuidelineMatcher(
-        context.container[Logger],
-        context.container[GuidelineMatchingStrategyResolver],
-    )
-
     interaction_history = [
         create_event_message(
             offset=i,
@@ -217,14 +277,14 @@ def match_guidelines(
     ]
 
     guideline_matching_result = context.sync_await(
-        guideline_matcher.match_guidelines(
+        context.container[GuidelineMatcher].match_guidelines(
             agent=agent,
             customer=customer,
             context_variables=context_variables,
             interaction_history=interaction_history,
             terms=terms,
             staged_events=staged_events,
-            guidelines=list(context.guidelines.values()),
+            guidelines=context.guidelines,
         )
     )
 
@@ -233,33 +293,29 @@ def match_guidelines(
 
 def create_guideline(
     context: ContextOfTest,
-    guideline_name: str,
     condition: str,
-    action: str,
-    tags: list[TagId],
+    action: str | None = None,
+    tags: list[TagId] = [],
 ) -> Guideline:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
-        enabled=True,
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
+        enabled=True,
         tags=tags,
         metadata={},
     )
 
-    context.guidelines[guideline_name] = guideline
+    context.guidelines.append(guideline)
 
     return guideline
 
 
 def create_term(
-    name: str,
-    description: str,
-    synonyms: list[str] = [],
-    tags: list[TagId] = [],
+    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
 ) -> Term:
     return Term(
         id=TermId("-"),
@@ -291,15 +347,20 @@ def create_context_variable(
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
-    tags: list[TagId],
-) -> Guideline:
-    guideline = create_guideline(
-        context=context,
-        guideline_name=guideline_name,
-        condition=GUIDELINES_DICT[guideline_name]["condition"],
-        action=GUIDELINES_DICT[guideline_name]["action"],
-        tags=tags,
-    )
+) -> Guideline | None:
+    if guideline_name in ACTIONABLE_GUIDELINES_DICT:
+        guideline = create_guideline(
+            context=context,
+            condition=ACTIONABLE_GUIDELINES_DICT[guideline_name]["condition"],
+            action=ACTIONABLE_GUIDELINES_DICT[guideline_name]["action"],
+        )
+    elif guideline_name in OBSERVATIONAL_GUIDELINES_DICT:
+        guideline = create_guideline(
+            context=context,
+            condition=OBSERVATIONAL_GUIDELINES_DICT[guideline_name]["condition"],
+        )
+    else:
+        guideline = None
     return guideline
 
 
@@ -315,8 +376,7 @@ def base_test_that_correct_guidelines_are_matched(
     staged_events: Sequence[EmittedEvent] = [],
 ) -> None:
     conversation_guidelines = {
-        name: create_guideline_by_name(context, name, tags=[Tag.for_agent_id(agent.id)])
-        for name in conversation_guideline_names
+        name: create_guideline_by_name(context, name) for name in conversation_guideline_names
     }
     relevant_guidelines = [
         conversation_guidelines[name]
@@ -446,7 +506,7 @@ def test_that_many_guidelines_are_classified_correctly(  # a stress test
 
     conversation_guideline_names: list[str] = [
         guideline_name
-        for guideline_name in GUIDELINES_DICT.keys()
+        for guideline_name in ACTIONABLE_GUIDELINES_DICT.keys()
         if guideline_name not in exceptions
     ]
     relevant_guideline_names = ["announce_shipment", "second_thanks"]
@@ -473,7 +533,7 @@ def test_that_relevant_guidelines_are_matched_parametrized_1(
         (EventSource.CUSTOMER, "I'll take pepperoni, thanks."),
         (
             EventSource.AI_AGENT,
-            "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
+            "Awesome. I've added a large pepperoni pizza. Would you like a drink on the side?",
         ),
         (EventSource.CUSTOMER, "Sure. What types of drinks do you have?"),
         (EventSource.AI_AGENT, "We have Sprite, Coke, and Fanta."),
@@ -654,4 +714,180 @@ def test_that_guidelines_are_not_considered_done_when_they_strictly_arent(
         conversation_context,
         conversation_guideline_names,
         ["pay_cc_bill"],
+    )
+
+
+def test_that_observational_guidelines_arent_wrongly_implied(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I didn't get any help from the previous representative. If this continues I'll switch to the competitors. Don't thread on me!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! I apologize for what happened on your previous interaction with us - what is it that you're trying to do exactly?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm looking to modify an order I made through the online store",
+        ),
+    ]
+
+    context_variables = [
+        create_context_variable(
+            name="Date",
+            data={"Year": "2025", "Month": "January", "Day": 24},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+
+    tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:get_weather",
+                    "arguments": {},
+                    "result": {"data": "The weather is rainy", "metadata": {}, "control": {}},
+                }
+            ]
+        },
+    )
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = ["season_is_winter"]
+    relevant_guideline_names: list[str] = []
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=context_variables,
+        staged_events=staged_events,
+    )
+
+
+def test_that_observational_guidelines_are_detected_correctly_when_lots_of_data_is_available(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    terms = [
+        create_term(
+            name="blorgnet",
+            description="a figure of speech, meaning being annoyed by whoever you're interacting with",
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+    context_variables = [
+        create_context_variable(
+            name="customer_location",
+            data={"location": "Australia"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+        create_context_variable(
+            name="date",
+            data={"date": "August 15th, 2024"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+    tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:get_season",
+                    "arguments": {},
+                    "result": {"data": "winter", "metadata": {}, "control": {}},
+                }
+            ]
+        },
+    )
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+        ),
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I think I lost my credit card somewhere yesterday.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm sorry to hear about your lost card. I can help you with that right away. For security purposes, could you please verify the last four digits of your card?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It's the Platinum Rewards one.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for that information. To proceed with locking your Platinum Rewards card, I'll need to verify the last four digits of the card number. This helps ensure we're securing the correct card on your account. Could you please provide those digits?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "blorgnet, I just need it locked right now. I have multiple cards and I don't memorize all the numbers.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I understand your concern and the urgency of the situation. Let me try another approach. I can see your account has two Platinum Rewards cards. Would it be helpful if I locked both cards temporarily until we identify which one is missing? Or would you prefer to check your online banking app where you can see the last four digits of your cards?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Just lock all of them. I need to go to a meeting in 5 minutes.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I've placed temporary locks on all your Platinum Rewards cards. This will prevent any unauthorized transactions while keeping your account active. The locks are effective immediately. Would you like me to order replacement cards for you now, or would you prefer to wait in case you find the missing card?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "When will your branch on Main Street be open?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Our Main Street branch is open Monday through Friday from 9:00 AM to 5:00 PM, and Saturday from 9:00 AM to 1:00 PM. It's closed on Sundays. Regarding your cards, would you like me to order replacements for any of them at this time?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "And do they handle international wire transfers there?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Yes, our Main Street branch does handle international wire transfers. You would need to bring a valid ID and the recipient's banking details. The branch can also help with your card situation if you prefer to handle it in person. In the meantime, your cards remain locked for your protection. Is there anything else you need assistance with today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "What's the maximum amount for international transfers?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = list(OBSERVATIONAL_GUIDELINES_DICT.keys())
+    relevant_guideline_names = [
+        "lock_card_request_1",
+        "lock_card_request_2",
+        "season_is_winter",
+        "frustrated_customer_observational",
+        "unanswered_questions",
+    ]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        staged_events=staged_events,
+        context_variables=context_variables,
+        terms=terms,
     )

@@ -24,10 +24,12 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import (
     Guideline,
     GuidelineStore,
 )
+from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.relationships import (
     RelationshipStore,
 )
@@ -47,7 +49,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId
-from parlant.core.tools import ToolService
+from parlant.core.tools import ToolId, ToolService
 
 
 class EntityQueries:
@@ -61,6 +63,7 @@ class EntityQueries:
         relationship_store: RelationshipStore,
         guideline_tool_association_store: GuidelineToolAssociationStore,
         glossary_store: GlossaryStore,
+        journey_store: JourneyStore,
         service_registry: ServiceRegistry,
     ) -> None:
         self._agent_store = agent_store
@@ -71,6 +74,7 @@ class EntityQueries:
         self._relationship_store = relationship_store
         self._guideline_tool_association_store = guideline_tool_association_store
         self._glossary_store = glossary_store
+        self._journey_store = journey_store
         self._service_registry = service_registry
 
     async def read_agent(
@@ -158,6 +162,65 @@ class EntityQueries:
         service_name: str,
     ) -> ToolService:
         return await self._service_registry.read_tool_service(service_name)
+
+    async def find_journeys_for_agent(
+        self,
+        agent_id: AgentId,
+        guideline_matches: Sequence[GuidelineMatch],
+    ) -> Sequence[Journey]:
+        agent_journeys = await self._journey_store.list_journeys(
+            tags=[Tag.for_agent_id(agent_id)],
+        )
+        global_journeys = await self._journey_store.list_journeys(tags=[])
+
+        agent = await self._agent_store.read_agent(agent_id)
+        journeys_for_agent_tags = (
+            await self._journey_store.list_journeys(tags=[tag for tag in agent.tags])
+            if agent.tags
+            else []
+        )
+
+        all_journeys = set(chain(agent_journeys, global_journeys, journeys_for_agent_tags))
+
+        relevant_journeys = [
+            journey
+            for journey in all_journeys
+            if set(journey.conditions).intersection(
+                set(map(lambda g: g.guideline.id, guideline_matches))
+            )
+        ]
+
+        return relevant_journeys
+
+    async def filter_guideline_matches_by_activated_journeys(
+        self,
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]],
+        journeys: Sequence[Journey],
+    ) -> tuple[
+        list[GuidelineMatch],
+        dict[GuidelineMatch, list[ToolId]],
+    ]:
+        relevant_ordinary_guideline_matches = []
+        relevant_tool_enabled_guideline_matches = {}
+
+        journey_ids = [journey.id for journey in journeys]
+
+        for match in ordinary_guideline_matches:
+            for tag in match.guideline.tags:
+                journey_id = Tag.extract_journey_id(tag)
+                if journey_id is None or journey_id in journey_ids:
+                    relevant_ordinary_guideline_matches.append(match)
+                    break
+
+        for match, tool_ids in tool_enabled_guideline_matches.items():
+            for tag in match.guideline.tags:
+                journey_id = Tag.extract_journey_id(tag)
+                if journey_id is None or journey_id in journey_ids:
+                    relevant_tool_enabled_guideline_matches[match] = tool_ids
+                    break
+
+        return relevant_ordinary_guideline_matches, relevant_tool_enabled_guideline_matches
 
 
 class EntityCommands:

@@ -1425,6 +1425,21 @@ async def test_that_a_guideline_can_be_created(
     assert guideline["metadata"] == {"key1": "value1", "key2": "value2"}
 
 
+async def test_that_a_guideline_can_be_created_without_an_action(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={"condition": "the customer asks about pricing"},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "the customer asks about pricing"
+    assert guideline["action"] is None
+
+
 async def test_that_a_guideline_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,

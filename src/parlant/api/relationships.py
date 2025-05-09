@@ -97,6 +97,14 @@ TagIdQuery: TypeAlias = Annotated[
 ]
 
 
+ToolIdQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="The ID of the tool to list relationships for. Format: service_name:tool_name"
+    ),
+]
+
+
 IndirectQuery: TypeAlias = Annotated[
     bool,
     Query(description="Whether to include indirect relationships"),
@@ -262,7 +270,6 @@ def create_router(
             target_tool=tool_to_dto(cast(Tool, target_tool))
             if relationship.target.type == EntityType.TOOL
             else None,
-            indirect=False,
             kind=_relationship_kind_to_dto(cast(GuidelineRelationshipKind, relationship.kind)),
         )
 
@@ -362,45 +369,59 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_relationships(
-        kind: RelationshipKindQuery,
+        kind: Optional[RelationshipKindQuery] = None,
         indirect: IndirectQuery = True,
         guideline_id: Optional[GuidelineIdQuery] = None,
         tag_id: Optional[TagIdQuery] = None,
+        tool_id: Optional[ToolIdQuery] = None,
     ) -> Sequence[RelationshipDTO]:
         """
         List relationships.
 
-        Either `guideline_id` or `tag_id` must be provided.
+        Either `guideline_id` or `tag_id` or `tool_id` must be provided.
         """
-        if guideline_id is None and tag_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Either guideline_id or tag_id must be provided",
+        if not guideline_id and not tag_id and not tool_id:
+            relationships = await relationship_store.list_relationships(
+                kind=_relationship_kind_dto_to_kind(kind) if kind else None,
+                indirect=indirect,
             )
 
+            return [
+                await relationship_to_dto(relationship=relationship)
+                for relationship in relationships
+            ]
+
+        entity_id: GuidelineId | TagId | ToolId
         if guideline_id:
             await guideline_store.read_guideline(guideline_id=guideline_id)
+            entity_id = guideline_id
         elif tag_id:
             await tag_store.read_tag(tag_id=tag_id)
-
-        entity_id = (
-            cast(GuidelineId | TagId, guideline_id)
-            if guideline_id
-            else cast(GuidelineId | TagId, tag_id)
-        )
+            entity_id = tag_id
+        elif tool_id:
+            service_name, tool_name = tool_id.split(":")
+            service = await service_registry.read_tool_service(name=service_name)
+            _ = await service.read_tool(name=tool_name)
+            entity_id = ToolId(service_name, tool_name)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Either `guideline_id` or `tag_id` or `tool_id` must be provided",
+            )
 
         source_relationships = await relationship_store.list_relationships(
-            kind=_relationship_kind_dto_to_kind(kind),
+            kind=_relationship_kind_dto_to_kind(kind) if kind else None,
             source_id=entity_id,
             indirect=indirect,
         )
 
         target_relationships = await relationship_store.list_relationships(
-            kind=_relationship_kind_dto_to_kind(kind),
+            kind=_relationship_kind_dto_to_kind(kind) if kind else None,
             target_id=entity_id,
             indirect=indirect,
         )
-        relationships = chain(source_relationships, target_relationships)
+
+        relationships = list(chain(source_relationships, target_relationships))
 
         return [
             await relationship_to_dto(relationship=relationship) for relationship in relationships

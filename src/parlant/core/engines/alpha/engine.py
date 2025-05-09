@@ -57,13 +57,11 @@ from parlant.core.sessions import (
     Term as StoredTerm,
     ToolEventData,
 )
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingResult,
 )
-from parlant.core.engines.alpha.guideline_match import (
-    GuidelineMatch,
-)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_event_generator import (
     ToolEventGenerationResult,
     ToolEventGenerator,
@@ -339,6 +337,7 @@ class AlphaEngine(Engine):
                 context_variables=[],
                 glossary_terms=set(),
                 ordinary_guideline_matches=[],
+                journeys=[],
                 tool_enabled_guideline_matches={},
                 tool_events=[],
                 tool_insights=ToolInsights(),
@@ -369,13 +368,36 @@ class AlphaEngine(Engine):
         # between ordinary and tool-enabled ones.
         (
             guideline_matching_result,
-            context.state.ordinary_guideline_matches,
-            context.state.tool_enabled_guideline_matches,
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
         ) = await self._load_matched_guidelines(context)
 
         # Matched guidelines may use glossary terms, so we need to ground our
         # response by reevaluating the relevant terms given these new guidelines.
         context.state.glossary_terms.update(await self._load_glossary_terms(context))
+
+        # Match relevant journeys.
+        context.state.journeys = list(
+            await self._entity_queries.find_journeys_for_agent(
+                context.agent.id,
+                list(
+                    chain(
+                        ordinary_guideline_matches,
+                        tool_enabled_guideline_matches.keys(),
+                    )
+                ),
+            )
+        )
+
+        # Filter out journey-dependent guidelines that are not relevant to the activated journeys.
+        (
+            context.state.ordinary_guideline_matches,
+            context.state.tool_enabled_guideline_matches,
+        ) = await self._entity_queries.filter_guideline_matches_by_activated_journeys(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            context.state.journeys,
+        )
 
         # Infer any needed tool calls and execute them,
         # adding the resulting tool events to the session.
@@ -421,7 +443,7 @@ class AlphaEngine(Engine):
                 StoredGuidelineMatch(
                     guideline_id=match.guideline.id,
                     condition=match.guideline.content.condition,
-                    action=match.guideline.content.action,
+                    action=match.guideline.content.action or None,
                     score=match.score,
                     rationale=match.rationale,
                 )
@@ -508,6 +530,7 @@ class AlphaEngine(Engine):
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+            journeys=context.state.journeys,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
             tool_insights=context.state.tool_insights,
             staged_events=context.state.tool_events,
@@ -757,6 +780,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
             staged_events=context.state.tool_events,
         )
 

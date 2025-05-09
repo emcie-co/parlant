@@ -47,6 +47,7 @@ scenarios(
             "tools",
             "context_variables",
             "triggered_utterances",
+            "observations_and_journeys",
         )
     )
 )

@@ -418,3 +418,17 @@ def transfer_dollars(amount: int, from_account: str, to_account: str) -> ToolRes
     return ToolResult(
         data=f"Transferred ₪{amount} from {from_account} to {to_account} successfully."
     )
+
+
+async def reset_password(
+    username: str,
+    phone_number: Optional[str] = "",
+    email: Optional[str] = "",
+) -> ToolResult:
+    if phone_number == "" and email == "":
+        return ToolResult({"result": "no email or phone number provided - request rejected"})
+    return ToolResult(
+        {
+            "result": f"password for {username} was reset. An email with further instructions was sent to the account's email address."
+        }
+    )

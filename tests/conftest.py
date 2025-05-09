@@ -32,7 +32,13 @@ from parlant.core.context_variables import ContextVariableDocumentStore, Context
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerDocumentStore, CustomerStore
-from parlant.core.engines.alpha import guideline_matcher
+from parlant.core.engines.alpha.guideline_matching import (
+    generic_actionable_batch,
+    generic_observational_batch,
+)
+from parlant.core.engines.alpha.guideline_matching.default_guideline_matching_strategy import (
+    DefaultGuidelineMatchingStrategyResolver,
+)
 from parlant.core.engines.alpha.tool_calling import overlapping_tools_batch, single_tool_batch
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
@@ -51,6 +57,15 @@ from parlant.core.evaluations import (
     PollingEvaluationListener,
     EvaluationDocumentStore,
     EvaluationStore,
+)
+from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.services.indexing.guideline_action_proposer import (
+    GuidelineActionProposer,
+    GuidelineActionPropositionSchema,
+)
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousPropositionSchema,
 )
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.embedding import EmbedderFactory
@@ -75,13 +90,19 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
-    GenericGuidelineMatchingShot,
-    GenericGuidelineMatchesSchema,
-    GenericGuidelineMatching,
-    DefaultGuidelineMatchingStrategyResolver,
     GuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+    GenericActionableGuidelineMatchingShot,
+    GenericActionableGuidelineMatching,
+)
+from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
+    GenericObservationalGuidelineMatchesSchema,
+    GenericObservationalGuidelineMatchingShot,
+    GenericObservationalGuidelineMatching,
 )
 from parlant.core.engines.alpha.message_generator import (
     MessageGenerator,
@@ -95,6 +116,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
+    LegacyBehavioralChangeEvaluator,
     BehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
@@ -224,6 +246,9 @@ async def container(
         container[GuidelineStore] = await stack.enter_async_context(
             GuidelineDocumentStore(TransientDocumentDatabase())
         )
+        container[JourneyStore] = await stack.enter_async_context(
+            JourneyDocumentStore(TransientDocumentDatabase())
+        )
         container[RelationshipStore] = await stack.enter_async_context(
             RelationshipDocumentStore(TransientDocumentDatabase())
         )
@@ -250,6 +275,7 @@ async def container(
             EvaluationDocumentStore(TransientDocumentDatabase())
         )
         container[EvaluationListener] = PollingEvaluationListener
+        container[LegacyBehavioralChangeEvaluator] = LegacyBehavioralChangeEvaluator
         container[BehavioralChangeEvaluator] = BehavioralChangeEvaluator
         container[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
@@ -281,7 +307,8 @@ async def container(
         container[EntityQueries] = Singleton(EntityQueries)
         container[EntityCommands] = Singleton(EntityCommands)
         for generation_schema in (
-            GenericGuidelineMatchesSchema,
+            GenericActionableGuidelineMatchesSchema,
+            GenericObservationalGuidelineMatchesSchema,
             MessageSchema,
             UtteranceDraftSchema,
             UtteranceSelectionSchema,
@@ -292,6 +319,8 @@ async def container(
             ConditionsEntailmentTestsSchema,
             ActionsContradictionTestsSchema,
             GuidelineConnectionPropositionsSchema,
+            GuidelineActionPropositionSchema,
+            GuidelineContinuousPropositionSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -299,7 +328,12 @@ async def container(
                 generation_schema,
             )
 
-        container[ShotCollection[GenericGuidelineMatchingShot]] = guideline_matcher.shot_collection
+        container[ShotCollection[GenericActionableGuidelineMatchingShot]] = (
+            generic_actionable_batch.shot_collection
+        )
+        container[ShotCollection[GenericObservationalGuidelineMatchingShot]] = (
+            generic_observational_batch.shot_collection
+        )
         container[ShotCollection[single_tool_batch.SingleToolBatchShot]] = (
             single_tool_batch.shot_collection
         )
@@ -310,6 +344,8 @@ async def container(
 
         container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
         container[CoherenceChecker] = Singleton(CoherenceChecker)
+        container[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
+        container[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
 
         container[LocalToolService] = cast(
             LocalToolService,
@@ -323,7 +359,12 @@ async def container(
         container[GuidelineMatchingStrategyResolver] = lambda container: container[
             DefaultGuidelineMatchingStrategyResolver
         ]
-        container[GenericGuidelineMatching] = Singleton(GenericGuidelineMatching)
+        container[GenericActionableGuidelineMatching] = Singleton(
+            GenericActionableGuidelineMatching
+        )
+        container[GenericObservationalGuidelineMatching] = Singleton(
+            GenericObservationalGuidelineMatching
+        )
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
 
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
@@ -369,12 +410,21 @@ class NoCachedGenerations:
 @fixture
 def no_cache(container: Container) -> None:
     if isinstance(
-        container[SchematicGenerator[GenericGuidelineMatchesSchema]],
+        container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[GenericGuidelineMatchesSchema],
-            container[SchematicGenerator[GenericGuidelineMatchesSchema]],
+            CachedSchematicGenerator[GenericActionableGuidelineMatchesSchema],
+            container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
+        ).use_cache = False
+
+    if isinstance(
+        container[SchematicGenerator[GenericObservationalGuidelineMatchesSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[GenericObservationalGuidelineMatchesSchema],
+            container[SchematicGenerator[GenericObservationalGuidelineMatchesSchema]],
         ).use_cache = False
 
     if isinstance(

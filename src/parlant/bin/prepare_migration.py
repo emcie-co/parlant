@@ -38,6 +38,16 @@ from parlant.core.context_variables import (
     ContextVariableId,
 )
 from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.evaluations import (
+    EvaluationDocument,
+    EvaluationDocument_v0_1_0,
+    EvaluationId,
+    EvaluationTagAssociationDocument,
+    GuidelineContentDocument,
+    GuidelinePayloadDocument,
+    InvoiceDocument,
+    InvoiceGuidelineDataDocument,
+)
 from parlant.core.glossary import (
     TermDocument_v0_1_0,
     TermTagAssociationDocument,
@@ -150,6 +160,13 @@ async def get_component_versions() -> list[tuple[str, str]]:
     )
     if context_vars_version:
         versions.append(("context_variables", context_vars_version))
+
+    evaluations_version = _get_version_from_json_file(
+        PARLANT_HOME_DIR / "evaluations.json",
+        "evaluations",
+    )
+    if evaluations_version:
+        versions.append(("evaluations", evaluations_version))
 
     guideline_connections_version = _get_version_from_json_file(
         PARLANT_HOME_DIR / "guideline_connections.json",
@@ -627,6 +644,95 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
     await db.upsert_metadata("version", Version.String("0.2.0"))
 
     rich.print("[green]Successfully migrated glossary from 0.1.0 to 0.2.0")
+
+
+@register_migration("evaluations", "0.1.0", "0.2.0")
+async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
+    async def _association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[EvaluationTagAssociationDocument]:
+        return cast(EvaluationTagAssociationDocument, doc)
+
+    rich.print("[green]Starting migration for evaluations 0.1.0 -> 0.2.0")
+    evaluations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "evaluations.json")
+    )
+
+    evaluation_collection = await evaluations_db.get_or_create_collection(
+        "evaluations",
+        BaseDocument,
+        identity_loader,
+    )
+
+    evaluation_tag_associations_collection = await evaluations_db.get_or_create_collection(
+        "evaluation_tag_associations",
+        EvaluationTagAssociationDocument,
+        _association_document_loader,
+    )
+
+    for doc in await evaluation_collection.find(filters={}):
+        if doc["version"] == "0.1.0":
+            evaluation_doc = cast(EvaluationDocument_v0_1_0, doc)
+
+            new_evaluation = EvaluationDocument(
+                id=evaluation_doc["id"],
+                version=Version.String("0.2.0"),
+                creation_utc=evaluation_doc["creation_utc"],
+                status=evaluation_doc["status"],
+                error=evaluation_doc["error"],
+                invoices=[
+                    InvoiceDocument(
+                        kind=i["kind"],
+                        payload=GuidelinePayloadDocument(
+                            content=GuidelineContentDocument(
+                                condition=i["payload"]["content"]["condition"],
+                                action=i["payload"]["content"]["action"],
+                            ),
+                            tool_ids=[],
+                            action=i["payload"]["action"],
+                            updated_id=i["payload"]["updated_id"],
+                            coherence_check=i["payload"]["coherence_check"],
+                            connection_proposition=i["payload"]["connection_proposition"],
+                            action_proposition=False,
+                            properties_proposition=False,
+                        ),
+                        checksum=i["checksum"],
+                        state_version=i["state_version"],
+                        approved=i["approved"],
+                        data=InvoiceGuidelineDataDocument(
+                            coherence_checks=i["data"]["coherence_checks"],
+                            connection_propositions=i["data"]["connection_propositions"],
+                            action_proposition=None,
+                            properties_proposition=None,
+                        )
+                        if i["data"] is not None
+                        else None,
+                        error=None,
+                    )
+                    for i in evaluation_doc["invoices"]
+                ],
+                progress=evaluation_doc["progress"],
+            )
+
+            await evaluation_collection.delete_one(
+                filters={"id": {"$eq": ObjectId(evaluation_doc["id"])}},
+            )
+
+            await evaluation_collection.insert_one(new_evaluation)
+
+            await evaluation_tag_associations_collection.insert_one(
+                {
+                    "id": ObjectId(generate_id()),
+                    "version": Version.String("0.2.0"),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
+                    "evaluation_id": EvaluationId(evaluation_doc["id"]),
+                    "tag_id": Tag.for_agent_id(evaluation_doc["agent_id"]),
+                }
+            )
+
+    await upgrade_document_database_metadata(evaluations_db, Version.String("0.2.0"))
+
+    rich.print("[green]Successfully migrated evaluations from 0.1.0 to 0.2.0")
 
 
 async def upgrade_document_database_metadata(

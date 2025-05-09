@@ -23,7 +23,7 @@ from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
 from parlant.core.tools import Tool
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline
 from parlant.core.sessions import Event, EventKind, MessageEventData, EventSource, EventId
 

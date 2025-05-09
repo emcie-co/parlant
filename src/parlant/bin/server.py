@@ -34,8 +34,26 @@ import uvicorn
 from parlant.bin.prepare_migration import detect_required_migrations
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.chroma import ChromaDatabase
-from parlant.core.engines.alpha import guideline_matcher
 from parlant.core.engines.alpha import message_generator
+from parlant.core.engines.alpha.guideline_matching.default_guideline_matching_strategy import (
+    DefaultGuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching import generic_actionable_batch
+from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+    GenericActionableGuidelineMatching,
+    GenericActionableGuidelineMatchingShot,
+)
+from parlant.core.engines.alpha.guideline_matching import generic_observational_batch
+from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
+    GenericObservationalGuidelineMatchesSchema,
+    GenericObservationalGuidelineMatching,
+    GenericObservationalGuidelineMatchingShot,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatcher,
+    GuidelineMatchingStrategyResolver,
+)
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
@@ -48,6 +66,15 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceSelectionSchema,
     UtteranceRevisionSchema,
     UtteranceSelector,
+)
+from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.services.indexing.guideline_action_proposer import (
+    GuidelineActionProposer,
+    GuidelineActionPropositionSchema,
+)
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousPropositionSchema,
 )
 from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
 from parlant.core.nlp.service import NLPService
@@ -105,14 +132,7 @@ from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
-from parlant.core.engines.alpha.guideline_matcher import (
-    GenericGuidelineMatching,
-    GuidelineMatcher,
-    GenericGuidelineMatchingShot,
-    GenericGuidelineMatchesSchema,
-    DefaultGuidelineMatchingStrategyResolver,
-    GuidelineMatchingStrategyResolver,
-)
+
 from parlant.core.engines.alpha.message_generator import (
     MessageGenerator,
     MessageGeneratorShot,
@@ -122,6 +142,7 @@ from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -297,7 +318,12 @@ async def setup_container() -> AsyncIterator[Container]:
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
 
-    c[ShotCollection[GenericGuidelineMatchingShot]] = guideline_matcher.shot_collection
+    c[ShotCollection[GenericActionableGuidelineMatchingShot]] = (
+        generic_actionable_batch.shot_collection
+    )
+    c[ShotCollection[GenericObservationalGuidelineMatchingShot]] = (
+        generic_observational_batch.shot_collection
+    )
     c[ShotCollection[SingleToolBatchShot]] = single_tool_batch.shot_collection
     c[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
 
@@ -311,6 +337,10 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
+    c[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
+    c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
+
+    c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
     c[EvaluationListener] = Singleton(PollingEvaluationListener)
 
@@ -383,6 +413,9 @@ async def initialize_container(
     glossary_tags_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "glossary_tags.json")
     )
+    journeys_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "journeys.json")
+    )
 
     try:
         try_define(
@@ -440,6 +473,9 @@ async def initialize_container(
             EvaluationStore,
             await EXIT_STACK.enter_async_context(EvaluationDocumentStore(evaluations_db, migrate)),
         )
+        c[JourneyStore] = await EXIT_STACK.enter_async_context(
+            JourneyDocumentStore(journeys_db, migrate)
+        )
 
         nlp_service_initializer: dict[str, Callable[[], NLPService]] = {
             "anthropic": load_anthropic,
@@ -494,7 +530,8 @@ async def initialize_container(
         )
 
     for schema in (
-        GenericGuidelineMatchesSchema,
+        GenericActionableGuidelineMatchesSchema,
+        GenericObservationalGuidelineMatchesSchema,
         MessageSchema,
         UtteranceDraftSchema,
         UtteranceSelectionSchema,
@@ -505,10 +542,20 @@ async def initialize_container(
         ActionsContradictionTestsSchema,
         GuidelineConnectionPropositionsSchema,
         OverlappingToolsBatchSchema,
+        GuidelineActionPropositionSchema,
+        GuidelineContinuousPropositionSchema,
     ):
         try_define(SchematicGenerator[schema], await nlp_service.get_schematic_generator(schema))  # type: ignore
 
-    try_define(GenericGuidelineMatching, Singleton(GenericGuidelineMatching))
+    try_define(
+        GenericObservationalGuidelineMatching,
+        Singleton(GenericObservationalGuidelineMatching),
+    )
+
+    try_define(
+        GenericActionableGuidelineMatching,
+        Singleton(GenericActionableGuidelineMatching),
+    )
 
     try_define(
         DefaultGuidelineMatchingStrategyResolver,
@@ -533,7 +580,7 @@ async def initialize_container(
 
 async def recover_server_tasks(
     evaluation_store: EvaluationStore,
-    evaluator: BehavioralChangeEvaluator,
+    evaluator: LegacyBehavioralChangeEvaluator,
 ) -> None:
     for evaluation in await evaluation_store.list_evaluations():
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
@@ -586,7 +633,7 @@ async def load_app(params: CLIParams) -> AsyncIterator[ASGIApplication]:
 
         await recover_server_tasks(
             evaluation_store=actual_container[EvaluationStore],
-            evaluator=actual_container[BehavioralChangeEvaluator],
+            evaluator=actual_container[LegacyBehavioralChangeEvaluator],
         )
 
         await create_agent_if_absent(actual_container[AgentStore])

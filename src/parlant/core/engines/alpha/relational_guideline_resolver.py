@@ -16,8 +16,8 @@ from collections import defaultdict
 from itertools import chain
 from typing import Sequence, cast
 
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
 from parlant.core.loggers import Logger
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.relationships import (
     EntityType,
     GuidelineRelationshipKind,

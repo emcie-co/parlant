@@ -32,19 +32,24 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
-from parlant.core.glossary import Term
-from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.default_guideline_matching_strategy import (
     DefaultGuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
-    GenericGuidelineMatchesSchema,
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingStrategy,
     GuidelineMatchingContext,
+    GuidelineMatchingStrategy,
     GuidelineMatchingStrategyResolver,
 )
-from parlant.core.engines.alpha.guideline_match import (
+from parlant.core.glossary import Term
+from parlant.core.nlp.generation import SchematicGenerator
+
+from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
 )
@@ -58,8 +63,50 @@ from parlant.core.tags import TagId, Tag
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
+OBSERVATIONAL_GUIDELINES_DICT = {
+    "vegetarian_customer": {
+        "condition": "the customer is vegetarian or vegan",
+        "observation": "-",
+    },
+    "lock_card_request_1": {
+        "condition": "the customer indicated that they wish to lock their credit card",
+        "observation": "-",
+    },
+    "lock_card_request_2": {
+        "condition": "the customer lost their credit card",
+        "observation": "-",
+    },
+    "season_is_winter": {
+        "condition": "it is the season of winter",
+        "observation": "-",
+    },
+    "frustrated_customer_observational": {
+        "condition": "the customer is frustrated",
+        "observation": "-",
+    },
+    "unclear_request": {
+        "condition": "the customer indicates that the agent does not understand their request",
+        "observation": "-",
+    },
+    "credit_limits_discussion": {
+        "condition": "credit limits are discussed",
+        "observation": "-",
+    },
+    "unknown_service": {
+        "condition": "The customer is asking for a service you have no information about within this prompt",
+        "observation": "-",
+    },
+    "delivery_order": {
+        "condition": "the customer is in the process of ordering delivery",
+        "observation": "-",
+    },
+    "unanswered_questions": {
+        "condition": "the customer repeatedly ignores the agent's question, and they remain unanswered",
+        "observation": "-",
+    },
+}
 
-GUIDELINES_DICT = {
+ACTIONABLE_GUIDELINES_DICT = {
     "check_drinks_in_stock": {
         "condition": "a customer asks for a drink",
         "action": "check if the drink is available in the following stock: "
@@ -206,7 +253,7 @@ class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    schematic_generator: SchematicGenerator[GenericGuidelineMatchesSchema]
+    schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema]
     logger: Logger
 
 
@@ -220,7 +267,7 @@ def context(
         sync_await,
         guidelines=list(),
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[GenericGuidelineMatchesSchema]],
+        schematic_generator=container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
     )
 
 
@@ -260,7 +307,7 @@ def match_guidelines(
 def create_guideline(
     context: ContextOfTest,
     condition: str,
-    action: str,
+    action: str | None = None,
     tags: list[TagId] = [],
 ) -> Guideline:
     guideline = Guideline(
@@ -313,12 +360,20 @@ def create_context_variable(
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
-) -> Guideline:
-    guideline = create_guideline(
-        context=context,
-        condition=GUIDELINES_DICT[guideline_name]["condition"],
-        action=GUIDELINES_DICT[guideline_name]["action"],
-    )
+) -> Guideline | None:
+    if guideline_name in ACTIONABLE_GUIDELINES_DICT:
+        guideline = create_guideline(
+            context=context,
+            condition=ACTIONABLE_GUIDELINES_DICT[guideline_name]["condition"],
+            action=ACTIONABLE_GUIDELINES_DICT[guideline_name]["action"],
+        )
+    elif guideline_name in OBSERVATIONAL_GUIDELINES_DICT:
+        guideline = create_guideline(
+            context=context,
+            condition=OBSERVATIONAL_GUIDELINES_DICT[guideline_name]["condition"],
+        )
+    else:
+        guideline = None
     return guideline
 
 
@@ -441,7 +496,7 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
         (EventSource.CUSTOMER, "I'll take pepperoni, thanks."),
         (
             EventSource.AI_AGENT,
-            "Awesome. I've added a large pepperoni pizza. " "Would you like a drink on the side?",
+            "Awesome. I've added a large pepperoni pizza. Would you like a drink on the side?",
         ),
         (
             EventSource.CUSTOMER,
@@ -1179,3 +1234,622 @@ def test_that_strategy_for_specific_guideline_can_be_overridden_in_default_strat
     guideline_matches = match_guidelines(context, agent, customer, conversation_context)
 
     assert guideline.id in [match.guideline.id for match in guideline_matches]
+
+
+def test_that_observational_guidelines_are_detected_1(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I want to order a pizza. Which toppings do you have?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! We have pepperoni, tomatoes, mushrooms and olives",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Oh, I'm on a plant-based diet. Do you have pizzas that I could eat?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["vegetarian_customer"]
+    relevant_guideline_names = ["vegetarian_customer"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_irrelevant_observational_guidelines_are_not_detected_1(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I want to order a pizza. Which toppings do you have?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! We have pepperoni, tomatoes, mushrooms and olives",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I don't like pepperoni, so I guess I'll go with mushrooms",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["vegetarian_customer"]
+    relevant_guideline_names: list[str] = []
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_detected_2(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I didn't get any help from the previous representative. If this continues I'll switch to the competitors. Don't thread on me!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! I apologize for what happened on your previous interaction with us - what is it that you're trying to do exactly?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm looking to modify an order I made through the online store",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["frustrated_customer_observational"]
+    relevant_guideline_names = ["frustrated_customer_observational"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_irrelevant_observational_guidelines_are_not_detected_2(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hello, I need some banking help today",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! I'd be happy to help with your banking needs. What specific assistance are you looking for today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I want a new account",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure thing! Do you know what kind of account you're looking for? Is it personal or for business?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "hi",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hello! I see you were interested in opening a new account. I'd be happy to help with that. We offer several account types:\n\n1. Personal checking accounts\n2. Personal savings accounts\n3. Business accounts\n4. Investment accounts\n\nWhich one would you like to learn more about?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "the personal saving one",
+        ),
+    ]
+
+    context_variables = [
+        create_context_variable(
+            name="customer_location",
+            data={"location": "Australia"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = [
+        "unanswered_questions",
+        "unknown_service",
+        "delivery_order",
+    ]
+    relevant_guideline_names: list[str] = []
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=context_variables,
+    )
+
+
+def test_that_observational_guidelines_are_detected_3(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I want one family size mushroom pie",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it! Would you like to pick it up from our store? It will take at least 15 minutes to prepare.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Do you guys deliver to the city?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We do! Would you like to pick up your order or to have it delivered?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Let's just say that I'd like to play the old tambourine, can you help me do that?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = [
+        "delivery_order",
+        "unknown_service",
+        "unanswered_questions",
+    ]
+    relevant_guideline_names = ["unknown_service", "unanswered_questions"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_detected_5(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Can you sign me up to a saving plan based on my current balance?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = [
+        "unknown_service",
+    ]
+    relevant_guideline_names = ["unknown_service"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_detected_4(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I'm having trouble with my credit card statement.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm sorry to hear you're having trouble with your credit card statement. I'd be happy to help. Could you please let me know what specific issue you're experiencing?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I made a payment two weeks ago but it's not showing up.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for providing that information. I understand how concerning it can be when a payment doesn't appear on your statement. To help you better, could you tell me when exactly you made the payment, how much it was for, and which payment method you used?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It was $500 on March 15th using the online banking system.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for those details. I'll look into this for you right away. Sometimes online payments can take 1-3 business days to process, but it definitely should have appeared by now. Let me check our records to see if there's any trace of your $500 payment from March 15th. May I have the last four digits of your credit card to verify your account?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "The last four digits are 4321.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for providing that information. I can see your account ending in 4321, and I'm checking for the $500 payment from March 15th. I do see a payment was initiated on that date, but it appears there might have been a processing delay. The good news is that the payment has been applied to your account as of March 18th. It should be reflected in your next statement. Is there anything else about your credit card account I can help you with today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, I'd like to add interest on my credit limits.",
+        ),
+    ]
+    conversation_guideline_names = ["unknown_service", "credit_limits_discussion"]
+
+    relevant_guideline_names = ["unknown_service", "credit_limits_discussion"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_detected_based_on_context_variables(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I didn't get any help from the previous representative. If this continues I'll switch to the competitors. Don't thread on me!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! I apologize for what happened on your previous interaction with us - what is it that you're trying to do exactly?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm looking to modify an order I made through the online store",
+        ),
+    ]
+
+    context_variables = [
+        create_context_variable(
+            name="user_id_1",
+            data={"name": "Jimmy McGill", "ID": 566317},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+        create_context_variable(
+            name="season",
+            data={"season": "Winter"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = ["season_is_winter"]
+    relevant_guideline_names = ["season_is_winter"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=context_variables,
+    )
+
+
+def test_that_observational_guidelines_are_detected_based_on_tool_results(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I didn't get any help from the previous representative. If this continues I'll switch to the competitors. Don't thread on me!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! I apologize for what happened on your previous interaction with us - what is it that you're trying to do exactly?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm looking to modify an order I made through the online store",
+        ),
+    ]
+
+    tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:get_season",
+                    "arguments": {},
+                    "result": {"data": "winter", "metadata": {}, "control": {}},
+                }
+            ]
+        },
+    )
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = [
+        "season_is_winter",
+        "lock_card_request_1",
+        "lock_card_request_2",
+    ]
+    relevant_guideline_names = ["season_is_winter"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        staged_events=staged_events,
+    )
+
+
+def test_that_observational_guidelines_are_matched_based_on_glossary(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    terms = [
+        create_term(
+            name="play the old tambourine",
+            description="local slang for getting your order delivered to your home",
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I want one family size mushroom pie",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it! Would you like to pick it up from our store? It will take at least 15 minutes to prepare.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Do you guys deliver to the city?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We do! Would you like to pick up your order or to have it delivered?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Let's just say that I'd like to play the old tambourine, can you help me with that?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = [
+        "delivery_order",
+        "unknown_service",
+        "unanswered_questions",
+    ]
+    relevant_guideline_names = ["delivery_order"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        terms=terms,
+    )
+
+
+def test_that_observational_guidelines_are_matched_based_on_vague_customer_message(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "credit limits",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["credit_limits_discussion"]
+    relevant_guideline_names = ["credit_limits_discussion"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_observational_guidelines_are_matched_based_on_old_messages(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hello, I need to lock my credit card immediately. I think I lost it.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm sorry to hear about your lost card. I can help you lock it right away. Could you please verify the last four digits of the card you need to lock?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It's 7890.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you for verifying. I've placed a temporary lock on your credit card ending in 7890. This will prevent any new purchases, cash advances, or balance transfers. The lock is effective immediately. Would you like me to order a replacement card for you as well?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes please, send it to my home address.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I've ordered a replacement card to be sent to your home address on file. You should receive it within 5-7 business days. Is there anything else I can assist you with regarding your card?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "That's all for the card. Actually, I've been thinking about investing. What stocks do you think I should buy?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I understand you're interested in exploring investment opportunities. While I can't recommend specific stocks, I'd be happy to discuss our investment services. We offer managed portfolios, self-directed trading accounts, and retirement investment options. What are your investment goals? Are you looking for long-term growth, income generation, or something else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm mostly interested in tech stocks for long-term growth.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Long-term growth in the technology sector is a popular investment strategy. Our bank offers several ways to invest in technology. You could consider our Technology Sector Fund which provides diversified exposure to various tech companies, or our self-directed trading platform if you prefer selecting individual stocks. Would you like me to connect you with one of our investment advisors who can provide more detailed information based on your specific financial situation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "How much would I need to start with the Technology Sector Fund?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Our Technology Sector Fund has a minimum initial investment of $1,000. After that, you can make additional investments of $100 or more at any time. The fund has an expense ratio of 0.85%, which is competitive for actively managed sector funds. Would you like me to send you our fund prospectus with more detailed information about historical performance and holdings?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, please email me the prospectus. And what about cryptocurrency investments?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'll email the Technology Sector Fund prospectus to the address we have on file for you. Regarding cryptocurrency, our bank recently launched a Cryptocurrency Investment Platform that allows you to invest in major cryptocurrencies like Bitcoin and Ethereum. This platform requires a minimum investment of $500 and includes educational resources to help you understand this asset class. We also offer a Cryptocurrency Index Fund that provides diversified exposure across multiple digital currencies. Would you like information about either of these options?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
+    relevant_guideline_names = ["lock_card_request_1", "lock_card_request_2"]
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+def test_that_both_observational_and_actionable_guidelines_are_matched_together(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I'm looking for a class to help me relax. It's been a stressful winter.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome! I understand that winter can be stressful. We have several relaxation classes available. Would you like to hear about our meditation or yoga options?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'd be interested in booking a meditation class, but I'm not sure which one is right for me.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We have beginner meditation every Monday at 6 PM, and advanced sessions on Thursdays at 7 PM. Both are excellent for stress relief. Which would work better for your schedule?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Monday at 6 PM sounds perfect. How do I book it?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great choice! I can book you for the Monday 6 PM meditation class. Could you please provide your name and contact information?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm Taylor Smith, phone is 555-123-4567. By the way, do you have any vegan food options in your café?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thanks, Taylor! I've booked your Monday 6 PM meditation class. And yes, our café offers several vegan options including smoothies, salads, and plant-based protein bowls. Would you like to order something to enjoy after your class?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Not right now, thank you. Oh, I just realized - I might be running late. Where exactly is your location?",
+        ),
+    ]
+
+    conversation_guideline_names: list[str] = [
+        # Observational Guidelines
+        "vegetarian_customer",
+        "season_is_winter",
+        "frustrated_customer_observational",
+        "unclear_request",
+        "credit_limits_discussion",
+        "unknown_service",
+        "delivery_order",
+        "unanswered_questions",
+        "lock_card_request_1",
+        "lock_card_request_2",
+        # Actionable guidelines
+        "address_location",
+        "class_booking",
+        "holiday_season",
+        "first_time_customer",
+        "request_for_feedback",
+        "large_pizza_crust",
+        "announce_deals",
+        "summer_sale",
+        "frustrated_customer",
+    ]
+
+    relevant_guideline_names = [
+        "vegetarian_customer",
+        "address_location",
+    ]
+    context_variables = [
+        create_context_variable(
+            name="season",
+            data={"season": "Spring"},
+            tags=[Tag.for_agent_id(agent.id)],
+        ),
+    ]
+
+    base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+        context_variables=context_variables,
+    )

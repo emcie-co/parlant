@@ -29,6 +29,8 @@ TBD
 - Added new guideline relationship: Dependency
 - Added tool relationships and the OVERLAP relationship
 - Added the 'overlap' property to tools. By default, tools will be assumed not to overlap with each other, simplifying their evaluation at runtime.
+- Introduce ToolBatchers
+- Introduce Journey
 
 ### Changed
 - Improved tool calling efficiency by adjusting the prompt to the tool at hand

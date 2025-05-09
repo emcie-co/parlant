@@ -36,7 +36,7 @@ networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "1.1.21"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1745947308" }
+parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1746006100" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -45,7 +45,6 @@ rich = "^13.7.1"
 semver = "^3.0.2"
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
-tenacity = "^8.4.2"
 tiktoken = "^0.8"
 tokenizers = "^0.20"
 toml = "^0.10.2"

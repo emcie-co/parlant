@@ -160,7 +160,7 @@ class StatusEventData(TypedDict):
 class GuidelineMatch(TypedDict):
     guideline_id: GuidelineId
     condition: str
-    action: str
+    action: Optional[str]
     score: int
     rationale: str
 

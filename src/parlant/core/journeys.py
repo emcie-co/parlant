@@ -69,6 +69,7 @@ class JourneyStore(ABC):
     async def list_journeys(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        condition: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -124,9 +125,16 @@ class _JourneyDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
-    conditions: Sequence[GuidelineId]
     title: str
     description: str
+
+
+class _JourneyConditionAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    journey_id: JourneyId
+    condition: GuidelineId
 
 
 class _JourneyTagAssociationDocument(TypedDict, total=False):
@@ -143,6 +151,9 @@ class JourneyDocumentStore(JourneyStore):
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
         self._journeys_collection: DocumentCollection[_JourneyDocument]
+        self._condition_association_collection: DocumentCollection[
+            _JourneyConditionAssociationDocument
+        ]
         self._tag_association_collection: DocumentCollection[_JourneyTagAssociationDocument]
         self._allow_migration = allow_migration
 
@@ -151,6 +162,13 @@ class JourneyDocumentStore(JourneyStore):
     async def _document_loader(self, doc: BaseDocument) -> Optional[_JourneyDocument]:
         if doc["version"] == "0.1.0":
             return cast(_JourneyDocument, doc)
+        return None
+
+    async def _condition_document_loader(
+        self, doc: BaseDocument
+    ) -> Optional[_JourneyConditionAssociationDocument]:
+        if doc["version"] == "0.1.0":
+            return cast(_JourneyConditionAssociationDocument, doc)
         return None
 
     async def _association_document_loader(
@@ -170,6 +188,12 @@ class JourneyDocumentStore(JourneyStore):
                 name="journeys",
                 schema=_JourneyDocument,
                 document_loader=self._document_loader,
+            )
+
+            self._condition_association_collection = await self._database.get_or_create_collection(
+                name="journey_conditions",
+                schema=_JourneyConditionAssociationDocument,
+                document_loader=self._condition_document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
@@ -193,12 +217,18 @@ class JourneyDocumentStore(JourneyStore):
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             creation_utc=datetime.now(timezone.utc).isoformat(),
-            conditions=journey.conditions,
             title=journey.title,
             description=journey.description,
         )
 
     async def _deserialize_journey(self, journey_document: _JourneyDocument) -> Journey:
+        conditions = [
+            d["condition"]
+            for d in await self._condition_association_collection.find(
+                {"journey_id": {"$eq": journey_document["id"]}}
+            )
+        ]
+
         tags = [
             d["tag_id"]
             for d in await self._tag_association_collection.find(
@@ -208,7 +238,7 @@ class JourneyDocumentStore(JourneyStore):
 
         return Journey(
             id=JourneyId(journey_document["id"]),
-            conditions=journey_document["conditions"],
+            conditions=conditions,
             title=journey_document["title"],
             description=journey_document["description"],
             tags=tags,
@@ -230,6 +260,17 @@ class JourneyDocumentStore(JourneyStore):
                 description=description,
                 tags=tags or [],
             )
+
+            for condition in conditions:
+                await self._condition_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(generate_id()),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": datetime.now(timezone.utc).isoformat(),
+                        "journey_id": journey.id,
+                        "condition": condition,
+                    }
+                )
 
             await self._journeys_collection.insert_one(
                 document=self._serialize_journey(journey=journey)
@@ -253,8 +294,11 @@ class JourneyDocumentStore(JourneyStore):
     async def list_journeys(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        condition: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
+        tag_journey_ids: set[JourneyId] = set()
+        condition_journey_ids: set[JourneyId] = set()
 
         async with self._lock.reader_lock:
             if tags is not None:
@@ -271,12 +315,30 @@ class JourneyDocumentStore(JourneyStore):
                     tag_associations = await self._tag_association_collection.find(
                         filters=tag_filters
                     )
-                    journey_ids = {assoc["journey_id"] for assoc in tag_associations}
+                    tag_journey_ids = {assoc["journey_id"] for assoc in tag_associations}
 
-                    if not journey_ids:
+                    if not tag_journey_ids:
                         return []
 
-                    filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
+            if condition is not None:
+                condition_journey_ids = {
+                    c_doc["journey_id"]
+                    for c_doc in await self._condition_association_collection.find(
+                        filters={"condition": {"$eq": condition}}
+                    )
+                }
+
+            if tag_journey_ids and condition_journey_ids:
+                filters = {
+                    "$or": [
+                        {"id": {"$eq": id}}
+                        for id in tag_journey_ids.intersection(condition_journey_ids)
+                    ]
+                }
+            elif tag_journey_ids:
+                filters = {"$or": [{"id": {"$eq": id}} for id in tag_journey_ids]}
+            elif condition_journey_ids:
+                filters = {"$or": [{"id": {"$eq": id}} for id in condition_journey_ids]}
 
             return [
                 await self._deserialize_journey(d)
@@ -330,13 +392,22 @@ class JourneyDocumentStore(JourneyStore):
         async with self._lock.writer_lock:
             result = await self._journeys_collection.delete_one({"id": {"$eq": journey_id}})
 
-            for doc in await self._tag_association_collection.find(
+            for c_doc in await self._condition_association_collection.find(
+                filters={
+                    "journey_id": {"$eq": journey_id},
+                }
+            ):
+                await self._condition_association_collection.delete_one(
+                    filters={"id": {"$eq": c_doc["id"]}}
+                )
+
+            for t_doc in await self._tag_association_collection.find(
                 filters={
                     "journey_id": {"$eq": journey_id},
                 }
             ):
                 await self._tag_association_collection.delete_one(
-                    filters={"id": {"$eq": doc["id"]}}
+                    filters={"id": {"$eq": t_doc["id"]}}
                 )
 
         if result.deleted_count == 0:
@@ -354,11 +425,14 @@ class JourneyDocumentStore(JourneyStore):
             if condition in journey.conditions:
                 return False
 
-            conditions = list(journey.conditions) + [condition]
-
-            await self._journeys_collection.update_one(
-                filters={"id": {"$eq": journey_id}},
-                params=cast(_JourneyDocument, {"conditions": conditions}),
+            await self._condition_association_collection.insert_one(
+                document={
+                    "id": ObjectId(generate_id()),
+                    "version": self.VERSION.to_string(),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
+                    "journey_id": journey_id,
+                    "condition": condition,
+                }
             )
 
             return True
@@ -370,16 +444,11 @@ class JourneyDocumentStore(JourneyStore):
         condition: GuidelineId,
     ) -> bool:
         async with self._lock.writer_lock:
-            journey = await self.read_journey(journey_id)
-
-            if condition not in journey.conditions:
-                return False
-
-            conditions = [c for c in journey.conditions if c != condition]
-
-            await self._journeys_collection.update_one(
-                filters={"id": {"$eq": journey_id}},
-                params=cast(_JourneyDocument, {"conditions": conditions}),
+            await self._condition_association_collection.delete_one(
+                filters={
+                    "journey_id": {"$eq": journey_id},
+                    "condition": {"$eq": condition},
+                }
             )
 
             return True

@@ -380,11 +380,20 @@ def create_router(
         if params.conditions:
             if params.conditions.add:
                 for condition in params.conditions.add:
-                    await journey_store.add_condition(journey_id=journey_id, condition=condition)
+                    await journey_store.add_condition(
+                        journey_id=journey_id,
+                        condition=condition,
+                    )
 
             if params.conditions.remove:
                 for condition in params.conditions.remove:
-                    await journey_store.remove_condition(journey_id=journey_id, condition=condition)
+                    await journey_store.remove_condition(
+                        journey_id=journey_id,
+                        condition=condition,
+                    )
+
+                if not await journey_store.list_journeys(condition=condition):
+                    await guideline_store.delete_guideline(guideline_id=condition)
 
         update_params: JourneyUpdateParams = {}
         if params.title:
@@ -445,6 +454,7 @@ def create_router(
 
         await journey_store.delete_journey(journey_id=journey_id)
         for condition in journey.conditions:
-            await guideline_store.delete_guideline(guideline_id=condition)
+            if not await journey_store.list_journeys(condition=condition):
+                await guideline_store.delete_guideline(guideline_id=condition)
 
     return router

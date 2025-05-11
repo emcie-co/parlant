@@ -49,8 +49,8 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
-from parlant.core.engines.alpha import guideline_matcher_test_api
-import parlant.core.engines.alpha.tool_call_inference_test_api
+from parlant.api import guideline_matcher_test_api
+import parlant.api.tool_call_inference_test_api
 from parlant.core.engines.alpha.guideline_matcher import GuidelineMatcher
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCaller
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
@@ -425,12 +425,14 @@ async def configure_test_router(
     )
     app.include_router(test_router_guideline_matching, prefix="/test/alpha/guideline-matching")
 
-    test_router_tool_call_inference = parlant.core.engines.alpha.tool_call_inference_test_api.create_test_tool_call_inference_router(
-        tool_caller=container[ToolCaller],
-        agent_store=container[AgentStore],
-        customer_store=container[CustomerStore],
-        session_store=container[SessionStore],
-        tool_service=container[LocalToolService],
+    test_router_tool_call_inference = (
+        parlant.api.tool_call_inference_test_api.create_test_tool_call_inference_router(
+            tool_caller=container[ToolCaller],
+            agent_store=container[AgentStore],
+            customer_store=container[CustomerStore],
+            session_store=container[SessionStore],
+            tool_service=container[LocalToolService],
+        )
     )
     app.include_router(test_router_tool_call_inference, prefix="/test/alpha/tool-call-inference")
 

@@ -49,13 +49,13 @@ from parlant.api import customers
 from parlant.api import logs
 from parlant.api import utterances
 from parlant.core.capabilities import CapabilityStore
+from parlant.api import guideline_matcher_test_api
+from parlant.api import tool_call_inference_test_api
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
-from parlant.core.engines.alpha import test_api_guideline_matcher
-from parlant.core.engines.alpha import tool_call_inference_test_api
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatcher
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCaller
 from parlant.core.evaluations import EvaluationStore, EvaluationListener

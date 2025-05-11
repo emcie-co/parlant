@@ -33,6 +33,7 @@ from rich.text import Text
 import sys
 from typing import Any, Callable, Iterator, Optional, OrderedDict, cast
 
+from parlant.api.common import RelationshipKindDTO
 from parlant.client import ParlantClient
 from parlant.client.core import ApiError
 from parlant.client.types import (
@@ -46,7 +47,6 @@ from parlant.client.types import (
     EventInspectionResult,
     Guideline,
     Relationship,
-    RelationshipKindDto,
     GuidelineToolAssociation,
     GuidelineToolAssociationUpdateParams,
     GuidelineTagsUpdateParams,
@@ -439,7 +439,7 @@ class Actions:
         ctx: click.Context,
         source: str,
         target: str,
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
     ) -> Relationship:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -460,7 +460,7 @@ class Actions:
         id: Optional[str],
         source_id: Optional[str],
         target_id: Optional[str],
-        kind: Optional[RelationshipKindDto],
+        kind: Optional[RelationshipKindDTO],
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -506,7 +506,7 @@ class Actions:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
         indirect: bool,
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
@@ -1857,7 +1857,7 @@ class Interface:
         ctx: click.Context,
         source_id: str,
         target_id: str,
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
     ) -> None:
         try:
             relationship = Actions.create_relationship(
@@ -1878,7 +1878,7 @@ class Interface:
         id: Optional[str],
         source_id: Optional[str],
         target_id: Optional[str],
-        kind: Optional[RelationshipKindDto],
+        kind: Optional[RelationshipKindDTO],
     ) -> None:
         try:
             relationship_id = Actions.remove_relationship(
@@ -1899,7 +1899,7 @@ class Interface:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
         indirect: bool,
     ) -> None:
         try:
@@ -3261,7 +3261,7 @@ async def async_main() -> None:
         ctx: click.Context,
         source: str,
         target: str,
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
     ) -> None:
         Interface.create_relationship(
             ctx=ctx,
@@ -3301,7 +3301,7 @@ async def async_main() -> None:
         id: Optional[str],
         source: Optional[str],
         target: Optional[str],
-        kind: Optional[RelationshipKindDto],
+        kind: Optional[RelationshipKindDTO],
     ) -> None:
         if id:
             if source or target or kind:
@@ -3351,7 +3351,7 @@ async def async_main() -> None:
         ctx: click.Context,
         guideline_id: Optional[str],
         tag: Optional[str],
-        kind: RelationshipKindDto,
+        kind: RelationshipKindDTO,
         indirect: bool,
     ) -> None:
         if guideline_id and tag:

@@ -170,3 +170,46 @@ Feature: Fluid Utterance
         When processing is triggered
         Then a single message event is emitted
         And the message contains either asking for the name of the person traveling, or informing them that they can only travel in economy class
+
+
+    Scenario: The agent greets the customer (strict utterance)
+        Given a guideline to greet with 'Howdy' when the session starts
+        And an utterance, "Hello there! How can I help you today?"
+        And an utterance, "Howdy! How can I be of service to you today?"
+        And an utterance, "Thank you for your patience!"
+        And an utterance, "Is there anything else I could help you with?"
+        And an utterance, "I'll look into that for you right away."
+        When processing is triggered
+        Then a status event is emitted, acknowledging event -1
+        And a status event is emitted, processing event -1
+        And a status event is emitted, typing in response to event -1
+        And a single message event is emitted
+        And the message contains a 'Howdy' greeting
+
+    Scenario: The agent offers a thirsty customer a drink (strict utterance)
+        Given a customer message, "I'm thirsty"
+        And a guideline to offer thirsty customers a Pepsi when the customer is thirsty
+        And an utterance, "Would you like a Pepsi? I can get one for you right away."
+        And an utterance, "I understand you're thirsty. Can I get you something to drink?"
+        And an utterance, "Is there anything specific you'd like to drink?"
+        And an utterance, "Thank you for letting me know. Is there anything else I can help with?"
+        And an utterance, "I'll be happy to assist you with all your beverage needs today."
+        When processing is triggered
+        Then a status event is emitted, acknowledging event 0
+        And a status event is emitted, processing event 0
+        And a status event is emitted, typing in response to event 0
+        And a single message event is emitted
+        And the message contains an offering of a Pepsi
+        And a status event is emitted, ready for further engagement after reacting to event 0
+
+    Scenario: The agent chooses the closest utterance when none completely apply (strict utterance)
+        Given an agent whose job is to sell pizza
+        And a customer message, "Hi"
+        And a guideline to offer to sell them pizza when the customer says hello
+        And an utterance, "Hello! Would you like to try our specialty pizzas today?"
+        And an utterance, "Welcome! How can I assist you with your general inquiry?"
+        And an utterance, "Thanks for reaching out. Is there something specific you need help with?"
+        And an utterance, "We're having a special promotion on our pizzas this week. Would you be interested?"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains an offering of our specialty pizza

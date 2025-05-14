@@ -1,8 +1,10 @@
+from typing import Optional
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.services.indexing.common import ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 
 
@@ -29,9 +31,16 @@ class GuidelineContinuousProposer:
     async def propose_continuous(
         self,
         guideline: GuidelineContent,
+        progress_report: Optional[ProgressReport] = None,
     ) -> GuidelineContinuousProposition:
+        if progress_report:
+            await progress_report.stretch(1)
+
         with self._logger.scope("GuidelineContinuousProposer"):
             proposition = await self._generate_continuous(guideline)
+
+        if progress_report:
+            await progress_report.increment(1)
 
         return GuidelineContinuousProposition(
             is_continuous=proposition.is_continuous,

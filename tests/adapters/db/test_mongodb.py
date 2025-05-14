@@ -799,7 +799,7 @@ async def test_evaluation_update(
                 coherence_checks=[],
                 entailment_propositions=None,
                 action_proposition="Provide a list of book recommendations",
-                properties_proposition=None,
+                properties_proposition={"continuous": True},
             )
 
             invoice = Invoice(

@@ -133,7 +133,7 @@ async def test_that_properties_proposition_is_evaluated(
                     "guideline": {
                         "content": {
                             "condition": "the customer asks for a discount",
-                            "action": "check if a discount is applicable",
+                            "action": "maintain helpful tone",
                         },
                         "operation": "add",
                         "action_proposition": True,
@@ -160,7 +160,7 @@ async def test_that_properties_proposition_is_evaluated(
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["properties_proposition"] is None
+    assert invoice["data"]["guideline"]["properties_proposition"] == {"continuous": True}
 
 
 async def test_that_action_proposition_is_evaluated(

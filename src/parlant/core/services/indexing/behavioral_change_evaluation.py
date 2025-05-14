@@ -47,6 +47,10 @@ from parlant.core.services.indexing.guideline_action_proposer import (
 from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionProposer,
 )
+from parlant.core.services.indexing.guideline_continuous_proposer import (
+    GuidelineContinuousProposer,
+    GuidelineContinuousProposition,
+)
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.tags import Tag
@@ -503,63 +507,106 @@ class GuidelineEvaluator:
         logger: Logger,
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
+        guideline_continuous_proposer: GuidelineContinuousProposer,
     ) -> None:
         self._logger = logger
         self._entity_queries = entity_queries
         self._guideline_action_proposer = guideline_action_proposer
+        self._guideline_continuous_proposer = guideline_continuous_proposer
 
     async def evaluate(
         self,
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[InvoiceGuidelineData]:
-        tasks: list[asyncio.Task[Any]] = []
-        action_proposer_task: Optional[
-            asyncio.Task[Optional[Sequence[GuidelineActionProposition]]]
-        ] = None
-
-        action_proposer_task = asyncio.create_task(
-            self._propose_actions(
-                payloads,
-                progress_report,
-            )
+        action_propositions = await self._propose_actions(
+            payloads,
+            progress_report,
         )
-        tasks.append(action_proposer_task)
 
-        if tasks:
-            await async_utils.safe_gather(*tasks)
-
-        actions: Sequence[GuidelineActionProposition] = []
-        if action_proposer_task:
-            actions = action_proposer_task.result()
+        continuous_propositions = await self._propose_continuous(
+            payloads,
+            action_propositions,
+            progress_report,
+        )
 
         return [
             InvoiceGuidelineData(
                 coherence_checks=None,
                 entailment_propositions=None,
-                action_proposition=payload_action.content.action,
-                properties_proposition=None,
+                action_proposition=payload_action.content.action if payload_action else None,
+                properties_proposition={"continuous": payload_continuous.is_continuous}
+                if payload_continuous
+                else None,
             )
-            for payload_action in actions
+            for payload_action, payload_continuous in zip(
+                action_propositions, continuous_propositions
+            )
         ]
 
     async def _propose_actions(
         self,
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
-    ) -> Sequence[GuidelineActionProposition]:
-        guidelines_to_evaluate = [(p.content, p.tool_ids) for p in payloads if p.action_proposition]
+    ) -> Sequence[Optional[GuidelineActionProposition]]:
+        tasks: list[asyncio.Task[GuidelineActionProposition]] = []
+        indices: list[int] = []
 
-        results = await async_utils.safe_gather(
-            *[
-                self._guideline_action_proposer.propose_action(
-                    guideline=p_content,
-                    tool_ids=p_tool_ids or [],
-                    progress_report=progress_report,
+        for i, p in enumerate(payloads):
+            if p.action_proposition:
+                indices.append(i)
+                tasks.append(
+                    asyncio.create_task(
+                        self._guideline_action_proposer.propose_action(
+                            guideline=p.content,
+                            tool_ids=p.tool_ids or [],
+                            progress_report=progress_report,
+                        )
+                    )
                 )
-                for p_content, p_tool_ids in guidelines_to_evaluate
-            ]
-        )
+
+        sparse_results = await async_utils.safe_gather(*tasks)
+        results: list[Optional[GuidelineActionProposition]] = [None] * len(payloads)
+        for i, res in zip(indices, sparse_results):
+            results[i] = res
+
+        return results
+
+    async def _propose_continuous(
+        self,
+        payloads: Sequence[Payload],
+        proposed_actions: Sequence[Optional[GuidelineActionProposition]],
+        progress_report: ProgressReport,
+    ) -> Sequence[Optional[GuidelineContinuousProposition]]:
+        tasks: list[asyncio.Task[GuidelineContinuousProposition]] = []
+        indices: list[int] = []
+
+        for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
+            if not p.properties_proposition:
+                continue
+
+            action_to_use = (
+                action_prop.content.action if action_prop is not None else p.content.action
+            )
+            guideline_content = GuidelineContent(
+                condition=p.content.condition,
+                action=action_to_use,
+            )
+
+            indices.append(i)
+            tasks.append(
+                asyncio.create_task(
+                    self._guideline_continuous_proposer.propose_continuous(
+                        guideline=guideline_content,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = await async_utils.safe_gather(*tasks)
+        results: list[Optional[GuidelineContinuousProposition]] = [None] * len(payloads)
+        for i, res in zip(indices, sparse_results):
+            results[i] = res
         return results
 
 
@@ -572,6 +619,7 @@ class BehavioralChangeEvaluator:
         evaluation_store: EvaluationStore,
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
+        guideline_continuous_proposer: GuidelineContinuousProposer,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -582,6 +630,7 @@ class BehavioralChangeEvaluator:
             logger=logger,
             entity_queries=entity_queries,
             guideline_action_proposer=guideline_action_proposer,
+            guideline_continuous_proposer=guideline_continuous_proposer,
         )
 
     async def validate_payloads(

@@ -94,7 +94,7 @@ guideline_payload_example: ExampleJson = {
     "operation": "add",
     "updated_id": None,
     "action_proposition": True,
-    "properties_proposition": None,
+    "properties_proposition": {"continuous": True},
 }
 
 
@@ -346,6 +346,7 @@ def _invoice_data_to_dto(
         return InvoiceDataDTO(
             guideline=GuidelineInvoiceDataDTO(
                 action_proposition=invoice_data.action_proposition,
+                properties_proposition=invoice_data.properties_proposition,
             ),
         )
 

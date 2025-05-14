@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from random import randint
 from typing import Any
 from pytest import mark, raises
 
@@ -19,7 +20,7 @@ from parlant.core.tools import ToolContext, ToolError
 from parlant.core.services.tools.openapi import OpenAPIClient
 
 from tests.test_utilities import (
-    OPENAPI_SERVER_URL,
+    OPENAPI_SERVER_BASE_URL,
     TOOLS,
     get_openapi_spec,
     one_required_body_param,
@@ -33,10 +34,12 @@ from tests.test_utilities import (
 
 
 async def test_that_tools_are_exposed_via_an_openapi_server() -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        openapi_json = await get_openapi_spec(url)
 
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+        async with OpenAPIClient(url, openapi_json) as client:
             tools = await client.list_tools()
 
             for tool_name, tool in {t.__name__: t for t in TOOLS}.items():
@@ -45,10 +48,12 @@ async def test_that_tools_are_exposed_via_an_openapi_server() -> None:
 
 
 async def test_that_tools_can_be_read_via_an_openapi_server() -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        openapi_json = await get_openapi_spec(url)
 
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+        async with OpenAPIClient(url, openapi_json) as client:
             tools = await client.list_tools()
 
             for t in tools:
@@ -90,10 +95,12 @@ async def test_that_a_tool_can_be_called_via_an_openapi_server(
     tool_args: dict[str, Any],
     expected_result: Any,
 ) -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        openapi_json = await get_openapi_spec(url)
 
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+        async with OpenAPIClient(url, openapi_json) as client:
             stub_context = ToolContext(
                 agent_id="test-agent",
                 session_id="test_session",
@@ -114,10 +121,12 @@ async def test_that_openapi_client_raises_tool_error_on_argument_mismatch(
     tool_name: str,
     arguments: dict[str, Any],
 ) -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        openapi_json = await get_openapi_spec(url)
 
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+        async with OpenAPIClient(url, openapi_json) as client:
             stub_context = ToolContext(
                 agent_id="test-agent",
                 session_id="test_session",
@@ -142,10 +151,12 @@ async def test_that_openapi_client_raises_tool_error_on_type_mismatch(
     tool_name: str,
     arguments: dict[str, Any],
 ) -> None:
-    async with run_openapi_server(rng_app()):
-        openapi_json = await get_openapi_spec(OPENAPI_SERVER_URL)
+    port = randint(10000, 50000)
+    url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
+    async with run_openapi_server(rng_app(port=port), port=port):
+        openapi_json = await get_openapi_spec(url)
 
-        async with OpenAPIClient(OPENAPI_SERVER_URL, openapi_json) as client:
+        async with OpenAPIClient(url, openapi_json) as client:
             stub_context = ToolContext(
                 agent_id="test-agent",
                 session_id="test_session",

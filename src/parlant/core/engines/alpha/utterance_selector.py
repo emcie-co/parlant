@@ -56,7 +56,7 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
@@ -397,6 +397,7 @@ class UtteranceSelector(MessageEventComposer):
         journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             try:
@@ -414,6 +415,7 @@ class UtteranceSelector(MessageEventComposer):
                             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
                             tool_insights=tool_insights,
                             staged_events=staged_events,
+                            latch=latch,
                         )
             except FluidUtteranceFallback:
                 return await self._message_generator.generate_events(
@@ -428,6 +430,7 @@ class UtteranceSelector(MessageEventComposer):
                     journeys,
                     tool_insights,
                     staged_events,
+                    latch,
                 )
 
     async def _get_relevant_utterances(
@@ -500,6 +503,7 @@ class UtteranceSelector(MessageEventComposer):
         journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         if (
             not interaction_history
@@ -557,6 +561,9 @@ class UtteranceSelector(MessageEventComposer):
                     agent.composition_mode,
                     temperature=generation_attempt_temperatures[generation_attempt],
                 )
+
+                if latch:
+                    latch.enable()
 
                 if result is not None:
                     sub_messages = result.message.split("\n\n")

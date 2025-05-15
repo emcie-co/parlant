@@ -40,7 +40,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStat
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.sessions import Event, EventKind, EventSource
-from parlant.core.common import DefaultBaseModel
+from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
@@ -140,6 +140,7 @@ class MessageGenerator(MessageEventComposer):
         journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("MessageGenerator"):
@@ -156,6 +157,7 @@ class MessageGenerator(MessageEventComposer):
                         tool_enabled_guideline_matches,
                         tool_insights,
                         staged_events,
+                        latch,
                     )
 
     def _format_staged_events(
@@ -185,6 +187,7 @@ class MessageGenerator(MessageEventComposer):
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         if (
             not interaction_history
@@ -236,6 +239,9 @@ class MessageGenerator(MessageEventComposer):
                     temperature=generation_attempt_temperatures[generation_attempt],
                     final_attempt=(generation_attempt + 1) == len(generation_attempt_temperatures),
                 )
+
+                if latch:
+                    latch.enable()
 
                 if response_message is not None:
                     event = await event_emitter.emit_message_event(

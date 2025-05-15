@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from parlant.core.agents import Agent
+from parlant.core.common import CancellationSuppressionLatch
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
@@ -55,4 +56,5 @@ class MessageEventComposer:
         journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]: ...

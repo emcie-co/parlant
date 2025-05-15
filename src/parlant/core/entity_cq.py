@@ -24,7 +24,6 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
-from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import (
     Guideline,
     GuidelineStore,
@@ -49,7 +48,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId
-from parlant.core.tools import ToolId, ToolService
+from parlant.core.tools import ToolService
 
 
 class EntityQueries:
@@ -98,6 +97,7 @@ class EntityQueries:
     async def find_guidelines_for_agent(
         self,
         agent_id: AgentId,
+        journeys: Sequence[Journey],
     ) -> Sequence[Guideline]:
         agent_guidelines = await self._guideline_store.list_guidelines(
             tags=[Tag.for_agent_id(agent_id)],
@@ -109,7 +109,18 @@ class EntityQueries:
             tags=[tag for tag in agent.tags]
         )
 
-        all_guidelines = set(chain(agent_guidelines, global_guidelines, guidelines_for_agent_tags))
+        guidelines_for_journeys = await self._guideline_store.list_guidelines(
+            tags=[Tag.for_journey_id(journey.id) for journey in journeys]
+        )
+
+        all_guidelines = set(
+            chain(
+                agent_guidelines,
+                global_guidelines,
+                guidelines_for_agent_tags,
+                guidelines_for_journeys,
+            )
+        )
         return list(all_guidelines)
 
     async def find_context_variables_for_agent(
@@ -166,7 +177,6 @@ class EntityQueries:
     async def find_journeys_for_agent(
         self,
         agent_id: AgentId,
-        guideline_matches: Sequence[GuidelineMatch],
     ) -> Sequence[Journey]:
         agent_journeys = await self._journey_store.list_journeys(
             tags=[Tag.for_agent_id(agent_id)],
@@ -180,53 +190,7 @@ class EntityQueries:
             else []
         )
 
-        all_journeys = set(chain(agent_journeys, global_journeys, journeys_for_agent_tags))
-
-        relevant_journeys = [
-            journey
-            for journey in all_journeys
-            if set(journey.conditions).intersection(
-                set(map(lambda g: g.guideline.id, guideline_matches))
-            )
-        ]
-
-        return relevant_journeys
-
-    async def filter_guideline_matches_by_activated_journeys(
-        self,
-        ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]],
-        journeys: Sequence[Journey],
-    ) -> tuple[
-        list[GuidelineMatch],
-        dict[GuidelineMatch, list[ToolId]],
-    ]:
-        relevant_ordinary_guideline_matches = []
-        relevant_tool_enabled_guideline_matches = {}
-
-        journey_ids = [journey.id for journey in journeys]
-
-        for match in ordinary_guideline_matches:
-            if match.guideline.tags:
-                for tag in match.guideline.tags:
-                    journey_id = Tag.extract_journey_id(tag)
-                    if journey_id is None or journey_id in journey_ids:
-                        relevant_ordinary_guideline_matches.append(match)
-                        break
-            else:
-                relevant_ordinary_guideline_matches.append(match)
-
-        for match, tool_ids in tool_enabled_guideline_matches.items():
-            if match.guideline.tags:
-                for tag in match.guideline.tags:
-                    journey_id = Tag.extract_journey_id(tag)
-                    if journey_id is None or journey_id in journey_ids:
-                        relevant_tool_enabled_guideline_matches[match] = tool_ids
-                        break
-            else:
-                relevant_tool_enabled_guideline_matches[match] = tool_ids
-
-        return relevant_ordinary_guideline_matches, relevant_tool_enabled_guideline_matches
+        return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
 
 
 class EntityCommands:

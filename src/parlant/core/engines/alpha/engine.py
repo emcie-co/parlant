@@ -45,6 +45,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.sessions import (
     ContextVariable as StoredContextVariable,
     EventKind,
@@ -368,36 +369,14 @@ class AlphaEngine(Engine):
         # between ordinary and tool-enabled ones.
         (
             guideline_matching_result,
-            ordinary_guideline_matches,
-            tool_enabled_guideline_matches,
-        ) = await self._load_matched_guidelines(context)
+            context.state.ordinary_guideline_matches,
+            context.state.tool_enabled_guideline_matches,
+            context.state.journeys,
+        ) = await self._load_matched_guidelines_and_journeys(context)
 
         # Matched guidelines may use glossary terms, so we need to ground our
         # response by reevaluating the relevant terms given these new guidelines.
         context.state.glossary_terms.update(await self._load_glossary_terms(context))
-
-        # Match relevant journeys.
-        context.state.journeys = list(
-            await self._entity_queries.find_journeys_for_agent(
-                context.agent.id,
-                list(
-                    chain(
-                        ordinary_guideline_matches,
-                        tool_enabled_guideline_matches.keys(),
-                    )
-                ),
-            )
-        )
-
-        # Filter out journey-dependent guidelines that are not relevant to the activated journeys.
-        (
-            context.state.ordinary_guideline_matches,
-            context.state.tool_enabled_guideline_matches,
-        ) = await self._entity_queries.filter_guideline_matches_by_activated_journeys(
-            ordinary_guideline_matches,
-            tool_enabled_guideline_matches,
-            context.state.journeys,
-        )
 
         # Infer any needed tool calls and execute them,
         # adding the resulting tool events to the session.
@@ -660,24 +639,31 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
-    async def _load_matched_guidelines(
+    async def _load_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,
     ) -> tuple[
         GuidelineMatchingResult,
         list[GuidelineMatch],
         dict[GuidelineMatch, list[ToolId]],
+        list[Journey],
     ]:
-        # Step 1: Retrieve all of the enabled guidelines for this agent.
+        # Step 1: Retrieve all of the journeys for this agent.
+        all_journeys = await self._entity_queries.find_journeys_for_agent(
+            agent_id=context.agent.id,
+        )
+
+        # Step 2:
         all_stored_guidelines = [
             g
             for g in await self._entity_queries.find_guidelines_for_agent(
                 agent_id=context.agent.id,
+                journeys=all_journeys,
             )
             if g.enabled
         ]
 
-        # Step 2: Filter the best matches out of those.
+        # Step 3: Filter the best matches out of those.
         matching_result = await self._guideline_matcher.match_guidelines(
             agent=context.agent,
             customer=context.customer,
@@ -688,14 +674,19 @@ class AlphaEngine(Engine):
             guidelines=all_stored_guidelines,
         )
 
-        # Step 3: Resolve guideline matches by loading related guidelines that may not have
+        # Step 4: Filter the journeys that are activated by the matched guidelines.
+        match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
+        journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
+
+        # Step 5: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=all_stored_guidelines,
             matches=matching_result.matches,
+            journeys=journeys,
         )
 
-        # Step 4: Distinguish between ordinary and tool-enabled guidelines.
+        # Step 6: Distinguish between ordinary and tool-enabled guidelines.
         # We do this here as it creates a better subsequent control flow in the engine.
         tool_enabled_guidelines = await self._find_tool_enabled_guideline_matches(
             guideline_matches=all_relevant_guidelines,
@@ -704,7 +695,7 @@ class AlphaEngine(Engine):
             set(all_relevant_guidelines).difference(tool_enabled_guidelines),
         )
 
-        return matching_result, ordinary_guidelines, tool_enabled_guidelines
+        return matching_result, ordinary_guidelines, tool_enabled_guidelines, journeys
 
     async def _find_tool_enabled_guideline_matches(
         self,

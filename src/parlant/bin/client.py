@@ -1847,15 +1847,13 @@ class Interface:
                 "Action": (
                     guideline.action
                     if guideline.action
-                    else f"Activate journey(s): {', '.join(cast(list[str], guideline.metadata.get('journeys', [])))}"
-                    if guideline.metadata and "journeys" in guideline.metadata
+                    else f"Activate journey(s): {', '.join(tag.split('journey:')[1] for tag in guideline.tags if tag.startswith('journey:'))}"
+                    if any(tag for tag in guideline.tags if tag.startswith("journey:"))
                     else "None"
                 ),
                 "Enabled": guideline.enabled,
                 "Tags": ", ".join(guideline.tags),
-                "Metadata": ", ".join(
-                    [f"{k}: {v}" for k, v in guideline.metadata.items() if k != "journeys"]
-                )
+                "Metadata": ", ".join([f"{k}: {v}" for k, v in guideline.metadata.items()])
                 if guideline.metadata
                 else "",
             }

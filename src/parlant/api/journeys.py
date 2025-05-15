@@ -14,13 +14,13 @@
 
 from fastapi import APIRouter, Path, Query, status
 from pydantic import Field
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Optional, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
 from parlant.core.journeys import JourneyId, JourneyStore, JourneyUpdateParams
 from parlant.core.guidelines import GuidelineId, GuidelineStore
-from parlant.core.tags import TagId
+from parlant.core.tags import TagId, Tag
 
 API_GROUP = "journeys"
 
@@ -261,7 +261,7 @@ def create_router(
             await guideline_store.create_guideline(
                 condition=condition,
                 action=None,
-                tags=params.tags,
+                tags=[],
             )
             for condition in params.conditions
         ]
@@ -274,13 +274,9 @@ def create_router(
         )
 
         for guideline in guidelines:
-            await guideline_store.set_metadata(
+            await guideline_store.upsert_tag(
                 guideline_id=guideline.id,
-                key="journeys",
-                value=[
-                    *cast(Sequence[str], guideline.metadata.get("journeys", [])),
-                    journey.id,
-                ],
+                tag_id=Tag.for_journey_id(journey.id),
             )
 
         return JourneyDTO(
@@ -400,13 +396,9 @@ def create_router(
 
                     guideline = await guideline_store.read_guideline(guideline_id=condition)
 
-                    await guideline_store.set_metadata(
+                    await guideline_store.upsert_tag(
                         guideline_id=condition,
-                        key="journeys",
-                        value=[
-                            *cast(Sequence[str], guideline.metadata.get("journeys", [])),
-                            journey_id,
-                        ],
+                        tag_id=Tag.for_journey_id(journey_id),
                     )
 
             if params.conditions.remove:
@@ -418,18 +410,13 @@ def create_router(
 
                     guideline = await guideline_store.read_guideline(guideline_id=condition)
 
-                    if guideline.metadata.get("journeys", []):
-                        await guideline_store.set_metadata(
-                            guideline_id=condition,
-                            key="journeys",
-                            value=[
-                                j
-                                for j in cast(Sequence[str], guideline.metadata.get("journeys", []))
-                                if j != journey_id
-                            ],
-                        )
-                    else:
+                    if guideline.tags == [Tag.for_journey_id(journey_id)]:
                         await guideline_store.delete_guideline(guideline_id=condition)
+                    else:
+                        await guideline_store.remove_tag(
+                            guideline_id=condition,
+                            tag_id=Tag.for_journey_id(journey_id),
+                        )
 
         update_params: JourneyUpdateParams = {}
         if params.title:
@@ -496,14 +483,12 @@ def create_router(
             else:
                 guideline = await guideline_store.read_guideline(guideline_id=condition)
 
-                await guideline_store.set_metadata(
-                    guideline_id=condition,
-                    key="journeys",
-                    value=[
-                        j
-                        for j in cast(Sequence[str], guideline.metadata.get("journeys", []))
-                        if j != journey_id
-                    ],
-                )
+                if guideline.tags == [Tag.for_journey_id(journey_id)]:
+                    await guideline_store.delete_guideline(guideline_id=condition)
+                else:
+                    await guideline_store.remove_tag(
+                        guideline_id=condition,
+                        tag_id=Tag.for_journey_id(journey_id),
+                    )
 
     return router

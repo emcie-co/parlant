@@ -16,6 +16,7 @@ from collections import defaultdict
 from itertools import chain
 from typing import Sequence, cast
 
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.relationships import (
@@ -24,7 +25,7 @@ from parlant.core.relationships import (
     RelationshipStore,
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
-from parlant.core.tags import TagId
+from parlant.core.tags import TagId, Tag
 
 
 class RelationalGuidelineResolver:
@@ -42,6 +43,7 @@ class RelationalGuidelineResolver:
         self,
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
+        journeys: Sequence[Journey],
     ) -> Sequence[GuidelineMatch]:
         # Use the guideline matcher scope to associate logs with it
         with self._logger.scope("GuidelineMatcher"):
@@ -49,6 +51,7 @@ class RelationalGuidelineResolver:
                 result = await self.filter_unmet_dependencies(
                     usable_guidelines=usable_guidelines,
                     matches=matches,
+                    journeys=journeys,
                 )
                 result = await self.replace_with_prioritized(result)
 
@@ -274,6 +277,7 @@ class RelationalGuidelineResolver:
         self,
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
+        journeys: Sequence[Journey],
     ) -> Sequence[GuidelineMatch]:
         # Some guidelines have dependencies that dictate activation.
         #
@@ -311,6 +315,15 @@ class RelationalGuidelineResolver:
                     break
 
                 if dependency.target.type == EntityType.TAG:
+                    if journey_id := Tag.extract_journey_id(cast(TagId, dependency.target.id)):
+                        if any(journey.id == journey_id for journey in journeys):
+                            # If the tag is a journey tag and the journey is active,
+                            # then this dependency is met.
+                            continue
+                        else:
+                            dependent_on_inactive_guidelines = True
+                            break
+
                     guidelines_associated_to_tag = await self._guideline_store.list_guidelines(
                         tags=[cast(TagId, dependency.target.id)]
                     )

@@ -81,7 +81,10 @@ class LegacyGuidelineEvaluator:
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
     ) -> Sequence[InvoiceGuidelineData]:
-        existing_guidelines = await self._entity_queries.find_guidelines_for_agent(agent.id)
+        journeys = await self._entity_queries.find_journeys_for_agent(agent.id)
+        existing_guidelines = await self._entity_queries.find_guidelines_for_agent(
+            agent.id, journeys
+        )
 
         tasks: list[asyncio.Task[Any]] = []
         coherence_checks_task: Optional[
@@ -378,7 +381,10 @@ class LegacyBehavioralChangeEvaluator:
                         "Duplicate guideline found among the provided guidelines."
                     )
 
-                existing_guidelines = await self._entity_queries.find_guidelines_for_agent(agent.id)
+                journeys = await self._entity_queries.find_journeys_for_agent(agent.id)
+                existing_guidelines = await self._entity_queries.find_guidelines_for_agent(
+                    agent.id, journeys
+                )
 
                 if guideline := next(
                     iter(g for g in existing_guidelines if (g.content) in seen_guidelines),

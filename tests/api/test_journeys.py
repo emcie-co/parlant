@@ -7,7 +7,7 @@ from pytest import mark, raises
 
 from parlant.core.journeys import JourneyStore
 from parlant.core.guidelines import GuidelineStore
-from parlant.core.tags import TagStore
+from parlant.core.tags import Tag, TagStore
 from parlant.core.common import ItemNotFoundError
 
 
@@ -37,7 +37,7 @@ async def test_that_a_journey_can_be_created(
     assert guideline.id == journey["conditions"][0]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.metadata == {"journeys": [journey["id"]]}
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"])]
 
 
 async def test_that_a_journey_can_be_created_with_multiple_conditions(
@@ -346,20 +346,19 @@ async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journ
         conditions=[guideline.id],
     )
 
-    await guideline_store.set_metadata(
-        guideline.id,
-        "journeys",
-        [
-            journey_to_delete.id,
-            journey_to_keep.id,
-        ],
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id)
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id)
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey_to_delete.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.metadata == {"journeys": [journey_to_keep.id]}
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id)]
 
 
 async def test_that_a_tag_can_be_added_to_a_journey(
@@ -439,7 +438,7 @@ async def test_that_conditions_can_be_added_to_a_journey(
     assert guideline.id in updated_journey["conditions"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.metadata == {"journeys": [journey.id]}
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey.id)]
 
 
 async def test_that_conditions_can_be_removed_from_a_journey(
@@ -466,10 +465,12 @@ async def test_that_conditions_can_be_removed_from_a_journey(
         conditions=[guideline.id],
     )
 
-    await guideline_store.set_metadata(
-        guideline.id,
-        "journeys",
-        [journey_to_delete.id, journey_to_keep.id],
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id)
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id)
     )
 
     response = await async_client.patch(
@@ -482,7 +483,7 @@ async def test_that_conditions_can_be_removed_from_a_journey(
     assert guideline.id not in updated_journey["conditions"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.metadata == {"journeys": [journey_to_keep.id]}
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id)]
 
 
 async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_journeys(
@@ -507,6 +508,10 @@ async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_
         title="Customer Signup",
         description="Guide new customers to signup",
         conditions=[guideline.id],
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey.id)
     )
 
     response = await async_client.patch(

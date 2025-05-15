@@ -1362,6 +1362,21 @@ def given_the_tool_with_always_as_overlap(
             },
             "required": [],
         },
+        "give_boolean_types": {
+            "name": "give_boolean_types",
+            "description": "Get the boolean types",
+            "module_path": "tests.tool_utilities",
+            "parameters": {
+                "boolean": {
+                    "type": "array",
+                    "item_type": "boolean",
+                },
+                "optional_boolean": {
+                    "type": "boolean",
+                },
+            },
+            "required": ["boolean"],
+        },
     }
 
     tool = context.sync_await(

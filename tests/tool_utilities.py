@@ -474,3 +474,12 @@ async def find_bbq_appointments(
     return ToolResult(
         {"result": "success"},
     )
+
+
+def give_boolean_types(
+    boolean: list[bool],
+    optional_boolean: Optional[bool],
+) -> ToolResult:
+    return ToolResult(
+        f"Types for boolean is: {type(boolean[0])} and optional boolean: {type(optional_boolean)}"
+    )

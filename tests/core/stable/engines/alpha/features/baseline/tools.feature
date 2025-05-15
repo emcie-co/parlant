@@ -1080,3 +1080,13 @@ Feature: Tools
         Then a single tool calls event is emitted
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
+
+Scenario: Tool caller calls a tool with list of booleans and optional boolean
+        Given a guideline "give_boolean" to get a list of booleans from user when a customer wants to give some booleans
+        And the tool "give_boolean_types"
+        And an association between "give_boolean" and "give_boolean_types"
+        And a customer message, "I want to give you the list of booleans  :true, false, true and false. Also, I want to give you the boolean true."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)

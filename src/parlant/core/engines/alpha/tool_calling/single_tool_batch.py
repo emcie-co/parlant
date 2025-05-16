@@ -205,6 +205,7 @@ class SingleToolBatch(ToolCallBatch):
                                 significance=options.significance,
                                 description=descriptor.get("description"),
                                 precedence=options.precedence,
+                                choices=descriptor.get("enum", None),
                             )
                         )
 
@@ -266,6 +267,7 @@ class SingleToolBatch(ToolCallBatch):
                                         significance=tool_options.significance,
                                         description=tool_descriptor.get("description"),
                                         precedence=tool_options.precedence,
+                                        choices=tool_descriptor.get("enum", None),
                                     )
                                 )
 

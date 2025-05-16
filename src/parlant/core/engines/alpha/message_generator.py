@@ -531,7 +531,8 @@ MISSING DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
 in order to run tools. The tools would have run, if they only had this data available and the rest of the data was valid.
-If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data: ###
+If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data.
+If you inform of missing data that contains choices then present all of of the choices to the user. Here is the missing data: ###
 {formatted_missing_data}
 ###
 
@@ -550,7 +551,7 @@ INVALID DATA FOR TOOL REQUIRED CALLS:
 -------------------------------------
 The following is a description of data that has been provided but are not valid values for their tool parameters in order to run tools.
 The tools would have run, if they only had this data available and there was no missing data.
-You should inform the user about this invalid data: ###
+You should inform the user about this invalid data and if it includes choices then present all of the choices to the user. Here is the invalid data: ###
 {formatted_invalid_data}
 ###
 
@@ -596,6 +597,7 @@ Produce a valid JSON object in the following format: ###
                     **({"description": d.description} if d.description else {}),
                     **({"significance": d.significance} if d.significance else {}),
                     **({"examples": d.examples} if d.examples else {}),
+                    **({"choices": d.choices} if d.choices else {}),
                 }
                 for d in missing_data
             ]
@@ -606,9 +608,11 @@ Produce a valid JSON object in the following format: ###
             [
                 {
                     "datum_name": d.parameter,
+                    "invalid_value": d.invalid_value,
                     **({"description": d.description} if d.description else {}),
                     **({"significance": d.significance} if d.significance else {}),
                     **({"examples": d.examples} if d.examples else {}),
+                    **({"choices": d.choices} if d.choices else {}),
                 }
                 for d in invalid_data
             ]
@@ -1416,7 +1420,7 @@ example_9_expected = MessageSchema(
         Revision(
             revision_number=1,
             content=(
-                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I'd recommend calling us by phone, hopefuly they'd be able to help you there."
+                "I apologize for the inconvenience. Unfortunately I cannot transfer you to a human representative at this moment. I'd recommend calling us by phone, hopefully they'd be able to help you there."
             ),
             factual_information_provided=[],
             offered_services=[
@@ -1485,7 +1489,7 @@ example_9_expected = MessageSchema(
 )
 
 example_9_shot = MessageGeneratorShot(
-    description="Handling a frustrated customer when no options for assistance are available to the agent. Assume the agent works for a large electronic store, and that its role (as described in its prompt) is to assist potential customers. Assume the prompt did not specify a method for transfering customers to human representatives",
+    description="Handling a frustrated customer when no options for assistance are available to the agent. Assume the agent works for a large electronic store, and that its role (as described in its prompt) is to assist potential customers. Assume the prompt did not specify a method for transferring customers to human representatives",
     expected_result=example_7_expected,
 )
 

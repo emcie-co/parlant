@@ -588,6 +588,7 @@ Feature: Tools
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 1
         And the message mentions mentions last name
+        And the message mentions mentions Sushi Mushi and Tushi
 
     Scenario: A tool with both missing and invalid parameters, some hidden and some have display names, communicate the problems correctly
         Given an empty session
@@ -602,13 +603,14 @@ Feature: Tools
         And the number of missing parameters is exactly 1
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 2
-        And the message mentions the robot, mistress and hom
+        And the message mentions the robot, mistress and homie
+        And the message mentions Chris Pikrim, Mike Andike, Jay Libelly and Bruno Twix
 
     Scenario: Tool caller chooses the right tool for scheduling when three are overlapping
         Given a customer named "Hailey"
         And an empty session with "Hailey"
         And a guideline "to_schedule_appointment" to schedule an appointment with a doctor when user asks to make an appointment
-        And a guideline "to_reschedule_appointment" to rescedule existing appointment when user had an appointment and they want to change its time
+        And a guideline "to_reschedule_appointment" to reschedule existing appointment when user had an appointment and they want to change its time
         And a guideline "to_schedule_meeting" to schedule a meeting when customer asks to meet with someone
         And the tool "schedule_appointment"
         And an association between "to_schedule_appointment" and "schedule_appointment"
@@ -619,7 +621,7 @@ Feature: Tools
         And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
         And a tool relationship whereby "schedule_meeting" overlaps with "schedule_appointment"
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
-        And a customer message, "Hi I want to make an appointment with Dr Sara Goodman tommorow at 19:00. Can you help me with that?"
+        And a customer message, "Hi I want to make an appointment with Dr Sara Goodman tomorrow at 19:00. Can you help me with that?"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
@@ -629,14 +631,14 @@ Feature: Tools
         Given a customer named "Hailey"
         And an empty session with "Hailey"
         And a guideline "to_schedule_appointment" to schedule an appointment with a doctor when user asks to make an appointment
-        And a guideline "to_reschedule_appointment" to rescedule existing appointment when user had an appointment and they want to change its time
+        And a guideline "to_reschedule_appointment" to reschedule existing appointment when user had an appointment and they want to change its time
         And the tool "schedule_appointment"
         And an association between "to_schedule_appointment" and "schedule_appointment"
         And the tool "reschedule_appointment"
         And an association between "to_reschedule_appointment" and "reschedule_appointment"
         And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
-        And a customer message, "Hi, I’d like to schedule an appointment for tommorow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tommorow at 3:00 PM? Thank you!"
+        And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 2 tool call(s)
@@ -657,11 +659,11 @@ Feature: Tools
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
     
     Scenario: Tool caller use the more suitable tool for transfer when two overlap
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels? my name is Fredric"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         When processing is triggered
@@ -670,34 +672,34 @@ Feature: Tools
         And the tool calls event contains a call to "transfer_shekels" with 200 as amount from Fredric to Alisse
 
     Scenario: Tool caller want to use the more suitable tool for transfer when two overlap and there are missing parameters (1)
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels?"
         When processing is triggered
         Then no tool calls event is emitted
 
     Scenario: Tool caller want to use the more suitable tool for transfer when two overlap and there are missing parameters (2)
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to $200?"
         When processing is triggered
         Then no tool calls event is emitted
 
     Scenario: Tool caller use both tools for the right transfer when two overlap 
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And a guideline to choose the more specific coin when customer asks to transfer money
         And the tool "transfer_money"
         And the tool "transfer_shekels"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300? my name is Fredric"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         When processing is triggered
@@ -706,12 +708,12 @@ Feature: Tools
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller use tools multiple times for the right transfer when two overlap 
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And a guideline to choose the more specific coin when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300 and also 100 shekels to Bob? my name is Fredric"
         When processing is triggered
@@ -720,13 +722,13 @@ Feature: Tools
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller use the more suitable tool for transfer when three overlap directly 
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
         And the tool "transfer_dollars"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
-        And an association between "do_transcation" and "transfer_dollars"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And an association between "do_transaction" and "transfer_dollars"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a tool relationship whereby "transfer_dollars" overlaps with "transfer_money"
         And a tool relationship whereby "transfer_dollars" overlaps with "transfer_shekels"
@@ -737,13 +739,13 @@ Feature: Tools
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_dollars" with 40 from Fredric to Dan and a call to "transfer_money" with 500 from Fredric to Ali
 
     Scenario: Tool caller use the more suitable tool for transfer when three overlap indirectly 
-        Given a guideline "do_transcation" to transfer money for the customer when customer asks to transfer money
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
         And the tool "transfer_shekels"
         And the tool "transfer_money"
         And the tool "transfer_dollars"
-        And an association between "do_transcation" and "transfer_shekels"
-        And an association between "do_transcation" and "transfer_money"
-        And an association between "do_transcation" and "transfer_dollars"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And an association between "do_transaction" and "transfer_dollars"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a tool relationship whereby "transfer_dollars" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Dan $40 and to my friend Ali 500 Dinar? my name is Fredric"

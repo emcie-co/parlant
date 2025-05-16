@@ -7,6 +7,7 @@ Introduce journey
 Introduction of guideline properties evaluation
 Make guideline action optional
 Introduction of guideline action proposer
+Added choices to insights of invalid and missing tool parameters
 
 ## [2.1.2] - 2025-05-07
 

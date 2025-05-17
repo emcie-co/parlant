@@ -243,7 +243,7 @@ None
 
 - Customer selection in sandbox Chat UI
 - Support tool calls with freshness rules for context variables
-- Add support for loading external modules for changing engine behavior programatically
+- Add support for loading external modules for changing engine behavior programmatically
 - CachedSchematicGenerator to run the test suite more quickly
 - TransientVectorDatabase to run the test suite more quickly
 

@@ -3,6 +3,12 @@ from typing_extensions import override
 from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
     GenericActionableGuidelineMatching,
 )
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_not_previously_applied_batch import (
+    GenericNotPreviouslyAppliedGuidelineMatching,
+)
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_applied_batch import (
+    GenericPreviouslyAppliedGuidelineMatching,
+)
 from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
     GenericObservationalGuidelineMatching,
 )
@@ -20,6 +26,8 @@ class DefaultGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver
         self,
         generic_actionable_strategy: GenericActionableGuidelineMatching,
         generic_observational_strategy: GenericObservationalGuidelineMatching,
+        generic_previously_applied_strategy: GenericPreviouslyAppliedGuidelineMatching,
+        generic_not_previously_applied_strategy: GenericNotPreviouslyAppliedGuidelineMatching,
         logger: Logger,
     ) -> None:
         self._generic_actionable_strategy = generic_actionable_strategy

@@ -258,7 +258,7 @@ OUTPUT FORMAT
         return json.dumps(result, indent=4)
 
 
-class GenericObservationalGuidelineMatching(GuidelineMatchingStrategy):
+class GenericPreviouslyAppliedGuidelineMatching(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,

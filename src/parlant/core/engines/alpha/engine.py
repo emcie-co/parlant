@@ -30,6 +30,9 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableStore,
 )
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_applied_detector import (
+    GenericGuidelinePreviouslyAppliedDetector,
+)
 from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
@@ -48,6 +51,7 @@ from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.sessions import (
+    AgentState,
     ContextVariable as StoredContextVariable,
     EventKind,
     GuidelineMatch as StoredGuidelineMatch,
@@ -56,6 +60,8 @@ from parlant.core.sessions import (
     PreparationIteration,
     PreparationIterationGenerations,
     Session,
+    SessionId,
+    SessionUpdateParams,
     Term as StoredTerm,
     ToolEventData,
 )
@@ -93,6 +99,7 @@ class AlphaEngine(Engine):
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
         utterance_selector: UtteranceSelector,
+        generic_guideline_previously_applied_detector: GenericGuidelinePreviouslyAppliedDetector,
         hooks: EngineHooks,
     ) -> None:
         self._logger = logger
@@ -107,6 +114,9 @@ class AlphaEngine(Engine):
         self._fluid_message_generator = fluid_message_generator
         self._utterance_selector = utterance_selector
 
+        self._generic_guideline_previously_applied_detector = (
+            generic_guideline_previously_applied_detector
+        )
         self._hooks = hooks
 
     @override
@@ -260,6 +270,13 @@ class AlphaEngine(Engine):
                     correlation_id=self._correlator.correlation_id,
                     preparation_iterations=preparation_iteration_inspections,
                     message_generations=message_generation_inspections,
+                )
+
+                await self._add_agent_state(
+                    context=context,
+                    session_id=context.session.id,
+                    ordinary_guidelines=context.state.ordinary_guideline_matches,
+                    tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
                 )
 
                 await self._hooks.call_on_generated_messages(context)
@@ -845,6 +862,36 @@ class AlphaEngine(Engine):
             return problematic_parameters
 
         return [m for m in problematic_parameters if m.precedence == min(precedence_values)]
+
+    async def _add_agent_state(
+        self,
+        context: LoadedContext,
+        session_id: SessionId,
+        ordinary_guidelines: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]],
+    ) -> None:
+        applied_guideline_ids = [
+            g.id
+            for g in (
+                await self._generic_guideline_previously_applied_detector.process(
+                    agent=context.agent,
+                    customer=context.customer,
+                    context_variables=context.state.context_variables,
+                    interaction_history=context.interaction.history,
+                    terms=list(context.state.glossary_terms),
+                    staged_events=context.state.tool_events,
+                    ordinary_guideline_matches=ordinary_guidelines,
+                    tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+                )
+            ).previously_applied_guidelines
+        ]
+
+        await self._entity_commands.update_session(
+            session_id=session_id,
+            params=SessionUpdateParams(
+                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
+            ),
+        )
 
 
 # This is module-level and public for isolated testability purposes.

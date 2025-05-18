@@ -532,8 +532,9 @@ class SessionDocumentStore(SessionStore):
                 data=doc["data"],
                 deleted=doc["deleted"],
             )
-        if doc["version"] == "0.4.0":
+        if doc["version"] == "0.5.0":
             return cast(_EventDocument, doc)
+
         return None
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:

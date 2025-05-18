@@ -611,7 +611,7 @@ example_6_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="OFFER a $20 refund on the purchase.",
-                    action_applied_rationale="The agent OFFERED $20 refund.",
+                    action_applied_rationale="The agent OFFERED $20 refund for the delay, although not for damaged item.",
                 ),
             ],
             guideline_applied_degree="fully",

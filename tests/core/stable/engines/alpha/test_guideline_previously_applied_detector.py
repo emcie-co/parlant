@@ -10,7 +10,7 @@ from parlant.core.common import JSONSerializable, generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
-from parlant.core.engines.alpha.guideline_matching.guideline_previously_applied_detector import (
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_applied_detector import (
     GenericGuidelinePreviouslyAppliedDetector,
     GenericGuidelinePreviouslyAppliedDetectorSchema,
 )
@@ -39,7 +39,7 @@ GUIDELINES_DICT = {
         "action": "offer a discount and check the order status",
     },
     "late_so_discount": {
-        "condition": "When customer complains that they didn't get the order on timed",
+        "condition": "When customer complains that they didn't get the order on time",
         "action": "offer a discount",
     },
     "cold_so_discount": {
@@ -54,9 +54,9 @@ GUIDELINES_DICT = {
         "condition": "When a customer wants to register to our service",
         "action": "get their full name",
     },
-    "express_empathy_and_discount": {
+    "express_solidarity_and_discount": {
         "condition": "When customer complains that they didn't get the order on time",
-        "action": "express empathy and offer a discount",
+        "action": "express solidarity and offer a discount",
     },
 }
 
@@ -288,7 +288,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has
             "Sure I'm here to help. What would you like to order?",
         ),
     ]
-    guidelines: list[str] = ["express_empathy_and_discount"]
+    guidelines: list[str] = ["express_solidarity_and_discount"]
 
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,

@@ -22,18 +22,19 @@ class GuidelinePreviouslyAppliedDetectionResult:
 
 class SegmentPreviouslyAppliedRationale(DefaultBaseModel):
     action_segment: str
-    rationale: str
+    action_applied_rationale: str
 
 
 class GuidelinePreviouslyAppliedDetectionSchema(DefaultBaseModel):
     guideline_id: str
-    condition: str
+    condition: Optional[str] = None
     action: str
     guideline_applied_rationale: Optional[list[SegmentPreviouslyAppliedRationale]] = None
     guideline_applied_degree: Optional[str] = None
-    cosmetic_or_essential_rational: Optional[str] = None
-    is_missing_part_cosmetic_or_essential: Optional[str] = None
+    is_missing_part_consequential_rational: Optional[str] = None
+    is_missing_part_consequential: Optional[bool] = None
     guideline_applied: bool
+    guideline_applied_from_different_condition: Optional[bool] = None
 
 
 class GenericGuidelinePreviouslyAppliedDetectorSchema(DefaultBaseModel):
@@ -78,6 +79,8 @@ class GenericGuidelinePreviouslyAppliedDetector:
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
+            with open("output_prev_applied_detector.txt", "a") as f:
+                f.write(inference.content.model_dump_json(indent=2))
             self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         applied = []
@@ -214,19 +217,25 @@ Task Description
 Your task is to evaluate whether the action specified by each guideline has now been applied. The guideline you are reviewing has not yet been marked as applied, and you need to determine if the latest agent message in the conversation
 satisfies its action so the action can now be considered as applied.
 
-Some guidelines include multiple actions. If only a part of those actions has been fulfilled, you need to evaluate whether the unfulfilled part is "cosmetic" or "essential". 
-- A "cosmetic" action is not critical to the interaction and won’t influence its direction or outcome. These actions may improve tone or politeness — such as thanking the user or offering an apology — which can enhance user experience, 
-but not doing them does not significantly affect the result of the conversation.
-Since politeness-related actions (like thanking or apologizing) are most relevant at the time the event occurs, there’s no need to return and perform them later. Therefore, their absence doesn't require the guideline to be marked as unfulfilled.
-- An "essential" action, on the other hand, is one that — if omitted — would impact the quality, completeness, or outcome of the interaction. These are actions that, if left undone, may create confusion, leave an issue unresolved, 
-or make the response less effective.
-A useful question to ask: “If the conversation were to continue, would you need to go back and complete that missing action?”
-If yes, it's essential. If no, it's cosmetic.
-If the unfulfilled action part is only "cosmetic" treat the guideline as though it has been fully executed and mark `guideline_applied` as true. If it's "essential" we can't treat it as if it was applied and `guideline_applied` should be false.
+1. Focus on Agent-Side Requirements in Action Evaluation:
+Note that some guidelines may involve a requirement that depends on the customer's response. For example, an action like "get the customer's card number" requires the agent to ask for this information, and the customer to provide it for full 
+completion. In such cases, you should evaluate only the agent’s part of the action. Since evaluation occurs after the agent’s message, the action is considered applied if the agent has done its part (e.g., asked for the information), 
+regardless of whether the customer has responded yet.
 
-IMPORTANT: You are given a condition-action guideline. However, you DO NOT need to evaluate whether that condition was actually true in the interaction. Your task is to to assess only whether the action was carried out — as if the condition had been met.
-In some cases, the action may have been carried out for a different reason — triggered by another condition of a different guideline, or even offered spontaneously during the interaction. However, for evaluation purposes, we are only checking whether the action
-action occurred, regardless of why it happened. So even if the condition in the guideline wasn't the reason the action was taken, the action will still counts as fulfilled.
+2. Distinguish Consequential and Non Consequential Action:
+Some guidelines include multiple actions. If only a part of those actions has been fulfilled, you need to evaluate whether the unfulfilled part is consequential or not. 
+A "consequential" action is one that — if omitted — would impact the outcome of the interaction. These are actions that, if left undone, may leave an issue unresolved, create confusion, or make the response less effective.
+A "non consequential" action is one that is not critical to the interaction and won’t influence its direction or outcome. These actions may improve tone or politeness — such as thanking the user or offering an apology, 
+but not doing them does not significantly affect the result of the conversation.
+Examples of "non consequential" action: Expressing empathy or understanding, offering apologies or regret, thanking the customer, polite conversational phrases, encouragement or reassurance, using exact words to express something.
+Since politeness-related actions (like thanking or apologizing) are most relevant at the time the event occurs, there’s no need to return and perform them later. Therefore, their absence doesn't require the guideline to be marked as unfulfilled.
+A useful question to ask: “If the conversation were to continue, would you need to go back and complete that missing action?” If not, it's not consequential. 
+If the unfulfilled action part is non consequential treat the guideline as though it has been fully executed and mark `guideline_applied` as true. If it's consequential we can't treat it as if it was applied and `guideline_applied` should be false.
+
+3. Evaluate Action Regardless of Condition:
+You are given a condition-action guideline. Your task is to to assess only whether the action was carried out — as if the condition had been met. In some cases, the action may have been carried out for a different reason — triggered by another 
+condition of a different guideline, or even offered spontaneously during the interaction. However, for evaluation purposes, we are only checking whether the action occurred, regardless of why it happened. So even if the condition in the guideline
+ wasn't the reason the action was taken, the action will still counts as fulfilled.
 
 """,
             props={},
@@ -285,18 +294,20 @@ OUTPUT FORMAT
         result_structure = [
             {
                 "guideline_id": g.id,
-                "condition": g.content.condition,
+                # "condition": g.content.condition,
                 "action": g.content.action,
                 "guideline_applied_rationale": [
                     {
                         "action_segment": "<action_segment_description>",
-                        "rationale": "<explanation of whether this action segment was already applied; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
+                        "action_applied_rationale": "<explanation of whether this action segment (apart from condition) was applied by the agent; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
+                        "applied_but_from_different_condition": "<bool: only include if applied>",
                     }
                 ],
                 "guideline_applied_degree": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was preformed>",
-                "cosmetic_or_essential_rational": "<str: only included if guideline_applied is 'partially'. short explanation of wether it's cosmetic_or_essential.>",
-                "is_missing_part_cosmetic_or_essential": "<str: only included if guideline_applied is 'partially'. Value is either 'cosmetic' or 'essential' depending on the nature of the missing segment.>",
+                "is_missing_part_consequential_rational": "<str: only included if guideline_applied is 'partially'. short explanation of whether it's consequential.>",
+                "is_missing_part_consequential": "<bool: only included if guideline_applied is 'partially'.>",
                 "guideline_applied": "<bool>",
+                "guideline_applied_from_different_condition": "<bool. only included if guideline_applied is True>",
             }
             for g in self._guidelines.values()
         ]
@@ -343,12 +354,12 @@ example_1_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
     checks=[
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer initiates a purchase.",
+            # condition="the customer initiates a purchase.",
             action="Open a new cart for the customer",
             guideline_previously_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="OPEN a new cart for the customer",
-                    rationale="No cart was opened",
+                    action_applied_rationale="No cart was opened",
                 )
             ],
             guideline_applied_degree="no",
@@ -356,16 +367,17 @@ example_1_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
         ),
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asks about data security",
+            # condition="the customer asks about data security",
             action="Refer the customer to our privacy policy page",
             guideline_previously_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="REFER the customer to our privacy policy page",
-                    rationale="The customer asked a question to do with data security and has been REFERRED to the privacy policy page.",
+                    action_applied_rationale="The customer has been REFERRED to the privacy policy page.",
                 )
             ],
             guideline_applied_degree="fully",
             guideline_applied=True,
+            guideline_applied_from_different_condition=False,
         ),
     ]
 )
@@ -400,16 +412,16 @@ example_2_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
     checks=[
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer indicates that they are looking for a job.",
+            # condition="the customer indicates that they are looking for a job.",
             action="ask the customer for their location and what kind of role they are looking for",
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="ASK the customer for their location",
-                    rationale="The agent ASKED for the customer's location earlier in the interaction.",
+                    action_applied_rationale="The agent ASKED for the customer's location earlier in the interaction.",
                 ),
                 SegmentPreviouslyAppliedRationale(
                     action_segment="ASK the customer what kind of role they are looking for",
-                    rationale="The agent ASKED what kind of role they customer is interested in.",
+                    action_applied_rationale="The agent ASKED what kind of role they customer is interested in.",
                 ),
             ],
             guideline_applied_degree="fully",
@@ -417,22 +429,23 @@ example_2_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
         ),
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asks about job openings.",
+            # condition="the customer asks about job openings.",
             action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 openings overall",
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="EMPHASIZE we have plenty of relevant positions",
-                    rationale="The agent already has EMPHASIZED (i.e. clearly stressed) that we have open positions",
+                    action_applied_rationale="The agent already has EMPHASIZED (i.e. clearly stressed) that we have open positions",
                 ),
                 SegmentPreviouslyAppliedRationale(
                     action_segment="EMPHASIZE we have over 10,000 openings overall",
-                    rationale="The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k openings overall.",
+                    action_applied_rationale="The agent neglected to EMPHASIZE (i.e. clearly stressed) that we offer 10k openings overall.",
                 ),
             ],
             guideline_applied_degree="partially",
-            cosmetic_or_essential_rational="overall intention that there are many open position was made clear so no need come back and name the specific number in the future",
-            is_missing_part_cosmetic_or_essential="cosmetic",
+            is_missing_part_consequential_rational="overall intention that there are many open position was made clear so no need come back and name the specific number in the future",
+            is_missing_part_consequential=False,
             guideline_applied=True,
+            guideline_applied_from_different_condition=False,
         ),
     ]
 )
@@ -458,21 +471,21 @@ example_3_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
     checks=[
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer indicates that they are looking for a job.",
+            # condition="the customer indicates that they are looking for a job.",
             action="ask the customer for their location and what kind of role they are looking for",
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="ASK the customer for their location",
-                    rationale="The agent ASKED for the customer's location earlier in the interaction.",
+                    action_applied_rationale="The agent ASKED for the customer's location earlier in the interaction.",
                 ),
                 SegmentPreviouslyAppliedRationale(
                     action_segment="ASK the customer what kind of role they are looking for",
-                    rationale="The agent did not ASK what kind of role they customer is interested in.",
+                    action_applied_rationale="The agent did not ASK what kind of role the customer is interested in.",
                 ),
             ],
             guideline_applied_degree="partially",
-            cosmetic_or_essential_rational="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
-            is_missing_part_cosmetic_or_essential="essential",
+            is_missing_part_consequential_rational="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
+            is_missing_part_consequential=True,
             guideline_applied=False,
         ),
     ]
@@ -499,16 +512,17 @@ example_4_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
     checks=[
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer says they forgot their password",
+            # condition="the customer says they forgot their password",
             action="Offer to reset the password.",
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="OFFER to reset the password",
-                    rationale="The agent OFFERED to reset the password. The customer didn't say they forgat the password but the action was made anyway",
+                    action_applied_rationale="The agent indeed OFFERED to reset the password.",
                 ),
             ],
             guideline_applied_degree="fully",
             guideline_applied=True,
+            guideline_applied_from_different_condition=True,
         ),
     ]
 )
@@ -538,27 +552,112 @@ example_5_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
     checks=[
         GuidelinePreviouslyAppliedDetectionSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="there is a problem with the order",
+            # condition="there is a problem with the order",
             action="Acknowledge the issue and thank the user for their patience.",
             guideline_applied_rationale=[
                 SegmentPreviouslyAppliedRationale(
                     action_segment="ACKNOWLEDGE the issue",
-                    rationale="The agent ACKNOWLEDGED the issue by saying they are checking it",
+                    action_applied_rationale="The agent ACKNOWLEDGED the issue by saying they are checking it",
                 ),
                 SegmentPreviouslyAppliedRationale(
                     action_segment="THANK the user for their patience.",
-                    rationale="The agent didn't thank the customer for their patient",
+                    action_applied_rationale="The agent didn't thank the customer for their patient",
                 ),
             ],
             guideline_applied_degree="partially",
-            cosmetic_or_essential_rational="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
+            is_missing_part_consequential_rational="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
             "There’s no need to return and thank the user later in order to complete the response.",
-            is_missing_part_cosmetic_or_essential="cosmetic",
+            is_missing_part_consequential=False,
             guideline_applied=True,
+            guideline_applied_from_different_condition=False,
         ),
     ]
 )
 
+
+example_6_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "I've been waiting 40 minutes for my order and it still hasn’t arrived.",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'm really sorry about the inconvenience. We’re checking with the delivery partner right now and will update you shortly. Any way, let me give you a refund of $20",
+    ),
+]
+
+example_6_guidelines = [
+    GuidelineContent(
+        condition="The customer reports that a product arrived damaged",
+        action="Offer a $20 refund on the purchase.",
+    ),
+]
+
+example_6_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
+    checks=[
+        GuidelinePreviouslyAppliedDetectionSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            # condition="The customer reports that a product arrived damaged",
+            action="Offer a $20 refund on the purchase.",
+            guideline_applied_rationale=[
+                SegmentPreviouslyAppliedRationale(
+                    action_segment="OFFER a $20 refund on the purchase.",
+                    action_applied_rationale="The agent OFFERED $20 refund.",
+                ),
+            ],
+            guideline_applied_degree="fully",
+            guideline_applied=True,
+            guideline_applied_from_different_condition=True,
+        ),
+    ]
+)
+
+example_7_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "OK I don't need any other help.",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Great I was happy to help you, bye bye!",
+    ),
+]
+
+example_7_guidelines = [
+    GuidelineContent(
+        condition="The customer said they don't need any other help",
+        action="Wish the customer a great day at the end of the interaction by saying goodbye.",
+    ),
+]
+
+example_7_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
+    checks=[
+        GuidelinePreviouslyAppliedDetectionSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            # condition="The customer said they don't need any other help",
+            action="Wish the customer a great day at the end of the interaction.",
+            guideline_applied_rationale=[
+                SegmentPreviouslyAppliedRationale(
+                    action_segment="Wish the customer a great day",
+                    action_applied_rationale="The agent didn't WISH a great day",
+                ),
+                SegmentPreviouslyAppliedRationale(
+                    action_segment="END of the interaction.",
+                    action_applied_rationale="The agent END the interaction by saying goodbye.",
+                ),
+            ],
+            guideline_applied_degree="partially",
+            is_missing_part_consequential_rational="missing part is about politeness, and doesn’t affect the quality of the interaction",
+            is_missing_part_consequential=False,
+            guideline_applied=True,
+            guideline_applied_from_different_condition=False,
+        ),
+    ]
+)
 
 _baseline_shots: Sequence[GenericGuidelinePreviouslyAppliedDetectorShot] = [
     GenericGuidelinePreviouslyAppliedDetectorShot(
@@ -590,6 +689,18 @@ _baseline_shots: Sequence[GenericGuidelinePreviouslyAppliedDetectorShot] = [
         interaction_events=example_5_events,
         guidelines=example_5_guidelines,
         expected_result=example_5_expected,
+    ),
+    GenericGuidelinePreviouslyAppliedDetectorShot(
+        description="",
+        interaction_events=example_6_events,
+        guidelines=example_6_guidelines,
+        expected_result=example_6_expected,
+    ),
+    GenericGuidelinePreviouslyAppliedDetectorShot(
+        description="",
+        interaction_events=example_7_events,
+        guidelines=example_7_guidelines,
+        expected_result=example_7_expected,
     ),
 ]
 

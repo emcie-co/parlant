@@ -14,6 +14,7 @@
 
 from datetime import date, datetime
 from enum import Enum
+import enum
 import json
 from typing import Optional
 
@@ -440,6 +441,9 @@ async def reset_password(
         {
             "result": f"password for {username} was reset. An email with further instructions was sent to the account's email address."
         }
+    )
+
+
 class MeetingLocation(Enum):
     ROOM = "meeting room"
     BOOTH = "phone booth"

@@ -135,7 +135,8 @@ async def test_that_openapi_client_raises_tool_error_on_argument_mismatch(
     "tool_name,arguments",
     [
         (one_required_query_param.__name__, {"query_param": "not_an_integer"}),
-        (one_required_query_param.__name__, {"query_param": True}),
+        (one_required_query_param.__name__, {"query_param": "True"}),
+        (one_required_query_param.__name__, {"query_param": "true"}),
     ],
 )
 async def test_that_openapi_client_raises_tool_error_on_type_mismatch(

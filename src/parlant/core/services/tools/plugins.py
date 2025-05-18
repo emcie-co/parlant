@@ -38,7 +38,7 @@ from typing import (
     get_args,
     overload,
 )
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
@@ -227,21 +227,7 @@ async def adapt_tool_arguments(
         if parameter_info.options and parameter_info.options.adapter:
             adapted_arguments[name] = await parameter_info.options.adapter(argument)
         else:
-            if parameter_info.resolved_type.__name__ == "list":
-                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
-                    argument
-                )
-            elif issubclass(parameter_info.resolved_type, BaseModel):
-                if parameter_info.is_optional and not argument:
-                    adapted_arguments[name] = None
-                else:
-                    adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_json(
-                        argument
-                    )
-            else:
-                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
-                    argument
-                )
+            adapted_arguments[name] = argument
 
     return adapted_arguments
 

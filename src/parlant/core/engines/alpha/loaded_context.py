@@ -55,8 +55,8 @@ class ResponseState:
     context_variables: list[tuple[ContextVariable, ContextVariableValue]]
     glossary_terms: set[Term]
     ordinary_guideline_matches: list[GuidelineMatch]
-    journeys: list[Journey]
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
+    journeys: list[Journey]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights
     iterations_completed: int

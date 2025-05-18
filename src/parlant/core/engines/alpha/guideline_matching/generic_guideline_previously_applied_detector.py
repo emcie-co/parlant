@@ -1,17 +1,27 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Sequence
+from itertools import chain
+from typing import Mapping, Optional, Sequence
+from more_itertools import chunked
+
+from parlant.core import async_utils
+from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.context_variables import ContextVariable, ContextVariableValue
+from parlant.core.customers import Customer
+from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import _make_event
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
+from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import Event, EventSource
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tools import Tool, ToolId
+from parlant.core.tools import ToolId
 
 
 @dataclass
@@ -52,25 +62,98 @@ class GenericGuidelinePreviouslyAppliedDetector:
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[GenericGuidelinePreviouslyAppliedDetectorSchema],
-        ordinary_guideline: Sequence[Guideline],
-        tool_match_guidelines: dict[Guideline, Sequence[tuple[ToolId, Tool]]],
-        context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._ordinary_guideline = ordinary_guideline
-        self._tool_match_guidelines = tool_match_guidelines
-        self._guidelines = {
-            g.id: g for g in list(ordinary_guideline) + list(tool_match_guidelines.keys())
-        }
-        self._context = context
+        self._batch_size = 5
 
-    async def process(self) -> GuidelinePreviouslyAppliedDetectionResult:
-        prompt = self._build_prompt(shots=await self.shots())
+    async def process(
+        self,
+        agent: Agent,
+        customer: Customer,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        staged_events: Sequence[EmittedEvent],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+    ) -> GuidelinePreviouslyAppliedDetectionResult:
+        context = GuidelineMatchingContext(
+            agent=agent,
+            customer=customer,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            terms=terms,
+            staged_events=staged_events,
+        )
+
+        all_guidelines = [m.guideline for m in ordinary_guideline_matches] + [
+            m.guideline for m in tool_enabled_guideline_matches.keys()
+        ]
+
+        guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
         with self._logger.operation(
-            f"GenericGuidelineMatchingBatch: {len(self._guidelines)} guidelines"
+            f"GenericGuidelinePreviouslyAppliedDetector: {len(all_guidelines)} guidelines "
+            f"in {len(guideline_batches)} batches (batch size={self._batch_size})"
         ):
+            batch_tasks = [
+                self._process_batch(
+                    batch,
+                    ordinary_guideline_matches,
+                    tool_enabled_guideline_matches,
+                    context,
+                )
+                for batch in guideline_batches
+            ]
+
+            batch_results = await async_utils.safe_gather(*batch_tasks)
+
+            all_applied_guidelines = list(
+                chain.from_iterable(
+                    result.previously_applied_guidelines for result in batch_results
+                )
+            )
+
+            generation_info = (
+                batch_results[-1].generation_info if batch_results else GenerationInfo()
+            )
+
+            return GuidelinePreviouslyAppliedDetectionResult(
+                previously_applied_guidelines=all_applied_guidelines,
+                generation_info=generation_info,
+            )
+
+    async def _process_batch(
+        self,
+        batch: Sequence[Guideline],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        context: GuidelineMatchingContext,
+    ) -> GuidelinePreviouslyAppliedDetectionResult:
+        batch_guideline_ids = {g.id for g in batch}
+
+        batch_ordinary_guidelines = [
+            m.guideline for m in ordinary_guideline_matches if m.guideline.id in batch_guideline_ids
+        ]
+
+        batch_tool_match_guidelines = {
+            m.guideline: tools
+            for m, tools in tool_enabled_guideline_matches.items()
+            if m.guideline.id in batch_guideline_ids
+        }
+
+        guidelines = {g.id: g for g in batch}
+
+        prompt = self._build_prompt(
+            shots=await self.shots(),
+            guidelines=guidelines,
+            ordinary_guideline=batch_ordinary_guidelines,
+            tool_match_guidelines=batch_tool_match_guidelines,
+            context=context,
+        )
+
+        with self._logger.operation(f"GenericGuidelineMatchingBatch: {len(guidelines)} guidelines"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
@@ -87,9 +170,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
         for check in inference.content.checks:
             if check.guideline_applied:
                 self._logger.debug(f"Completion::Activated:\n{check.model_dump_json(indent=2)}")
-
-                applied.append(self._guidelines[GuidelineId(check.guideline_id)])
-
+                applied.append(guidelines[GuidelineId(check.guideline_id)])
             else:
                 self._logger.debug(f"Completion::Skipped:\n{check.model_dump_json(indent=2)}")
 
@@ -153,7 +234,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
     def _add_guideline_matches_section(
         self,
         ordinary_guidelines: Sequence[Guideline],
-        tool_guideline: dict[Guideline, Sequence[tuple[ToolId, Tool]]],
+        tool_guideline: Mapping[Guideline, Sequence[ToolId]],
     ) -> str:
         i = 1
         ordinary_guidelines_list = ""
@@ -173,7 +254,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
                 i += 1
                 guidelines.append(guideline)
                 guidelines.append("Associated Tools:")
-                for j, (id, _) in enumerate(tools, start=1):
+                for j, id in enumerate(tools, start=1):
                     guidelines.append(f"{j}) {id.service_name}:{id.tool_name}")
             tools_guidelines_list = "\n".join(guidelines)
         guidelines_list = ordinary_guidelines_list + tools_guidelines_list
@@ -192,6 +273,10 @@ Guidelines:
     def _build_prompt(
         self,
         shots: Sequence[GenericGuidelinePreviouslyAppliedDetectorShot],
+        guidelines: dict[GuidelineId, Guideline],
+        ordinary_guideline: Sequence[Guideline],
+        tool_match_guidelines: Mapping[Guideline, Sequence[ToolId]],
+        context: GuidelineMatchingContext,
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
@@ -265,20 +350,20 @@ Examples of ...:
                 "shots": shots,
             },
         )
-        builder.add_agent_identity(self._context.agent)
-        builder.add_context_variables(self._context.context_variables)
-        builder.add_glossary(self._context.terms)
-        builder.add_interaction_history(self._context.interaction_history)
-        builder.add_staged_events(self._context.staged_events)
+        builder.add_agent_identity(context.agent)
+        builder.add_context_variables(context.context_variables)
+        builder.add_glossary(context.terms)
+        builder.add_interaction_history(context.interaction_history)
+        builder.add_staged_events(context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._add_guideline_matches_section(
-                self._ordinary_guideline,
-                self._tool_match_guidelines,
+                ordinary_guideline,
+                tool_match_guidelines,
             ),
             props={
-                "ordinary_guidelines": self._ordinary_guideline,
-                "tool_guideline": self._tool_match_guidelines,
+                "ordinary_guidelines": ordinary_guideline,
+                "tool_guideline": tool_match_guidelines,
             },
         )
 
@@ -297,13 +382,18 @@ OUTPUT FORMAT
 ```
 """,
             props={
-                "result_structure_text": self._format_of_guideline_check_json_description(),
-                "guidelines_len": len(self._guidelines),
+                "result_structure_text": self._format_of_guideline_check_json_description(
+                    guidelines=guidelines
+                ),
+                "guidelines_len": len(guidelines),
             },
         )
         return builder
 
-    def _format_of_guideline_check_json_description(self) -> str:
+    def _format_of_guideline_check_json_description(
+        self,
+        guidelines: dict[GuidelineId, Guideline],
+    ) -> str:
         result_structure = [
             {
                 "guideline_id": g.id,
@@ -320,7 +410,7 @@ OUTPUT FORMAT
                 "is_missing_part_functional_or_behavioral": "<str: only included if guideline_applied is 'partially'.>",
                 "guideline_applied": "<bool>",
             }
-            for g in self._guidelines.values()
+            for g in guidelines.values()
         ]
         result = {"checks": result_structure}
         return json.dumps(result, indent=4)

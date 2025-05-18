@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Sequence, cast
+from typing import Mapping, Optional, Sequence, cast
 
 from lagom import Container
 from pytest import fixture
@@ -9,18 +9,17 @@ from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable, generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_applied_detector import (
     GenericGuidelinePreviouslyAppliedDetector,
     GenericGuidelinePreviouslyAppliedDetectorSchema,
 )
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource
 from parlant.core.tags import TagId
-from parlant.core.tools import LocalToolService, Tool, ToolId
-from tests.core.common.engines.alpha.steps.tools import TOOLS
+from parlant.core.tools import ToolId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -70,7 +69,7 @@ class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    guidelines_to_tools: dict[Guideline, Sequence[tuple[ToolId, Tool]]]
+    guidelines_to_tools: Mapping[Guideline, Sequence[ToolId]]
     schematic_generator: SchematicGenerator[GenericGuidelinePreviouslyAppliedDetectorSchema]
     logger: Logger
 
@@ -95,14 +94,14 @@ def context(
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
-    tools: Sequence[tuple[ToolId, Tool]] = [],
+    tool_ids: Sequence[ToolId] = [],
 ) -> Guideline:
-    if tools:
+    if tool_ids:
         guideline = create_guideline_with_tools(
             context=context,
             condition=GUIDELINES_DICT[guideline_name]["condition"],
             action=GUIDELINES_DICT[guideline_name]["action"],
-            tools=tools,
+            tool_ids=tool_ids,
         )
     else:
         guideline = create_guideline(
@@ -140,7 +139,7 @@ def create_guideline_with_tools(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tools: Sequence[tuple[ToolId, Tool]] = [],
+    tool_ids: Sequence[ToolId] = [],
     tags: list[TagId] = [],
 ) -> Guideline:
     guideline = Guideline(
@@ -155,7 +154,7 @@ def create_guideline_with_tools(
         metadata={},
     )
 
-    context.guidelines_to_tools[guideline] = tools
+    context.guidelines_to_tools = {guideline: tool_ids}
 
     return guideline
 
@@ -167,7 +166,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str] = [],
     ordinary_guidelines_names: list[str] = [],
-    guidelines_with_tools: Optional[dict[str, Sequence[tuple[ToolId, Tool]]]] = None,
+    guidelines_with_tools: Optional[dict[str, Sequence[ToolId]]] = None,
     staged_events: Sequence[EmittedEvent] = [],
 ) -> None:
     conversation_guidelines: dict[str, Guideline] = defaultdict()
@@ -176,8 +175,8 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
             conversation_guidelines[name] = create_guideline_by_name(context, name)
 
     if guidelines_with_tools:
-        for name, tools in guidelines_with_tools.items():
-            conversation_guidelines[name] = create_guideline_by_name(context, name, tools)
+        for name, tool_ids in guidelines_with_tools.items():
+            conversation_guidelines[name] = create_guideline_by_name(context, name, tool_ids)
 
     previously_applied_target_guidelines = [
         conversation_guidelines[name] for name in guidelines_target_names
@@ -192,24 +191,41 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    guideline_matching_context = GuidelineMatchingContext(
-        agent=agent,
-        customer=customer,
-        context_variables=[],
-        interaction_history=interaction_history,
-        terms=[],
-        staged_events=staged_events,
-    )
-
     guideline_previously_applied_detector = GenericGuidelinePreviouslyAppliedDetector(
         logger=context.container[Logger],
         schematic_generator=context.schematic_generator,
-        ordinary_guideline=context.guidelines,
-        tool_match_guidelines=context.guidelines_to_tools,
-        context=guideline_matching_context,
     )
 
-    result = context.sync_await(guideline_previously_applied_detector.process())
+    ordinary_guideline_matches = [
+        GuidelineMatch(
+            guideline=guideline,
+            score=10,
+            rationale="",
+        )
+        for guideline in context.guidelines
+    ]
+
+    tool_enabled_guideline_matches = {
+        GuidelineMatch(
+            guideline=g,
+            score=10,
+            rationale="",
+        ): t_ids
+        for g, t_ids in context.guidelines_to_tools.items()
+    }
+
+    result = context.sync_await(
+        guideline_previously_applied_detector.process(
+            agent=agent,
+            customer=customer,
+            context_variables=[],
+            interaction_history=interaction_history,
+            terms=[],
+            staged_events=staged_events,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        )
+    )
 
     assert set(result.previously_applied_guidelines) == set(previously_applied_target_guidelines)
 
@@ -427,16 +443,8 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     agent: Agent,
     customer: Customer,
 ) -> None:
-    local_tool_service = context.container[LocalToolService]
-
     tool_names = ["get_available_drinks", "get_available_toppings"]
-    tools = [
-        (
-            ToolId(service_name="local", tool_name=tool_name),
-            context.sync_await(local_tool_service.create_tool(**TOOLS[tool_name])),
-        )
-        for tool_name in tool_names
-    ]
+    tool_ids = [ToolId(service_name="local", tool_name=tool_name) for tool_name in tool_names]
 
     conversation_context: list[tuple[EventSource, str]] = [
         (
@@ -489,6 +497,6 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
         conversation_context,
         guidelines_target_names=[],
         ordinary_guidelines_names=[],
-        guidelines_with_tools={"check_stock": tools},
+        guidelines_with_tools={"check_stock": tool_ids},
         staged_events=staged_events,
     )

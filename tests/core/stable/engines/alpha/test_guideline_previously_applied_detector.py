@@ -265,7 +265,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has_partially_applied_but_cosmetic(
+def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has_partially_applied_but_behavioral(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,

@@ -31,10 +31,9 @@ class GuidelinePreviouslyAppliedDetectionSchema(DefaultBaseModel):
     action: str
     guideline_applied_rationale: Optional[list[SegmentPreviouslyAppliedRationale]] = None
     guideline_applied_degree: Optional[str] = None
-    is_missing_part_consequential_rational: Optional[str] = None
-    is_missing_part_consequential: Optional[bool] = None
+    is_missing_part_functional_or_behavioral_rational: Optional[str] = None
+    is_missing_part_functional_or_behavioral: Optional[str] = None
     guideline_applied: bool
-    guideline_applied_from_different_condition: Optional[bool] = None
 
 
 class GenericGuidelinePreviouslyAppliedDetectorSchema(DefaultBaseModel):
@@ -222,15 +221,29 @@ Note that some guidelines may involve a requirement that depends on the customer
 completion. In such cases, you should evaluate only the agent’s part of the action. Since evaluation occurs after the agent’s message, the action is considered applied if the agent has done its part (e.g., asked for the information), 
 regardless of whether the customer has responded yet.
 
-2. Distinguish Consequential and Non Consequential Action:
-Some guidelines include multiple actions. If only a part of those actions has been fulfilled, you need to evaluate whether the unfulfilled part is consequential or not. 
-A "consequential" action is one that — if omitted — would impact the outcome of the interaction. These are actions that, if left undone, may leave an issue unresolved, create confusion, or make the response less effective.
-A "non consequential" action is one that is not critical to the interaction and won’t influence its direction or outcome. These actions may improve tone or politeness — such as thanking the user or offering an apology, 
-but not doing them does not significantly affect the result of the conversation.
-Examples of "non consequential" action: Expressing empathy or understanding, offering apologies or regret, thanking the customer, polite conversational phrases, encouragement or reassurance, using exact words to express something.
-Since politeness-related actions (like thanking or apologizing) are most relevant at the time the event occurs, there’s no need to return and perform them later. Therefore, their absence doesn't require the guideline to be marked as unfulfilled.
-A useful question to ask: “If the conversation were to continue, would you need to go back and complete that missing action?” If not, it's not consequential. 
-If the unfulfilled action part is non consequential treat the guideline as though it has been fully executed and mark `guideline_applied` as true. If it's consequential we can't treat it as if it was applied and `guideline_applied` should be false.
+2. Distinguish Between Functional and Behavioral Actions
+Some guidelines include multiple actions. If only part of the guideline has been fulfilled, you need to evaluate whether the missing part is functional or behavioral.
+
+- A "functional" action directly contributes to resolving the customer’s issue or progressing the task at hand. These actions are core to the outcome of the interaction. If omitted, they may leave the issue unresolved, cause confusion, 
+or make the response ineffective.
+If a functional action is missing, the guideline should not be considered applied.
+
+- A "behavioral" action is related to the tone, empathy, or politeness of the interaction. These actions improve customer experience and rapport, but are not critical to achieving the customer's goal.
+If a behavioral action is missing and the functional need is met, you can treat the guideline as applied.
+
+Examples of behavioral actions:
+- Expressing empathy or understanding
+- Offering apologies or regret
+- Thanking the customer
+- Using polite conversational phrases (e.g., greetings, closings)
+- Offering encouragement or reassurance
+- Using exact or brand-preferred wording to say something already conveyed
+
+Because behavioral actions are most effective when used in the moment, there's no need to return and perform them later. Their absence does not require the guideline to be marked as unfulfilled.
+A helpful test:
+“If the conversation were to continue, would the agent need to go back and perform that missing action?”
+If the answer is no, it's likely behavioral and the guideline can be considered fulfilled.
+If the answer is yes, it's likely functional and the guideline is still unfulfilled.
 
 3. Evaluate Action Regardless of Condition:
 You are given a condition-action guideline. Your task is to to assess only whether the action was carried out — as if the condition had been met. In some cases, the action may have been carried out for a different reason — triggered by another 
@@ -300,14 +313,12 @@ OUTPUT FORMAT
                     {
                         "action_segment": "<action_segment_description>",
                         "action_applied_rationale": "<explanation of whether this action segment (apart from condition) was applied by the agent; to avoid pitfalls, try to use the exact same words here as the action segment to determine this. use CAPITALS to highlight the same words in the segment as in your explanation>",
-                        "applied_but_from_different_condition": "<bool: only include if applied>",
                     }
                 ],
-                "guideline_applied_degree": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was preformed>",
-                "is_missing_part_consequential_rational": "<str: only included if guideline_applied is 'partially'. short explanation of whether it's consequential.>",
-                "is_missing_part_consequential": "<bool: only included if guideline_applied is 'partially'.>",
+                "guideline_applied_degree": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was preformed (apart from condition)>",
+                "is_missing_part_functional_or_behavioral_rational": "<str: only included if guideline_applied is 'partially'. short explanation of whether the missing part is functional or behavioral.>",
+                "is_missing_part_functional_or_behavioral": "<str: only included if guideline_applied is 'partially'.>",
                 "guideline_applied": "<bool>",
-                "guideline_applied_from_different_condition": "<bool. only included if guideline_applied is True>",
             }
             for g in self._guidelines.values()
         ]
@@ -377,7 +388,6 @@ example_1_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
             ],
             guideline_applied_degree="fully",
             guideline_applied=True,
-            guideline_applied_from_different_condition=False,
         ),
     ]
 )
@@ -442,10 +452,9 @@ example_2_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_consequential_rational="overall intention that there are many open position was made clear so no need come back and name the specific number in the future",
-            is_missing_part_consequential=False,
+            is_missing_part_functional_or_behavioral_rational="overall intention that there are many open position was made clear so using the exact words is behavioral",
+            is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
-            guideline_applied_from_different_condition=False,
         ),
     ]
 )
@@ -484,8 +493,8 @@ example_3_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_consequential_rational="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
-            is_missing_part_consequential=True,
+            is_missing_part_functional_or_behavioral_rational="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
+            is_missing_part_functional_or_behavioral="functional",
             guideline_applied=False,
         ),
     ]
@@ -522,7 +531,6 @@ example_4_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
             ],
             guideline_applied_degree="fully",
             guideline_applied=True,
-            guideline_applied_from_different_condition=True,
         ),
     ]
 )
@@ -565,11 +573,10 @@ example_5_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_consequential_rational="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
+            is_missing_part_functional_or_behavioral_rational="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
             "There’s no need to return and thank the user later in order to complete the response.",
-            is_missing_part_consequential=False,
+            is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
-            guideline_applied_from_different_condition=False,
         ),
     ]
 )
@@ -609,7 +616,6 @@ example_6_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
             ],
             guideline_applied_degree="fully",
             guideline_applied=True,
-            guideline_applied_from_different_condition=True,
         ),
     ]
 )
@@ -651,10 +657,9 @@ example_7_expected = GenericGuidelinePreviouslyAppliedDetectorSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_consequential_rational="missing part is about politeness, and doesn’t affect the quality of the interaction",
-            is_missing_part_consequential=False,
+            is_missing_part_functional_or_behavioral_rational="missing part is about politeness, and doesn’t affect the quality of the interaction",
+            is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
-            guideline_applied_from_different_condition=False,
         ),
     ]
 )

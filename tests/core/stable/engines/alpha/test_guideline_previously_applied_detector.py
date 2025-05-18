@@ -58,6 +58,10 @@ GUIDELINES_DICT = {
         "condition": "When customer complains that they didn't get the order on time",
         "action": "express solidarity and offer a discount",
     },
+    "link_when_asks_where_order": {
+        "condition": "When customer asks where their order currently",
+        "action": "provide the tracking link - https://trackinglink.com/abc123",
+    },
 }
 
 
@@ -363,7 +367,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_the_condition_not(
+def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_1(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
@@ -379,6 +383,34 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
         ),
     ]
     guidelines: list[str] = ["late_so_discount", "cold_so_discount"]
+
+    base_test_that_correct_guidelines_detect_as_previously_applied(
+        context,
+        agent,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        ordinary_guidelines_names=guidelines,
+    )
+
+
+def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_2(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, when is my package supposed to arrive?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "It’s on the way! You can track it here: https://trackinglink.com/abc123",
+        ),
+    ]
+
+    guidelines: list[str] = ["link_when_asks_where_order"]
 
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,

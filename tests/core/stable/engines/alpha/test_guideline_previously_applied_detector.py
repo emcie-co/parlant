@@ -96,7 +96,7 @@ def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
     tools: Sequence[tuple[ToolId, Tool]] = [],
-) -> Guideline | None:
+) -> Guideline:
     if tools:
         guideline = create_guideline_with_tools(
             context=context,

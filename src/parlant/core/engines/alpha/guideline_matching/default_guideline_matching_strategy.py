@@ -92,7 +92,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             )
         return guideline_batches
 
-    async def _create_sub_batches_observational_guideline(
+    def _create_sub_batches_observational_guideline(
         self,
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,

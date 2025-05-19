@@ -69,7 +69,7 @@ class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
-    guidelines_to_tools: Mapping[Guideline, Sequence[ToolId]]
+    guidelines_to_tools: Mapping[Guideline, list[ToolId]]
     schematic_generator: SchematicGenerator[GenericGuidelinePreviouslyAppliedDetectorSchema]
     logger: Logger
 
@@ -108,7 +108,7 @@ def session(
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
-    tool_ids: Sequence[ToolId] = [],
+    tool_ids: list[ToolId] = [],
 ) -> Guideline:
     if tool_ids:
         guideline = create_guideline_with_tools(
@@ -153,7 +153,7 @@ def create_guideline_with_tools(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tool_ids: Sequence[ToolId] = [],
+    tool_ids: list[ToolId] = [],
     tags: list[TagId] = [],
 ) -> Guideline:
     guideline = Guideline(
@@ -181,7 +181,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str] = [],
     ordinary_guidelines_names: list[str] = [],
-    guidelines_with_tools: Optional[dict[str, Sequence[ToolId]]] = None,
+    guidelines_with_tools: Optional[dict[str, list[ToolId]]] = None,
     staged_events: Sequence[EmittedEvent] = [],
 ) -> None:
     conversation_guidelines: dict[str, Guideline] = defaultdict()

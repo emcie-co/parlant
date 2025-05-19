@@ -220,7 +220,7 @@ SessionMode: TypeAlias = Literal["auto", "manual"]
 
 
 class AgentState(TypedDict):
-    applied_guideline_ids: Sequence[GuidelineId]
+    applied_guideline_ids: list[GuidelineId]
 
 
 @dataclass(frozen=True)

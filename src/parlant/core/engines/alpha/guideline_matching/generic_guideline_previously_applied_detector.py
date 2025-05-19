@@ -19,7 +19,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.sessions import Event, EventSource
+from parlant.core.sessions import Event, EventSource, Session
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
@@ -70,16 +70,18 @@ class GenericGuidelinePreviouslyAppliedDetector:
     async def process(
         self,
         agent: Agent,
+        session: Session,
         customer: Customer,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         staged_events: Sequence[EmittedEvent],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        tool_enabled_guideline_matches: dict[GuidelineMatch, Sequence[ToolId]],
     ) -> GuidelinePreviouslyAppliedDetectionResult:
         context = GuidelineMatchingContext(
             agent=agent,
+            session=session,
             customer=customer,
             context_variables=context_variables,
             interaction_history=interaction_history,

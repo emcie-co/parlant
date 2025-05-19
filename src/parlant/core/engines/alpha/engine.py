@@ -691,6 +691,7 @@ class AlphaEngine(Engine):
         # Step 3: Filter the best matches out of those.
         matching_result = await self._guideline_matcher.match_guidelines(
             agent=context.agent,
+            session=context.session,
             customer=context.customer,
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.history,

@@ -543,6 +543,7 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
 def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     relevant_guidelines = [
@@ -574,6 +575,7 @@ def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
     guideline_matches = match_guidelines(
         context,
         agent,
+        session,
         customer,
         [(EventSource.CUSTOMER, "Hello there")],
     )
@@ -1179,6 +1181,7 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
 def test_that_guideline_matching_strategies_can_be_overridden(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     class SkipAllGuidelineBatch(GuidelineMatchingBatch):
@@ -1239,7 +1242,7 @@ def test_that_guideline_matching_strategies_can_be_overridden(
         create_guideline(context, "help", "assist customer"),
     ]
 
-    guideline_matches = match_guidelines(context, agent, customer, [])
+    guideline_matches = match_guidelines(context, agent, session, customer, [])
 
     long_condition_guidelines = [g for g in guidelines if len(g.content.condition.split()) >= 4]
     short_condition_guidelines = [g for g in guidelines if len(g.content.condition.split()) < 4]

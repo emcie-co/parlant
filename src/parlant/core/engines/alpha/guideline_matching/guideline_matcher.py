@@ -30,13 +30,14 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 )
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
-from parlant.core.sessions import Event
+from parlant.core.sessions import Event, Session
 from parlant.core.loggers import Logger
 
 
 @dataclass(frozen=True)
 class GuidelineMatchingContext:
     agent: Agent
+    session: Session
     customer: Customer
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
     interaction_history: Sequence[Event]
@@ -93,6 +94,7 @@ class GuidelineMatcher:
     async def match_guidelines(
         self,
         agent: Agent,
+        session: Session,
         customer: Customer,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
@@ -127,6 +129,7 @@ class GuidelineMatcher:
                             guidelines,
                             context=GuidelineMatchingContext(
                                 agent,
+                                session,
                                 customer,
                                 context_variables,
                                 interaction_history,

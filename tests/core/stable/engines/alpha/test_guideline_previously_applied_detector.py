@@ -17,7 +17,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventKind, EventSource
+from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
 from parlant.core.tags import TagId
 from parlant.core.tools import ToolId
 from tests.core.common.utils import create_event_message
@@ -88,6 +88,20 @@ def context(
             SchematicGenerator[GenericGuidelinePreviouslyAppliedDetectorSchema]
         ],
         logger=container[Logger],
+    )
+
+
+@fixture
+def session(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> Session:
+    return context.sync_await(
+        context.container[SessionStore].create_session(
+            customer_id=customer.id,
+            agent_id=agent.id,
+        )
     )
 
 
@@ -162,6 +176,7 @@ def create_guideline_with_tools(
 def base_test_that_correct_guidelines_detect_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str] = [],
@@ -191,6 +206,17 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
+    for e in interaction_history:
+        context.sync_await(
+            context.container[SessionStore].create_event(
+                session_id=session.id,
+                source=e.source,
+                kind=e.kind,
+                correlation_id=e.correlation_id,
+                data=e.data,
+            )
+        )
+
     guideline_previously_applied_detector = GenericGuidelinePreviouslyAppliedDetector(
         logger=context.container[Logger],
         schematic_generator=context.schematic_generator,
@@ -217,6 +243,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
     result = context.sync_await(
         guideline_previously_applied_detector.process(
             agent=agent,
+            session=session,
             customer=customer,
             context_variables=[],
             interaction_history=interaction_history,
@@ -233,6 +260,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
 def test_that_correct_guidelines_detect_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -251,6 +279,7 @@ def test_that_correct_guidelines_detect_as_previously_applied(
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -261,6 +290,7 @@ def test_that_correct_guidelines_detect_as_previously_applied(
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_also_depends_on_the_user_response(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -278,6 +308,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -288,6 +319,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has_partially_applied_but_behavioral(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -313,6 +345,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -323,6 +356,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has
 def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guideline_has_partially_applied_and_functional(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -340,6 +374,7 @@ def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guide
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=[],
@@ -350,6 +385,7 @@ def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guide
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_has_several_parts_that_applied_in_different_interaction_messages(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -376,6 +412,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -386,6 +423,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_1(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -403,6 +441,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -413,6 +452,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_2(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -431,6 +471,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -441,6 +482,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
 def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_fully_understood_when_considering_the_tools(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     tool_names = ["get_available_drinks", "get_available_toppings"]
@@ -493,6 +535,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=[],

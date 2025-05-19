@@ -15,7 +15,7 @@ from parlant.core.engines.alpha.guideline_matching.generic_guideline_not_previou
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventSource
+from parlant.core.sessions import EventSource, Session, SessionStore
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -70,6 +70,20 @@ def context(
     )
 
 
+@fixture
+def session(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> Session:
+    return context.sync_await(
+        context.container[SessionStore].create_session(
+            customer_id=customer.id,
+            agent_id=agent.id,
+        )
+    )
+
+
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
@@ -108,6 +122,7 @@ def create_guideline(
 def base_test_that_correct_guidelines_detect_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str],
@@ -131,8 +146,20 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
+    for e in interaction_history:
+        context.sync_await(
+            context.container[SessionStore].create_event(
+                session_id=session.id,
+                source=e.source,
+                kind=e.kind,
+                correlation_id=e.correlation_id,
+                data=e.data,
+            )
+        )
+
     guideline_matching_context = GuidelineMatchingContext(
         agent=agent,
+        session=session,
         customer=customer,
         context_variables=[],
         interaction_history=interaction_history,
@@ -157,6 +184,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
 def test_that_guideline_that_its_condition_partially_satisfied_not_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -179,6 +207,7 @@ def test_that_guideline_that_its_condition_partially_satisfied_not_matched(
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context=context,
         agent=agent,
+        session=session,
         customer=customer,
         conversation_context=conversation_context,
         guidelines_target_names=[],
@@ -189,6 +218,7 @@ def test_that_guideline_that_its_condition_partially_satisfied_not_matched(
 def test_that_guideline_that_its_condition_was_partially_fulfilled_now_match(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -219,6 +249,7 @@ def test_that_guideline_that_its_condition_was_partially_fulfilled_now_match(
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context=context,
         agent=agent,
+        session=session,
         customer=customer,
         conversation_context=conversation_context,
         guidelines_target_names=guidelines,
@@ -229,6 +260,7 @@ def test_that_guideline_that_its_condition_was_partially_fulfilled_now_match(
 def test_that_conflicting_actions_with_similar_conditions_are_both_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -244,6 +276,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_matched(
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context=context,
         agent=agent,
+        session=session,
         customer=customer,
         conversation_context=conversation_context,
         guidelines_target_names=guidelines,
@@ -254,6 +287,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_matched(
 def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is_not_matched_when_conversation_was_drifted(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -276,6 +310,7 @@ def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context=context,
         agent=agent,
+        session=session,
         customer=customer,
         conversation_context=conversation_context,
         guidelines_target_names=[],
@@ -286,6 +321,7 @@ def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is
 def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -312,6 +348,7 @@ def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,

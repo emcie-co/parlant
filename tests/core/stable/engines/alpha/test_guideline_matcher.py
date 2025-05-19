@@ -55,7 +55,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.sessions import EventKind, EventSource
+from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId
 
@@ -271,9 +271,24 @@ def context(
     )
 
 
+@fixture
+def session(
+    context: ContextOfTest,
+    agent: Agent,
+    customer: Customer,
+) -> Session:
+    return context.sync_await(
+        context.container[SessionStore].create_session(
+            customer_id=customer.id,
+            agent_id=agent.id,
+        )
+    )
+
+
 def match_guidelines(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
@@ -292,6 +307,7 @@ def match_guidelines(
     guideline_matching_result = context.sync_await(
         context.container[GuidelineMatcher].match_guidelines(
             agent=agent,
+            session=session,
             customer=customer,
             context_variables=context_variables,
             interaction_history=interaction_history,
@@ -380,6 +396,7 @@ def create_guideline_by_name(
 def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     conversation_guideline_names: list[str],
@@ -400,6 +417,7 @@ def base_test_that_correct_guidelines_are_matched(
     guideline_matches = match_guidelines(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         context_variables=context_variables,
@@ -414,6 +432,7 @@ def base_test_that_correct_guidelines_are_matched(
 def test_that_relevant_guidelines_are_matched_parametrized_2(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -476,6 +495,7 @@ def test_that_relevant_guidelines_are_matched_parametrized_2(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -486,6 +506,7 @@ def test_that_relevant_guidelines_are_matched_parametrized_2(
 def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -515,7 +536,7 @@ def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
 
     conversation_guideline_names: list[str] = ["check_toppings_in_stock", "check_drinks_in_stock"]
     base_test_that_correct_guidelines_are_matched(
-        context, agent, customer, conversation_context, conversation_guideline_names, []
+        context, agent, session, customer, conversation_context, conversation_guideline_names, []
     )
 
 
@@ -579,6 +600,13 @@ def test_that_guidelines_are_matched_based_on_agent_description(
         tags=[],
     )
 
+    session = context.sync_await(
+        context.container[SessionStore].create_session(
+            customer_id=customer.id,
+            agent_id=agent.id,
+        )
+    )
+
     conversation_context: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "Hey, do you sell skateboards?"),
         (
@@ -614,6 +642,7 @@ def test_that_guidelines_are_matched_based_on_agent_description(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -624,6 +653,7 @@ def test_that_guidelines_are_matched_based_on_agent_description(
 def test_that_guidelines_are_matched_based_on_glossary(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     terms = [
@@ -668,6 +698,7 @@ def test_that_guidelines_are_matched_based_on_glossary(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -679,6 +710,7 @@ def test_that_guidelines_are_matched_based_on_glossary(
 def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -745,6 +777,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -755,6 +788,7 @@ def test_that_conflicting_actions_with_similar_conditions_are_both_detected(
 def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_variables(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -823,6 +857,7 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_vari
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -835,6 +870,7 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_context_vari
 def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_variables(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -893,6 +929,7 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -904,6 +941,7 @@ def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_context_
 def test_that_already_addressed_guidelines_arent_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -918,13 +956,14 @@ def test_that_already_addressed_guidelines_arent_matched(
     ]
     conversation_guideline_names: list[str] = ["cheese_pizza"]
     base_test_that_correct_guidelines_are_matched(
-        context, agent, customer, conversation_context, conversation_guideline_names, []
+        context, agent, session, customer, conversation_context, conversation_guideline_names, []
     )
 
 
 def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_already_fulfilled(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -945,6 +984,7 @@ def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -955,6 +995,7 @@ def test_that_guidelines_referring_to_continuous_processes_are_detected_even_if_
 def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_is_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -981,6 +1022,7 @@ def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -991,6 +1033,7 @@ def test_that_guideline_with_already_addressed_condition_but_unaddressed_action_
 def test_that_guideline_isnt_detected_based_on_its_action(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1004,6 +1047,7 @@ def test_that_guideline_isnt_detected_based_on_its_action(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1014,6 +1058,7 @@ def test_that_guideline_isnt_detected_based_on_its_action(
 def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_reapplied(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1035,6 +1080,7 @@ def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_rea
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1045,6 +1091,7 @@ def test_that_guideline_with_fulfilled_action_regardless_of_condition_can_be_rea
 def test_that_guideline_with_initial_response_is_matched(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1058,6 +1105,7 @@ def test_that_guideline_with_initial_response_is_matched(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1068,6 +1116,7 @@ def test_that_guideline_with_initial_response_is_matched(
 def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_a_few_actions_occured(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1088,6 +1137,7 @@ def test_that_guideline_with_multiple_actions_is_partially_fulfilled_when_a_few_
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1207,6 +1257,7 @@ def test_that_guideline_matching_strategies_can_be_overridden(
 def test_that_strategy_for_specific_guideline_can_be_overridden_in_default_strategy_resolver(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     class CustomGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -1231,7 +1282,7 @@ def test_that_strategy_for_specific_guideline_can_be_overridden_in_default_strat
         (EventSource.CUSTOMER, "I want help with my order"),
     ]
 
-    guideline_matches = match_guidelines(context, agent, customer, conversation_context)
+    guideline_matches = match_guidelines(context, agent, session, customer, conversation_context)
 
     assert guideline.id in [match.guideline.id for match in guideline_matches]
 
@@ -1239,6 +1290,7 @@ def test_that_strategy_for_specific_guideline_can_be_overridden_in_default_strat
 def test_that_observational_guidelines_are_detected_1(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1260,6 +1312,7 @@ def test_that_observational_guidelines_are_detected_1(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1270,6 +1323,7 @@ def test_that_observational_guidelines_are_detected_1(
 def test_that_irrelevant_observational_guidelines_are_not_detected_1(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1291,6 +1345,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_1(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1301,6 +1356,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_1(
 def test_that_observational_guidelines_are_detected_2(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1322,6 +1378,7 @@ def test_that_observational_guidelines_are_detected_2(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1332,6 +1389,7 @@ def test_that_observational_guidelines_are_detected_2(
 def test_that_irrelevant_observational_guidelines_are_not_detected_2(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1382,6 +1440,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_2(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1393,6 +1452,7 @@ def test_that_irrelevant_observational_guidelines_are_not_detected_2(
 def test_that_observational_guidelines_are_detected_3(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1426,6 +1486,7 @@ def test_that_observational_guidelines_are_detected_3(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1436,6 +1497,7 @@ def test_that_observational_guidelines_are_detected_3(
 def test_that_observational_guidelines_are_detected_5(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1451,6 +1513,7 @@ def test_that_observational_guidelines_are_detected_5(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1461,6 +1524,7 @@ def test_that_observational_guidelines_are_detected_5(
 def test_that_observational_guidelines_are_detected_4(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1507,6 +1571,7 @@ def test_that_observational_guidelines_are_detected_4(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1517,6 +1582,7 @@ def test_that_observational_guidelines_are_detected_4(
 def test_that_observational_guidelines_are_detected_based_on_context_variables(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1552,6 +1618,7 @@ def test_that_observational_guidelines_are_detected_based_on_context_variables(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1563,6 +1630,7 @@ def test_that_observational_guidelines_are_detected_based_on_context_variables(
 def test_that_observational_guidelines_are_detected_based_on_tool_results(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1607,6 +1675,7 @@ def test_that_observational_guidelines_are_detected_based_on_tool_results(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1618,6 +1687,7 @@ def test_that_observational_guidelines_are_detected_based_on_tool_results(
 def test_that_observational_guidelines_are_matched_based_on_glossary(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     terms = [
@@ -1658,6 +1728,7 @@ def test_that_observational_guidelines_are_matched_based_on_glossary(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1669,6 +1740,7 @@ def test_that_observational_guidelines_are_matched_based_on_glossary(
 def test_that_observational_guidelines_are_matched_based_on_vague_customer_message(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1682,6 +1754,7 @@ def test_that_observational_guidelines_are_matched_based_on_vague_customer_messa
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1692,6 +1765,7 @@ def test_that_observational_guidelines_are_matched_based_on_vague_customer_messa
 def test_that_observational_guidelines_are_matched_based_on_old_messages(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1757,6 +1831,7 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,
@@ -1767,6 +1842,7 @@ def test_that_observational_guidelines_are_matched_based_on_old_messages(
 def test_that_both_observational_and_actionable_guidelines_are_matched_together(
     context: ContextOfTest,
     agent: Agent,
+    session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1847,6 +1923,7 @@ def test_that_both_observational_and_actionable_guidelines_are_matched_together(
     base_test_that_correct_guidelines_are_matched(
         context,
         agent,
+        session,
         customer,
         conversation_context,
         conversation_guideline_names,

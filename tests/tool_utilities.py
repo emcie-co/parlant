@@ -487,3 +487,29 @@ def give_boolean_types(
     return ToolResult(
         f"Types for boolean is: {type(boolean[0])} and optional boolean: {type(optional_boolean)}"
     )
+
+
+def give_dates_list(dates: list[date]) -> ToolResult:
+    return ToolResult(f"Options for dates is: {[d for d in dates]}")
+
+
+class RandomItem(enum.Enum):
+    PAPERCLIP = "Paperclip"
+    CACTUS = "Cactus"
+    BLUETOOTH_SPEAKER = "Bluetooth speaker"
+    MARBLE = "Marble"
+    WOOL_SCARF = "Wool scarf"
+    POCKET_WATCH = "Pocket watch"
+    SKATEBOARD = "Skateboard"
+    PAINTBRUSH = "Paintbrush"
+    USB_C_CABLE = "USB-C cable"
+    LANTERN = "Lantern"
+
+
+def give_items(
+    items: list[RandomItem],
+    optional_item: Optional[RandomItem],
+) -> ToolResult:
+    return ToolResult(
+        f"Types for enums is: {type(items[0])} and optional boolean: {type(optional_item)}"
+    )

@@ -1081,11 +1081,31 @@ Feature: Tools
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
 
-Scenario: Tool caller calls a tool with list of booleans and optional boolean
+    Scenario: Tool caller calls a tool with list of booleans and optional boolean
         Given a guideline "give_boolean" to get a list of booleans from user when a customer wants to give some booleans
         And the tool "give_boolean_types"
         And an association between "give_boolean" and "give_boolean_types"
         And a customer message, "I want to give you the list of booleans  :true, false, true and false. Also, I want to give you the boolean true."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+
+    Scenario: Tool caller calls a tool with list of dates
+        Given a guideline "give_date_options" to get a list of dates from user when a customer wants to provide multiple options for dates
+        And the tool "give_dates_list"
+        And an association between "give_date_options" and "give_dates_list"
+        And a customer message, "I want to provide you with the following dates options: 2025-05-17, 2025-01-18, 2025-07-02 and 2025-11-29"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+
+    Scenario: Tool caller calls a tool with list of enums and optional enum
+        Given a guideline "donate_items" to get a list of items from user to give away when a customer wants to give some items and an optional item
+        And the tool "give_items"
+        And an association between "donate_items" and "give_items"
+        And a customer message, "I want to provide you with the following items: wool scarf, cactus, nice marble and an optional item is my lantern"
         When processing is triggered
         Then a single tool calls event is emitted
         And no tool error has occurred

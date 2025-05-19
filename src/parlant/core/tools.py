@@ -467,8 +467,13 @@ def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
     if isinstance(argument, list):
         # Already a list - no work required
         return argument
-    if item_type is str or issubclass(item_type, Enum):
-        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
+    if (
+        item_type is str
+        or issubclass(item_type, Enum)
+        or issubclass(item_type, datetime)
+        or issubclass(item_type, date)
+    ):
+        # literal_eval is used for protection against nesting of single/double quotes of strings (and types that use strings as serialization)
         return list(literal_eval(argument))
     if item_type in VALID_TOOL_BASE_TYPES:
         # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax

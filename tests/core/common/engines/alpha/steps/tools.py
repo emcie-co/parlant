@@ -328,7 +328,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "register_for_confusing_sweepstake": {
         "name": "register_for_confusing_sweepstake",
-        "description": "Register for a sweepstake with more confusing paramater options",
+        "description": "Register for a sweepstake with more confusing parameter options",
         "module_path": "tests.tool_utilities",
         "parameters": {
             "first_name": (
@@ -479,7 +479,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
             "pincode": {
                 "type": "string",
-                "description": "the pincode for the account the coins are transfered from",
+                "description": "the pincode for the account the coins are transferred from",
             },
         },
         "required": ["amount", "from_account", "to_account", "pincode"],
@@ -782,6 +782,57 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
         },
         "required": ["boolean"],
+    },
+    "give_dates_list": {
+        "name": "give_dates_list",
+        "description": "Give a list of options for dates",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "dates": {
+                "type": "array",
+                "item_type": "date",
+            },
+        },
+        "required": ["dates"],
+    },
+    "give_items": {
+        "name": "give_items",
+        "description": "Give a list of items and an optional item",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "items": {
+                "type": "array",
+                "item_type": "string",
+                "enum": [
+                    "Paperclip",
+                    "Cactus",
+                    "Bluetooth speaker",
+                    "Marble",
+                    "Wool scarf",
+                    "Pocket watch",
+                    "Skateboard",
+                    "Paintbrush",
+                    "USB-C cable",
+                    "Lantern",
+                ],
+            },
+            "optional_item": {
+                "type": "string",
+                "enum": [
+                    "Paperclip",
+                    "Cactus",
+                    "Bluetooth speaker",
+                    "Marble",
+                    "Wool scarf",
+                    "Pocket watch",
+                    "Skateboard",
+                    "Paintbrush",
+                    "USB-C cable",
+                    "Lantern",
+                ],
+            },
+        },
+        "required": ["items"],
     },
 }
 

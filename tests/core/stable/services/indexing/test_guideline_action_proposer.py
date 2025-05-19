@@ -224,7 +224,9 @@ async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_32(
         (EventSource.CUSTOMER, "Let's please pay my credit card bill"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, session, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_tool_name_not_informative_but_description_is(

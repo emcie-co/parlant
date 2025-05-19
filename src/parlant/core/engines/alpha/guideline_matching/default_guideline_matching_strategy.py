@@ -68,7 +68,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 if g.metadata.get("continuous", False):
                     not_previously_applied.append(g)
                 else:
-                    if g.id in context.session.agent_state.applied_guideline_ids:
+                    if g.id in context.session.agent_state["applied_guideline_ids"]:
                         previously_applied_batch.append(g)
                     else:
                         not_previously_applied.append(g)
@@ -80,12 +80,14 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             )
         if previously_applied_batch:
             guideline_batches.extend(
-                self._create_sub_batches_previously_applied_guideline(observational_batch, context)
+                self._create_sub_batches_previously_applied_guideline(
+                    previously_applied_batch, context
+                )
             )
         if not_previously_applied:
             guideline_batches.extend(
                 self._create_sub_batches_not_previously_applied_guideline(
-                    observational_batch, context
+                    not_previously_applied, context
                 )
             )
         return guideline_batches
@@ -127,7 +129,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             context=context,
         )
 
-    async def _create_sub_batches_previously_applied_guideline(
+    def _create_sub_batches_previously_applied_guideline(
         self,
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
@@ -164,7 +166,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             context=context,
         )
 
-    async def _create_sub_batches_not_previously_applied_guideline(
+    def _create_sub_batches_not_previously_applied_guideline(
         self,
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
@@ -181,7 +183,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             end_offset = start_offset + batch_size
             batch = dict(guidelines_list[start_offset:end_offset])
             batches.append(
-                self._create_sub_batch_previously_applied_guideline(
+                self._create_sub_batch_not_previously_applied_guideline(
                     guidelines=list(batch.values()),
                     context=context,
                 )

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
 from itertools import chain
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 from more_itertools import chunked
 
 from parlant.core import async_utils
@@ -21,7 +21,6 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import Event, EventSource, Session
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tools import ToolId
 
 
 @dataclass
@@ -76,8 +75,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         staged_events: Sequence[EmittedEvent],
-        ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]],
+        guideline_matches: Sequence[GuidelineMatch],
     ) -> GuidelinePreviouslyAppliedDetectionResult:
         context = GuidelineMatchingContext(
             agent=agent,
@@ -89,9 +87,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
             staged_events=staged_events,
         )
 
-        all_guidelines = [m.guideline for m in ordinary_guideline_matches] + [
-            m.guideline for m in tool_enabled_guideline_matches.keys()
-        ]
+        all_guidelines = [m.guideline for m in guideline_matches]
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
@@ -102,8 +98,7 @@ class GenericGuidelinePreviouslyAppliedDetector:
             batch_tasks = [
                 self._process_batch(
                     batch,
-                    ordinary_guideline_matches,
-                    tool_enabled_guideline_matches,
+                    guideline_matches,
                     context,
                 )
                 for batch in guideline_batches
@@ -129,29 +124,20 @@ class GenericGuidelinePreviouslyAppliedDetector:
     async def _process_batch(
         self,
         batch: Sequence[Guideline],
-        ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        guideline_matches: Sequence[GuidelineMatch],
         context: GuidelineMatchingContext,
     ) -> GuidelinePreviouslyAppliedDetectionResult:
         batch_guideline_ids = {g.id for g in batch}
 
-        batch_ordinary_guidelines = [
-            m.guideline for m in ordinary_guideline_matches if m.guideline.id in batch_guideline_ids
+        batch_guidelines = [
+            m.guideline for m in guideline_matches if m.guideline.id in batch_guideline_ids
         ]
 
-        batch_tool_match_guidelines = {
-            m.guideline: tools
-            for m, tools in tool_enabled_guideline_matches.items()
-            if m.guideline.id in batch_guideline_ids
-        }
-
-        guidelines = {g.id: g for g in batch}
+        guidelines = {g.id: g for g in batch_guidelines}
 
         prompt = self._build_prompt(
             shots=await self.shots(),
             guidelines=guidelines,
-            ordinary_guideline=batch_ordinary_guidelines,
-            tool_match_guidelines=batch_tool_match_guidelines,
             context=context,
         )
 
@@ -235,40 +221,21 @@ class GenericGuidelinePreviouslyAppliedDetector:
 
     def _add_guideline_matches_section(
         self,
-        ordinary_guidelines: Sequence[Guideline],
-        tool_guideline: Mapping[Guideline, Sequence[ToolId]],
+        guidelines: dict[GuidelineId, Guideline],
     ) -> str:
-        i = 1
-        ordinary_guidelines_list = ""
-        if ordinary_guidelines:
-            guidelines: list[str] = []
-            for g in ordinary_guidelines:
-                guideline = f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
-                i += 1
-                guidelines.append(guideline)
-            ordinary_guidelines_list = "\n".join(guidelines)
+        guidelines_text = "\n".join(
+            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
+            for i, g in guidelines.items()
+        )
 
-        tools_guidelines_list = ""
-        if tool_guideline:
-            guidelines = []
-            for g, tools in tool_guideline.items():
-                guideline = f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
-                i += 1
-                guidelines.append(guideline)
-                guidelines.append("Associated Tools:")
-                for j, id in enumerate(tools, start=1):
-                    guidelines.append(f"{j}) {id.service_name}:{id.tool_name}")
-            tools_guidelines_list = "\n".join(guidelines)
-        guidelines_list = ordinary_guidelines_list + tools_guidelines_list
         return f"""
 GUIDELINES
 ---------------------
 Those are the guidelines you need to evaluate if they were applied.
-Some guidelines have a tool associated with them. Consider those tools to understand the action that is desired.
 
 Guidelines:
 ###
-{guidelines_list}
+{guidelines_text}
 ###
 """
 
@@ -276,8 +243,6 @@ Guidelines:
         self,
         shots: Sequence[GenericGuidelinePreviouslyAppliedDetectorShot],
         guidelines: dict[GuidelineId, Guideline],
-        ordinary_guideline: Sequence[Guideline],
-        tool_match_guidelines: Mapping[Guideline, Sequence[ToolId]],
         context: GuidelineMatchingContext,
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
@@ -359,14 +324,8 @@ Examples of ...:
         builder.add_staged_events(context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
-            template=self._add_guideline_matches_section(
-                ordinary_guideline,
-                tool_match_guidelines,
-            ),
-            props={
-                "ordinary_guidelines": ordinary_guideline,
-                "tool_guideline": tool_match_guidelines,
-            },
+            template=self._add_guideline_matches_section(guidelines),
+            props={},
         )
 
         builder.add_section(

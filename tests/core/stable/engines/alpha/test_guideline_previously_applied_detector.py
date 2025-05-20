@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Mapping, Optional, Sequence, cast
+from typing import Mapping, Sequence, cast
 
 from lagom import Container
 from pytest import fixture
@@ -180,18 +180,13 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str] = [],
-    ordinary_guidelines_names: list[str] = [],
-    guidelines_with_tools: Optional[dict[str, list[ToolId]]] = None,
+    guidelines_names: list[str] = [],
     staged_events: Sequence[EmittedEvent] = [],
 ) -> None:
     conversation_guidelines: dict[str, Guideline] = defaultdict()
-    if ordinary_guidelines_names:
-        for name in ordinary_guidelines_names:
+    if guidelines_names:
+        for name in guidelines_names:
             conversation_guidelines[name] = create_guideline_by_name(context, name)
-
-    if guidelines_with_tools:
-        for name, tool_ids in guidelines_with_tools.items():
-            conversation_guidelines[name] = create_guideline_by_name(context, name, tool_ids)
 
     previously_applied_target_guidelines = [
         conversation_guidelines[name] for name in guidelines_target_names
@@ -222,7 +217,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         schematic_generator=context.schematic_generator,
     )
 
-    ordinary_guideline_matches = [
+    guideline_matches = [
         GuidelineMatch(
             guideline=guideline,
             score=10,
@@ -230,15 +225,6 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         )
         for guideline in context.guidelines
     ]
-
-    tool_enabled_guideline_matches = {
-        GuidelineMatch(
-            guideline=g,
-            score=10,
-            rationale="",
-        ): t_ids
-        for g, t_ids in context.guidelines_to_tools.items()
-    }
 
     result = context.sync_await(
         guideline_previously_applied_detector.process(
@@ -249,8 +235,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
             interaction_history=interaction_history,
             terms=[],
             staged_events=staged_events,
-            ordinary_guideline_matches=ordinary_guideline_matches,
-            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            guideline_matches=guideline_matches,
         )
     )
 

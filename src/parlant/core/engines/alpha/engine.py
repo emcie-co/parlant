@@ -277,8 +277,12 @@ class AlphaEngine(Engine):
                 await self._add_agent_state(
                     context=context,
                     session=context.session,
-                    ordinary_guidelines=context.state.ordinary_guideline_matches,
-                    tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+                    guidelines=list(
+                        chain(
+                            context.state.ordinary_guideline_matches,
+                            context.state.tool_enabled_guideline_matches,
+                        )
+                    ),
                 )
 
                 await self._hooks.call_on_generated_messages(context)
@@ -871,23 +875,15 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
         session: Session,
-        ordinary_guidelines: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]],
+        guidelines: Sequence[GuidelineMatch],
     ) -> None:
-        filtered_ordinary = [
+        filtered_guidelines = [
             g
-            for g in ordinary_guidelines
+            for g in guidelines
             if g.guideline.id not in session.agent_state["applied_guideline_ids"]
             and not g.guideline.metadata.get("continuous", False)
         ]
-        filtered_tool_enabled = {
-            g: tools
-            for g, tools in tool_enabled_guideline_matches.items()
-            if g.guideline.id not in session.agent_state["applied_guideline_ids"]
-            and not g.guideline.metadata.get(
-                "continuous", False
-            )  # guidelines with tools are probably not continuous but we check anyway
-        }
+
         applied_guideline_ids = [
             g.id
             for g in (
@@ -899,20 +895,17 @@ class AlphaEngine(Engine):
                     interaction_history=context.interaction.history,
                     terms=list(context.state.glossary_terms),
                     staged_events=context.state.tool_events,
-                    ordinary_guideline_matches=filtered_ordinary,
-                    tool_enabled_guideline_matches=filtered_tool_enabled,
+                    guideline_matches=filtered_guidelines,
                 )
             ).previously_applied_guidelines
         ]
 
+        applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+
         await self._entity_commands.update_session(
             session_id=session.id,
             params=SessionUpdateParams(
-                agent_state=AgentState(
-                    applied_guideline_ids=session.agent_state["applied_guideline_ids"].extend(
-                        applied_guideline_ids
-                    )
-                )
+                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
             ),
         )
 

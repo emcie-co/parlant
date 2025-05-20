@@ -15,9 +15,9 @@
 from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.relationships import (
-    EntityType,
+    RelationshipEntityKind,
     GuidelineRelationshipKind,
     RelationshipEntity,
     RelationshipStore,
@@ -34,21 +34,13 @@ def given_a_guideline_to_when(
     context: ContextOfTest,
     do_something: str,
     a_condition_holds: str,
-    agent_id: AgentId,
 ) -> None:
     guideline_store = context.container[GuidelineStore]
 
-    guideline = context.sync_await(
+    context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
             action=do_something,
-        )
-    )
-
-    _ = context.sync_await(
-        guideline_store.upsert_tag(
-            guideline.id,
-            Tag.for_agent_id(agent_id),
         )
     )
 
@@ -155,13 +147,11 @@ def given_50_other_random_guidelines(
         },
         {
             "condition": "The customer expresses concern about calories",
-            "action": "Offer information on calorie content and suggest lighter "
-            "options if desired",
+            "action": "Offer information on calorie content and suggest lighter options if desired",
         },
         {
             "condition": "The customer mentions a special occasion",
-            "action": "Suggest our party meal deals and ask if they would like "
-            "to include desserts",
+            "action": "Suggest our party meal deals and ask if they would like to include desserts",
         },
         {
             "condition": "The customer wants to know the waiting area",
@@ -448,11 +438,11 @@ def given_an_entailment_guideline_relationship(
         store.create_relationship(
             source=RelationshipEntity(
                 id=context.guidelines[guideline_a].id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
                 id=context.guidelines[guideline_b].id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             kind=GuidelineRelationshipKind.ENTAILMENT,
         )

@@ -160,7 +160,7 @@ class StatusEventData(TypedDict):
 class GuidelineMatch(TypedDict):
     guideline_id: GuidelineId
     condition: str
-    action: str
+    action: Optional[str]
     score: int
     rationale: str
 
@@ -219,6 +219,10 @@ ConsumerId: TypeAlias = Literal["client"]
 SessionMode: TypeAlias = Literal["auto", "manual"]
 
 
+class AgentState(TypedDict):
+    applied_guideline_ids: Sequence[GuidelineId]
+
+
 @dataclass(frozen=True)
 class Session:
     id: SessionId
@@ -228,6 +232,7 @@ class Session:
     mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
+    agent_state: AgentState
 
 
 class SessionUpdateParams(TypedDict, total=False):
@@ -236,6 +241,7 @@ class SessionUpdateParams(TypedDict, total=False):
     mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
+    agent_state: AgentState
 
 
 class SessionStore(ABC):
@@ -326,6 +332,17 @@ class SessionStore(ABC):
     ) -> Inspection: ...
 
 
+class _SessionDocument_V_0_4_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    customer_id: CustomerId
+    agent_id: AgentId
+    mode: SessionMode
+    title: Optional[str]
+    consumption_offsets: Mapping[ConsumerId, int]
+
+
 class _SessionDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -335,6 +352,7 @@ class _SessionDocument(TypedDict, total=False):
     mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
+    agent_state: AgentState
 
 
 class _EventDocument(TypedDict, total=False):
@@ -450,7 +468,7 @@ class _InspectionDocument(TypedDict, total=False):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.4.0")
+    VERSION = Version.from_string("0.5.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -462,9 +480,9 @@ class SessionDocumentStore(SessionStore):
         self._lock = ReaderWriterLock()
 
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
-        if doc["version"] in ["0.1.0", "0.2.0", "0.3.0"]:
-            doc = cast(_SessionDocument, doc)
-            return _SessionDocument(
+        async def v0_1_0_to_v_0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_SessionDocument_V_0_4_0, doc)
+            return _SessionDocument_V_0_4_0(
                 id=doc["id"],
                 version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
@@ -474,16 +492,37 @@ class SessionDocumentStore(SessionStore):
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
             )
-        if doc["version"] == "0.4.0":
-            return cast(_SessionDocument, doc)
-        return None
+
+        async def v0_4_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_SessionDocument_V_0_4_0, doc)
+            return _SessionDocument(
+                id=doc["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_state=AgentState(applied_guideline_ids=[]),
+            )
+
+        return await DocumentMigrationHelper[_SessionDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v_0_4_0,
+                "0.2.0": v0_1_0_to_v_0_4_0,
+                "0.3.0": v0_1_0_to_v_0_4_0,
+                "0.4.0": v0_4_0_to_v_0_5_0,
+            },
+        ).migrate(doc)
 
     async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
-        if doc["version"] in ["0.1.0", "0.2.0", "0.3.0"]:
+        async def v0_1_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_EventDocument, doc)
             return _EventDocument(
                 id=doc["id"],
-                version=Version.String("0.4.0"),
+                version=Version.String("0.5.0"),
                 creation_utc=doc["creation_utc"],
                 session_id=doc["session_id"],
                 source=doc["source"],
@@ -493,9 +532,16 @@ class SessionDocumentStore(SessionStore):
                 data=doc["data"],
                 deleted=doc["deleted"],
             )
-        if doc["version"] == "0.4.0":
-            return cast(_EventDocument, doc)
-        return None
+
+        return await DocumentMigrationHelper[_EventDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v_0_5_0,
+                "0.2.0": v0_1_0_to_v_0_5_0,
+                "0.3.0": v0_1_0_to_v_0_5_0,
+                "0.4.0": v0_1_0_to_v_0_5_0,
+            },
+        ).migrate(doc)
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:
         async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -593,12 +639,24 @@ class SessionDocumentStore(SessionStore):
                 ],
             )
 
+        async def v0_4_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument, doc)
+            return _InspectionDocument(
+                id=doc["id"],
+                version=Version.String("0.5.0"),
+                session_id=doc["session_id"],
+                correlation_id=doc["correlation_id"],
+                message_generations=doc["message_generations"],
+                preparation_iterations=doc["preparation_iterations"],
+            )
+
         return await DocumentMigrationHelper[_InspectionDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v_0_2_0,
                 "0.2.0": v0_2_0_to_v_0_3_0,
                 "0.3.0": v0_3_0_to_v_0_4_0,
+                "0.4.0": v0_4_0_to_v_0_5_0,
             },
         ).migrate(doc)
 
@@ -647,6 +705,7 @@ class SessionDocumentStore(SessionStore):
             mode=session.mode,
             title=session.title if session.title else None,
             consumption_offsets=session.consumption_offsets,
+            agent_state=session.agent_state,
         )
 
     def _deserialize_session(
@@ -661,6 +720,7 @@ class SessionDocumentStore(SessionStore):
             mode=session_document["mode"],
             title=session_document["title"],
             consumption_offsets=session_document["consumption_offsets"],
+            agent_state=session_document["agent_state"],
         )
 
     def _serialize_event(
@@ -825,6 +885,7 @@ class SessionDocumentStore(SessionStore):
                 mode=mode or "auto",
                 consumption_offsets=consumption_offsets,
                 title=title,
+                agent_state=AgentState(applied_guideline_ids=[]),
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))

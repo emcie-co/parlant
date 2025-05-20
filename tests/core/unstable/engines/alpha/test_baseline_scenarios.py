@@ -23,20 +23,18 @@ load_steps(
     "engines",
     "events",
     "guidelines",
+    "utterances",
     "sessions",
     "terms",
     "tools",
     "customers",
     "tags",
+    "journeys",
 )
 
 scenarios(
     *(
         f"core/unstable/engines/alpha/features/baseline/{feature}.feature"
-        for feature in (
-            "supervision",
-            "glossary",
-            "tools",
-        )
+        for feature in ("supervision", "glossary", "tools", "fluid_utterances")
     )
 )

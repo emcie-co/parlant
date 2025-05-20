@@ -58,7 +58,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains either 'productivity', 'professional', and 'development'
 
-    Scenario: The agent doesnt wrongly reapply partially fulfilled guideline
+    Scenario: The agent does not wrongly reapply partially fulfilled guideline
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
         And a customer named "Beef Wellington"
         And an empty session with "Beef Wellingotn"

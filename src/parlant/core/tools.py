@@ -39,11 +39,11 @@ from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSeriali
 from parlant.core.utterances import Utterance
 
 ToolParameterType = Literal[
-    "array",
     "string",
     "number",
     "integer",
     "boolean",
+    "array",
 ]
 
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
@@ -164,7 +164,7 @@ class ToolOverlap(Enum):
     """The tool never overlaps with any other tool. No need to check relationships."""
 
     AUTO = auto()
-    """(TODO: WIP feature): Check relationship store. If no relationships, then assume no overlap. This is the default value for overlap."""
+    """Check relationship store. If no relationships, then assume no overlap. This is the default value for overlap."""
 
     ALWAYS = auto()
     """The tool always overlaps with other tools in context."""
@@ -265,6 +265,7 @@ class _LocalTool:
     parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]]
     required: list[str]
     consequential: bool
+    overlap: ToolOverlap
 
 
 class LocalToolService(ToolService):
@@ -283,7 +284,7 @@ class LocalToolService(ToolService):
             parameters=local_tool.parameters,
             required=local_tool.required,
             consequential=local_tool.consequential,
-            overlap=ToolOverlap.ALWAYS,
+            overlap=local_tool.overlap,
         )
 
     # Note that in this function's arguments ToolParameterOptions is optional (initialized to default if not given)
@@ -297,6 +298,7 @@ class LocalToolService(ToolService):
         ],
         required: Sequence[str],
         consequential: bool = False,
+        overlap: ToolOverlap = ToolOverlap.AUTO,
     ) -> Tool:
         creation_utc = datetime.now(timezone.utc)
 
@@ -311,6 +313,7 @@ class LocalToolService(ToolService):
             creation_utc=creation_utc,
             required=list(required),
             consequential=consequential,
+            overlap=overlap,
         )
 
         self._local_tools_by_name[name] = local_tool

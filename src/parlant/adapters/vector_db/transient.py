@@ -11,15 +11,47 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa
 
 from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, cast
 import numpy as np
-from typing_extensions import override, Self
+from typing_extensions import override
+
+import logging
+
+orig_basicConfig = logging.basicConfig
+orig_getLogger = logging.getLogger
+
+
+# nano_vectordb overrides logging's basicConfig and stuff... :S
+# So we need to protect it for a minute while importing
+def _null_basicConfig(*args: Any, **kwargs: Any) -> None:
+    pass
+
+
+class _NullLogger:
+    def info(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def debug(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+def _null_getLogger(*args: Any, **kwargs: Any) -> object:
+    return _NullLogger()
+
+
+logging.basicConfig = _null_basicConfig  # type: ignore
+logging.getLogger = _null_getLogger  # type: ignore
 
 import nano_vectordb  # type: ignore
+
+logging.basicConfig = orig_basicConfig
+logging.getLogger = orig_getLogger
+# Back to business
 
 from parlant.core.common import JSONSerializable
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
@@ -49,17 +81,6 @@ class TransientVectorDatabase(VectorDatabase):
         self._databases: dict[str, nano_vectordb.NanoVectorDB] = {}
         self._collections: dict[str, TransientVectorCollection[BaseDocument]] = {}
         self._metadata: dict[str, JSONSerializable] = {}
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> None:
-        pass
 
     @override
     async def create_collection(

@@ -100,7 +100,7 @@ class GuidelineContentDTO(
     """
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
 
 
 class GuidelinePayloadOperationDTO(Enum):
@@ -167,7 +167,7 @@ GuidelinePayloadConnectionPropositionField: TypeAlias = Annotated[
     ),
 ]
 
-guideline_payload_example: ExampleJson = {
+legacy_guideline_payload_example: ExampleJson = {
     "content": {
         "condition": "User asks about product pricing",
         "action": "Provide current price list and any active discounts",
@@ -179,9 +179,9 @@ guideline_payload_example: ExampleJson = {
 }
 
 
-class GuidelinePayloadDTO(
+class LegacyGuidelinePayloadDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_payload_example},
+    json_schema_extra={"example": legacy_guideline_payload_example},
 ):
     """Payload data for a Guideline operation"""
 
@@ -202,7 +202,7 @@ def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> GuidelinePa
     raise ValueError(f"Unsupported operation: {dto}")
 
 
-payload_example: ExampleJson = {
+legacy_payload_example: ExampleJson = {
     "kind": "guideline",
     "guideline": {
         "content": {
@@ -217,9 +217,9 @@ payload_example: ExampleJson = {
 }
 
 
-class PayloadDTO(
+class LegacyPayloadDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": payload_example},
+    json_schema_extra={"example": legacy_payload_example},
 ):
     """
     A container for a guideline payload along with its kind
@@ -228,7 +228,7 @@ class PayloadDTO(
     """
 
     kind: PayloadKindDTO
-    guideline: Optional[GuidelinePayloadDTO] = None
+    guideline: Optional[LegacyGuidelinePayloadDTO] = None
 
 
 CoherenceCheckIssueField: TypeAlias = Annotated[
@@ -302,7 +302,7 @@ guideline_invoice_data_example: ExampleJson = {
 }
 
 
-class GuidelineInvoiceDataDTO(
+class LegacyGuidelineInvoiceDataDTO(
     DefaultBaseModel,
     json_schema_extra={"example": guideline_invoice_data_example},
 ):
@@ -315,7 +315,7 @@ class GuidelineInvoiceDataDTO(
 invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
 
 
-class InvoiceDataDTO(
+class LegacyInvoiceDataDTO(
     DefaultBaseModel,
     json_schema_extra={"example": invoice_data_example},
 ):
@@ -325,7 +325,7 @@ class InvoiceDataDTO(
     At this point only `guideline` is suppoerted.
     """
 
-    guideline: Optional[GuidelineInvoiceDataDTO] = None
+    guideline: Optional[LegacyGuidelineInvoiceDataDTO] = None
 
 
 ServiceNameField: TypeAlias = Annotated[
@@ -403,7 +403,7 @@ class GuidelineDTO(
 
     id: GuidelineIdField
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
     enabled: GuidelineEnabledField
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
@@ -439,6 +439,7 @@ class ToolParameterTypeDTO(Enum):
     NUMBER = "number"
     INTEGER = "integer"
     BOOLEAN = "boolean"
+    ARRAY = "array"
 
 
 tool_parameter_example: ExampleJson = {
@@ -618,15 +619,6 @@ RelationshipIdField: TypeAlias = Annotated[
 ]
 
 
-RelationshipIndirectField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="`True` if there is a path from `source` to `target` but no direct relationship",
-        examples=[True, False],
-    ),
-]
-
-
 relationship_example: ExampleJson = {
     "id": "123",
     "source_guideline": {
@@ -672,5 +664,4 @@ class RelationshipDTO(
     target_tag: Optional[TagDTO] = None
     source_tool: Optional[ToolDTO] = None
     target_tool: Optional[ToolDTO] = None
-    indirect: RelationshipIndirectField
     kind: RelationshipKindDTO

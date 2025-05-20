@@ -182,9 +182,9 @@ async def test_event_creation(
 
     assert len(events_from_json["events"]) == 1
     json_event = events_from_json["events"][0]
-    assert json_event["kind"] == event.kind
+    assert json_event["kind"] == "message"
     assert json_event["data"] == event.data
-    assert json_event["source"] == event.source
+    assert json_event["source"] == "customer"
     assert datetime.fromisoformat(json_event["creation_utc"]) == event.creation_utc
 
 
@@ -539,14 +539,16 @@ async def test_evaluation_creation(
                         condition="Test evaluation creation with invoice",
                         action="Ensure the evaluation with invoice is persisted in the JSON file",
                     ),
+                    tool_ids=[],
                     operation=GuidelinePayloadOperation.ADD,
-                    coherence_check=True,
-                    connection_proposition=True,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
@@ -570,23 +572,27 @@ async def test_evaluation_update(
             payloads = [
                 GuidelinePayload(
                     content=GuidelineContent(
-                        condition="Initial evaluation payload with invoice",
-                        action="This content will be updated",
+                        condition="User asks for book recommendations",
+                        action=None,
                     ),
+                    tool_ids=[],
                     operation=GuidelinePayloadOperation.ADD,
-                    coherence_check=True,
-                    connection_proposition=True,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
             invoice_data: InvoiceData = InvoiceGuidelineData(
                 coherence_checks=[],
                 entailment_propositions=None,
+                action_proposition="Provide a list of book recommendations",
+                properties_proposition={"continuous": True},
             )
 
             invoice = Invoice(
@@ -778,7 +784,7 @@ async def test_that_version_mismatch_raises_error_when_migration_is_required_but
         json.dump(
             {
                 "metadata": [
-                    {"id": "meta_id", "version": "NotRealVersion"},
+                    {"id": "meta_id", "version": "0.0.1"},
                 ]
             },
             f,

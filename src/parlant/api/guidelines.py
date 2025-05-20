@@ -15,7 +15,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import chain
-from typing import Annotated, Optional, Sequence, TypeAlias, cast, get_args
+from typing import Annotated, Optional, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, status, Query
 from pydantic import Field
 
@@ -29,7 +29,7 @@ from parlant.api.common import (
     GuidelineMetadataField,
     RelationshipDTO,
     GuidelineTagsField,
-    InvoiceDataDTO,
+    LegacyInvoiceDataDTO,
     PayloadKindDTO,
     RelationshipKindDTO,
     TagDTO,
@@ -39,7 +39,7 @@ from parlant.api.common import (
     guideline_dto_example,
     operation_dto_to_operation,
 )
-from parlant.api.index import InvoiceDTO
+from parlant.api.index import LegacyInvoiceDTO
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import (
     DefaultBaseModel,
@@ -59,8 +59,9 @@ from parlant.core.evaluations import (
     InvoiceGuidelineData,
     PayloadKind,
 )
+from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
-    EntityType,
+    RelationshipEntityKind,
     RelationshipEntity,
     RelationshipId,
     GuidelineRelationshipKind,
@@ -266,7 +267,7 @@ class LegacyGuidelineCreationParamsDTO(
 ):
     """Evaluation invoices to generate Guidelines from."""
 
-    invoices: Sequence[InvoiceDTO]
+    invoices: Sequence[LegacyInvoiceDTO]
 
 
 legacy_guideline_creation_result_example: ExampleJson = {
@@ -386,13 +387,13 @@ class _GuidelineRelationship:
 
     id: RelationshipId
     source: Guideline | Tag
-    source_type: EntityType
+    source_type: RelationshipEntityKind
     target: Guideline | Tag
-    target_type: EntityType
+    target_type: RelationshipEntityKind
     kind: GuidelineRelationshipKind
 
 
-def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
+def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
     if dto.payload.kind != PayloadKindDTO.GUIDELINE:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -416,9 +417,12 @@ def _invoice_dto_to_invoice(dto: InvoiceDTO) -> Invoice:
             condition=dto.payload.guideline.content.condition,
             action=dto.payload.guideline.content.action,
         ),
+        tool_ids=[],
         operation=operation_dto_to_operation(dto.payload.guideline.operation),
         coherence_check=dto.payload.guideline.coherence_check,
         connection_proposition=dto.payload.guideline.connection_proposition,
+        action_proposition=False,
+        properties_proposition=False,
         updated_id=dto.payload.guideline.updated_id,
     )
 
@@ -465,7 +469,7 @@ def _check_kind_dto_to_check_kind(
             raise ValueError(f"Unsupported connection proposition kind: {dto}")
 
 
-def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineData:
+def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuidelineData:
     if not dto.guideline:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -503,7 +507,10 @@ def _invoice_data_dto_to_invoice_data(dto: InvoiceDataDTO) -> InvoiceGuidelineDa
             connection_propositions = None
 
         return InvoiceGuidelineData(
-            coherence_checks=coherence_checks, entailment_propositions=connection_propositions
+            coherence_checks=coherence_checks,
+            entailment_propositions=connection_propositions,
+            action_proposition=None,
+            properties_proposition=None,
         )
     except Exception:
         raise HTTPException(
@@ -522,11 +529,11 @@ async def _get_guideline_relationships_by_kind(
 ) -> Sequence[tuple[_GuidelineRelationship, bool]]:
     async def _get_entity(
         entity_id: GuidelineId | TagId,
-        entity_type: EntityType,
+        entity_type: RelationshipEntityKind,
     ) -> Guideline | Tag:
-        if entity_type == EntityType.GUIDELINE:
+        if entity_type == RelationshipEntityKind.GUIDELINE:
             return await guideline_store.read_guideline(guideline_id=cast(GuidelineId, entity_id))
-        elif entity_type == EntityType.TAG:
+        elif entity_type == RelationshipEntityKind.TAG:
             return await tag_store.read_tag(tag_id=cast(TagId, entity_id))
         else:
             raise ValueError(f"Unsupported entity type: {entity_type}")
@@ -545,17 +552,17 @@ async def _get_guideline_relationships_by_kind(
             target_id=entity_id,
         ),
     ):
-        assert r.source.type in (EntityType.GUIDELINE, EntityType.TAG)
-        assert r.target.type in (EntityType.GUIDELINE, EntityType.TAG)
+        assert r.source.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
+        assert r.target.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
         assert type(r.kind) is GuidelineRelationshipKind
 
         relationships.append(
             _GuidelineRelationship(
                 id=r.id,
-                source=await _get_entity(cast(GuidelineId | TagId, r.source.id), r.source.type),
-                source_type=r.source.type,
-                target=await _get_entity(cast(GuidelineId | TagId, r.target.id), r.target.type),
-                target_type=r.target.type,
+                source=await _get_entity(cast(GuidelineId | TagId, r.source.id), r.source.kind),
+                source_type=r.source.kind,
+                target=await _get_entity(cast(GuidelineId | TagId, r.target.id), r.target.kind),
+                target_type=r.target.kind,
                 kind=r.kind,
             )
         )
@@ -609,7 +616,7 @@ async def _get_relationships(
                     kind=kind,
                     include_indirect=include_indirect,
                 )
-                for kind in get_args(GuidelineRelationshipKind)
+                for kind in list(GuidelineRelationshipKind)
             ]
         )
     )
@@ -947,8 +954,8 @@ def create_legacy_router(
                     )
 
                 await relationship_store.create_relationship(
-                    source=RelationshipEntity(id=req.source, type=EntityType.GUIDELINE),
-                    target=RelationshipEntity(id=req.target, type=EntityType.GUIDELINE),
+                    source=RelationshipEntity(id=req.source, kind=RelationshipEntityKind.GUIDELINE),
+                    target=RelationshipEntity(id=req.target, kind=RelationshipEntityKind.GUIDELINE),
                     kind=GuidelineRelationshipKind.ENTAILMENT,
                 )
 
@@ -1209,7 +1216,7 @@ class GuidelineCreationParamsDTO(
     """Parameters for creating a new guideline."""
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
     metadata: Optional[GuidelineMetadataField] = None
     enabled: Optional[GuidelineEnabledField] = None
     tags: Optional[GuidelineTagsField] = None
@@ -1333,12 +1340,12 @@ def _guideline_relationship_to_dto(
     relationship: _GuidelineRelationship,
     indirect: bool,
 ) -> RelationshipDTO:
-    if relationship.source_type == EntityType.GUIDELINE:
+    if relationship.source_type == RelationshipEntityKind.GUIDELINE:
         rel_source_guideline = cast(Guideline, relationship.source)
     else:
         rel_source_tag = cast(Tag, relationship.source)
 
-    if relationship.target_type == EntityType.GUIDELINE:
+    if relationship.target_type == RelationshipEntityKind.GUIDELINE:
         rel_target_guideline = cast(Guideline, relationship.target)
     else:
         rel_target_tag = cast(Tag, relationship.target)
@@ -1353,14 +1360,14 @@ def _guideline_relationship_to_dto(
             tags=rel_source_guideline.tags,
             metadata=rel_source_guideline.metadata,
         )
-        if relationship.source_type == EntityType.GUIDELINE
+        if relationship.source_type == RelationshipEntityKind.GUIDELINE
         else None,
         source_tag=TagDTO(
             id=rel_source_tag.id,
             creation_utc=rel_source_tag.creation_utc,
             name=rel_source_tag.name,
         )
-        if relationship.source_type == EntityType.TAG
+        if relationship.source_type == RelationshipEntityKind.TAG
         else None,
         target_guideline=GuidelineDTO(
             id=relationship.target.id,
@@ -1371,13 +1378,13 @@ def _guideline_relationship_to_dto(
             tags=rel_target_guideline.tags,
             metadata=rel_target_guideline.metadata,
         )
-        if relationship.target_type == EntityType.GUIDELINE
+        if relationship.target_type == RelationshipEntityKind.GUIDELINE
         else None,
         target_tag=TagDTO(
             id=rel_target_tag.id,
             name=rel_target_tag.name,
         )
-        if relationship.target_type == EntityType.TAG
+        if relationship.target_type == RelationshipEntityKind.TAG
         else None,
         indirect=indirect,
         kind=_guideline_relationship_kind_to_dto(relationship.kind),
@@ -1391,6 +1398,7 @@ def create_router(
     guideline_tool_association_store: GuidelineToolAssociationStore,
     agent_store: AgentStore,
     tag_store: TagStore,
+    journey_store: JourneyStore,
 ) -> APIRouter:
     """Creates a router for the guidelines API with tag-based paths."""
     router = APIRouter()
@@ -1431,7 +1439,7 @@ def create_router(
 
         guideline = await guideline_store.create_guideline(
             condition=params.condition,
-            action=params.action,
+            action=params.action or None,
             metadata=params.metadata or {},
             enabled=params.enabled or True,
             tags=tags or None,
@@ -1583,6 +1591,8 @@ def create_router(
 
         Tool Association rules:
         - Tool services and tools must exist before creating associations
+
+        Action with text can not be updated to None.
         """
         _ = await guideline_store.read_guideline(guideline_id=guideline_id)
 
@@ -1602,16 +1612,19 @@ def create_router(
 
         if params.metadata:
             if params.metadata.add:
-                await guideline_store.add_metadata(
-                    guideline_id=guideline_id,
-                    metadata=params.metadata.add,
-                )
+                for key, value in params.metadata.add.items():
+                    await guideline_store.set_metadata(
+                        guideline_id=guideline_id,
+                        key=key,
+                        value=value,
+                    )
 
             if params.metadata.remove:
-                await guideline_store.remove_metadata(
-                    guideline_id=guideline_id,
-                    keys=params.metadata.remove,
-                )
+                for key in params.metadata.remove:
+                    await guideline_store.unset_metadata(
+                        guideline_id=guideline_id,
+                        key=key,
+                    )
 
         if params.tool_associations and params.tool_associations.add:
             for tool_id_dto in params.tool_associations.add:
@@ -1743,5 +1756,14 @@ def create_router(
         for associastion in await guideline_tool_association_store.list_associations():
             if associastion.guideline_id == guideline_id:
                 await guideline_tool_association_store.delete_association(associastion.id)
+
+        journeys = await journey_store.list_journeys()
+        for journey in journeys:
+            for condition in journey.conditions:
+                if condition == guideline_id:
+                    await journey_store.remove_condition(
+                        journey_id=journey.id,
+                        condition=condition,
+                    )
 
     return router

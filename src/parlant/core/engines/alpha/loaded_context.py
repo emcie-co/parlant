@@ -14,19 +14,21 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Sequence, cast
 
 from parlant.core.agents import Agent
+from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.types import Context
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
-from parlant.core.sessions import Event, Session
-from parlant.core.tools import ToolId
+from parlant.core.journeys import Journey
+from parlant.core.sessions import Event, EventKind, EventSource, Session, ToolEventData
+from parlant.core.tools import ToolId, ToolResult
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ class ResponseState:
     context_variables: list[tuple[ContextVariable, ContextVariableValue]]
     glossary_terms: set[Term]
     ordinary_guideline_matches: list[GuidelineMatch]
+    journeys: list[Journey]
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights
@@ -103,3 +106,37 @@ class LoadedContext:
 
     state: ResponseState
     """The current state of the response being processed"""
+
+    async def add_tool_event(
+        self,
+        tool_id: ToolId,
+        arguments: dict[str, JSONSerializable],
+        result: ToolResult,
+    ) -> None:
+        """Adds a staged tool event to the loaded context"""
+        self.state.tool_events.append(
+            EmittedEvent(
+                source=EventSource.SYSTEM,
+                kind=EventKind.TOOL,
+                correlation_id=self.correlation_id,
+                data=cast(
+                    JSONSerializable,
+                    ToolEventData(
+                        # TODO: Add a common method to create a session-store comptatible ToolCall from ToolResult
+                        tool_calls=[
+                            {
+                                "tool_id": tool_id.to_string(),
+                                "arguments": arguments,
+                                "result": {
+                                    "data": result.data,
+                                    "metadata": result.metadata,
+                                    "control": result.control,
+                                    "utterances": result.utterances,
+                                    "utterance_fields": result.utterance_fields,
+                                },
+                            }
+                        ]
+                    ),
+                ),
+            )
+        )

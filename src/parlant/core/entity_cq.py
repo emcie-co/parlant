@@ -28,6 +28,7 @@ from parlant.core.guidelines import (
     Guideline,
     GuidelineStore,
 )
+from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.relationships import (
     RelationshipStore,
 )
@@ -61,6 +62,7 @@ class EntityQueries:
         relationship_store: RelationshipStore,
         guideline_tool_association_store: GuidelineToolAssociationStore,
         glossary_store: GlossaryStore,
+        journey_store: JourneyStore,
         service_registry: ServiceRegistry,
     ) -> None:
         self._agent_store = agent_store
@@ -71,6 +73,7 @@ class EntityQueries:
         self._relationship_store = relationship_store
         self._guideline_tool_association_store = guideline_tool_association_store
         self._glossary_store = glossary_store
+        self._journey_store = journey_store
         self._service_registry = service_registry
 
     async def read_agent(
@@ -94,6 +97,7 @@ class EntityQueries:
     async def find_guidelines_for_agent(
         self,
         agent_id: AgentId,
+        journeys: Sequence[Journey],
     ) -> Sequence[Guideline]:
         agent_guidelines = await self._guideline_store.list_guidelines(
             tags=[Tag.for_agent_id(agent_id)],
@@ -105,7 +109,18 @@ class EntityQueries:
             tags=[tag for tag in agent.tags]
         )
 
-        all_guidelines = set(chain(agent_guidelines, global_guidelines, guidelines_for_agent_tags))
+        guidelines_for_journeys = await self._guideline_store.list_guidelines(
+            tags=[Tag.for_journey_id(journey.id) for journey in journeys]
+        )
+
+        all_guidelines = set(
+            chain(
+                agent_guidelines,
+                global_guidelines,
+                guidelines_for_agent_tags,
+                guidelines_for_journeys,
+            )
+        )
         return list(all_guidelines)
 
     async def find_context_variables_for_agent(
@@ -158,6 +173,24 @@ class EntityQueries:
         service_name: str,
     ) -> ToolService:
         return await self._service_registry.read_tool_service(service_name)
+
+    async def find_journeys_for_agent(
+        self,
+        agent_id: AgentId,
+    ) -> Sequence[Journey]:
+        agent_journeys = await self._journey_store.list_journeys(
+            tags=[Tag.for_agent_id(agent_id)],
+        )
+        global_journeys = await self._journey_store.list_journeys(tags=[])
+
+        agent = await self._agent_store.read_agent(agent_id)
+        journeys_for_agent_tags = (
+            await self._journey_store.list_journeys(tags=[tag for tag in agent.tags])
+            if agent.tags
+            else []
+        )
+
+        return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
 
 
 class EntityCommands:

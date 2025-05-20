@@ -5,6 +5,17 @@ All notable changes to Parlant will be documented here.
 ## [Unreleased]
 TBD
 
+## [2.2.0] - 2025-05-20
+
+### Added
+- Add journeys
+- Add of guideline properties evaluation
+- Add automatic guideline action deduction when adding direct tool guidelines
+- Added choices of invalid and missing tool parameters to tool insights
+
+### Changed
+- Make guideline action optional
+
 ## [2.1.2] - 2025-05-07
 
 ### Changed
@@ -29,6 +40,8 @@ TBD
 - Added new guideline relationship: Dependency
 - Added tool relationships and the OVERLAP relationship
 - Added the 'overlap' property to tools. By default, tools will be assumed not to overlap with each other, simplifying their evaluation at runtime.
+- Introduce ToolBatchers
+- Introduce Journey
 
 ### Changed
 - Improved tool calling efficiency by adjusting the prompt to the tool at hand
@@ -238,7 +251,7 @@ None
 
 - Customer selection in sandbox Chat UI
 - Support tool calls with freshness rules for context variables
-- Add support for loading external modules for changing engine behavior programatically
+- Add support for loading external modules for changing engine behavior programmatically
 - CachedSchematicGenerator to run the test suite more quickly
 - TransientVectorDatabase to run the test suite more quickly
 

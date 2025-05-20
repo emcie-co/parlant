@@ -24,6 +24,7 @@ from croniter import croniter
 from typing_extensions import override
 
 from parlant.core.agents import Agent, AgentId, CompositionMode
+from parlant.core.common import CancellationSuppressionLatch
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,
@@ -45,6 +46,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.sessions import (
     ContextVariable as StoredContextVariable,
     EventKind,
@@ -57,13 +59,11 @@ from parlant.core.sessions import (
     Term as StoredTerm,
     ToolEventData,
 )
-from parlant.core.engines.alpha.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingResult,
 )
-from parlant.core.engines.alpha.guideline_match import (
-    GuidelineMatch,
-)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_event_generator import (
     ToolEventGenerationResult,
     ToolEventGenerator,
@@ -249,20 +249,20 @@ class AlphaEngine(Engine):
                 missing_data=[p for p in problematic_data if isinstance(p, MissingToolData)],
                 invalid_data=[p for p in problematic_data if isinstance(p, InvalidToolData)],
             )
+            with CancellationSuppressionLatch() as latch:
+                # Money time: communicate with the customer given
+                # all of the information we have prepared.
+                message_generation_inspections = await self._generate_messages(context, latch)
 
-            # Money time: communicate with the customer given
-            # all of the information we have prepared.
-            message_generation_inspections = await self._generate_messages(context)
+                # Save results for later inspection.
+                await self._entity_commands.create_inspection(
+                    session_id=context.session.id,
+                    correlation_id=self._correlator.correlation_id,
+                    preparation_iterations=preparation_iteration_inspections,
+                    message_generations=message_generation_inspections,
+                )
 
-            # Save results for later inspection.
-            await self._entity_commands.create_inspection(
-                session_id=context.session.id,
-                correlation_id=self._correlator.correlation_id,
-                preparation_iterations=preparation_iteration_inspections,
-                message_generations=message_generation_inspections,
-            )
-
-            await self._hooks.call_on_generated_messages(context)
+                await self._hooks.call_on_generated_messages(context)
 
         except asyncio.CancelledError:
             # Task was cancelled. This usually happens for 1 of 2 reasons:
@@ -293,7 +293,8 @@ class AlphaEngine(Engine):
 
             # Money time: communicate with the customer given the
             # specified utterance requests.
-            message_generation_inspections = await self._generate_messages(context)
+            with CancellationSuppressionLatch() as latch:
+                message_generation_inspections = await self._generate_messages(context, latch)
 
             # Save results for later inspection.
             await self._entity_commands.create_inspection(
@@ -339,6 +340,7 @@ class AlphaEngine(Engine):
                 context_variables=[],
                 glossary_terms=set(),
                 ordinary_guideline_matches=[],
+                journeys=[],
                 tool_enabled_guideline_matches={},
                 tool_events=[],
                 tool_insights=ToolInsights(),
@@ -371,7 +373,8 @@ class AlphaEngine(Engine):
             guideline_matching_result,
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
-        ) = await self._load_matched_guidelines(context)
+            context.state.journeys,
+        ) = await self._load_matched_guidelines_and_journeys(context)
 
         # Matched guidelines may use glossary terms, so we need to ground our
         # response by reevaluating the relevant terms given these new guidelines.
@@ -421,7 +424,7 @@ class AlphaEngine(Engine):
                 StoredGuidelineMatch(
                     guideline_id=match.guideline.id,
                     condition=match.guideline.content.condition,
-                    action=match.guideline.content.action,
+                    action=match.guideline.content.action or None,
                     score=match.score,
                     rationale=match.rationale,
                 )
@@ -495,12 +498,13 @@ class AlphaEngine(Engine):
     async def _generate_messages(
         self,
         context: LoadedContext,
+        latch: CancellationSuppressionLatch,
     ) -> Sequence[MessageGenerationInspection]:
         message_generation_inspections = []
 
         for event_generation_result in await self._get_message_composer(
             context.agent
-        ).generate_events(
+        ).generate_response_message_events(
             event_emitter=context.event_emitter,
             agent=context.agent,
             customer=context.customer,
@@ -509,8 +513,10 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
             tool_insights=context.state.tool_insights,
             staged_events=context.state.tool_events,
+            latch=latch,
         ):
             context.state.message_events += [e for e in event_generation_result.events if e]
 
@@ -637,24 +643,31 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
-    async def _load_matched_guidelines(
+    async def _load_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,
     ) -> tuple[
         GuidelineMatchingResult,
         list[GuidelineMatch],
         dict[GuidelineMatch, list[ToolId]],
+        list[Journey],
     ]:
-        # Step 1: Retrieve all of the enabled guidelines for this agent.
+        # Step 1: Retrieve all of the journeys for this agent.
+        all_journeys = await self._entity_queries.find_journeys_for_agent(
+            agent_id=context.agent.id,
+        )
+
+        # Step 2:
         all_stored_guidelines = [
             g
             for g in await self._entity_queries.find_guidelines_for_agent(
                 agent_id=context.agent.id,
+                journeys=all_journeys,
             )
             if g.enabled
         ]
 
-        # Step 2: Filter the best matches out of those.
+        # Step 3: Filter the best matches out of those.
         matching_result = await self._guideline_matcher.match_guidelines(
             agent=context.agent,
             customer=context.customer,
@@ -665,14 +678,19 @@ class AlphaEngine(Engine):
             guidelines=all_stored_guidelines,
         )
 
-        # Step 3: Resolve guideline matches by loading related guidelines that may not have
+        # Step 4: Filter the journeys that are activated by the matched guidelines.
+        match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
+        journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
+
+        # Step 5: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=all_stored_guidelines,
             matches=matching_result.matches,
+            journeys=journeys,
         )
 
-        # Step 4: Distinguish between ordinary and tool-enabled guidelines.
+        # Step 6: Distinguish between ordinary and tool-enabled guidelines.
         # We do this here as it creates a better subsequent control flow in the engine.
         tool_enabled_guidelines = await self._find_tool_enabled_guideline_matches(
             guideline_matches=all_relevant_guidelines,
@@ -681,7 +699,7 @@ class AlphaEngine(Engine):
             set(all_relevant_guidelines).difference(tool_enabled_guidelines),
         )
 
-        return matching_result, ordinary_guidelines, tool_enabled_guidelines
+        return matching_result, ordinary_guidelines, tool_enabled_guidelines, journeys
 
     async def _find_tool_enabled_guideline_matches(
         self,
@@ -757,6 +775,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
             staged_events=context.state.tool_events,
         )
 

@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import NewType, Optional, Sequence, Union
+from typing import NewType, Optional, Sequence, Union, cast
 from typing_extensions import override, TypedDict, Self
 
 import networkx  # type: ignore
@@ -24,7 +24,7 @@ import networkx  # type: ignore
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
 from parlant.core.guidelines import GuidelineId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
@@ -56,10 +56,10 @@ class ToolRelationshipKind(Enum):
 RelationshipKind = Union[GuidelineRelationshipKind, ToolRelationshipKind]
 
 
-EntityIdType = Union[GuidelineId, TagId, ToolId]
+RelationshipEntityId = Union[GuidelineId, TagId, ToolId]
 
 
-class EntityType(Enum):
+class RelationshipEntityKind(Enum):
     GUIDELINE = "guideline"
     TAG = "tag"
     TOOL = "tool"
@@ -67,8 +67,8 @@ class EntityType(Enum):
 
 @dataclass(frozen=True)
 class RelationshipEntity:
-    id: EntityIdType
-    type: EntityType
+    id: RelationshipEntityId
+    kind: RelationshipEntityKind
 
     def id_to_string(self) -> str:
         return str(self.id) if not isinstance(self.id, ToolId) else self.id.to_string()
@@ -107,10 +107,10 @@ class RelationshipStore(ABC):
     @abstractmethod
     async def list_relationships(
         self,
-        kind: RelationshipKind,
-        indirect: bool,
-        source_id: Optional[EntityIdType] = None,
-        target_id: Optional[EntityIdType] = None,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = False,
+        source_id: Optional[RelationshipEntityId] = None,
+        target_id: Optional[RelationshipEntityId] = None,
     ) -> Sequence[Relationship]: ...
 
 
@@ -198,9 +198,9 @@ class RelationshipDocumentStore(RelationshipStore):
             version=self.VERSION.to_string(),
             creation_utc=relationship.creation_utc.isoformat(),
             source=relationship.source.id_to_string(),
-            source_type=relationship.source.type.value,
+            source_type=relationship.source.kind.value,
             target=relationship.target.id_to_string(),
-            target_type=relationship.target.type.value,
+            target_type=relationship.target.kind.value,
             kind=relationship.kind.value,
         )
 
@@ -212,14 +212,16 @@ class RelationshipDocumentStore(RelationshipStore):
             id: str,
             entity_type_str: str,
         ) -> RelationshipEntity:
-            entity_type = EntityType(entity_type_str)
+            entity_type = RelationshipEntityKind(entity_type_str)
 
-            if entity_type == EntityType.GUIDELINE:
-                return RelationshipEntity(id=GuidelineId(id), type=EntityType.GUIDELINE)
-            elif entity_type == EntityType.TAG:
-                return RelationshipEntity(id=TagId(id), type=EntityType.TAG)
-            elif entity_type == EntityType.TOOL:
-                return RelationshipEntity(id=ToolId.from_string(id), type=EntityType.TOOL)
+            if entity_type == RelationshipEntityKind.GUIDELINE:
+                return RelationshipEntity(id=GuidelineId(id), kind=RelationshipEntityKind.GUIDELINE)
+            elif entity_type == RelationshipEntityKind.TAG:
+                return RelationshipEntity(id=TagId(id), kind=RelationshipEntityKind.TAG)
+            elif entity_type == RelationshipEntityKind.TOOL:
+                return RelationshipEntity(
+                    id=ToolId.from_string(id), kind=RelationshipEntityKind.TOOL
+                )
 
             raise ValueError(f"Unknown entity type: {entity_type_str}")
 
@@ -234,7 +236,7 @@ class RelationshipDocumentStore(RelationshipStore):
 
         kind = (
             GuidelineRelationshipKind(relationship_document["kind"])
-            if source.type in {EntityType.GUIDELINE, EntityType.TAG}
+            if source.kind in {RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG}
             else ToolRelationshipKind(relationship_document["kind"])
         )
 
@@ -357,15 +359,13 @@ class RelationshipDocumentStore(RelationshipStore):
     @override
     async def list_relationships(
         self,
-        kind: RelationshipKind,
-        indirect: bool,
-        source_id: Optional[EntityIdType] = None,
-        target_id: Optional[EntityIdType] = None,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = True,
+        source_id: Optional[RelationshipEntityId] = None,
+        target_id: Optional[RelationshipEntityId] = None,
     ) -> Sequence[Relationship]:
-        assert (source_id or target_id) and not (source_id and target_id)
-
-        async def get_node_relationships(
-            source_id: EntityIdType,
+        async def get_node_relationships_by_kind(
+            source_id: RelationshipEntityId,
             reversed_graph: bool = False,
         ) -> Sequence[Relationship]:
             if not graph.has_node(source_id):
@@ -373,46 +373,84 @@ class RelationshipDocumentStore(RelationshipStore):
 
             _graph = graph.reverse() if reversed_graph else graph
 
-            if indirect:
-                descendant_edges = networkx.bfs_edges(_graph, source_id)
-                relationships = []
+            descendant_edges = networkx.bfs_edges(_graph, source_id)
+            relationships = []
 
-                for edge_source, edge_target in descendant_edges:
-                    edge_data = _graph.get_edge_data(edge_source, edge_target)
+            for edge_source, edge_target in descendant_edges:
+                edge_data = _graph.get_edge_data(edge_source, edge_target)
 
-                    relationship_document = await self._collection.find_one(
-                        filters={"id": {"$eq": edge_data["id"]}},
-                    )
+                relationship_document = await self._collection.find_one(
+                    filters={"id": {"$eq": edge_data["id"]}},
+                )
 
-                    if not relationship_document:
-                        raise ItemNotFoundError(item_id=UniqueId(edge_data["id"]))
+                if not relationship_document:
+                    raise ItemNotFoundError(item_id=UniqueId(edge_data["id"]))
 
-                    relationships.append(self._deserialize(relationship_document))
+                relationships.append(self._deserialize(relationship_document))
 
-                return relationships
-
-            else:
-                successors = _graph.succ[source_id]
-                relationships = []
-
-                for source_id, data in successors.items():
-                    relationship_document = await self._collection.find_one(
-                        filters={"id": {"$eq": data["id"]}},
-                    )
-
-                    if not relationship_document:
-                        raise ItemNotFoundError(item_id=UniqueId(data["id"]))
-
-                    relationships.append(self._deserialize(relationship_document))
-
-                return relationships
+            return relationships
 
         async with self._lock.reader_lock:
-            graph = await self._get_relationships_graph(kind)
+            if not source_id and not target_id:
+                filters = {**({"kind": {"$eq": kind.value}} if kind else {})}
+                return [
+                    self._deserialize(d)
+                    for d in await self._collection.find(filters=cast(Where, filters))
+                ]
 
-            if source_id:
-                relationships = await get_node_relationships(source_id)
-            elif target_id:
-                relationships = await get_node_relationships(target_id, reversed_graph=True)
+            relationships: list[Relationship] = []
+
+            if indirect:
+                for _kind in (
+                    [kind]
+                    if kind
+                    else [
+                        *list(GuidelineRelationshipKind),
+                        *list(ToolRelationshipKind),
+                    ]
+                ):
+                    graph = await self._get_relationships_graph(_kind)
+
+                    if source_id:
+                        relationships.extend(
+                            await get_node_relationships_by_kind(source_id, reversed_graph=False)
+                        )
+                    if target_id:
+                        relationships.extend(
+                            await get_node_relationships_by_kind(target_id, reversed_graph=True)
+                        )
+
+                return relationships
+            else:
+                if source_id:
+                    relationships.extend(
+                        [
+                            self._deserialize(d)
+                            for d in await self._collection.find(
+                                filters={
+                                    "source": {
+                                        "$eq": source_id.to_string()
+                                        if isinstance(source_id, ToolId)
+                                        else str(source_id)
+                                    }
+                                }
+                            )
+                        ]
+                    )
+                if target_id:
+                    relationships.extend(
+                        [
+                            self._deserialize(d)
+                            for d in await self._collection.find(
+                                filters={
+                                    "target": {
+                                        "$eq": target_id.to_string()
+                                        if isinstance(target_id, ToolId)
+                                        else str(target_id)
+                                    }
+                                }
+                            )
+                        ]
+                    )
 
         return relationships

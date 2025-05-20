@@ -50,6 +50,17 @@ class Tag:
 
         return str(tag_id.split(":")[1])
 
+    @staticmethod
+    def for_journey_id(journey_id: str) -> TagId:
+        return TagId(f"journey:{journey_id}")
+
+    @staticmethod
+    def extract_journey_id(tag_id: TagId) -> Optional[str]:
+        if not tag_id.startswith("journey:"):
+            return None
+
+        return str(tag_id.split(":")[1])
+
 
 class TagUpdateParams(TypedDict, total=False):
     name: str

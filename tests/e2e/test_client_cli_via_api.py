@@ -16,7 +16,7 @@ import asyncio
 import json
 import os
 import tempfile
-from typing import Any
+from typing import Any, Optional
 import httpx
 
 from parlant.core.services.tools.plugins import tool
@@ -534,9 +534,12 @@ async def test_that_guidelines_can_be_entailed(
         assert process.returncode == os.EX_OK
 
         guideline = await context.api.read_guideline(guideline_id=first_guideline["id"])
-        assert "connections" in guideline and len(guideline["connections"]) == 1
-        connection = guideline["connections"][0]
-        assert connection["source"] == first_guideline and connection["target"] == second_guideline
+        assert "relationships" in guideline and len(guideline["relationships"]) == 1
+        connection = guideline["relationships"][0]
+        assert (
+            connection["source_guideline"] == first_guideline
+            and connection["target_guideline"] == second_guideline
+        )
 
 
 async def test_that_a_guideline_can_be_deleted(
@@ -1780,3 +1783,59 @@ async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
 
         disabled_guideline = await context.api.read_guideline(second_guideline["id"])
         assert disabled_guideline["guideline"]["enabled"] is False
+
+
+async def test_that_a_guideline_can_be_created_with_tool_id(
+    context: ContextOfTest,
+) -> None:
+    condition = "user provides list of numbers and an optional number"
+    tool_id = "parameter_types:give_number_types"
+
+    with run_server(context):
+        while not is_server_responsive(SERVER_PORT):
+            pass
+
+        service_name = "parameter_types"
+        tool_name = "give_number_types"
+
+        @tool
+        def give_number_types(
+            context: ToolContext,
+            numbers: list[int],
+            optional_number: Optional[int] = None,
+        ) -> ToolResult:
+            result = {"list_count": len(numbers)}
+            if optional_number is not None:
+                result["optional_provided"] = True
+                result["optional_value"] = optional_number
+            return ToolResult(result)
+
+        async with run_service_server([give_number_types]) as server:
+            await context.api.create_sdk_service(
+                service_name=service_name,
+                url=server.url,
+            )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "guideline",
+                    "create",
+                    "--condition",
+                    condition,
+                    "--tool-id",
+                    tool_id,
+                )
+            ) == os.EX_OK
+
+            guidelines = await context.api.list_guidelines()
+            created_guideline = next((g for g in guidelines if g["condition"] == condition), None)
+            assert created_guideline is not None, "Guideline was not created"
+
+            guideline_details = await context.api.read_guideline(
+                guideline_id=created_guideline["id"]
+            )
+            assert any(
+                assoc["tool_id"]["service_name"] == service_name
+                and assoc["tool_id"]["tool_name"] == tool_name
+                for assoc in guideline_details["tool_associations"]
+            ), "Tool association was not created"

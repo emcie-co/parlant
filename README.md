@@ -3,10 +3,10 @@
 <!--<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />-->
 
 
-<h1>Parlant</h1>
-  <h3>The Conversation Modeling Engine</h3>
+  <img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />
+  <h2>Hello, Conversation Modeling!</h2>
 
-Parlant is the open-source framework for safe, compliant, and custom generative AI conversations. It gives you the power of LLMs without the unpredictability.
+Parlant is the open-source engine for controlled, compliant, and purposeful generative AI conversations. It gives you the power of LLMs without the unpredictability.
 
   <a href="https://trendshift.io/repositories/12768" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12768" alt="emcie-co%2Fparlant | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
@@ -15,7 +15,8 @@ Parlant is the open-source framework for safe, compliant, and custom generative 
     <a href="https://www.parlant.io/" target="_blank">Website</a> —
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> —
     <a href="https://www.parlant.io/docs/tutorial/getting-started" target="_blank">Tutorial</a> —
-    <a href="https://www.parlant.io/docs/about" target="_blank">About</a>
+    <a href="https://www.parlant.io/docs/about" target="_blank">About</a> —
+    <a href="https://www.reddit.com/r/parlant_official/" target="_blank">Reddit</a>
   </p>
 
 
@@ -32,7 +33,7 @@ Parlant is the open-source framework for safe, compliant, and custom generative 
 
 </div>
 
-## YouTube Video Intro
+## Introduction Video
 [![Parlant Introduction](https://github.com/emcie-co/parlant/blob/develop/yt-preview.png?raw=true)](https://www.youtube.com/watch?v=_39ERIb0100)
 
 1. Install
@@ -130,7 +131,7 @@ Parlant is the right tool for the job if you're building an LLM-based chat agent
 
 In a word: **_Guidance._** 🧭🚦🤝
 
-Parlant's engine revolves around solving one key problem: How can we _reliably guide_ customer-facing agents to behave in alignment with our needs and intentions.
+Parlant's engine revolves around solving one key problem: How can we _reliably guide_ customer-facing agents to behave in alignment with our needs and intentions?
 
 Hence Parlant's fundamentally different approach to agent building: [Managed Guidelines](https://www.parlant.io/docs/concepts/customization/guidelines):
 

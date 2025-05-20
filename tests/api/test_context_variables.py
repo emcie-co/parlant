@@ -20,7 +20,7 @@ from pytest import fixture
 from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.tools import LocalToolService, ToolId
+from parlant.core.tools import LocalToolService, ToolId, ToolOverlap
 
 
 @fixture
@@ -32,6 +32,7 @@ async def tool_id(container: Container) -> ToolId:
         module_path="test.module.path",
         parameters={"test_parameter": {"type": "string"}},
         required=["test_parameter"],
+        overlap=ToolOverlap.NONE,
     )
 
     return ToolId("local", "test_tool")

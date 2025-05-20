@@ -2,10 +2,11 @@ Feature: Tools
     Background:
         Given the alpha engine
         And an agent
+        And an empty session
+
 
     Scenario: Guideline matcher and tool caller understand that a Q&A tool needs to be called multiple times to answer different questions
-        Given an empty session
-        And a guideline "answer_questions" to look up the answer and, if found, when the customer has a question related to the bank's services
+        Given a guideline "answer_questions" to look up the answer and, if found, when the customer has a question related to the bank's services
         And the tool "find_answer"
         And an association between "answer_questions" and "find_answer"
         And a customer message, "How do I pay my credit card bill?"
@@ -26,30 +27,13 @@ Feature: Tools
         Then a single message event is emitted
         And the message contains an apology for missing data
     
-    Scenario: No tool call emitted when data is ambiguios (transfer_coins)
-        Given an empty session
-        And a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
+    Scenario: No tool call emitted when data is ambiguous (transfer_coins)
+        Given a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "My name is Mark Corrigan and I want to transfer about 200-300 dollars from my account to Sophie Chapman account. My pincode is 1234"
         When processing is triggered
         Then no tool calls event is emitted
-
-    Scenario: The agent correctly chooses to call the right tool
-        Given an agent whose job is to sell groceries
-        And the term "carrot" defined as a kind of fruit
-        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
-        And the tool "check_fruit_price"
-        And the tool "check_vegetable_price"
-        And an association between "check_prices" and "check_fruit_price"
-        And an association between "check_prices" and "check_vegetable_price"
-        And a customer message, "What's the price of 1 kg of carrots?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call with tool_id of "local:check_fruit_price"
-        And a single message event is emitted
-        And the message contains that the price of 1 kg of carrots is 10 dollars
 
     Scenario: Tool caller correctly infers arguments values with optional (3)
         Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
@@ -60,3 +44,24 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains SSD as keyword and Samsung as Vendor 
+    
+    Scenario: Tool caller chooses the right tool when two are activated 
+        Given a customer named "Harry"
+        And an empty session with "Harry"
+        And a guideline "to_schedule_meeting" to schedule a meeting when customer asks to schedule a meeting
+        And a guideline "to_schedule_appointment" to schedule an appointment with a doctor when user asks to make an appointment
+        And a guideline "to_send_email" to send an email to them when customer asks to reach out with someone
+        And the tool "send_email"
+        And an association between "to_send_email" and "send_email"
+        And the tool "schedule_meeting"
+        And an association between "to_schedule_meeting" and "schedule_meeting"
+        And the tool "schedule_appointment"
+        And an association between "to_schedule_appointment" and "schedule_appointment"
+        And a tool relationship whereby "schedule_meeting" overlaps with "schedule_appointment"
+        # And a tool relationship whereby "schedule_meeting" overlaps with "send_email"
+        And a context variable "Current Date" set to "April 9th, 2025" for "Harry"
+        And a customer message, "Can you reach out to Morgan and see if she’s free to meet tomorrow at 10:30 about the hiring freeze?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "local:send_email" to morgan with subject of a meeting tomorrow and doesn't contains a call to "local:schedule_meeting"

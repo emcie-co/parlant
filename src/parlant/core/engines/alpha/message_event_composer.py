@@ -17,12 +17,14 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from parlant.core.agents import Agent
+from parlant.core.common import CancellationSuppressionLatch
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
+from parlant.core.journeys import Journey
 from parlant.core.sessions import Event
 from parlant.core.tools import ToolId
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -41,7 +43,7 @@ class MessageCompositionError(Exception):
 
 class MessageEventComposer:
     @abstractmethod
-    async def generate_events(
+    async def generate_response_message_events(
         self,
         event_emitter: EventEmitter,
         agent: Agent,
@@ -51,6 +53,8 @@ class MessageEventComposer:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]: ...

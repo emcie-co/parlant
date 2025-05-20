@@ -9,7 +9,7 @@ from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
@@ -22,6 +22,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolInsights,
 )
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -37,7 +38,7 @@ class SingleToolBatchArgumentEvaluation(DefaultBaseModel):
     evaluate_is_it_provided_by_an_acceptable_source: str
     evaluate_was_it_already_provided_and_should_it_be_provided_again: str
     evaluate_is_it_potentially_problematic_to_guess_what_the_value_is_if_it_isnt_provided: str
-    is_optional: Optional[bool] = None
+    is_optional: Optional[bool] = False
     has_default_value_if_not_provided_by_acceptable_source: Optional[bool] = None
     valid_invalid_or_missing: str
     value_as_string: Optional[str] = None
@@ -111,6 +112,7 @@ class SingleToolBatch(ToolCallBatch):
             interaction_history=self._context.interaction_history,
             terms=self._context.terms,
             ordinary_guideline_matches=self._context.ordinary_guideline_matches,
+            journeys=self._context.journeys,
             candidate_descriptor=self._candidate_tool,
             reference_tools=[],
             staged_events=self._context.staged_events,
@@ -143,6 +145,7 @@ class SingleToolBatch(ToolCallBatch):
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        journeys: Sequence[Journey],
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
@@ -153,6 +156,7 @@ class SingleToolBatch(ToolCallBatch):
             interaction_history,
             terms,
             ordinary_guideline_matches,
+            journeys,
             candidate_descriptor,
             reference_tools,
             staged_events,
@@ -201,6 +205,7 @@ class SingleToolBatch(ToolCallBatch):
                                 significance=options.significance,
                                 description=descriptor.get("description"),
                                 precedence=options.precedence,
+                                choices=descriptor.get("enum", None),
                             )
                         )
 
@@ -262,6 +267,7 @@ class SingleToolBatch(ToolCallBatch):
                                         significance=tool_options.significance,
                                         description=tool_descriptor.get("description"),
                                         precedence=tool_options.precedence,
+                                        choices=tool_descriptor.get("enum", None),
                                     )
                                 )
 
@@ -338,6 +344,7 @@ Example #{i}: ###
         interaction_event_list: Sequence[Event],
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
+        journeys: Sequence[Journey],
         batch: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
@@ -412,7 +419,7 @@ EXAMPLES
                 status=SectionStatus.ACTIVE,
             )
         builder.add_interaction_history(interaction_event_list)
-
+        builder.add_journeys(journeys)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._add_guideline_matches_section(
@@ -474,7 +481,7 @@ Given the tool, your output should adhere to the following format:
 ```json
 {{
     "last_customer_message": "<REPEAT THE LAST USER MESSAGE IN THE INTERACTION>",
-    "most_recent_customer_inquiry_or_need": "<CUSTOMER"S INQUIRY OR NEED>",
+    "most_recent_customer_inquiry_or_need": "<CUSTOMER'S INQUIRY OR NEED>",
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
     "name": "{service_name}:{tool_name}",
     "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
@@ -658,7 +665,11 @@ Candidate tool: ###
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_id_propositions: tuple[ToolId, Sequence[GuidelineMatch]],
     ) -> str:
-        all_matches = list(chain(ordinary_guideline_matches, tool_id_propositions[1]))
+        all_matches = [
+            match
+            for match in chain(ordinary_guideline_matches, tool_id_propositions[1])
+            if match.guideline.content.action
+        ]
 
         if all_matches:
             guidelines = []

@@ -16,7 +16,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
-from typing import NewType, Optional, Sequence, TypedDict, cast
+from typing import Awaitable, Callable, NewType, Optional, Sequence, TypedDict, cast
 from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
@@ -167,7 +167,7 @@ class GlossaryVectorStore(GlossaryStore):
         self,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
-        embedder_type: type[Embedder],
+        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ):
@@ -178,8 +178,10 @@ class GlossaryVectorStore(GlossaryStore):
         self._association_collection: DocumentCollection[TermTagAssociationDocument]
 
         self._allow_migration = allow_migration
-        self._embedder = embedder_factory.create_embedder(embedder_type)
-        self._embedder_type = embedder_type
+
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
+        self._embedder: Embedder
 
         self._lock = ReaderWriterLock()
 
@@ -202,6 +204,10 @@ class GlossaryVectorStore(GlossaryStore):
         return cast(TermTagAssociationDocument, document)
 
     async def __aenter__(self) -> Self:
+        embedder_type = await self._embedder_type_provider()
+
+        self._embedder = self._embedder_factory.create_embedder(embedder_type)
+
         async with VectorDocumentStoreMigrationHelper(
             store=self,
             database=self._vector_db,
@@ -210,7 +216,7 @@ class GlossaryVectorStore(GlossaryStore):
             self._collection = await self._vector_db.get_or_create_collection(
                 name="glossary",
                 schema=_TermDocument,
-                embedder_type=self._embedder_type,
+                embedder_type=embedder_type,
                 document_loader=self._document_loader,
             )
         async with DocumentStoreMigrationHelper(

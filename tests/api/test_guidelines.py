@@ -19,8 +19,9 @@ from pytest import raises
 
 from parlant.core.agents import AgentId
 from parlant.core.common import ItemNotFoundError
+from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
-    EntityType,
+    RelationshipEntityKind,
     GuidelineRelationshipKind,
     RelationshipEntity,
     RelationshipStore,
@@ -29,7 +30,7 @@ from parlant.core.guideline_tool_associations import GuidelineToolAssociationSto
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.tools import LocalToolService, ToolId
+from parlant.core.tools import LocalToolService, ToolId, ToolOverlap
 
 from tests.test_utilities import (
     OPENAPI_SERVER_URL,
@@ -62,11 +63,11 @@ async def create_guidelines_and_create_relationships_between_them(
         await container[RelationshipStore].create_relationship(
             source=RelationshipEntity(
                 id=source.id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
                 id=target.id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             kind=GuidelineRelationshipKind.ENTAILMENT,
         )
@@ -597,11 +598,11 @@ async def test_legacy_that_reading_a_guideline_lists_both_direct_and_indirect_co
         await container[RelationshipStore].create_relationship(
             source=RelationshipEntity(
                 id=source.id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
                 id=target.id,
-                type=EntityType.GUIDELINE,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             kind=GuidelineRelationshipKind.ENTAILMENT,
         )
@@ -653,6 +654,7 @@ async def test_legacy_that_a_tool_association_can_be_added(
         description="",
         parameters={},
         required=[],
+        overlap=ToolOverlap.NONE,
     )
 
     guideline = await guideline_store.create_guideline(
@@ -735,6 +737,7 @@ async def test_legacy_that_a_tool_association_can_be_removed(
         description="",
         parameters={},
         required=[],
+        overlap=ToolOverlap.NONE,
     )
 
     guideline = await guideline_store.create_guideline(
@@ -808,6 +811,7 @@ async def test_legacy_that_guideline_deletion_removes_tool_associations(
         description="",
         parameters={},
         required=[],
+        overlap=ToolOverlap.NONE,
     )
 
     guideline = await guideline_store.create_guideline(
@@ -1008,11 +1012,11 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=existing_guideline.id,
-            type=EntityType.GUIDELINE,
+            kind=RelationshipEntityKind.GUIDELINE,
         ),
         target=RelationshipEntity(
             id=connected_guideline.id,
-            type=EntityType.GUIDELINE,
+            kind=RelationshipEntityKind.GUIDELINE,
         ),
         kind=GuidelineRelationshipKind.ENTAILMENT,
     )
@@ -1100,7 +1104,7 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
         tag_id=Tag.for_agent_id(agent_id),
     )
 
-    new_aciton = "reply with 'Howdy!'"
+    new_action = "reply with 'Howdy!'"
 
     request_data = {
         "invoices": [
@@ -1110,7 +1114,7 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
                     "guideline": {
                         "content": {
                             "condition": "the customer greets you",
-                            "action": new_aciton,
+                            "action": new_action,
                         },
                         "operation": "update",
                         "coherence_check": True,
@@ -1128,7 +1132,7 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
                                 "check_kind": "connection_with_another_evaluated_guideline",
                                 "source": {
                                     "condition": "the customer greets you",
-                                    "action": new_aciton,
+                                    "action": new_action,
                                 },
                                 "target": {
                                     "condition": "replying to greeting message",
@@ -1163,7 +1167,7 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
                                 "check_kind": "connection_with_another_evaluated_guideline",
                                 "source": {
                                     "condition": "the customer greets you",
-                                    "action": new_aciton,
+                                    "action": new_action,
                                 },
                                 "target": {
                                     "condition": "replying to greeting message",
@@ -1238,11 +1242,11 @@ async def test_legacy_that_guideline_update_retains_existing_connections_with_di
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=existing_guideline.id,
-            type=EntityType.GUIDELINE,
+            kind=RelationshipEntityKind.GUIDELINE,
         ),
         target=RelationshipEntity(
             id=connected_guideline.id,
-            type=EntityType.GUIDELINE,
+            kind=RelationshipEntityKind.GUIDELINE,
         ),
         kind=GuidelineRelationshipKind.ENTAILMENT,
     )
@@ -1420,6 +1424,21 @@ async def test_that_a_guideline_can_be_created(
     assert guideline["enabled"] is True
     assert guideline["tags"] == []
     assert guideline["metadata"] == {"key1": "value1", "key2": "value2"}
+
+
+async def test_that_a_guideline_can_be_created_without_an_action(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={"condition": "the customer asks about pricing"},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "the customer asks about pricing"
+    assert guideline["action"] is None
 
 
 async def test_that_a_guideline_can_be_created_with_tags(
@@ -1709,6 +1728,7 @@ async def test_that_a_tool_association_can_be_added_to_a_guideline(
         description="",
         parameters={},
         required=[],
+        overlap=ToolOverlap.NONE,
     )
 
     guideline = await guideline_store.create_guideline(
@@ -1871,3 +1891,67 @@ async def test_that_metadata_can_be_updated_for_a_guideline(
 
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["metadata"] == {"key1": "value1", "key2": "value2"}
+
+
+async def test_that_condition_association_is_deleted_when_a_guideline_is_deleted(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+    )
+
+    journey = await journey_store.create_journey(
+        title="test_journey",
+        description="test_description",
+        conditions=[guideline.id],
+    )
+
+    response = await async_client.delete(f"/guidelines/{guideline.id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    updated_journey = await journey_store.read_journey(journey.id)
+    assert updated_journey.conditions == []
+
+
+async def test_that_guideline_relationships_can_be_read(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    connected_guideline = await guideline_store.create_guideline(
+        condition="reply with 'Hello'",
+        action="finish with a smile",
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        target=RelationshipEntity(
+            id=connected_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    response = await async_client.get(f"/guidelines/{guideline.id}")
+
+    assert response.status_code == status.HTTP_200_OK
+    relationships = response.json()["relationships"]
+
+    assert len(relationships) == 1
+    assert relationships[0]["source_guideline"]["id"] == guideline.id
+    assert relationships[0]["target_guideline"]["id"] == connected_guideline.id
+    assert relationships[0]["kind"] == "entailment"

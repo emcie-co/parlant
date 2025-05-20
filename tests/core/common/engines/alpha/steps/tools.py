@@ -15,7 +15,13 @@
 from typing import Any, cast
 from pytest_bdd import given, parsers
 
-from parlant.core.tools import ToolParameterOptions
+from parlant.core.tools import ToolOverlap, ToolParameterOptions
+from parlant.core.relationships import (
+    RelationshipEntityKind,
+    RelationshipEntity,
+    RelationshipStore,
+    ToolRelationshipKind,
+)
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociation,
@@ -26,6 +32,697 @@ from parlant.core.tools import LocalToolService, ToolId
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
+
+
+TOOLS: dict[str, dict[str, Any]] = {
+    "get_terrys_offering": {
+        "name": "get_terrys_offering",
+        "description": "Explain Terry's offering",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "get_available_drinks": {
+        "name": "get_available_drinks",
+        "description": "Get the drinks available in stock",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "get_available_toppings": {
+        "name": "get_available_toppings",
+        "description": "Get the toppings available in stock",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "expert_answer": {
+        "name": "expert_answer",
+        "description": "Get answers to questions by consulting documentation",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "user_query": {
+                "type": "string",
+                "description": "The query from the customer",
+            }
+        },
+        "required": ["user_query"],
+    },
+    "get_available_product_by_type": {
+        "name": "get_available_product_by_type",
+        "description": "Get the products available in stock by type",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "product_type": {
+                "type": "string",
+                "description": "The type of product (either 'drinks' or 'toppings')",
+                "enum": ["drinks", "toppings"],
+            }
+        },
+        "required": ["product_type"],
+    },
+    "add": {
+        "name": "add",
+        "description": "Getting the addition calculation between two numbers",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "first_number": {
+                "type": "number",
+                "description": "The first number",
+            },
+            "second_number": {
+                "type": "number",
+                "description": "The second number",
+            },
+        },
+        "required": ["first_number", "second_number"],
+    },
+    "multiply": {
+        "name": "multiply",
+        "description": "Getting the multiplication calculation between two numbers",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "first_number": {
+                "type": "number",
+                "description": "The first number",
+            },
+            "second_number": {
+                "type": "number",
+                "description": "The second number",
+            },
+        },
+        "required": ["first_number", "second_number"],
+    },
+    "get_account_balance": {
+        "name": "get_account_balance",
+        "description": "Get the account balance by given name",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "account_name": {
+                "type": "string",
+                "description": "The name of the account",
+            }
+        },
+        "required": ["account_name"],
+    },
+    "get_account_loans": {
+        "name": "get_account_loans",
+        "description": "Get the account loans by given name",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "account_name": {
+                "type": "string",
+                "description": "The name of the account",
+            }
+        },
+        "required": ["account_name"],
+    },
+    "transfer_money": {
+        "name": "transfer_money",
+        "description": "Transfer money from one account to another",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "amount": {"type": "integer", "description": "The number of coins to transfer"},
+            "from_account": {
+                "type": "string",
+                "description": "The name of the account from which money will be transferred",
+            },
+            "to_account": {
+                "type": "string",
+                "description": "The name of the account to which money will be transferred",
+            },
+        },
+        "required": ["amount", "from_account", "to_account"],
+    },
+    "check_fruit_price": {
+        "name": "check_fruit_price",
+        "description": "Reports the price of 1 kg of a certain fruit",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "fruit": {
+                "type": "string",
+                "description": "Fruit to check for",
+            },
+        },
+        "required": ["fruit"],
+    },
+    "check_vegetable_price": {
+        "name": "check_vegetable_price",
+        "description": "Reports the price of 1 kg of a certain vegetable",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "vegetable": {
+                "type": "string",
+                "description": "Vegetable to check for",
+            },
+        },
+        "required": ["vegetable"],
+    },
+    "recommend_drink": {
+        "name": "recommend_drink",
+        "description": "Recommends a drink based on the user's age",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "user_is_adult": {
+                "type": "boolean",
+            },
+        },
+        "required": ["user_is_adult"],
+    },
+    "check_username_validity": {
+        "name": "check_username_validity",
+        "description": "Checks if the user's name is valid for our service",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "name": {
+                "type": "string",
+            },
+        },
+        "required": ["name"],
+    },
+    "get_available_soups": {
+        "name": "get_available_soups",
+        "description": "Checks which soups are currently in stock",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "get_keyleth_stamina": {
+        "name": "get_keyleth_stamina",
+        "description": "",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "consult_policy": {
+        "name": "consult_policy",
+        "description": "",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "other_inquiries": {
+        "name": "other_inquiries",
+        "description": "This tool needs to be run when looking for answers that are not covered by other resources",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "try_unlock_card": {
+        "name": "try_unlock_card",
+        "description": "This tool unlocks a credit card",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "last_6_digits": {
+                "type": "string",
+            },
+        },
+        "required": [],
+    },
+    "find_answer": {
+        "name": "find_answer",
+        "description": "Get an answer to a question",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "inquiry": {
+                "type": "string",
+            },
+        },
+        "required": ["inquiry"],
+    },
+    "pay_cc_bill": {
+        "name": "pay_cc_bill",
+        "description": "Pay credit bard bill. Payment date is given in format DD-MM-YYYY",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "payment_date": {
+                "type": "string",
+            },
+        },
+        "required": ["payment_date"],
+    },
+    "register_for_sweepstake": {
+        "name": "register_for_sweepstake",
+        "description": "Register for a sweepstake given multiple required details",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "first_name": (
+                {
+                    "type": "string",
+                    "enum": ["Sushi", "Mushi", "Tushi"],
+                },
+                ToolParameterOptions(precedence=1),
+            ),
+            "last_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=1),
+            ),
+            "father_name": (
+                {
+                    "type": "string",
+                }
+            ),
+            "mother_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=2),
+            ),
+            "entry_type": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=3),
+            ),
+            "n_entries": (
+                {
+                    "type": "int",
+                },
+                ToolParameterOptions(precedence=3),
+            ),
+            "donation_target": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=3),
+            ),
+            "donation_percent": (
+                {
+                    "type": "int",
+                },
+                ToolParameterOptions(precedence=3),
+            ),
+        },
+        "required": [
+            "first_name",
+            "last_name",
+            "father_name",
+            "mother_name",
+            "entry_type",
+            "n_entries",
+            "donation_target",
+            "donation_percent",
+        ],
+    },
+    "register_for_confusing_sweepstake": {
+        "name": "register_for_confusing_sweepstake",
+        "description": "Register for a sweepstake with more confusing paramater options",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "first_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=11),
+            ),
+            "last_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=11),
+            ),
+            "father_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=-1),
+            ),
+            "mother_name": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=-1),
+            ),
+            "entry_type": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=30),
+            ),
+            "n_entries": (
+                {
+                    "type": "int",
+                },
+                ToolParameterOptions(precedence=30),
+            ),
+            "donation_target": (
+                {
+                    "type": "string",
+                },
+                ToolParameterOptions(precedence=-3),
+            ),
+            "donation_percent": (
+                {
+                    "type": "int",
+                },
+                ToolParameterOptions(precedence=-3),
+            ),
+        },
+        "required": [
+            "first_name",
+            "last_name",
+            "father_name",
+            "mother_name",
+            "entry_type",
+            "n_entries",
+        ],
+    },
+    "calculate_salary": {
+        "name": "calculate_salary",
+        "description": "Calculate the salary of an employee according to other employees",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "name": {
+                "type": "string",
+                "enum": ["John n Coke", "Mike Andike", "Bruno Twix", "Chris Pikrim"],
+            },
+            "manager": (
+                {
+                    "type": "string",
+                    "enum": ["Mike Andike", "Bruno Twix", "Jay Libelly"],
+                },
+                ToolParameterOptions(hidden=True),
+            ),
+            "director": (
+                {
+                    "type": "string",
+                    "enum": ["Bruno Twix", "Jay Libelly", "John n Coke"],
+                },
+                ToolParameterOptions(hidden=True),
+            ),
+            "friend": (
+                {
+                    "type": "string",
+                    "enum": ["Chris Pikrim", "Jay Libelly", "Mike Andike"],
+                },
+                ToolParameterOptions(display_name="homie"),
+            ),
+            "mistress": {
+                "type": "string",
+                "enum": ["Jay Libelly", "Chris Pikrim", "Mike Andike"],
+            },
+            "cleaner": (
+                {
+                    "type": "string",
+                    "enum": ["Mike Andike", "Bruno Twix", "Chris Pikrim"],
+                },
+                ToolParameterOptions(display_name="The robot"),
+            ),
+        },
+        "required": ["name", "manager", "director", "cleaner"],
+    },
+    "get_products_by_type": {
+        "name": "get_products_by_type",
+        "description": "Get all products that match the specified product type ",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "product_type": {
+                "type": "string",
+                "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
+            }
+        },
+        "required": ["product_type"],
+    },
+    "get_bookings": {
+        "name": "get_bookings",
+        "description": "Gets all flight bookings for a customer",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "customer_id": {
+                "type": "string",
+            }
+        },
+        "required": ["customer_id"],
+    },
+    "get_qualification_info": {
+        "name": "get_qualification_info",
+        "description": "Get the qualification information for the customer",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "transfer_coins": {
+        "name": "transfer_coins",
+        "description": "Transfer coins from one account to another",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "amount": {"type": "integer", "description": "the number of coins to transfer"},
+            "from_account": {
+                "type": "string",
+                "description": "The name of the person whose account the coins will be transferred from",
+            },
+            "to_account": {
+                "type": "string",
+                "description": "The name of the person whose account the coins will be transferred to",
+            },
+            "pincode": {
+                "type": "string",
+                "description": "the pincode for the account the coins are transfered from",
+            },
+        },
+        "required": ["amount", "from_account", "to_account", "pincode"],
+    },
+    "search_electronic_products": {
+        "name": "search_electronic_products",
+        "description": "Search for electronic products in the inventory based on various criteria",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "keyword": {
+                "type": "string",
+                "description": "Search term to match against product names and descriptions",
+            },
+            "product_type": {
+                "type": "string",
+                "description": "Filter by product category",
+                "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
+            },
+            "min_price": {"type": "integer", "description": "Minimum price filter"},
+            "max_price": {"type": "integer", "description": "Maximum price filter"},
+            "in_stock_only": {
+                "type": "boolean",
+                "description": "Only show products that are currently in stock",
+            },
+            "vendor": {
+                "type": "string",
+                "description": "Company name",
+            },
+        },
+        "required": ["keyword"],
+    },
+    "search_products": {
+        "name": "search_products",
+        "description": "Search for products in the inventory based on various criteria",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "keyword": {
+                "type": "string",
+                "description": "Search term to match against product names and descriptions",
+            },
+            "product_type": {
+                "type": "string",
+                "description": "Filter by product category",
+                "enum": [
+                    "Electronics",
+                    "Clothing",
+                    "Home",
+                    "Beauty",
+                    "Toys",
+                    "Sports",
+                    "Automotive",
+                    "Other",
+                ],
+            },
+            "min_price": {"type": "integer", "description": "Minimum price filter"},
+            "max_price": {"type": "integer", "description": "Maximum price filter"},
+            "in_stock_only": {
+                "type": "boolean",
+                "description": "Only show products that are currently in stock",
+            },
+            "brand": {"type": "string", "description": "Brand or manufacturer name"},
+        },
+        "required": ["keyword"],
+    },
+    "book_flight": {
+        "name": "book_flight",
+        "description": "Books a flight with the provided details",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "departure_city": {
+                "type": "string",
+                "description": "The name of the city the user flighting from",
+            },
+            "destination_city": {
+                "type": "string",
+                "description": "The name of the city the user is flighting to",
+            },
+            "departure_date": {
+                "type": "string",
+                "description": "The departure date given in format DD-MM-YYYY",
+            },
+            "return_date": {
+                "type": "string",
+                "description": "The return date given in format DD-MM-YYYY",
+            },
+            "passenger_name": {
+                "type": "string",
+                "description": "The name of the passenger",
+            },
+        },
+        "required": ["departure_city", "destination_city", "departure_date"],
+    },
+    "send_email": {
+        "name": "send_email",
+        "description": "Sends an email to the specified recipient.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "to": {
+                "type": "string",
+                "description": "the name of the person to send the email to",
+            },
+            "subject": {
+                "type": "string",
+                "description": "The subject of the mail",
+            },
+            "body": {
+                "type": "string",
+                "description": "The body of the mail",
+            },
+        },
+        "required": ["to", "subject"],
+    },
+    "schedule_meeting": {
+        "name": "schedule_meeting",
+        "description": "Schedules a meeting with the given participant.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "participant": {
+                "type": "string",
+                "description": "The participant name to include in the meeting",
+            },
+            "date": {
+                "type": "string",
+                "description": "The meeting date given in format DD-MM-YYYY",
+            },
+            "time": {
+                "type": "string",
+                "description": "The meeting hour given in 24-hour format HH:MM",
+            },
+            "agenda": {
+                "type": "string",
+                "description": "The meeting agenda",
+            },
+        },
+        "required": ["participant", "date", "time"],
+    },
+    "schedule_appointment": {
+        "name": "schedule_appointment",
+        "description": "Schedules a new appointment for a patient with a specific doctor.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "patient": {
+                "type": "string",
+                "description": "The name of the patient for whom the appointment is being scheduled. Will be the user name if specified and the appointment is for the user.",
+            },
+            "doctor_name": {
+                "type": "string",
+                "description": "The name of the doctor the appointment is with.",
+            },
+            "date": {
+                "type": "string",
+                "description": "The appointment date in format DD-MM-YYYY.",
+            },
+            "time": {
+                "type": "string",
+                "description": "The appointment time in 24-hour format HH:MM.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "The reason for the appointment (optional).",
+            },
+        },
+        "required": ["patient", "doctor_name", "date", "time"],
+    },
+    "reschedule_appointment": {
+        "name": "reschedule_appointment",
+        "description": "Reschedules an existing appointment for a patient with a specific doctor.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "patient": {
+                "type": "string",
+                "description": "The name of the patient whose appointment is being rescheduled. Will be the user name if specified and the appointment is for the user.",
+            },
+            "doctor_name": {
+                "type": "string",
+                "description": "The name of the doctor the appointment is with.",
+            },
+            "new_date": {
+                "type": "string",
+                "description": "The new date for the appointment in format DD-MM-YYYY.",
+            },
+            "new_time": {
+                "type": "string",
+                "description": "The new time for the appointment in 24-hour format HH:MM.",
+            },
+        },
+        "required": ["patient", "doctor_name", "new_date", "new_time"],
+    },
+    "transfer_shekels": {
+        "name": "transfer_shekels",
+        "description": "Transfers a specified amount in shekels from one account to another.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "amount": {"type": "integer", "description": "The amount of shekels to transfer"},
+            "from_account": {
+                "type": "string",
+                "description": "The name of the account sending the shekels",
+            },
+            "to_account": {
+                "type": "string",
+                "description": "The name of the account receiving the shekels",
+            },
+        },
+        "required": ["amount", "from_account", "to_account"],
+    },
+    "transfer_dollars": {
+        "name": "transfer_dollars",
+        "description": "Transfers a specified amount in shekels from one account to another.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "amount": {"type": "integer", "description": "The amount of dollars to transfer"},
+            "from_account": {
+                "type": "string",
+                "description": "The name of the account sending the dollars",
+            },
+            "to_account": {
+                "type": "string",
+                "description": "The name of the account receiving the dollars",
+            },
+        },
+        "required": ["amount", "from_account", "to_account"],
+    },
+    "reset_password": {
+        "name": "reset_password",
+        "description": "Reset's a password for an account based on its username. Must provide either phone number or email address for verification.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "username": {
+                "type": "string",
+                "description": "The account's username",
+            },
+            "phone_number": {
+                "type": "string",
+                "description": "The account's associated phone number",
+            },
+            "email": {
+                "type": "string",
+                "description": "The account's associated email address",
+            },
+        },
+        "required": ["username"],
+    },
+}
 
 
 @step(given, parsers.parse('an association between "{guideline_name}" and "{tool_name}"'))
@@ -123,8 +820,8 @@ def given_the_tool_from_service(
     context.tools[tool_name] = tool
 
 
-@step(given, parsers.parse('the tool "{tool_name}"'))
-def given_a_tool(
+@step(given, parsers.parse('the tool "{tool_name}" with always as overlap'))
+def given_the_tool_with_always_as_overlap(
     context: ContextOfTest,
     tool_name: str,
 ) -> None:
@@ -137,478 +834,24 @@ def given_a_tool(
             "module_path": "tests.tool_utilities",
             "parameters": {},
             "required": [],
-        },
-        "get_available_drinks": {
-            "name": "get_available_drinks",
-            "description": "Get the drinks available in stock",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "get_available_toppings": {
-            "name": "get_available_toppings",
-            "description": "Get the toppings available in stock",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "expert_answer": {
-            "name": "expert_answer",
-            "description": "Get answers to questions by consulting documentation",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "user_query": {
-                    "type": "string",
-                    "description": "The query from the customer",
-                }
-            },
-            "required": ["user_query"],
-        },
-        "get_available_product_by_type": {
-            "name": "get_available_product_by_type",
-            "description": "Get the products available in stock by type",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "product_type": {
-                    "type": "string",
-                    "description": "The type of product (either 'drinks' or 'toppings')",
-                    "enum": ["drinks", "toppings"],
-                }
-            },
-            "required": ["product_type"],
-        },
-        "add": {
-            "name": "add",
-            "description": "Getting the addition calculation between two numbers",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "first_number": {
-                    "type": "number",
-                    "description": "The first number",
-                },
-                "second_number": {
-                    "type": "number",
-                    "description": "The second number",
-                },
-            },
-            "required": ["first_number", "second_number"],
-        },
-        "multiply": {
-            "name": "multiply",
-            "description": "Getting the multiplication calculation between two numbers",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "first_number": {
-                    "type": "number",
-                    "description": "The first number",
-                },
-                "second_number": {
-                    "type": "number",
-                    "description": "The second number",
-                },
-            },
-            "required": ["first_number", "second_number"],
-        },
-        "get_account_balance": {
-            "name": "get_account_balance",
-            "description": "Get the account balance by given name",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "account_name": {
-                    "type": "string",
-                    "description": "The name of the account",
-                }
-            },
-            "required": ["account_name"],
-        },
-        "get_account_loans": {
-            "name": "get_account_loans",
-            "description": "Get the account loans by given name",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "account_name": {
-                    "type": "string",
-                    "description": "The name of the account",
-                }
-            },
-            "required": ["account_name"],
-        },
-        "transfer_money": {
-            "name": "transfer_money",
-            "description": "Transfer money from one account to another",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "from_account": {
-                    "type": "string",
-                    "description": "The account from which money will be transferred",
-                },
-                "to_account": {
-                    "type": "string",
-                    "description": "The account to which money will be transferred",
-                },
-            },
-            "required": ["from_account", "to_account"],
-        },
-        "check_fruit_price": {
-            "name": "check_fruit_price",
-            "description": "Reports the price of 1 kg of a certain fruit",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "fruit": {
-                    "type": "string",
-                    "description": "Fruit to check for",
-                },
-            },
-            "required": ["fruit"],
-        },
-        "check_vegetable_price": {
-            "name": "check_vegetable_price",
-            "description": "Reports the price of 1 kg of a certain vegetable",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "vegetable": {
-                    "type": "string",
-                    "description": "Vegetable to check for",
-                },
-            },
-            "required": ["vegetable"],
-        },
-        "recommend_drink": {
-            "name": "recommend_drink",
-            "description": "Recommends a drink based on the user's age",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "user_is_adult": {
-                    "type": "boolean",
-                },
-            },
-            "required": ["user_is_adult"],
-        },
-        "check_username_validity": {
-            "name": "check_username_validity",
-            "description": "Checks if the user's name is valid for our service",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "name": {
-                    "type": "string",
-                },
-            },
-            "required": ["name"],
-        },
-        "get_available_soups": {
-            "name": "get_available_soups",
-            "description": "Checks which soups are currently in stock",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "get_keyleth_stamina": {
-            "name": "get_keyleth_stamina",
-            "description": "",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "consult_policy": {
-            "name": "consult_policy",
-            "description": "",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "other_inquiries": {
-            "name": "other_inquiries",
-            "description": "This tool needs to be run when looking for answers that are not covered by other resources",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "try_unlock_card": {
-            "name": "try_unlock_card",
-            "description": "This tool unlocks a credit card",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "last_6_digits": {
-                    "type": "string",
-                },
-            },
-            "required": [],
-        },
-        "find_answer": {
-            "name": "find_answer",
-            "description": "Get an answer to a question",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "inquiry": {
-                    "type": "string",
-                },
-            },
-            "required": ["inquiry"],
-        },
-        "pay_cc_bill": {
-            "name": "pay_cc_bill",
-            "description": "Pay credit bard bill. Payment date is given in format DD-MM-YYYY",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "payment_date": {
-                    "type": "string",
-                },
-            },
-            "required": ["payment_date"],
-        },
-        "register_for_sweepstake": {
-            "name": "register_for_sweepstake",
-            "description": "Register for a sweepstake given multiple required details",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "first_name": (
-                    {
-                        "type": "string",
-                        "enum": ["Sushi", "Mushi", "Tushi"],
-                    },
-                    ToolParameterOptions(precedence=1),
-                ),
-                "last_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=1),
-                ),
-                "father_name": (
-                    {
-                        "type": "string",
-                    }
-                ),
-                "mother_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=2),
-                ),
-                "entry_type": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=3),
-                ),
-                "n_entries": (
-                    {
-                        "type": "int",
-                    },
-                    ToolParameterOptions(precedence=3),
-                ),
-                "donation_target": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=3),
-                ),
-                "donation_percent": (
-                    {
-                        "type": "int",
-                    },
-                    ToolParameterOptions(precedence=3),
-                ),
-            },
-            "required": [
-                "first_name",
-                "last_name",
-                "father_name",
-                "mother_name",
-                "entry_type",
-                "n_entries",
-                "donation_target",
-                "donation_percent",
-            ],
-        },
-        "register_for_confusing_sweepstake": {
-            "name": "register_for_confusing_sweepstake",
-            "description": "Register for a sweepstake with more confusing paramater options",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "first_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=11),
-                ),
-                "last_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=11),
-                ),
-                "father_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=-1),
-                ),
-                "mother_name": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=-1),
-                ),
-                "entry_type": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=30),
-                ),
-                "n_entries": (
-                    {
-                        "type": "int",
-                    },
-                    ToolParameterOptions(precedence=30),
-                ),
-                "donation_target": (
-                    {
-                        "type": "string",
-                    },
-                    ToolParameterOptions(precedence=-3),
-                ),
-                "donation_percent": (
-                    {
-                        "type": "int",
-                    },
-                    ToolParameterOptions(precedence=-3),
-                ),
-            },
-            "required": [
-                "first_name",
-                "last_name",
-                "father_name",
-                "mother_name",
-                "entry_type",
-                "n_entries",
-            ],
-        },
-        "calculate_salary": {
-            "name": "calculate_salary",
-            "description": "Calculate the salary of an employee according to other employees",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "name": {
-                    "type": "string",
-                    "enum": ["John n Coke", "Mike Andike", "Bruno Twix", "Chris Pikrim"],
-                },
-                "manager": (
-                    {
-                        "type": "string",
-                        "enum": ["Mike Andike", "Bruno Twix", "Jay Libelly"],
-                    },
-                    ToolParameterOptions(hidden=True),
-                ),
-                "director": (
-                    {
-                        "type": "string",
-                        "enum": ["Bruno Twix", "Jay Libelly", "John n Coke"],
-                    },
-                    ToolParameterOptions(hidden=True),
-                ),
-                "friend": (
-                    {
-                        "type": "string",
-                        "enum": ["Chris Pikrim", "Jay Libelly", "Mike Andike"],
-                    },
-                    ToolParameterOptions(display_name="homie"),
-                ),
-                "mistress": {
-                    "type": "string",
-                    "enum": ["Jay Libelly", "Chris Pikrim", "Mike Andike"],
-                },
-                "cleaner": (
-                    {
-                        "type": "string",
-                        "enum": ["Mike Andike", "Bruno Twix", "Chris Pikrim"],
-                    },
-                    ToolParameterOptions(display_name="The robot"),
-                ),
-            },
-            "required": ["name", "manager", "director", "cleaner"],
-        },
-        "get_products_by_type": {
-            "name": "get_products_by_type",
-            "description": "Get all products that match the specified product type ",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "product_type": {
-                    "type": "string",
-                    "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
-                }
-            },
-            "required": ["product_type"],
-        },
-        "get_bookings": {
-            "name": "get_bookings",
-            "description": "Gets all flight bookings for a customer",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "customer_id": {
-                    "type": "string",
-                }
-            },
-            "required": ["customer_id"],
-        },
-        "get_qualification_info": {
-            "name": "get_qualification_info",
-            "description": "Get the qualification information for the customer",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        },
-        "transfer_coins": {
-            "name": "transfer_coins",
-            "description": "Transfer coins from one account to another",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "amount": {"type": "integer", "description": "the number of coins to transfer"},
-                "from_account": {
-                    "type": "string",
-                    "description": "The name of the person whose account the coins will be transferred from",
-                },
-                "to_account": {
-                    "type": "string",
-                    "description": "The name of the person whose account the coins will be transferred to",
-                },
-                "pincode": {
-                    "type": "string",
-                    "description": "the pincode for the account the coins are transfered from",
-                },
-            },
-            "required": ["amount", "from_account", "to_account", "pincode"],
-        },
-        "search_electronic_products": {
-            "name": "search_electronic_products",
-            "description": "Search for products in the inventory based on various criteria",
-            "module_path": "tests.tool_utilities",
-            "parameters": {
-                "keyword": {
-                    "type": "string",
-                    "description": "Search term to match against product names and descriptions",
-                },
-                "product_type": {
-                    "type": "string",
-                    "description": "Filter by product category",
-                    "enum": ["Monitor", "Keyboard", "Mouse", "Headset", "Audio", "Laptop", "Other"],
-                },
-                "min_price": {"type": "integer", "description": "Minimum price filter"},
-                "max_price": {"type": "integer", "description": "Maximum price filter"},
-                "in_stock_only": {
-                    "type": "boolean",
-                    "description": "Only show products that are currently in stock",
-                },
-                "vendor": {
-                    "type": "string",
-                    "description": "Company name",
-                },
-            },
-            "required": ["keyword"],
-        },
+        }
     }
 
-    tool = context.sync_await(local_tool_service.create_tool(**tools[tool_name]))
+    tool = context.sync_await(
+        local_tool_service.create_tool(**tools[tool_name], overlap=ToolOverlap.ALWAYS)
+    )
+
+    context.tools[tool_name] = tool
+
+
+@step(given, parsers.parse('the tool "{tool_name}"'))
+def given_a_tool(
+    context: ContextOfTest,
+    tool_name: str,
+) -> None:
+    local_tool_service = context.container[LocalToolService]
+
+    tool = context.sync_await(local_tool_service.create_tool(**TOOLS[tool_name]))
 
     context.tools[tool_name] = tool
 
@@ -625,5 +868,33 @@ def given_max_engine_iteration(
         agent_store.update_agent(
             agent_id=agent_id,
             params={"max_engine_iterations": int(max_engine_iterations)},
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('a tool relationship whereby "{tool_a}" overlaps with "{tool_b}"'),
+)
+def given_an_overlaping_tools_relationship(
+    context: ContextOfTest,
+    tool_a: str,
+    tool_b: str,
+) -> None:
+    store = context.container[RelationshipStore]
+    tool_a_id = ToolId(service_name="local", tool_name=tool_a)
+    tool_b_id = ToolId(service_name="local", tool_name=tool_b)
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=tool_a_id,
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            target=RelationshipEntity(
+                id=tool_b_id,
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            kind=ToolRelationshipKind.OVERLAP,
         )
     )

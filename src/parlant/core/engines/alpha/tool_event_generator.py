@@ -17,6 +17,7 @@ from itertools import chain
 from typing import Mapping, Optional, Sequence
 
 from parlant.core.customers import Customer
+from parlant.core.journeys import Journey
 from parlant.core.tools import ToolContext
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -25,7 +26,7 @@ from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolEventData
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCaller,
@@ -107,6 +108,7 @@ class ToolEventGenerator:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
     ) -> ToolEventGenerationResult:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
@@ -122,14 +124,15 @@ class ToolEventGenerator:
         )
 
         inference_result = await self._tool_caller.infer_tool_calls(
-            agent,
-            context_variables,
-            interaction_history,
-            terms,
-            ordinary_guideline_matches,
-            tool_enabled_guideline_matches,
-            staged_events,
-            tool_context,
+            agent=agent,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            terms=terms,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=journeys,
+            staged_events=staged_events,
+            tool_context=tool_context,
         )
 
         tool_calls = list(chain.from_iterable(inference_result.batches))

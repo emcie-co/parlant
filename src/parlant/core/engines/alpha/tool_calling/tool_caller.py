@@ -25,8 +25,9 @@ from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -69,6 +70,7 @@ class ProblematicToolData:
     description: Optional[str] = field(default=None)
     examples: Optional[Sequence[str]] = field(default=None)
     precedence: Optional[int] = field(default=DEFAULT_PARAMETER_PRECEDENCE)
+    choices: Optional[Sequence[str]] = field(default=None)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -104,6 +106,7 @@ class ToolCallContext:
     interaction_history: Sequence[Event]
     terms: Sequence[Term]
     ordinary_guideline_matches: Sequence[GuidelineMatch]
+    journeys: Sequence[Journey]
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]]
     staged_events: Sequence[EmittedEvent]
 
@@ -148,6 +151,7 @@ class ToolCaller:
         terms: Sequence[Term],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_context: ToolContext,
     ) -> ToolCallInferenceResult:
@@ -189,6 +193,7 @@ class ToolCaller:
                         interaction_history=interaction_history,
                         terms=terms,
                         ordinary_guideline_matches=ordinary_guideline_matches,
+                        journeys=journeys,
                         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
                         staged_events=staged_events,
                     ),

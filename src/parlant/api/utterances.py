@@ -341,7 +341,10 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_utterances(tags: TagsQuery = []) -> Sequence[UtteranceDTO]:
-        utterances = await utterance_store.list_utterances()
+        if tags:
+            utterances = await utterance_store.list_utterances(tags=tags)
+        else:
+            utterances = await utterance_store.list_utterances()
 
         return [
             UtteranceDTO(
@@ -352,7 +355,6 @@ def create_router(
                 tags=f.tags,
             )
             for f in utterances
-            if (any(tag in f.tags for tag in tags) if tags else True)
         ]
 
     @router.patch(

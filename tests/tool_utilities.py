@@ -116,8 +116,10 @@ def get_account_loans(account_name: str) -> ToolResult:
     return ToolResult(portfolios[account_name])
 
 
-def transfer_money(from_account: str, to_account: str) -> ToolResult:
-    return ToolResult(True)
+def transfer_money(amount: int, from_account: str, to_account: str) -> ToolResult:
+    return ToolResult(
+        data=f"Transferred {amount} coins from {from_account} to {to_account} successfully."
+    )
 
 
 def get_terrys_offering() -> ToolResult:
@@ -319,3 +321,114 @@ async def search_electronic_products(
         products = [item for item in products if item["vendor"].lower() == vendor.lower()]
 
     return ToolResult({"available_products": products, "total_results": len(products)})
+
+
+async def search_products(
+    keyword: str,
+    product_type: Optional[ElectronicProductType] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    in_stock_only: Optional[bool] = False,
+    brand: Optional[str] = None,
+) -> ToolResult:
+    with open("tests/data/get_products_by_type_data.json", "r") as f:
+        database = json.load(f)
+
+    # Start with all products
+    products = database
+
+    # Filter by keyword (required parameter)
+    keyword = keyword.lower()
+    products = [
+        item
+        for item in products
+        if keyword in item["title"].lower() or keyword in item["description"].lower()
+    ]
+
+    # Apply optional filters
+    if product_type:
+        products = [item for item in products if item["type"] == product_type]
+
+    if min_price is not None:
+        products = [item for item in products if item["price"] >= min_price]
+
+    if max_price is not None:
+        products = [item for item in products if item["price"] <= max_price]
+
+    if in_stock_only:
+        products = [item for item in products if item["qty"] > 0]
+
+    if brand:
+        products = [item for item in products if item["vendor"].lower() == brand.lower()]
+
+    return ToolResult({"available_products": products, "total_results": len(products)})
+
+
+def book_flight(
+    departure_city: str,
+    destination_city: str,
+    departure_date: str,
+    return_date: Optional[str] = None,
+    passenger_name: Optional[str] = None,
+) -> ToolResult:
+    # Imagine this performs some flight booking logic
+    return ToolResult(
+        data=f"Flight booked from {departure_city} to {destination_city} on {departure_date}."
+    )
+
+
+def send_email(to: str, subject: str, body: Optional[str] = None) -> ToolResult:
+    return ToolResult(data=f"Email sent to {to} with subject '{subject}'.")
+
+
+class Names(enum.Enum):
+    ELIZABETH = "Elizabeth"
+    MARRY = "Marry"
+
+
+def schedule_meeting(
+    participant: str, date: str, time: str, agenda: Optional[str] = None
+) -> ToolResult:
+    return ToolResult(data=f"Meeting scheduled with {', '.join(participant)} on {date} at {time}.")
+
+
+def schedule_appointment(
+    patient: str, doctor_name: str, date: str, time: str, reason: Optional[str] = None
+) -> ToolResult:
+    return ToolResult(
+        data=f"Appointment scheduled for {patient} with {doctor_name} on {date} at {time}."
+    )
+
+
+def reschedule_appointment(
+    patient: str, doctor_name: str, new_date: str, new_time: str
+) -> ToolResult:
+    return ToolResult(
+        data=f"Appointment for {patient} with {doctor_name} has been rescheduled to {new_date} at {new_time}."
+    )
+
+
+def transfer_shekels(amount: int, from_account: str, to_account: str) -> ToolResult:
+    return ToolResult(
+        data=f"Transferred ₪{amount} from {from_account} to {to_account} successfully."
+    )
+
+
+def transfer_dollars(amount: int, from_account: str, to_account: str) -> ToolResult:
+    return ToolResult(
+        data=f"Transferred ₪{amount} from {from_account} to {to_account} successfully."
+    )
+
+
+async def reset_password(
+    username: str,
+    phone_number: Optional[str] = "",
+    email: Optional[str] = "",
+) -> ToolResult:
+    if phone_number == "" and email == "":
+        return ToolResult({"result": "no email or phone number provided - request rejected"})
+    return ToolResult(
+        {
+            "result": f"password for {username} was reset. An email with further instructions was sent to the account's email address."
+        }
+    )

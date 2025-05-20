@@ -21,12 +21,14 @@ from typing import Any, Callable, Optional, Sequence, cast
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.journeys import Journey
 from parlant.core.sessions import Event, EventKind, EventSource, MessageEventData, ToolEventData
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.utils import (
     context_variables_to_json,
 )
 from parlant.core.emissions import EmittedEvent
+from parlant.core.guidelines import Guideline
 
 
 class BuiltInSection(Enum):
@@ -38,6 +40,8 @@ class BuiltInSection(Enum):
     GUIDELINE_DESCRIPTIONS = auto()
     GUIDELINES = auto()
     STAGED_EVENTS = auto()
+    JOURNEYS = auto()
+    OBSERVATIONS = auto()
 
 
 class SectionStatus(Enum):
@@ -302,4 +306,61 @@ Prioritize their data over any other sources and use their details to complete y
                 status=SectionStatus.ACTIVE,
             )
 
+        return self
+
+    def add_observations(  # Here for future reference, not currently in use
+        self,
+        observations: Sequence[Guideline],
+    ) -> PromptBuilder:
+        if observations:
+            observations_string = ""
+            self.add_section(
+                name=BuiltInSection.OBSERVATIONS,
+                template="""
+The following are observations that were deemed relevant to the interaction with the customer. Use them to inform your response:
+###
+{observations_string}
+###
+""",  # noqa
+                props={"observations_string": observations_string},
+                status=SectionStatus.ACTIVE,
+            )
+
+        return self
+
+    def add_journeys(
+        self,
+        journeys: Sequence[Journey],
+    ) -> PromptBuilder:
+        if journeys:
+            journeys_string = "\n\n".join(
+                [
+                    f"""
+Journey {i}: {journey.title}
+{journey.description}
+"""
+                    for i, journey in enumerate(journeys, start=1)
+                ]
+            )
+
+            self.add_section(
+                name=BuiltInSection.JOURNEYS,
+                template="""
+The following are 'journeys' - predefined processes from the business you represent that guide customer interactions. Journeys may include step-by-step workflows, general instructions, or relevant knowledge to help you assist customers effectively.
+
+If a conversation is already in progress along a journey path, continue with the next appropriate step. For journeys with multiple steps:
+1. Identify which steps have already been completed
+2. Perform only the next logical step (either by the journey's steps or by your deduction) in the sequence
+3. Reserve subsequent steps for later in the conversation
+
+Follow each journey exactly as specified. If a journey indicates multiple actions should be taken in a single step, follow those instructions. Otherwise, take only one step at a time to avoid overwhelming the customer.
+
+Example: In a product return journey with steps to 1) verify purchase details, 2) assess return eligibility, 3) provide return instructions, and 4) process refund, if you've just confirmed the item is eligible for return (step 2 complete), your next response should only provide shipping instructions (step 3), leaving the refund processing (step 4) for after the customer has shipped the item.
+###
+{journeys_string}
+###
+""",  # noqa
+                props={"journeys_string": journeys_string},
+                status=SectionStatus.ACTIVE,
+            )
         return self

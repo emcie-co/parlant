@@ -410,7 +410,7 @@ def _tool_decorator_impl(
                 parameters=_describe_parameters(func),
                 required=_find_required_params(func),
                 consequential=kwargs.get("consequential", False),
-                overlap=kwargs.get("overlap", ToolOverlap.ALWAYS),
+                overlap=kwargs.get("overlap", ToolOverlap.AUTO),
             ),
             function=func,
         )
@@ -523,6 +523,9 @@ class PluginServer:
             pass
 
         return False
+
+    async def enable_tool(self, entry: ToolEntry) -> None:
+        self.tools[entry.tool.name] = entry
 
     async def serve(self) -> None:
         app = self._create_app()
@@ -791,7 +794,7 @@ class PluginClient(ToolService):
             parameters=self._translate_parameters(t["parameters"]),
             required=t["required"],
             consequential=t["consequential"],
-            overlap=t["overlap"],
+            overlap=ToolOverlap(t["overlap"]),
         )
 
     @override
@@ -824,7 +827,7 @@ class PluginClient(ToolService):
             parameters=self._translate_parameters(t["parameters"]),
             required=t["required"],
             consequential=t["consequential"],
-            overlap=t["overlap"],
+            overlap=ToolOverlap(t["overlap"]),
         )
 
     @override

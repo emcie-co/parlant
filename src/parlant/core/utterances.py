@@ -23,7 +23,7 @@ from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
@@ -89,6 +89,7 @@ class UtteranceStore(ABC):
     @abstractmethod
     async def list_utterances(
         self,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Utterance]: ...
 
     @abstractmethod
@@ -297,11 +298,37 @@ class UtteranceDocumentStore(UtteranceStore):
 
     async def list_utterances(
         self,
+        tags: Optional[Sequence[TagId]] = None,
     ) -> Sequence[Utterance]:
+        filters: Where = {}
+
         async with self._lock.reader_lock:
+            if tags is not None:
+                if len(tags) == 0:
+                    utterance_ids = {
+                        doc["utterance_id"]
+                        for doc in await self._utterance_tag_association_collection.find(filters={})
+                    }
+                    filters = (
+                        {"$and": [{"id": {"$ne": id}} for id in utterance_ids]}
+                        if utterance_ids
+                        else {}
+                    )
+                else:
+                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_associations = await self._utterance_tag_association_collection.find(
+                        filters=tag_filters
+                    )
+                    utterance_ids = {assoc["utterance_id"] for assoc in tag_associations}
+
+                    if not utterance_ids:
+                        return []
+
+                    filters = {"$or": [{"id": {"$eq": id}} for id in utterance_ids]}
+
             return [
-                await self._deserialize_utterance(e)
-                for e in await self._utterances_collection.find({})
+                await self._deserialize_utterance(d)
+                for d in await self._utterances_collection.find(filters=filters)
             ]
 
     @override

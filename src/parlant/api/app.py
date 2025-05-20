@@ -24,7 +24,11 @@ from starlette.types import Receive, Scope, Send
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.api import agents, index, relationships
+from parlant.api import agents
+from parlant.api import evaluations
+from parlant.api import index
+from parlant.api import journeys
+from parlant.api import relationships
 from parlant.api import sessions
 from parlant.api import glossary
 from parlant.api import guidelines
@@ -40,6 +44,7 @@ from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
+from parlant.core.journeys import JourneyStore
 from parlant.core.utterances import UtteranceStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
@@ -50,8 +55,9 @@ from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
-from parlant.core.loggers import Logger
+from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.tags import TagStore
 
@@ -92,6 +98,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
+    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_service = container[BehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
@@ -99,6 +106,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     guideline_tool_association_store = container[GuidelineToolAssociationStore]
     context_variable_store = container[ContextVariableStore]
     utterance_store = container[UtteranceStore]
+    journey_store = container[JourneyStore]
     service_registry = container[ServiceRegistry]
     nlp_service = container[NLPService]
     application = container[Application]
@@ -133,7 +141,10 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
         request_id = generate_id()
         with correlator.correlation_scope(f"RID({request_id})"):
-            with logger.operation(f"HTTP Request: {request.method} {request.url.path}"):
+            with logger.operation(
+                f"HTTP Request: {request.method} {request.url.path}",
+                level=LogLevel.DEBUG,
+            ):
                 return await call_next(request)
 
     @api_app.exception_handler(ItemNotFoundError)
@@ -206,7 +217,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/index",
         router=index.legacy_create_router(
-            evaluation_service=evaluation_service,
+            evaluation_service=legacy_evaluation_service,
             evaluation_store=evaluation_store,
             evaluation_listener=evaluation_listener,
             agent_store=agent_store,
@@ -272,6 +283,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
             guideline_tool_association_store=guideline_tool_association_store,
             agent_store=agent_store,
             tag_store=tag_store,
+            journey_store=journey_store,
         ),
     )
 
@@ -281,7 +293,26 @@ async def create_api_app(container: Container) -> ASGIApplication:
             relationship_store=relationship_store,
             tag_store=tag_store,
             guideline_store=guideline_store,
+            agent_store=agent_store,
+            journey_store=journey_store,
             service_registry=service_registry,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/journeys",
+        router=journeys.create_router(
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/evaluations",
+        router=evaluations.create_router(
+            evaluation_service=evaluation_service,
+            evaluation_store=evaluation_store,
+            evaluation_listener=evaluation_listener,
         ),
     )
 

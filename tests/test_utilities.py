@@ -158,7 +158,12 @@ class _TestLogger(Logger):
         yield
 
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.INFO,
+    ) -> Iterator[None]:
         yield
 
 

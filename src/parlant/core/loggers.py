@@ -71,7 +71,12 @@ class Logger(ABC):
 
     @abstractmethod
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]: ...
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.INFO,
+    ) -> Iterator[None]: ...
 
 
 class CorrelationalLogger(Logger):
@@ -150,22 +155,35 @@ class CorrelationalLogger(Logger):
 
     @override
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.INFO,
+    ) -> Iterator[None]:
+        log_func = {
+            LogLevel.DEBUG: self.debug,
+            LogLevel.INFO: self.info,
+            LogLevel.WARNING: self.warning,
+            LogLevel.ERROR: self.error,
+            LogLevel.CRITICAL: self.critical,
+        }[level]
+
         t_start = time.time()
         try:
             if props:
-                self.info(f"{name} [{props}] started")
+                log_func(f"{name} [{props}] started")
             else:
-                self.info(f"{name} started")
+                log_func(f"{name} started")
 
             yield
 
             t_end = time.time()
 
             if props:
-                self.info(f"{name} [{props}] finished in {t_end - t_start}s")
+                log_func(f"{name} [{props}] finished in {t_end - t_start}s")
             else:
-                self.info(f"{name} finished in {round(t_end - t_start, 3)} seconds")
+                log_func(f"{name} finished in {round(t_end - t_start, 3)} seconds")
         except asyncio.CancelledError:
             self.warning(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
             raise
@@ -268,8 +286,13 @@ class CompositeLogger(Logger):
 
     @override
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.INFO,
+    ) -> Iterator[None]:
         with ExitStack() as stack:
-            for context in [logger.operation(name, props) for logger in self._loggers]:
+            for context in [logger.operation(name, props, level) for logger in self._loggers]:
                 stack.enter_context(context)
             yield

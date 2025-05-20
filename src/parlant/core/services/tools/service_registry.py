@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Mapping, Optional, Sequence, cast
+from typing import Callable, Mapping, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 import aiofiles
@@ -113,7 +113,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
         correlator: ContextualCorrelator,
-        nlp_services: Mapping[str, NLPService],
+        nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
     ):
         self._database = database
@@ -122,7 +122,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._event_emitter_factory = event_emitter_factory
         self._logger = logger
         self._correlator = correlator
-        self._nlp_services = nlp_services
+
+        self._nlp_services_provider = nlp_services_provider
+        self._nlp_services: Mapping[str, NLPService]
 
         self._moderation_services: Mapping[str, ModerationService]
         self._exit_stack: AsyncExitStack
@@ -147,6 +149,8 @@ class ServiceDocumentRegistry(ServiceRegistry):
         return None
 
     async def __aenter__(self) -> Self:
+        self._nlp_services = self._nlp_services_provider()
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,

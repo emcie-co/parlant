@@ -47,7 +47,7 @@ def given_a_faulty_message_production_mechanism(
     context: ContextOfTest,
 ) -> None:
     generator = context.container[MessageGenerator]
-    generator.generate_events = AsyncMock(side_effect=Exception())  # type: ignore
+    generator.generate_response_message_events = AsyncMock(side_effect=Exception())  # type: ignore
 
 
 @step(
@@ -160,7 +160,7 @@ def when_messages_are_emitted(
             message_event_composer = context.container[UtteranceSelector]
 
     result = context.sync_await(
-        message_event_composer.generate_events(
+        message_event_composer.generate_response_message_events(
             event_emitter=event_buffer,
             agent=agent,
             customer=customer,
@@ -169,6 +169,7 @@ def when_messages_are_emitted(
             terms=[],
             ordinary_guideline_matches=list(context.guideline_matches.values()),
             tool_enabled_guideline_matches={},
+            journeys=[],
             tool_insights=ToolInsights(),
             staged_events=[],
         )

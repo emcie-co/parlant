@@ -33,7 +33,7 @@ EXTENDED_AMOUNT_OF_TIME = 10
 async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
         server_process.send_signal(signal.SIGINT)
         server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
@@ -43,7 +43,7 @@ async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(
 async def test_that_the_server_starts_and_generates_a_message(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context):
+    with run_server(context, randomize_port=True):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await context.api.get_first_agent()
@@ -65,7 +65,7 @@ async def test_that_the_server_starts_and_generates_a_message(
 async def test_that_guidelines_are_loaded_after_server_restarts(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         first = await context.api.create_guideline(
@@ -82,7 +82,7 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
         server_process.wait(timeout=EXTENDED_AMOUNT_OF_TIME)
         assert server_process.returncode == os.EX_OK
 
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         guidelines = await context.api.list_guidelines()
@@ -102,7 +102,7 @@ async def test_that_context_variable_values_load_after_server_restart(
     key = "test_key"
     data = "test_value"
 
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         variable = await context.api.create_context_variable(variable_name, variable_description)
@@ -112,7 +112,7 @@ async def test_that_context_variable_values_load_after_server_restart(
         server_process.wait(timeout=EXTENDED_AMOUNT_OF_TIME)
         assert server_process.returncode == os.EX_OK
 
-    with run_server(context):
+    with run_server(context, randomize_port=True):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         variable_value = await context.api.read_context_variable_value(variable["id"], key)
@@ -128,7 +128,7 @@ async def test_that_services_load_after_server_restart(context: ContextOfTest) -
     def sample_tool(context: ToolContext, param: int) -> ToolResult:
         return ToolResult(param * 2)
 
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         async with run_service_server([sample_tool]) as server:
@@ -138,7 +138,7 @@ async def test_that_services_load_after_server_restart(context: ContextOfTest) -
         server_process.wait(timeout=EXTENDED_AMOUNT_OF_TIME)
         assert server_process.returncode == os.EX_OK
 
-    with run_server(context):
+    with run_server(context, randomize_port=True):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         services = await context.api.list_services()
@@ -150,7 +150,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
     term_name = "test_term"
     description = "Term added before server restart"
 
-    with run_server(context) as server_process:
+    with run_server(context, randomize_port=True) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         await context.api.create_term(term_name, description)
@@ -159,7 +159,7 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
         server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
         assert server_process.returncode == os.EX_OK
 
-    with run_server(context):
+    with run_server(context, randomize_port=True):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         terms = await context.api.list_terms()
@@ -169,7 +169,9 @@ async def test_that_glossary_terms_load_after_server_restart(context: ContextOfT
 
 
 async def test_that_server_starts_with_single_module(context: ContextOfTest) -> None:
-    with run_server(context, extra_args=["--module", "tests.modules.tech_store"]):
+    with run_server(
+        context, randomize_port=True, extra_args=["--module", "tests.modules.tech_store"]
+    ):
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
         agent = await context.api.get_first_agent()

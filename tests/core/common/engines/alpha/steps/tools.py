@@ -802,6 +802,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {
             "items": {
                 "type": "array",
+                "description": "Try to match the most semantically-similar item, but only if there is a semantic proximity",
                 "item_type": "string",
                 "enum": [
                     "Paperclip",
@@ -818,6 +819,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
             "optional_item": {
                 "type": "string",
+                "description": "Try to match the most semantically-similar item, but only if there is a semantic proximity",
                 "enum": [
                     "Paperclip",
                     "Cactus",

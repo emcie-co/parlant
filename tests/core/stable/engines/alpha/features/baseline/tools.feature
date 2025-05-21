@@ -1101,11 +1101,11 @@ Feature: Tools
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
 
-    Scenario: Tool caller calls a tool with list of enums and optional enum
+    Scenario: Tool caller calls a tool with list of enums and optional enum with extended instructions in parameters description
         Given a guideline "donate_items" to get a list of items from user to give away when a customer wants to give some items and an optional item
         And the tool "give_items"
         And an association between "donate_items" and "give_items"
-        And a customer message, "I want to provide you with the following items: wool scarf, cactus, nice marble and an optional item is my lantern"
+        And a customer message, "I want to provide you with the following items: scarf, Agave, nice marble and an optional item is my watch"
         When processing is triggered
         Then a single tool calls event is emitted
         And no tool error has occurred

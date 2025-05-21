@@ -40,6 +40,10 @@ from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
 from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.customer_dependent_action_detector import (
+    CustomerDependentActionDetector,
+    CustomerDependentActionProposition,
+)
 from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionProposition,
@@ -514,13 +518,15 @@ class GuidelineEvaluator:
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
+        customer_dependent_action_detector: CustomerDependentActionDetector,
     ) -> None:
         self._logger = logger
         self._entity_queries = entity_queries
         self._guideline_action_proposer = guideline_action_proposer
         self._guideline_continuous_proposer = guideline_continuous_proposer
+        self._customer_dependent_action_detector = customer_dependent_action_detector
 
-    async def evaluate(
+    async def evaluate(  # TODO is this what we need to run for Hadar's tests?
         self,
         payloads: Sequence[Payload],
         progress_report: ProgressReport,
@@ -535,6 +541,10 @@ class GuidelineEvaluator:
             action_propositions,
             progress_report,
         )
+
+        # customer_dependant_action_detections = await self._detect_customer_dependant_actions(
+        #    payloads, action_propositions, progress_report
+        # )  TODO add to the dictionary that's returned here
 
         return [
             InvoiceGuidelineData(
@@ -576,6 +586,39 @@ class GuidelineEvaluator:
         for i, res in zip(indices, sparse_results):
             results[i] = res
 
+        return results
+
+    async def _detect_customer_dependant_actions(
+        self,
+        payloads: Sequence[Payload],
+        proposed_actions: Sequence[Optional[GuidelineActionProposition]],
+        progress_report: ProgressReport,
+    ):
+        tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
+        indices: list[int] = []
+        for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
+            if not p.properties_proposition:
+                continue
+            action_to_use = (
+                action_prop.content.action if action_prop is not None else p.content.action
+            )
+            guideline_content = GuidelineContent(
+                condition=p.content.condition,
+                action=action_to_use,
+            )
+            indices.append(i)
+            tasks.append(
+                asyncio.create_task(
+                    self._customer_dependent_action_detector.detect_if_customer_dependent(
+                        guideline=guideline_content,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+        sparse_results = await async_utils.safe_gather(*tasks)
+        results: list[Optional[CustomerDependentActionProposition]] = [None] * len(payloads)
+        for i, res in zip(indices, sparse_results):
+            results[i] = res
         return results
 
     async def _propose_continuous(

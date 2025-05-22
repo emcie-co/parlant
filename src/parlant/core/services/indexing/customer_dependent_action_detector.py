@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -160,7 +160,7 @@ Expected output (JSON):
     def _format_shots(self, shots: Sequence[CustomerDependentActionShot]) -> str:
         return "\n".join(
             [
-f"""
+                f"""
 Example {i}: {shot.description}
 """
                 for i, shot in enumerate(shots, start=1)

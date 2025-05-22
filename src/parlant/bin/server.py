@@ -67,6 +67,10 @@ from parlant.core.engines.alpha.utterance_selector import (
 )
 from parlant.core.journeys import JourneyDocumentStore, JourneyStore
 from parlant.core.persistence.vector_database import VectorDatabase
+from parlant.core.services.indexing.customer_dependent_action_detector import (
+    CustomerDependentActionDetector,
+    CustomerDependentActionSchema,
+)
 from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionPropositionSchema,
@@ -366,6 +370,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[CoherenceChecker] = Singleton(CoherenceChecker)
     c[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
     c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
+    c[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
 
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
@@ -544,6 +549,7 @@ async def initialize_container(
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,
+        CustomerDependentActionSchema,
     ):
         try_define(
             SchematicGenerator[schema],  # type: ignore

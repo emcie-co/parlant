@@ -593,7 +593,7 @@ class GuidelineEvaluator:
         payloads: Sequence[Payload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
         progress_report: ProgressReport,
-    ):
+    ) -> Sequence[Optional[CustomerDependentActionProposition]]:
         tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
         indices: list[int] = []
         for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
@@ -669,6 +669,7 @@ class BehavioralChangeEvaluator:
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
+        customer_dependent_action_detector: CustomerDependentActionDetector,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -680,6 +681,7 @@ class BehavioralChangeEvaluator:
             entity_queries=entity_queries,
             guideline_action_proposer=guideline_action_proposer,
             guideline_continuous_proposer=guideline_continuous_proposer,
+            customer_dependent_action_detector=customer_dependent_action_detector,
         )
 
     async def validate_payloads(

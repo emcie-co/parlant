@@ -1,11 +1,13 @@
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
+from parlant.core.shots import Shot, ShotCollection
 
 
 class CustomerDependentActionProposition(DefaultBaseModel):
@@ -18,6 +20,14 @@ class CustomerDependentActionSchema(
     DefaultBaseModel
 ):  # TODO register everywhere where guideline_is_continuous (or whatever the name is) is registered
     action: str
+    is_customer_dependent: bool
+    customer_action: Optional[str] = ""
+    agent_action: Optional[str] = ""
+
+
+@dataclass
+class CustomerDependentActionShot(Shot):
+    guideline: GuidelineContent
     is_customer_dependent: bool
     customer_action: Optional[str] = ""
     agent_action: Optional[str] = ""
@@ -54,9 +64,8 @@ class CustomerDependentActionDetector:
             agent_action=proposition.agent_action,
         )
 
-    async def _build_prompt(  # TODO write, add shots
-        self,
-        guideline: GuidelineContent,
+    async def _build_prompt(
+        self, guideline: GuidelineContent, shots: Sequence[CustomerDependentActionShot]
     ) -> PromptBuilder:
         builder = PromptBuilder()
 
@@ -96,7 +105,10 @@ If you deem the action to be customer dependent, you are also required to split 
 
 """,
         )
-
+        builder.add_section(
+            name="customer-dependent-action-shots",
+            template=self._format_shots(shots),  # TODO I was here
+        )
         builder.add_section(
             name="customer-dependent-action-detector-guideline",
             template="""
@@ -136,7 +148,7 @@ Expected output (JSON):
         self,
         guideline: GuidelineContent,
     ) -> CustomerDependentActionSchema:
-        prompt = await self._build_prompt(guideline)
+        prompt = await self._build_prompt(guideline, _baseline_shots)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
@@ -144,3 +156,40 @@ Expected output (JSON):
         )
 
         return response.content
+
+    def _format_shots(self, shots: Sequence[CustomerDependentActionShot]) -> str:
+        return "\n".join(
+            [
+f"""
+Example {i}: {shot.description}
+"""
+                for i, shot in enumerate(shots, start=1)
+            ]
+        )
+
+
+example_1_shot = CustomerDependentActionShot(
+    description="A guideline with a customer dependent action",
+    guideline=GuidelineContent(
+        condition="the customer wishes to submit an order",
+        action="ask for their account number and shipping address. Inform them that it would take 3-5 business days.",
+    ),
+    is_customer_dependent=True,
+    customer_action="provide their account number and shipping address",
+    agent_action="ask for the customer's account number and shipping address, and inform them that it would take 3-5 business days.",
+)
+
+example_2_shot = CustomerDependentActionShot(
+    description="A guideline whose action involves a question, but is not customer dependent",
+    guideline=GuidelineContent(
+        condition="asked 'whats up dog'", action="reply with 'nothing much, what's up with you?'"
+    ),
+    is_customer_dependent=False,
+)
+
+_baseline_shots: Sequence[CustomerDependentActionShot] = [
+    example_1_shot,
+    example_2_shot,
+]
+
+shot_collection = ShotCollection[CustomerDependentActionShot](_baseline_shots)

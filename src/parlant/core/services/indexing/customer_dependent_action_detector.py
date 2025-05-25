@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
@@ -16,9 +17,7 @@ class CustomerDependentActionProposition(DefaultBaseModel):
     agent_action: Optional[str] = ""
 
 
-class CustomerDependentActionSchema(
-    DefaultBaseModel
-):  # TODO register everywhere where guideline_is_continuous (or whatever the name is) is registered
+class CustomerDependentActionSchema(DefaultBaseModel):
     action: str
     is_customer_dependent: bool
     customer_action: Optional[str] = ""
@@ -28,9 +27,7 @@ class CustomerDependentActionSchema(
 @dataclass
 class CustomerDependentActionShot(Shot):
     guideline: GuidelineContent
-    is_customer_dependent: bool
-    customer_action: Optional[str] = ""
-    agent_action: Optional[str] = ""
+    expected_result: CustomerDependentActionSchema
 
 
 class CustomerDependentActionDetector:
@@ -76,8 +73,7 @@ GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
 Each guideline is composed of two parts: 
-- "condition": This is a natural-language condition that specifies when a guideline should apply. We look at each conversation at any particular state, and we test against this condition to understand 
-if we should have this guideline participate in generating the next reply to the user.
+- "condition": This is a natural-language condition that specifies when a guideline should apply. We test against this condition to determine whether this guideline should be applied when generating the agent's next reply.
 - "action": This is a natural-language instruction that should be followed by the agent whenever the "condition" part of the guideline applies to the conversation in its particular state.
 Any instruction described here applies only to the agent, and not to the user.
 
@@ -91,23 +87,31 @@ For example, the action "get the customer's account number" requires the custome
             template="""
 TASK DESCRIPTION
 -----------------
-Your role is to evaluate whether a given guideline has an action which requires something from the customer for the action to be completed.
-Actions that require something from the customer are called "customer dependent actions".
-Later in this prompt, you will be provided a single guideline. The guideline's condition is provided to you for context, but your decision should depend only on its action.
-Ask yourself - what should be done for the action to be considered completed? Is it only something from the agent, or does it require something from the customer as well?
+Your task is to determine whether a given guideline’s action requires something from the customer in order for the action to be considered complete.
 
-Two important edge cases you might encounter are:
- - Guidelines with an action that involves multiple steps (e.g., having the action "offer assistance to the customer and ask them for their account number) are considered customer dependent if at least one of the sub actions described are customer dependent.
- - When the action requires the agent to ask the customer a question, it is considered customer dependent, since we require the customer to answer for the action to be actually considered complete. One exception to this rule is an action that instructs the agent to ask a question as a pleasantry or without expecting an informative answer in return.
+Actions that require input or behavior from the customer are called customer-dependent actions.
+
+Later in this prompt, you will be provided with a single guideline. The guideline’s condition is included for context, but your decision should be based only on the action.
+
+Ask yourself: what must happen for this action to be considered complete? Is it something the agent alone must do, or does it also rely on a response or action from the customer?
+
+Edge Cases to Consider:
+ - If the action includes multiple steps (e.g., “offer assistance to the customer and ask them for their account number”), then the entire action is considered customer dependent if any part of it depends on the customer.
+ - If the action tells the agent to ask the customer a question, it is generally considered customer dependent, since the question expects an answer in order to complete the action. Exception: If the question is clearly a pleasantry or rhetorical (e.g., “what’s up with you?” in a casual exchange), and not meant to gather meaningful information, the action is not considered customer dependent.
 
 
-If you deem the action to be customer dependent, you are also required to split it into its portion that depends solely on the agent, and its portion that depends on the customer.
-
+If you determine the action is customer dependent, you must also split it into:
+ - the portion that depends solely on the agent (agent_action)
+ - the portion that depends on the customer (customer_action)
 """,
         )
         builder.add_section(
             name="customer-dependent-action-shots",
-            template=self._format_shots(shots),  # TODO I was here
+            template="""
+EXAMPLES
+-----------
+{shots_text}""",
+            props={"shots_text": self._format_shots(shots)},
         )
         builder.add_section(
             name="customer-dependent-action-detector-guideline",
@@ -116,7 +120,7 @@ GUIDELINE
 -----------
 condition: {condition}
 action: {action}
-+""",
+""",
             props={"condition": guideline.condition, "action": guideline.action},
         )
 
@@ -125,14 +129,14 @@ action: {action}
             template="""
 OUTPUT FORMAT
 -----------
-Use the following format to evaluate wether the guideline has a customer dependent action:
+Use the following format to evaluate whether the guideline has a customer dependent action:
 Expected output (JSON):
 ```json
 {{
   "action": "{action}",
   "is_customer_dependent": "<BOOL>",
-  "customer_action": "<STR, the portion of the action that applies to the customer. Only necessary if is_customer_dependent is true>",
-    "agent_action": "<STR, the portion of the action that applies to the agent. Only necessary if is_customer_dependent is true>"
+  "customer_action": "<STR, the portion of the action that applies to the customer. Can be omitted if is_customer_dependent is false>",
+  "agent_action": "<STR, the portion of the action that applies to the agent. Can be omitted necessary if is_customer_dependent is false>"
 }}
 ```
 """,
@@ -160,31 +164,43 @@ Expected output (JSON):
     def _format_shots(self, shots: Sequence[CustomerDependentActionShot]) -> str:
         return "\n".join(
             [
-                f"""
-Example {i}: {shot.description}
+                f"""Example {i}: {shot.description}
+Guideline:
+    Condition: {shot.guideline.condition}
+    Action: {shot.guideline.action}
+Expected Response:
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+###
 """
                 for i, shot in enumerate(shots, start=1)
             ]
         )
 
 
+example_1_guideline = GuidelineContent(
+    condition="the customer wishes to submit an order",
+    action="ask for their account number and shipping address. Inform them that it would take 3-5 business days.",
+)
 example_1_shot = CustomerDependentActionShot(
     description="A guideline with a customer dependent action",
-    guideline=GuidelineContent(
-        condition="the customer wishes to submit an order",
-        action="ask for their account number and shipping address. Inform them that it would take 3-5 business days.",
+    guideline=example_1_guideline,
+    expected_result=CustomerDependentActionSchema(
+        action=example_1_guideline.action or "",
+        is_customer_dependent=True,
+        customer_action="provide their account number and shipping address",
+        agent_action="ask for the customer's account number and shipping address, and inform them that it would take 3-5 business days.",
     ),
-    is_customer_dependent=True,
-    customer_action="provide their account number and shipping address",
-    agent_action="ask for the customer's account number and shipping address, and inform them that it would take 3-5 business days.",
 )
 
+example_2_guideline = GuidelineContent(
+    condition="asked 'whats up dog'", action="reply with 'nothing much, what's up with you?'"
+)
 example_2_shot = CustomerDependentActionShot(
     description="A guideline whose action involves a question, but is not customer dependent",
-    guideline=GuidelineContent(
-        condition="asked 'whats up dog'", action="reply with 'nothing much, what's up with you?'"
+    guideline=example_2_guideline,
+    expected_result=CustomerDependentActionSchema(
+        action=example_2_guideline.action or "", is_customer_dependent=False
     ),
-    is_customer_dependent=False,
 )
 
 _baseline_shots: Sequence[CustomerDependentActionShot] = [

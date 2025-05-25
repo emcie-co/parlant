@@ -17,6 +17,7 @@ from pytest_bdd import given, parsers
 from parlant.core.agents import AgentId
 from parlant.core.common import JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.relationships import (
     RelationshipEntityKind,
@@ -27,6 +28,7 @@ from parlant.core.relationships import (
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 
 from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -75,6 +77,30 @@ def given_a_guideline_to_when(
             condition=a_condition_holds,
             action=do_something,
             metadata=metadata,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('a perviously applied guideline "{guideline_name}"'),
+)
+def given_a_previously_applied_guideline(
+    context: ContextOfTest,
+    guideline_name: str,
+    session_id: SessionId,
+) -> None:
+    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+
+    applied_guideline_ids = [context.guidelines[guideline_name].id]
+    applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+
+    context.sync_await(
+        context.container[EntityCommands].update_session(
+            session_id=session_id,
+            params=SessionUpdateParams(
+                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
+            ),
         )
     )
 

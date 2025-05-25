@@ -130,7 +130,7 @@ Feature: Strict Utterance
         And the message contains asking the customer for their mobile number or email address
         And the message contains nothing about wishing the customer a good day
 
-    Scenario: Multistep journey invokes tool calls correctly (strict utterance)
+    Scenario: Multistep journey invokes tool calls correctly (strict utterance) 
         Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And the tool "reset_password"
         And a guideline "reset_password_guideline" to reset the customer's password using the associated tool when in the process of resetting the customer's password
@@ -156,7 +156,7 @@ Feature: Strict Utterance
         And a single message event is emitted
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
-    Scenario: Multistep journey is aborted when the journey description requires so (strict utterance)
+    Scenario: Multistep journey is aborted when the journey description requires so (strict utterance) 
         Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
@@ -222,7 +222,7 @@ Feature: Strict Utterance
         Then a single message event is emitted
         And the message contains that you must visit a physical branch to increase credit limits
 
-    Scenario: Two journeys are used in unison (strict utterance)
+    Scenario: Two journeys are used in unison (strict utterance) 
         Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance, "Great. Only economy class is available for this booking. What is the name of the traveler?"
@@ -281,7 +281,7 @@ Feature: Strict Utterance
         Then a single message event is emitted
         And the message contains an offering of our specialty pizza
 
-    Scenario: The agent follows response guidelines without looping out (strict utterance)
+    Scenario: The agent follows response guidelines without looping out (strict utterance) TODO
         Given a guideline to politely answer that you have no information when a user asks any questions aside from Mobileye
         And a guideline to rudely answer to go away when a user asks any information aside from Mobileye for the third time
         And a customer message, "what is Mobileye"

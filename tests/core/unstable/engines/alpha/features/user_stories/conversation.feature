@@ -3,7 +3,7 @@ Feature: Conversation
         Given the alpha engine
         And an empty session
 
-    Scenario: The agent follows response guidelines without looping out
+    Scenario: The agent follows response guidelines without looping out TODO
         Given an agent
         And an empty session
         And a guideline to politely answer that you have no information when a user asks any questions aside from Mobileye
@@ -49,7 +49,7 @@ Feature: Conversation
         And the message contains the name 'Beef'
         And the message contains a welcoming back of the customer to the store and asking how the agent could help
 
-    Scenario: The agent doesnt hallucinate services that it cannot offer 2
+    Scenario: The agent doesnt hallucinate services that it cannot offer 2 TODO
         Given an agent whose job is to be a customer success representative for Chase Bank
         And a guideline to tell them that they need to book via chase.com when the customer wants to schedule a meeting with a bank manager
         And a guideline to ask them to provide the recipient details when if the user wants to schedule a wire transfer
@@ -60,7 +60,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains that the user or customer should schedule an appointment at chase bank's website
 
-    Scenario: The agent doesnt postpone replying when its inappropriate
+    Scenario: The agent doesnt postpone replying when its inappropriate TODO
         Given an agent whose job is to represent a bank, and to help customers with performing transactions
         And a guideline to transfer money to the recipient and confirm the transaction providing its ID when user wants to transfer money and has successfully confirmed their PIN code
         And a customer message, "I want to transfer 20$ to Vishal and my pin code is 400013."

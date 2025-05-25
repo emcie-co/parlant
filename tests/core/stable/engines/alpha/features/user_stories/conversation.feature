@@ -19,7 +19,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains a farewell
 
-    Scenario: The agent strictly follows guideline rule
+    Scenario: The agent strictly follows guideline rule TODO
         Given an agent whose job is to answer questions regarding Mobileye
         And an empty session
         And a guideline to politely answer that you don't have access to information when a user asks any question aside from Mobileye
@@ -35,7 +35,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains either telling the user that the relevant topic is Mobileye or rudely telling the user to go away
 
-    Scenario: The agent follows a guideline without necessarily adhering to it literally every time
+    Scenario: The agent follows a guideline without necessarily adhering to it literally every time TODO
         Given an agent
         And an empty session
         And a guideline to be empathetic and inquire about the customer's problem when a customer is frustrated with the service
@@ -47,7 +47,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains no direct offer of a 20% discount
 
-    Scenario: The agent stays consistent with suggested results
+    Scenario: The agent stays consistent with suggested results TODO
         Given an agent
         And an empty session
         And a guideline "suggest_relevant_tags" to suggest three tags from "storage, portable, external, productivity, office, business, professional, mainstream, creative, studio, development" when a user asks a question about a product
@@ -58,7 +58,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains either 'productivity', 'professional', and 'development'
 
-    Scenario: The agent does not wrongly reapply partially fulfilled guideline
+    Scenario: The agent does not wrongly reapply partially fulfilled guideline TODO
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
         And a customer named "Beef Wellington"
         And an empty session with "Beef Wellingotn"
@@ -106,7 +106,7 @@ Feature: Conversation
             | 47U0BZFO | 2025-07-05 | 2025-07-15 | Houston     | Miami  |
             | NOK9EHX0 | 2025-08-19 | 2025-08-22 | Phoenix     | Denver |
 
-    Scenario: The agent treats guideline with multiple actions where one is continuous as if its fully continuous
+    Scenario: The agent treats guideline with multiple actions where one is continuous as if its fully continuous TODO
         Given an agent
         And an empty session
         And a guideline "unlock_card_guideline" to ask for the last 6 digits and help them unlock when the customer needs help unlocking their card
@@ -121,7 +121,7 @@ Feature: Conversation
         And the tool calls event contains that the card was successfully unlocked
         And the message contains that the card was unlocked
 
-    Scenario: The agent uses the freshest data when multiple sources are available
+    Scenario: The agent uses the freshest data when multiple sources are available TODO
         Given an agent
         And a guideline to help the customer clarify their needs and preferences when customer's interested in a product type but didn't choose yet
         And a guideline "recommend_products" to recommend the best fit out of what we have available when customer said what product they want as well as their needs

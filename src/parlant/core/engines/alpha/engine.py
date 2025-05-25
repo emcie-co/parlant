@@ -877,7 +877,7 @@ class AlphaEngine(Engine):
         session: Session,
         guidelines: Sequence[GuidelineMatch],
     ) -> None:
-        filtered_guidelines = [
+        guideline_to_detect = [
             g
             for g in guidelines
             if g.guideline.id not in session.agent_state["applied_guideline_ids"]
@@ -895,7 +895,7 @@ class AlphaEngine(Engine):
                     interaction_history=context.interaction.history,
                     terms=list(context.state.glossary_terms),
                     staged_events=context.state.tool_events,
-                    guideline_matches=filtered_guidelines,
+                    guideline_matches=guideline_to_detect,
                 )
             ).previously_applied_guidelines
         ]

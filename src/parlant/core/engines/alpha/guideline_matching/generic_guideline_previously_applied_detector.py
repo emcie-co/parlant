@@ -18,7 +18,7 @@ from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.nlp.generation_info import GenerationInfo
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventSource, Session
 from parlant.core.shots import Shot, ShotCollection
 
@@ -113,7 +113,18 @@ class GenericGuidelinePreviouslyAppliedDetector:
             )
 
             generation_info = (
-                batch_results[-1].generation_info if batch_results else GenerationInfo()
+                batch_results[-1].generation_info
+                if batch_results
+                else GenerationInfo(
+                    schema_name="",
+                    model="",
+                    duration=0.0,
+                    usage=UsageInfo(
+                        input_tokens=0,
+                        output_tokens=0,
+                        extra={},
+                    ),
+                )
             )
 
             return GuidelinePreviouslyAppliedDetectionResult(

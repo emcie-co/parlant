@@ -27,7 +27,7 @@ class GenericPreviouslyAppliedBatch(DefaultBaseModel):
     guideline_id: str
     condition: str
     action: str
-    guideline_should_reapply_rational: str
+    tldr: str
     guideline_should_reapply: bool
 
 
@@ -84,8 +84,8 @@ class GenericPreviouslyAppliedGuidelineMatchingBatch(GuidelineMatchingBatch):
                     GuidelineMatch(
                         guideline=self._guidelines[GuidelineId(match.guideline_id)],
                         score=10 if match.guideline_should_reapply else 1,
-                        rationale=f'''reapply rational: "{match.guideline_should_reapply_rational}"''',
-                        guideline_previously_applied=PreviouslyAppliedType("FULLY"),
+                        rationale=f'''reapply rational: "{match.tldr}"''',
+                        guideline_previously_applied=PreviouslyAppliedType.FULLY,
                         guideline_is_continuous=True,
                         should_reapply=match.guideline_should_reapply,
                     )
@@ -180,14 +180,15 @@ Each guideline is composed of two parts:
 
 Task Description
 ----------------
-You will be provided with a set of guidelines, each of which has had its action previously applied at some point during the conversation. Your task is to evaluate whether reapplying the action is 
-appropriate, based on whether the condition has become true again.
+You will be provided with a set of guidelines, each of which has had its action previously applied (once or more) at some point during the conversation. 
+Your task is to evaluate whether reapplying the action is appropriate, based on whether the condition has become true again in a way that justify reapplying the action when a recurring condition becomes true again after previously being fulfilled.
+
 For example, a guideline with the condition “the customer is asking a question” should be re-applied each time the customer asks a new question — since the condition can be satisfied multiple times
- throughout a conversation.
-In contrast, for guidelines involving one-time behaviors (e.g., “send the user our address”), reapplication should be handled more conservatively. These should only be re-applied if
+throughout a conversation. In contrast, for guidelines involving one-time behaviors (e.g., “send the user our address”), reapplication should be handled more conservatively. These should only be re-applied if
 The condition ceased to be true at some point, and it is now clearly true again in the current context.
-Be mindful of conditions that may appear continuous (e.g., “the user is experiencing a technical issue”) — for such cases, reapplying the action is only warranted if it’s clear the issue had been 
-resolved and has now re-emerged.
+
+A guideline should be marked as "should_reapply" if it is relevant again to the MOST RECENT interaction in the conversation. Do not mark a guideline as applicable solely based on earlier parts of the conversation if the topic 
+has since shifted. We want to know if based on the most recent user message the condition is met again.
 
 The conversation and guidelines will follow. Instructions on how to format your response will be provided after that.
 
@@ -249,7 +250,7 @@ OUTPUT FORMAT
                 "guideline_id": g.id,
                 "condition": g.content.condition,
                 "action": g.content.action,
-                "guideline_should_reapply_rational": "<str, Explanation for why the guideline should be applied again>",
+                "tldr": "<str, Explanation for why the guideline should be applied again when focusing on the most recent interaction>",
                 "guideline_should_reapply": "<BOOL>",
             }
             for g in self._guidelines.values()
@@ -378,14 +379,14 @@ example_1_expected = GenericPreviouslyAppliedGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The user mentioned a time-specific trip plan.",
             action="Recommend on things that are relevant in this time",
-            guideline_should_reapply_rational="The last interaction is not related to recommendation that can be time specific so not relevant right now",
+            tldr="The last interaction is not related to recommendation that can be time specific so not relevant right now",
             guideline_should_reapply=False,
         ),
         GenericPreviouslyAppliedBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer shares a trip plan",
             action="Show encouragement or positive reinforcement, then offer to assist with planning or follow-up steps.",
-            guideline_should_reapply_rational="There is no new trip plan sharing",
+            tldr="There is no new trip plan sharing",
             guideline_should_reapply=False,
         ),
     ]
@@ -443,14 +444,14 @@ example_2_expected = GenericPreviouslyAppliedGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer is experiencing a technical issue.",
             action="Offer to help troubleshoot the issue.",
-            guideline_should_reapply_rational="The customer is facing a new technical issue.",
+            tldr="The customer is facing a new technical issue.",
             guideline_should_reapply=True,
         ),
         GenericPreviouslyAppliedBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer reports a technical issue",
             action="Acknowledge the issue and express empathy before proceeding with help.",
-            guideline_should_reapply_rational="The customer is facing a new technical issue so we should express empathy again",
+            tldr="The customer is facing a new technical issue so we should express empathy again",
             guideline_should_reapply=True,
         ),
     ]

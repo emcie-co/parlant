@@ -250,7 +250,7 @@ OUTPUT FORMAT
                 "guideline_id": g.id,
                 "condition": g.content.condition,
                 "action": g.content.action,
-                "tldr": "<str, Explanation for why the guideline should be applied again when focusing on the most recent interaction>",
+                "tldr": "<str, Explanation for why the guideline condition is met AGAIN and should reapply when focusing on the most recent interaction>",
                 "guideline_should_reapply": "<BOOL>",
             }
             for g in self._guidelines.values()

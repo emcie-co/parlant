@@ -281,9 +281,9 @@ Feature: Strict Utterance
         Then a single message event is emitted
         And the message contains an offering of our specialty pizza
 
-    Scenario: The agent follows response guidelines without looping out (strict utterance) TODO
-        Given a guideline to politely answer that you have no information when a user asks any questions aside from Mobileye
-        And a guideline to rudely answer to go away when a user asks any information aside from Mobileye for the third time
+    Scenario: The agent follows response guidelines without looping out (strict utterance) TODO HADAR CHECK ME OUT
+        Given a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
+        And a guideline "answer_rudely" to rudely answer to go away when a user asks any information aside from Mobileye for the third time
         And a customer message, "what is Mobileye"
         And an agent message, "Mobileye is a company that develops advanced driver-assistance systems (ADAS) and autonomous driving technologies. They are known for their work in computer vision and machine learning to enhance vehicle safety."
         And a customer message, "do you serve coke?"
@@ -308,7 +308,9 @@ Feature: Strict Utterance
         And an utterance, "Please stop asking about irrelevant topics like car brakes."
         And an utterance, "Would you like to know more about Mobileye's collision prevention technology instead?"
         And an utterance, "For top performance, Brembo and EBC are great for sports and track use, while Akebono and PowerStop offer excellent daily driving and towing options. The best choice depends on your vehicle and driving style."
-        When processing is triggered
+        And a previously applied guideline "answer_politely"
+        And a previously applied guideline "answer_rudely"
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no rudeness to tell the user to go away
 

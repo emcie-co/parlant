@@ -126,8 +126,7 @@ action: {action}
 
         builder.add_section(
             name="guideline-action-proposer-output-format",
-            template="""
-OUTPUT FORMAT
+            template="""OUTPUT FORMAT
 -----------
 Use the following format to evaluate whether the guideline has a customer dependent action:
 Expected output (JSON):
@@ -168,6 +167,7 @@ Expected output (JSON):
 Guideline:
     Condition: {shot.guideline.condition}
     Action: {shot.guideline.action}
+
 Expected Response:
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ###
@@ -193,7 +193,7 @@ example_1_shot = CustomerDependentActionShot(
 )
 
 example_2_guideline = GuidelineContent(
-    condition="asked 'whats up dog'", action="reply with 'nothing much, what's up with you?'"
+    condition='asked "whats up dog"', action='reply with "nothing much, what\'s up with you?"'
 )
 example_2_shot = CustomerDependentActionShot(
     description="A guideline whose action involves a question, but is not customer dependent",

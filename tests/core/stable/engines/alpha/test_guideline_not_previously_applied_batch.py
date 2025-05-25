@@ -342,3 +342,21 @@ def test_that_guideline_with_already_applied_condition_but_unaddressed_action_is
         guidelines_target_names=guidelines,
         guidelines_names=guidelines,
     )
+
+
+def test_that_guideline_is_still_matched_when_conversation_still_on_the_same_topic_that_made_condition_hold(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    return
+
+
+def test_that_guideline_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    return

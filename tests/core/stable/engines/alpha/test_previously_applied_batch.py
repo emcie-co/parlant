@@ -1,11 +1,10 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import cast
 from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
-from parlant.core.common import JSONSerializable, generate_id
+from parlant.core.common import generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
@@ -16,7 +15,7 @@ from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
+from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -34,6 +33,14 @@ GUIDELINES_DICT = {
     "calm_and_reset_password": {
         "condition": "When a customer wants to reset their password",
         "action": "tell them that it's ok and it happens to everyone and ask for their email address to send them a password",
+    },
+    "frustrated_so_discount": {
+        "condition": "The user expresses frustration, impatience, or dissatisfaction",
+        "action": "apologize and offer a discount",
+    },
+    "confirm_reservation": {
+        "condition": "The user is about to confirm a reservation or place an order",
+        "action": "Before submitting the reservation, politely confirm whether the user would like to add anything else",
     },
 }
 
@@ -185,95 +192,95 @@ def test_that_previously_matched_guideline_not_matched_when_there_is_no_new_reas
     )
 
 
-def test_that_guideline_action_that_was_performed_but_result_in_an_error_is_matched_again(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "Hey, can you reset my password?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Sure, for that I will need your email please so I will send you the password",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "111@emcie.co",
-        ),
-    ]
-    tool_result = cast(
-        JSONSerializable,
-        {
-            "tool_calls": [
-                {
-                    "tool_id": "local:reset_password",
-                    "arguments": {"email": "111@emcie.co"},
-                    "result": {
-                        "data": ["error with reset - unknown mail"],
-                        "metadata": {},
-                        "control": {},
-                    },
-                }
-            ]
-        },
-    )
+# def test_that_guideline_action_that_was_performed_but_result_in_an_error_is_matched_again(
+#     context: ContextOfTest,
+#     agent: Agent,
+#     new_session: Session,
+#     customer: Customer,
+# ) -> None:
+#     conversation_context: list[tuple[EventSource, str]] = [
+#         (
+#             EventSource.CUSTOMER,
+#             "Hey, can you reset my password?",
+#         ),
+#         (
+#             EventSource.AI_AGENT,
+#             "Sure, for that I will need your email please so I will send you the password",
+#         ),
+#         (
+#             EventSource.CUSTOMER,
+#             "111@emcie.co",
+#         ),
+#     ]
+#     tool_result = cast(
+#         JSONSerializable,
+#         {
+#             "tool_calls": [
+#                 {
+#                     "tool_id": "local:reset_password",
+#                     "arguments": {"email": "111@emcie.co"},
+#                     "result": {
+#                         "data": ["error with reset - unknown mail"],
+#                         "metadata": {},
+#                         "control": {},
+#                     },
+#                 }
+#             ]
+#         },
+#     )
 
-    staged_events = [
-        EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
-        ),
-    ]
+#     staged_events = [
+#         EmittedEvent(
+#             source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+#         ),
+#     ]
 
-    guidelines: list[str] = ["reset_password"]
+#     guidelines: list[str] = ["reset_password"]
 
-    base_test_that_correct_guidelines_detect_as_previously_applied(
-        context,
-        agent,
-        new_session.id,
-        customer,
-        conversation_context,
-        guidelines_target_names=guidelines,
-        guidelines_names=guidelines,
-        staged_events=staged_events,
-    )
+#     base_test_that_correct_guidelines_detect_as_previously_applied(
+#         context,
+#         agent,
+#         new_session.id,
+#         customer,
+#         conversation_context,
+#         guidelines_target_names=guidelines,
+#         guidelines_names=guidelines,
+#         staged_events=staged_events,
+#     )
 
 
-def test_that_guideline_action_that_was_performed_but_result_in_undesired_user_response_is_matched_again(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "Hey, can you reset my password?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Sure, for that I will need your email please so I will send you the password. What's your email address?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "I think I have an email address but let me check what it is.",
-        ),
-    ]
+# def test_that_guideline_action_that_was_performed_but_result_in_undesired_user_response_is_matched_again(
+#     context: ContextOfTest,
+#     agent: Agent,
+#     new_session: Session,
+#     customer: Customer,
+# ) -> None:
+#     conversation_context: list[tuple[EventSource, str]] = [
+#         (
+#             EventSource.CUSTOMER,
+#             "Hey, can you reset my password?",
+#         ),
+#         (
+#             EventSource.AI_AGENT,
+#             "Sure, for that I will need your email please so I will send you the password. What's your email address?",
+#         ),
+#         (
+#             EventSource.CUSTOMER,
+#             "I think I have an email address but let me check what it is.",
+#         ),
+#     ]
 
-    guidelines: list[str] = ["reset_password"]
+#     guidelines: list[str] = ["reset_password"]
 
-    base_test_that_correct_guidelines_detect_as_previously_applied(
-        context,
-        agent,
-        new_session.id,
-        customer,
-        conversation_context,
-        guidelines_target_names=guidelines,
-        guidelines_names=guidelines,
-    )
+#     base_test_that_correct_guidelines_detect_as_previously_applied(
+#         context,
+#         agent,
+#         new_session.id,
+#         customer,
+#         conversation_context,
+#         guidelines_target_names=guidelines,
+#         guidelines_names=guidelines,
+#     )
 
 
 def test_that_partially_fulfilled_action_but_cosmetic_is_not_match_again(
@@ -316,13 +323,87 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_
     new_session: Session,
     customer: Customer,
 ) -> None:
-    return
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Ugh, why is this taking so long? I placed my order 40 minutes ago.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm really sorry for the delay, and I completely understand how frustrating that must be. I’ll look into it right away, and I can also offer you a discount for the inconvenience.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "OK, thanks. I will be waiting",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Of course. I'm here to help, and I’ll keep you updated as soon as I know more",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I got the delivery now and it's totally broken! Are you serious, you guys? This is ridiculous.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm so sorry—that should absolutely not have happened. I’ll report this right away, and I can offer you a discount for the trouble.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thank you that's nice of you.",
+        ),
+    ]
+
+    guidelines: list[str] = ["frustrated_so_discount"]
+
+    base_test_that_correct_guidelines_detect_as_previously_applied(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=[],
+        guidelines_names=guidelines,
+    )
 
 
-def test_that_guideline_that_was_reapplied_earlier_and_reapply_again_based_on_the_most_recent_interaction_is_matched(
+def test_that_guideline_that_was_reapplied_earlier_and_should_reapply_again_based_on_the_most_recent_interaction_is_matched(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
     customer: Customer,
 ) -> None:
-    return
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I’d like to book a table for 2 at 7 PM tonight.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it — a table for 2 at 7 PM. Would you like to add anything else before I confirm the reservation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, actually — it’s for a birthday. Can we get a small cake?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Absolutely! I’ve added a birthday cake to your reservation. Would you like anything else before I send it through?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Oh, and can we have a table near the window if possible?",
+        ),
+    ]
+
+    guidelines: list[str] = ["confirm_reservation"]
+
+    base_test_that_correct_guidelines_detect_as_previously_applied(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )

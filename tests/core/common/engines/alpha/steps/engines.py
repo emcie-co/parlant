@@ -186,7 +186,7 @@ def _load_glossary_terms(
     return []
 
 
-@step(when, "processing is detected and triggered", target_fixture="emitted_events")
+@step(when, "detection and processing are triggered", target_fixture="emitted_events")
 def when_processing_is_detected_and_triggered(
     context: ContextOfTest,
     engine: AlphaEngine,

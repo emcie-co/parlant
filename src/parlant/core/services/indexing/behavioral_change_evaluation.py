@@ -523,7 +523,7 @@ class GuidelineEvaluator:
     async def evaluate(
         self,
         payloads: Sequence[Payload],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[InvoiceGuidelineData]:
         action_propositions = await self._propose_actions(
             payloads,
@@ -553,7 +553,7 @@ class GuidelineEvaluator:
     async def _propose_actions(
         self,
         payloads: Sequence[Payload],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineActionProposition]]:
         tasks: list[asyncio.Task[GuidelineActionProposition]] = []
         indices: list[int] = []
@@ -582,7 +582,7 @@ class GuidelineEvaluator:
         self,
         payloads: Sequence[Payload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineContinuousProposition]]:
         tasks: list[asyncio.Task[GuidelineContinuousProposition]] = []
         indices: list[int] = []

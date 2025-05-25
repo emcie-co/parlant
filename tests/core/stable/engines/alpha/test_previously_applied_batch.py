@@ -16,7 +16,7 @@ from parlant.core.engines.alpha.guideline_matching.generic_guideline_previously_
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
+from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -63,20 +63,6 @@ def context(
     )
 
 
-@fixture
-def session(
-    context: ContextOfTest,
-    agent: Agent,
-    customer: Customer,
-) -> Session:
-    return context.sync_await(
-        context.container[SessionStore].create_session(
-            customer_id=customer.id,
-            agent_id=agent.id,
-        )
-    )
-
-
 def create_guideline_by_name(
     context: ContextOfTest,
     guideline_name: str,
@@ -115,7 +101,7 @@ def create_guideline(
 def base_test_that_correct_guidelines_detect_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
-    session: Session,
+    session_id: SessionId,
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str],
@@ -138,6 +124,8 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
         )
         for i, (source, message) in enumerate(conversation_context)
     ]
+
+    session = context.sync_await(context.container[SessionStore].read_session(session_id))
 
     guideline_matching_context = GuidelineMatchingContext(
         agent=agent,
@@ -166,7 +154,7 @@ def base_test_that_correct_guidelines_detect_as_previously_applied(
 def test_that_previously_matched_guideline_not_matched_when_there_is_no_new_reason(
     context: ContextOfTest,
     agent: Agent,
-    session: Session,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -189,7 +177,7 @@ def test_that_previously_matched_guideline_not_matched_when_there_is_no_new_reas
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
-        session,
+        new_session.id,
         customer,
         conversation_context,
         guidelines_target_names=[],
@@ -200,7 +188,7 @@ def test_that_previously_matched_guideline_not_matched_when_there_is_no_new_reas
 def test_that_guideline_action_that_was_performed_but_result_in_an_error_is_matched_again(
     context: ContextOfTest,
     agent: Agent,
-    session: Session,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -245,7 +233,7 @@ def test_that_guideline_action_that_was_performed_but_result_in_an_error_is_matc
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
-        session,
+        new_session.id,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -257,7 +245,7 @@ def test_that_guideline_action_that_was_performed_but_result_in_an_error_is_matc
 def test_that_guideline_action_that_was_performed_but_result_in_undesired_user_response_is_matched_again(
     context: ContextOfTest,
     agent: Agent,
-    session: Session,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -280,7 +268,7 @@ def test_that_guideline_action_that_was_performed_but_result_in_undesired_user_r
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
-        session,
+        new_session.id,
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
@@ -291,7 +279,7 @@ def test_that_guideline_action_that_was_performed_but_result_in_undesired_user_r
 def test_that_partially_fulfilled_action_but_cosmetic_is_not_match_again(
     context: ContextOfTest,
     agent: Agent,
-    session: Session,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
@@ -314,9 +302,27 @@ def test_that_partially_fulfilled_action_but_cosmetic_is_not_match_again(
     base_test_that_correct_guidelines_detect_as_previously_applied(
         context,
         agent,
-        session,
+        new_session.id,
         customer,
         conversation_context,
         guidelines_target_names=[],
         guidelines_names=guidelines,
     )
+
+
+def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    return
+
+
+def test_that_guideline_that_was_reapplied_earlier_and_reapply_again_based_on_the_most_recent_interaction_is_matched(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    return

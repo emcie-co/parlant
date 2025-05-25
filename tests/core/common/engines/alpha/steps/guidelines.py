@@ -15,18 +15,49 @@
 from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId
+from parlant.core.common import JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.relationships import (
     RelationshipEntityKind,
     GuidelineRelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 
+from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
 from parlant.core.tags import Tag
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
+
+
+def get_guideline_properties(
+    context: ContextOfTest,
+    condition: str,
+    action: str,
+) -> dict[str, JSONSerializable]:
+    guideline_evaluator = context.container[GuidelineEvaluator]
+    guideline_evaluation_data = context.sync_await(
+        guideline_evaluator.evaluate(
+            payloads=[
+                GuidelinePayload(
+                    content=GuidelineContent(
+                        condition=condition,
+                        action=action,
+                    ),
+                    tool_ids=[],
+                    operation=GuidelinePayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                )
+            ],
+        )
+    )
+    metadata = guideline_evaluation_data[0].properties_proposition or {}
+    return metadata
 
 
 @step(given, parsers.parse("a guideline to {do_something} when {a_condition_holds}"))
@@ -37,10 +68,13 @@ def given_a_guideline_to_when(
 ) -> None:
     guideline_store = context.container[GuidelineStore]
 
+    metadata = get_guideline_properties(context, a_condition_holds, do_something)
+
     context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
             action=do_something,
+            metadata=metadata,
         )
     )
 
@@ -58,10 +92,13 @@ def given_a_guideline_name_to_when(
 ) -> None:
     guideline_store = context.container[GuidelineStore]
 
+    metadata = get_guideline_properties(context, a_condition_holds, do_something)
+
     context.guidelines[guideline_name] = context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
             action=do_something,
+            metadata=metadata,
         )
     )
 
@@ -81,9 +118,12 @@ def given_50_other_random_guidelines(
     guideline_store = context.container[GuidelineStore]
 
     async def create_guideline(condition: str, action: str) -> Guideline:
+        metadata = get_guideline_properties(context, condition, action)
+
         guideline = await guideline_store.create_guideline(
             condition=condition,
             action=action,
+            metadata=metadata,
         )
 
         _ = await guideline_store.upsert_tag(
@@ -327,9 +367,12 @@ def given_the_guideline_called(
     guideline_store = context.container[GuidelineStore]
 
     async def create_guideline(condition: str, action: str) -> Guideline:
+        metadata = get_guideline_properties(context, condition, action)
+
         guideline = await guideline_store.create_guideline(
             condition=condition,
             action=action,
+            metadata=metadata,
         )
 
         _ = await guideline_store.upsert_tag(

@@ -125,6 +125,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import (
+    GuidelineEvaluator,
     LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.services.indexing.coherence_checker import (
@@ -376,6 +377,7 @@ async def container(
             GenericObservationalGuidelineMatching
         )
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
+        container[GuidelineEvaluator] = Singleton(GuidelineEvaluator)
 
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]

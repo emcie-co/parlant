@@ -229,7 +229,7 @@ Feature: Fluid Utterance
         And an utterance, "Please stop asking about irrelevant topics like car brakes."
         And an utterance, "Would you like to know more about Mobileye's collision prevention technology instead?"
         And an utterance, "For top performance, Brembo and EBC are great for sports and track use, while Akebono and PowerStop offer excellent daily driving and towing options. The best choice depends on your vehicle and driving style."
-        And a perviously applied guideline "answer_rudely" 
+        And a previously applied guideline "answer_rudely" 
         When processing is triggered 
         # TODO change triggered
         Then a single message event is emitted

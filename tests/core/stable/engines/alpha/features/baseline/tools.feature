@@ -304,7 +304,8 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
     
@@ -328,7 +329,8 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
         And an agent message, "Can you confirm the transformation?"
         And a customer message, "Actually I want to transfer 2000 please"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 2000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
     
@@ -343,7 +345,9 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And a previously applied guideline "make_transfer"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
             
@@ -358,7 +362,9 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And a previously applied guideline "make_transfer"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
             
@@ -397,7 +403,8 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman and $1700 to Margaret Thatcher"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains 2 tool call(s)
 
     Scenario: Tool caller don't call the tool when user asks about request but don't want to make one (transfer_coins)
@@ -410,6 +417,8 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, and I might want to send 10,101 dollars to my sister, Ruthie."
         And an agent message, "Got it, Mark! What’s your pin code, please?"
         And a customer message, "It’s 1234. But actually, I’m not sure if I want to do it right now. I may do it tomorrow instead. I’ll keep you posted"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         When processing is triggered
         Then no tool calls event is emitted
 
@@ -424,7 +433,8 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, and I want to send 1500 euros to my sister, Sophie Chapman."
         And an agent message, "Got it, Mark! What’s your pin code, please?"
         And a customer message, "It’s 1234. "
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 3000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
 
     Scenario: Tool call consider a guideline about tool parameters (2) (transfer_coins)
@@ -481,7 +491,8 @@ Feature: Tools
         And a customer message, "I’m thinking of sending $2000 right now."
         And an agent message, "Alright, if you’d like me to assist with that, I’ll just need your pin code to proceed"
         And a customer message, "Sure, try 1234."
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 2000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
 
     Scenario: Tool caller call tool once when there are 2 requests but one with missing data (transfer_coins)
@@ -508,7 +519,8 @@ Feature: Tools
         And a customer message, "Hey, do you have SSD of Samsung?"
         And an agent message, "Do you have a price limit? for example not more than $400?"
         And a customer message, "No"
-        When processing is triggered
+        And that the "filter_electronic_products" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains SSD as keyword and Samsung as Vendor and no price limit

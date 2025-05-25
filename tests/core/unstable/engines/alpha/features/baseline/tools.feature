@@ -12,7 +12,8 @@ Feature: Tools
         And a customer message, "How do I pay my credit card bill?"
         And an agent message, "You can just tell me the last 4 digits of the desired card and I'll help you with that."
         And a customer message, "Thank you! And I imagine this applies also if my card is currently lost, right?"
-        When processing is triggered
+        And that the "answer_questions" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "find_answer" with an inquiry about a situation in which a card is lost

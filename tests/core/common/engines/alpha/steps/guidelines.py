@@ -83,7 +83,7 @@ def given_a_guideline_to_when(
 
 @step(
     given,
-    parsers.parse('a perviously applied guideline "{guideline_name}"'),
+    parsers.parse('a previously applied guideline "{guideline_name}"'),
 )
 def given_a_previously_applied_guideline(
     context: ContextOfTest,
@@ -478,15 +478,13 @@ def given_the_guideline_called(
 def given_was_matched_in_previous_iteration(
     context: ContextOfTest,
     guideline_name: str,
-    score: int,
-    rationale: str,
 ) -> None:
     guideline = context.guidelines[guideline_name]
 
     context.guideline_matches[guideline_name] = GuidelineMatch(
         guideline=guideline,
-        score=score,
-        rationale=rationale,
+        score=10,
+        rationale="",
     )
 
 

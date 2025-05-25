@@ -473,6 +473,25 @@ def given_the_guideline_called(
 
 @step(
     given,
+    parsers.parse('that the "{guideline_name}" guideline was matched in the previous iteration'),
+)
+def given_was_matched_in_previous_iteration(
+    context: ContextOfTest,
+    guideline_name: str,
+    score: int,
+    rationale: str,
+) -> None:
+    guideline = context.guidelines[guideline_name]
+
+    context.guideline_matches[guideline_name] = GuidelineMatch(
+        guideline=guideline,
+        score=score,
+        rationale=rationale,
+    )
+
+
+@step(
+    given,
     parsers.parse(
         'that the "{guideline_name}" guideline is matched with a priority of {score} because {rationale}'  # noqb
     ),

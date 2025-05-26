@@ -196,6 +196,7 @@ NLPServiceName = Literal[
     "openai",
     "together",
     "litellm",
+    "ollama",
 ]
 
 
@@ -232,7 +233,6 @@ def load_anthropic() -> NLPService:
 def load_aws() -> NLPService:
     return load_nlp_service("AWS", "aws", "BedrockService", "parlant.adapters.nlp.aws_service")
 
-
 def load_azure() -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
@@ -262,6 +262,13 @@ def load_openai() -> NLPService:
 
     return OpenAIService(LOGGER)
 
+def load_ollama() -> NLPService:
+    from parlant.adapters.nlp.ollama_service import OllamaService
+
+    return OllamaService(LOGGER)
+
+
+
 
 def load_together() -> NLPService:
     return load_nlp_service(
@@ -285,6 +292,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
     "openai": load_openai,
     "together": load_together,
     "litellm": load_litellm,
+    "ollama":load_ollama,
 }
 
 
@@ -769,6 +777,12 @@ def main() -> None:
         default=True,
     )
     @click.option(
+        "--ollama",
+        is_flag=True,
+        help="Run with Ollama.",
+        default=False,
+    )
+    @click.option(
         "--anthropic",
         is_flag=True,
         help="Run with Anthropic. The environment variable ANTHROPIC_API_KEY must be set and install the extra package parlant[anthropic].",
@@ -861,6 +875,7 @@ def main() -> None:
         cerebras: bool,
         together: bool,
         litellm: bool,
+        ollama:bool,
         log_level: str,
         module: tuple[str],
         version: bool,
@@ -870,17 +885,19 @@ def main() -> None:
             print(f"Parlant v{VERSION}")
             sys.exit(0)
 
-        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm]) > 2:
+        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, ollama]) > 2:
             print("error: only one NLP service profile can be selected")
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, ollama)
         )
 
         if not non_default_service_selected:
             nlp_service = "openai"
             require_env_keys(["OPENAI_API_KEY"])
+        elif ollama:
+            nlp_service = "ollama"
         elif aws:
             nlp_service = "aws"
             require_env_keys(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"])

@@ -71,7 +71,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
         self._context = context
 
     @override
@@ -90,10 +90,18 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
             self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
+        if not all(
+            any(batch_id == g.id for g in self._guidelines.values())
+            for batch_id in self._guidelines.keys()
+        ):
+            self._logger.warning(
+                "Completion:\nGuideline matching results are missing for some guidelines."
+            )
         matches = []
 
         for match in inference.content.checks:
+            if match.guideline_id not in self._guidelines:
+                continue
             if (match.applies_score >= 6) and (
                 (match.guideline_previously_applied in [None, "no"])
                 or match.guideline_should_reapply
@@ -102,7 +110,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                 matches.append(
                     GuidelineMatch(
-                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        guideline=self._guidelines[match.guideline_id],
                         score=match.applies_score,
                         rationale=f'''Condition Application: "{match.condition_application_rationale}"; Guideline Previously Applied: "{"; ".join(
                             [r.rationale for r in match.guideline_previously_applied_rationale]
@@ -315,6 +323,8 @@ Expected Output
                 "guidelines_len": len(self._guidelines),
             },
         )
+        with open("actionable batch prompt.txt", "w") as f:
+            f.write(builder.build())  # TODO delete
 
         return builder
 

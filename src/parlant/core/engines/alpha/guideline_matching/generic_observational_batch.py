@@ -57,7 +57,9 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {
+            g.id: g for g in guidelines
+        }  # {str(i): g for i, g in enumerate(guidelines)}
         self._context = context
 
     @override

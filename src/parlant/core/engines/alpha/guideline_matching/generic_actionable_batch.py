@@ -95,8 +95,9 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
             for batch_id in self._guidelines.keys()
         ):
             self._logger.warning(
-                "Completion:\nGuideline matching results are missing for some guidelines."
+                "Completion:\nActionable guideline matching results are missing for some guidelines."
             )
+
         matches = []
 
         for match in inference.content.checks:
@@ -190,7 +191,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> PromptBuilder:
         result_structure = [
             {
-                "guideline_id": g.id,
+                "guideline_id": batch_id,
                 "condition": g.content.condition,
                 "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
                 "condition_applies": "<BOOL>",
@@ -209,7 +210,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                 "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
                 "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
             }
-            for g in self._guidelines.values()
+            for batch_id, g in self._guidelines.items()
         ]
         guidelines_text = "\n".join(
             f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
@@ -323,9 +324,6 @@ Expected Output
                 "guidelines_len": len(self._guidelines),
             },
         )
-        with open("actionable batch prompt.txt", "w") as f:
-            f.write(builder.build())  # TODO delete
-
         return builder
 
 

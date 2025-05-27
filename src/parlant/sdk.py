@@ -938,6 +938,7 @@ class Server:
             log_level=self.log_level,
             modules=self.modules,
             migrate=self.migrate,
+            test_modules=[],
             configure=configure,
             initialize=initialize,
         )

@@ -252,9 +252,9 @@ class StartupParameters:
     log_level: str | LogLevel
     modules: list[str]
     migrate: bool
+    test_modules: list[str]
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
-    test_modules: list[str]
 
 
 def load_nlp_service(name: str, extra_name: str, class_name: str, module_path: str) -> NLPService:

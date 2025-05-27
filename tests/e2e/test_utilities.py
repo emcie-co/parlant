@@ -27,7 +27,7 @@ import sys
 import time
 from typing import Any, AsyncIterator, Iterator, Optional, TypedDict, cast
 
-from tests.test_utilities import SERVER_ADDRESS_BASE, get_random_port
+from tests.test_utilities import TEST_BASE_URL, get_random_port
 
 
 class _ServiceDTO(TypedDict):
@@ -174,7 +174,7 @@ class API:
         self.set_port(get_random_port(10000, 50000))
 
     def set_port(self, port: int) -> None:
-        self.server_address = f"{SERVER_ADDRESS_BASE}:{port}"
+        self.server_address = f"{TEST_BASE_URL}:{port}"
 
     def get_port(self) -> int:
         return int(self.server_address.split(":")[-1])

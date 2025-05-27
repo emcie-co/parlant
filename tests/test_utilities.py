@@ -93,11 +93,12 @@ T = TypeVar("T")
 GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
 
 SERVER_PORT = 8089
-SERVER_ADDRESS_BASE = "http://localhost"
-SERVER_ADDRESS = f"{SERVER_ADDRESS_BASE}:{SERVER_PORT}"
-
 PLUGIN_SERVER_PORT = 8091
 OPENAPI_SERVER_PORT = 8092
+
+TEST_BASE_URL = "http://localhost"
+SERVER_ADDRESS = f"{TEST_BASE_URL}:{SERVER_PORT}"
+OPENAPI_SERVER_BASE_URL = TEST_BASE_URL
 
 
 class NLPTestSchema(DefaultBaseModel):
@@ -571,10 +572,6 @@ async def run_service_server(
             await server.shutdown()
 
 
-OPENAPI_SERVER_BASE_URL = "http://localhost"
-OPENAPI_SERVER_URL = f"{OPENAPI_SERVER_BASE_URL}:{OPENAPI_SERVER_PORT}"
-
-
 async def one_required_query_param(
     query_param: int = Query(),
 ) -> JSONResponse:
@@ -667,13 +664,17 @@ async def dto_object(dto: DummyDTO) -> JSONResponse:
     return JSONResponse({})
 
 
+@dataclass
+class ServerInfo:
+    port: int
+    url: str
+
+
 @asynccontextmanager
 async def run_openapi_server(
     app: Optional[FastAPI] = None,
-    port: int = 0,
-) -> AsyncIterator[None]:
-    if port == 0:
-        port = get_random_port(10001, 65535)
+) -> AsyncIterator[ServerInfo]:
+    port = get_random_port(10001, 65535)
 
     if app is None:
         app = rng_app(port=port)
@@ -687,7 +688,13 @@ async def run_openapi_server(
             await asyncio.sleep(0.01)
 
         await asyncio.sleep(0.05)
-        yield
+
+        server_info = ServerInfo(
+            port=port,
+            url=OPENAPI_SERVER_BASE_URL,
+        )
+
+        yield server_info
     finally:
         server.should_exit = True
         await asyncio.sleep(0.1)

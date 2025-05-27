@@ -15,7 +15,6 @@
 import asyncio
 import json
 import os
-from random import randint
 import tempfile
 from typing import Any, Optional
 import httpx
@@ -29,7 +28,6 @@ from tests.e2e.test_utilities import (
     run_server,
 )
 from tests.test_utilities import (
-    OPENAPI_SERVER_BASE_URL,
     SERVER_ADDRESS,
     run_openapi_server,
     run_service_server,
@@ -1080,10 +1078,8 @@ async def test_that_an_openapi_service_can_be_added_via_file(
     service_kind = "openapi"
 
     with run_server(context):
-        port = randint(10000, 50000)
-        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
-
-        async with run_openapi_server(port=port):
+        async with run_openapi_server() as server_info:
+            url = f"{server_info.url}:{server_info.port}"
             async with httpx.AsyncClient() as client:
                 response = await client.get(f"{url}/openapi.json")
                 response.raise_for_status()
@@ -1127,10 +1123,8 @@ async def test_that_an_openapi_service_can_be_added_via_url(
     service_kind = "openapi"
 
     with run_server(context):
-        port = randint(10000, 50000)
-        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
-
-        async with run_openapi_server(port=port):
+        async with run_openapi_server() as server_info:
+            url = f"{server_info.url}:{server_info.port}"
             source = url + "/openapi.json"
 
             assert (
@@ -1205,9 +1199,8 @@ async def test_that_a_service_can_be_deleted(
     service_name = "test_service_to_delete"
 
     with run_server(context):
-        port = randint(10000, 50000)
-        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
-        async with run_openapi_server(port=port):
+        async with run_openapi_server() as server_info:
+            url = f"{server_info.url}:{server_info.port}"
             await context.api.create_openapi_service(service_name, url)
 
         process = await run_cli(
@@ -1238,9 +1231,8 @@ async def test_that_services_can_be_listed(
     service_name_2 = "test_openapi_service_2"
 
     with run_server(context):
-        port = randint(10000, 50000)
-        url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
-        async with run_openapi_server(port=port):
+        async with run_openapi_server() as server_info:
+            url = f"{server_info.url}:{server_info.port}"
             await context.api.create_openapi_service(service_name_1, url)
             await context.api.create_openapi_service(service_name_2, url)
 
@@ -1264,12 +1256,11 @@ async def test_that_services_can_be_listed(
 async def test_that_a_service_can_be_viewed(
     context: ContextOfTest,
 ) -> None:
-    port = randint(10000, 50000)
     service_name = "test_service_view"
-    service_url = f"{OPENAPI_SERVER_BASE_URL}:{port}"
 
     with run_server(context):
-        async with run_openapi_server(port=port):
+        async with run_openapi_server() as server_info:
+            service_url = f"{server_info.url}:{server_info.port}"
             await context.api.create_openapi_service(service_name, service_url)
 
         process = await run_cli(

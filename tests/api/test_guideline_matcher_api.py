@@ -21,7 +21,7 @@ from pytest import fixture
 from parlant.core.agents import Agent, AgentId
 from parlant.core.customers import Customer, CustomerId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.sessions import EventSource, Session, SessionId
+from parlant.core.sessions import EventSource, SessionId
 from parlant.core.tags import TagId
 from tests.e2e.test_utilities import API
 
@@ -43,7 +43,7 @@ GUIDELINES_DICT: dict[str, dict[str, str]] = {
 
 @fixture
 def test_agent() -> Agent:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _async_get_test_agent() -> Agent:
         async with api.make_client() as client:
@@ -65,7 +65,7 @@ def test_agent() -> Agent:
 
 @fixture
 def test_customer() -> Customer:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _async_get_test_customer() -> Customer:
         async with api.make_client() as client:
@@ -85,26 +85,20 @@ def test_customer() -> Customer:
 def create_session(
     agent_id: AgentId,
     customer_id: CustomerId,
-) -> Session:
-    api: API = API("http://localhost:8888")
+) -> None:
+    api: API = API(port=8888)
 
-    async def _async_create_session() -> Session:
+    async def _async_create_session() -> None:
         async with api.make_client() as client:
-            response = await client.post(
+            await client.post(
                 "/sessions",
                 json={
                     "agent_id": agent_id,
                     "customer_id": customer_id,
                 },
             )
-            result_json: dict[str, Any] = response.json()
-            result: Session = Session(
-                mode="auto",
-                **result_json,
-            )
-            return result
 
-    return asyncio.run(_async_create_session())
+    asyncio.run(_async_create_session())
 
 
 def create_guideline(
@@ -112,7 +106,7 @@ def create_guideline(
     action: str,
     tags: list[TagId] = [],
 ) -> Guideline:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _async_create_guideline() -> Guideline:
         async with api.make_client() as client:
@@ -158,7 +152,7 @@ def get_matched_guidelines(
     conversation_history: list[tuple[EventSource, str]],
     guidelines: list[Guideline],
 ) -> list[Guideline]:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _get_session_id() -> SessionId:
         async with api.make_client() as client:
@@ -238,7 +232,7 @@ def test_pricing_guideline_matching(
 ) -> None:
     """Test that the pricing guideline is matched when a customer asks about pricing."""
 
-    _ = create_session(test_agent.id, test_customer.id)
+    create_session(test_agent.id, test_customer.id)
 
     pricing_guideline: Guideline = create_guideline_by_name("pricing_query")
     greeting_guideline: Guideline = create_guideline_by_name("greeting_response")

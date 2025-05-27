@@ -20,7 +20,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent, AgentId
 from parlant.core.customers import Customer, CustomerId
-from parlant.core.sessions import Session, EventSource
+from parlant.core.sessions import EventSource
 from parlant.core.tools import Tool, ToolOverlap
 from tests.e2e.test_utilities import API
 
@@ -65,7 +65,7 @@ TOOLS_DICT: dict[str, dict[str, Any]] = {
 
 @fixture
 def test_agent() -> Agent:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _async_get_test_agent() -> Agent:
         async with api.make_client() as client:
@@ -87,7 +87,7 @@ def test_agent() -> Agent:
 
 @fixture
 def test_customer() -> Customer:
-    api: API = API("http://localhost:8888")
+    api: API = API(port=8888)
 
     async def _async_get_test_customer() -> Customer:
         async with api.make_client() as client:
@@ -107,26 +107,20 @@ def test_customer() -> Customer:
 def create_session(
     agent_id: AgentId,
     customer_id: CustomerId,
-) -> Session:
-    api: API = API("http://localhost:8888")
+) -> None:
+    api: API = API(port=8888)
 
-    async def _async_create_session() -> Session:
+    async def _async_create_session() -> None:
         async with api.make_client() as client:
-            response = await client.post(
+            await client.post(
                 "/sessions",
                 json={
                     "agent_id": agent_id,
                     "customer_id": customer_id,
                 },
             )
-            result_json: dict[str, Any] = response.json()
-            result: Session = Session(
-                mode="auto",
-                **result_json,
-            )
-            return result
 
-    return asyncio.run(_async_create_session())
+    asyncio.run(_async_create_session())
 
 
 def create_tool(
@@ -226,7 +220,7 @@ def test_weather_tool_inference(
 ) -> None:
     """Test that the weather tool is inferred when a customer asks about weather."""
 
-    _ = create_session(test_agent.id, test_customer.id)
+    create_session(test_agent.id, test_customer.id)
 
     weather_tool: Tool = create_tool_by_name("weather")
     calculator_tool: Tool = create_tool_by_name("calculator")
@@ -267,7 +261,7 @@ def test_calculator_tool_inference(
 ) -> None:
     """Test that the calculator tool is inferred when a customer asks for a calculation."""
 
-    _ = create_session(test_agent.id, test_customer.id)
+    create_session(test_agent.id, test_customer.id)
 
     weather_tool: Tool = create_tool_by_name("weather")
     calculator_tool: Tool = create_tool_by_name("calculator")

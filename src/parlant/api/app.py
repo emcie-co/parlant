@@ -660,6 +660,9 @@ default_configuration_steps: APIConfigurationSteps = [
     configure_utterances_router,
     configure_context_variables_router,
     configure_guidelines_router,
+    configure_relationships_router,
+    configure_journeys_router,
+    configure_evaluations_router,
     configure_logs_router,
 ]
 

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 from datetime import datetime, timezone
+import httpx
 from pathlib import Path
 import tempfile
 from typing import Any, Iterator
@@ -54,244 +54,217 @@ def context() -> Iterator[ContextOfTest]:
         )
 
 
-@fixture
-def test_agent(
-    context: ContextOfTest,
+async def create_test_agent(
+    client: httpx.AsyncClient,
 ) -> Agent:
-    with run_server(context, extra_args=["--test"]):
-
-        async def _async_get_test_agent() -> Agent:
-            async with context.api.make_client() as client:
-                response = await client.post(
-                    "/agents",
-                    json={
-                        "name": "test-agent",
-                    },
-                )
-                result_json: dict[str, Any] = response.json()
-                result: Agent = Agent(
-                    creation_utc=datetime.now(timezone.utc),
-                    **result_json,
-                )
-                return result
-
-        return asyncio.run(_async_get_test_agent())
+    response = await client.post(
+        "/agents",
+        json={
+            "name": "test-agent",
+        },
+    )
+    result_json: dict[str, Any] = response.json()
+    result: Agent = Agent(
+        creation_utc=datetime.now(timezone.utc),
+        **result_json,
+    )
+    return result
 
 
-@fixture
-def test_customer(
-    context: ContextOfTest,
+async def create_test_customer(
+    client: httpx.AsyncClient,
 ) -> Customer:
-    with run_server(context, extra_args=["--test"]):
-
-        async def _async_get_test_customer() -> Customer:
-            async with context.api.make_client() as client:
-                response = await client.post(
-                    "/customers",
-                    json={
-                        "name": "test-customer",
-                    },
-                )
-                result_json: dict[str, Any] = response.json()
-                result: Customer = Customer(**result_json)
-                return result
-
-        return asyncio.run(_async_get_test_customer())
+    response = await client.post(
+        "/customers",
+        json={
+            "name": "test-customer",
+        },
+    )
+    result_json: dict[str, Any] = response.json()
+    result: Customer = Customer(**result_json)
+    return result
 
 
-def create_session(
-    context: ContextOfTest,
+async def create_test_session(
+    client: httpx.AsyncClient,
     agent_id: AgentId,
     customer_id: CustomerId,
 ) -> None:
-    with run_server(context, extra_args=["--test"]):
-
-        async def _async_create_session() -> None:
-            async with context.api.make_client() as client:
-                await client.post(
-                    "/sessions",
-                    json={
-                        "agent_id": agent_id,
-                        "customer_id": customer_id,
-                    },
-                )
-
-        asyncio.run(_async_create_session())
+    await client.post(
+        "/sessions",
+        json={
+            "agent_id": agent_id,
+            "customer_id": customer_id,
+        },
+    )
 
 
-def create_guideline(
-    context: ContextOfTest,
+async def create_guideline(
+    client: httpx.AsyncClient,
     condition: str,
     action: str,
     tags: list[TagId] = [],
 ) -> Guideline:
-    with run_server(context, extra_args=["--test"]):
-
-        async def _async_create_guideline() -> Guideline:
-            async with context.api.make_client() as client:
-                response = await client.post(
-                    "/guidelines",
-                    json={
-                        "condition": condition,
-                        "action": action,
-                        "tags": tags,
-                        "enabled": True,
-                        "metadata": {},
-                    },
-                )
-                result_json: dict[str, Any] = response.json()
-                return Guideline(
-                    id=GuidelineId(result_json["id"]),
-                    creation_utc=datetime.now(timezone.utc),
-                    content=GuidelineContent(
-                        condition=result_json["condition"],
-                        action=result_json["action"],
-                    ),
-                    enabled=result_json["enabled"],
-                    tags=result_json["tags"],
-                    metadata=result_json["metadata"],
-                )
-
-        return asyncio.run(_async_create_guideline())
+    response = await client.post(
+        "/guidelines",
+        json={
+            "condition": condition,
+            "action": action,
+            "tags": tags,
+            "enabled": True,
+            "metadata": {},
+        },
+    )
+    result_json: dict[str, Any] = response.json()
+    return Guideline(
+        id=GuidelineId(result_json["id"]),
+        creation_utc=datetime.now(timezone.utc),
+        content=GuidelineContent(
+            condition=result_json["condition"],
+            action=result_json["action"],
+        ),
+        enabled=result_json["enabled"],
+        tags=result_json["tags"],
+        metadata=result_json["metadata"],
+    )
 
 
-def create_guideline_by_name(
-    context: ContextOfTest,
+async def create_guideline_by_name(
+    client: httpx.AsyncClient,
     guideline_name: str,
 ) -> Guideline:
-    with run_server(context, extra_args=["--test"]):
-        guideline: Guideline = create_guideline(
-            context,
-            condition=GUIDELINES_DICT[guideline_name]["condition"],
-            action=GUIDELINES_DICT[guideline_name]["action"],
-        )
+    guideline: Guideline = await create_guideline(
+        client,
+        condition=GUIDELINES_DICT[guideline_name]["condition"],
+        action=GUIDELINES_DICT[guideline_name]["action"],
+    )
 
-        return guideline
+    return guideline
 
 
-def get_matched_guidelines(
-    context: ContextOfTest,
+async def get_session_id(
+    client: httpx.AsyncClient,
     agent_id: AgentId,
     customer_id: CustomerId,
+) -> SessionId:
+    response = await client.get(f"/sessions?agent_id={agent_id}&customer_id={customer_id}")
+    if response.status_code != 200:
+        raise Exception(f"Error getting session: {response.status_code} - {response.text}")
+    sessions: list[dict[str, Any]] = response.json()
+    if not sessions:
+        raise Exception(f"No session found for agent {agent_id} and customer {customer_id}")
+    return SessionId(sessions[0]["id"])
+
+
+async def add_customer_messages_to_session(
+    client: httpx.AsyncClient,
+    session_id: SessionId,
     conversation_history: list[tuple[EventSource, str]],
+) -> list[str]:
+    ids: list[str] = []
+
+    for source, content in conversation_history:
+        if source == EventSource.CUSTOMER:
+            response = await client.post(
+                f"/sessions/{session_id}/events",
+                json={
+                    "source": source.value,
+                    "kind": "message",
+                    "message": content,
+                },
+            )
+            if response.status_code != 201:
+                raise Exception(f"Error adding message: {response.status_code} - {response.text}")
+            ids.append(response.json()["id"])
+
+    response = await client.get(f"/sessions/{session_id}/events")
+    if response.status_code != 200:
+        raise Exception(f"Error getting events: {response.status_code} - {response.text}")
+
+    all_events: list[dict[str, Any]] = response.json()
+    return [event["id"] for event in all_events]
+
+
+async def get_matched_guidelines(
+    client: httpx.AsyncClient,
+    agent_id: AgentId,
+    customer_id: CustomerId,
+    event_ids: list[str],
+    guideline_ids: list[GuidelineId],
     guidelines: list[Guideline],
 ) -> list[Guideline]:
-    with run_server(context, extra_args=["--test"]):
+    response = await client.post(
+        "/test/alpha/guideline-matching",
+        json={
+            "agent_id": agent_id,
+            "customer_id": customer_id,
+            "events": event_ids,
+            "guidelines": guideline_ids,
+            "context_variables": [],
+            "terms": [],
+            "staged_events": [],
+        },
+    )
 
-        async def _get_session_id() -> SessionId:
-            async with context.api.make_client() as client:
-                response = await client.get(
-                    f"/sessions?agent_id={agent_id}&customer_id={customer_id}"
-                )
-                if response.status_code != 200:
-                    raise Exception(
-                        f"Error getting session: {response.status_code} - {response.text}"
-                    )
-                sessions: list[dict[str, Any]] = response.json()
-                if not sessions:
-                    raise Exception(
-                        f"No session found for agent {agent_id} and customer {customer_id}"
-                    )
-                return SessionId(sessions[0]["id"])
+    if response.status_code not in [200, 202]:
+        raise Exception(f"API error: {response.status_code} - {response.text}")
 
-        session_id: SessionId = asyncio.run(_get_session_id())
+    result: dict[str, Any] = response.json()
 
-        async def _add_customer_messages_to_session() -> list[str]:
-            ids: list[str] = []
-            async with context.api.make_client() as client:
-                for source, content in conversation_history:
-                    if source == EventSource.CUSTOMER:
-                        response = await client.post(
-                            f"/sessions/{session_id}/events",
-                            json={
-                                "source": source.value,
-                                "kind": "message",
-                                "message": content,
-                            },
-                        )
-                        if response.status_code != 201:
-                            raise Exception(
-                                f"Error adding message: {response.status_code} - {response.text}"
-                            )
-                        ids.append(response.json()["id"])
+    matched_guideline_ids: list[GuidelineId] = []
+    for batch in result.get("batches", []):
+        for match in batch:
+            matched_guideline_ids.append(match["guideline"])
 
-                response = await client.get(f"/sessions/{session_id}/events")
-                if response.status_code != 200:
-                    raise Exception(
-                        f"Error getting events: {response.status_code} - {response.text}"
-                    )
-
-                all_events: list[dict[str, Any]] = response.json()
-                return [event["id"] for event in all_events]
-
-        event_ids: list[str] = asyncio.run(_add_customer_messages_to_session())
-
-        guideline_ids: list[GuidelineId] = [guideline.id for guideline in guidelines]
-
-        async def _async_get_matched_guidelines() -> list[Guideline]:
-            async with context.api.make_client() as client:
-                response = await client.post(
-                    "/test/alpha/guideline-matching",
-                    json={
-                        "agent_id": agent_id,
-                        "customer_id": customer_id,
-                        "events": event_ids,
-                        "guidelines": guideline_ids,
-                        "context_variables": [],
-                        "terms": [],
-                        "staged_events": [],
-                    },
-                )
-
-                if response.status_code not in [200, 202]:
-                    raise Exception(f"API error: {response.status_code} - {response.text}")
-
-                result: dict[str, Any] = response.json()
-
-                matched_guideline_ids: list[GuidelineId] = []
-                for batch in result.get("batches", []):
-                    for match in batch:
-                        matched_guideline_ids.append(match["guideline"])
-
-                return [g for g in guidelines if g.id in matched_guideline_ids]
-
-        return asyncio.run(_async_get_matched_guidelines())
+    return [g for g in guidelines if g.id in matched_guideline_ids]
 
 
-def test_pricing_guideline_matching(
+async def test_pricing_guideline_matching(
     context: ContextOfTest,
-    test_agent: Agent,
-    test_customer: Customer,
 ) -> None:
-    """Test that the pricing guideline is matched when a customer asks about pricing."""
-
     with run_server(context, extra_args=["--test"]):
-        create_session(context, test_agent.id, test_customer.id)
+        async with context.api.make_client() as client:
+            test_agent: Agent = await create_test_agent(client)
+            test_customer: Customer = await create_test_customer(client)
 
-        pricing_guideline = create_guideline_by_name(context, "pricing_query")
-        greeting_guideline = create_guideline_by_name(context, "greeting_response")
-        product_guideline = create_guideline_by_name(context, "product_inquiry")
+            await create_test_session(client, test_agent.id, test_customer.id)
 
-        conversation_history: list[tuple[EventSource, str]] = [
-            (EventSource.CUSTOMER, "Hello, I'm interested in your services."),
-            (EventSource.AI_AGENT, "Hi there! Welcome to our service. How can I help you today?"),
-            (EventSource.CUSTOMER, "Can you tell me how much your software costs?"),
-        ]
+            pricing_guideline = await create_guideline_by_name(client, "pricing_query")
+            greeting_guideline = await create_guideline_by_name(client, "greeting_response")
+            product_guideline = await create_guideline_by_name(client, "product_inquiry")
 
-        matched_guidelines: list[Guideline] = get_matched_guidelines(
-            context,
-            test_agent.id,
-            test_customer.id,
-            conversation_history,
-            [pricing_guideline, greeting_guideline, product_guideline],
-        )
+            conversation_history: list[tuple[EventSource, str]] = [
+                (EventSource.CUSTOMER, "Hello, I'm interested in your services."),
+                (
+                    EventSource.AI_AGENT,
+                    "Hi there! Welcome to our service. How can I help you today?",
+                ),
+                (EventSource.CUSTOMER, "Can you tell me how much your software costs?"),
+            ]
 
-        assert len(matched_guidelines) == 2
-        assert matched_guidelines[0].id == pricing_guideline.id
-        assert (
-            matched_guidelines[0].content.condition == GUIDELINES_DICT["pricing_query"]["condition"]
-        )
+            agent_id = test_agent.id
+            customer_id = test_customer.id
 
-        assert pricing_guideline in matched_guidelines
-        assert greeting_guideline in matched_guidelines
-        assert product_guideline not in matched_guidelines
+            session_id: SessionId = await get_session_id(client, agent_id, customer_id)
+
+            event_ids: list[str] = await add_customer_messages_to_session(
+                client, session_id, conversation_history
+            )
+
+            guidelines = [pricing_guideline, greeting_guideline, product_guideline]
+            guideline_ids: list[GuidelineId] = [guideline.id for guideline in guidelines]
+
+            matched_guidelines: list[Guideline] = await get_matched_guidelines(
+                client, agent_id, customer_id, event_ids, guideline_ids, guidelines
+            )
+
+            assert len(matched_guidelines) == 2
+            assert matched_guidelines[0].id == pricing_guideline.id
+            assert (
+                matched_guidelines[0].content.condition
+                == GUIDELINES_DICT["pricing_query"]["condition"]
+            )
+
+            assert pricing_guideline in matched_guidelines
+            assert greeting_guideline in matched_guidelines
+            assert product_guideline not in matched_guidelines

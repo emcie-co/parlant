@@ -56,6 +56,30 @@ parlant guideline create \
 # Now start a new conversation and greet the agent
 ```
 
+##### Using with LiteLLM (OpenRouter and Ollama)
+
+To run the Parlant server using LiteLLM, which allows integration with services like OpenRouter for language models and Ollama for embeddings, follow these steps:
+
+1.  **Set Environment Variables:**
+    Before starting the server, you need to configure the following environment variables:
+
+    *   `LITELLM_PROVIDER_API_KEY`: Your API key for OpenRouter.
+        *   Example: `export LITELLM_PROVIDER_API_KEY="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"`
+    *   `LITELLM_PROVIDER_MODEL_NAME`: The OpenRouter model you wish to use. Remember to prefix with `openrouter/`. You can find available models at [OpenRouter Models](https://openrouter.ai/models).
+        *   Example: `export LITELLM_PROVIDER_MODEL_NAME="openrouter/mistralai/mistral-7b-instruct"`
+    *   `OLLAMA_EMBEDDING_MODEL_NAME`: The name of the embedding model hosted by your Ollama instance (e.g., `nomic-embed-text`). The `ollama/` prefix is handled internally if not provided.
+        *   Example: `export OLLAMA_EMBEDDING_MODEL_NAME="nomic-embed-text"`
+        *   (Ensure you have this model in Ollama: `ollama pull nomic-embed-text`)
+    *   `OLLAMA_API_BASE`: The base URL for your Ollama server. This is typically `http://localhost:11434` if Ollama is running locally.
+        *   Example: `export OLLAMA_API_BASE="http://localhost:11434"`
+
+2.  **Start the Server with LiteLLM:**
+    Use the `--litellm` flag when running the server:
+    ```bash
+    parlant-server run --litellm
+    ```
+    Now, the server will use OpenRouter for LLM operations and Ollama for embeddings, based on your environment variable settings.
+
 #### Option 2: Use the Python SDK
 ```python
 # file: agent.py

@@ -63,7 +63,7 @@ class GuidelineMatchDTO(DefaultBaseModel):
     should_reapply: bool = False
 
 
-class GuidelienMatchingResultDTO(DefaultBaseModel):
+class GuidelineMatchingResultDTO(DefaultBaseModel):
     total_duration: float
     batch_count: int
     batch_generations: Sequence[GenerationInfoDTO]
@@ -102,7 +102,7 @@ def create_test_guideline_matching_router(
         "",
         status_code=status.HTTP_202_ACCEPTED,
         operation_id="match_guidelines",
-        response_model=GuidelienMatchingResultDTO,
+        response_model=GuidelineMatchingResultDTO,
         responses={
             status.HTTP_202_ACCEPTED: {
                 "description": "Guidelines successfully matched. Returns the matching results.",
@@ -115,7 +115,7 @@ def create_test_guideline_matching_router(
     )
     async def match_guidelines(
         params: GuidelineMatchingParamsDTO,
-    ) -> GuidelienMatchingResultDTO:
+    ) -> GuidelineMatchingResultDTO:
         agent = await agent_store.read_agent(params.agent_id)
         customer = await customer_store.read_customer(params.customer_id)
 
@@ -200,7 +200,7 @@ def create_test_guideline_matching_router(
             for batch in guideline_matching_result.batches
         ]
 
-        return GuidelienMatchingResultDTO(
+        return GuidelineMatchingResultDTO(
             total_duration=guideline_matching_result.total_duration,
             batch_count=guideline_matching_result.batch_count,
             batch_generations=batch_generations,

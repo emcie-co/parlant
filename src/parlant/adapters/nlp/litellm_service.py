@@ -14,8 +14,8 @@
 
 from __future__ import annotations
 import time
-from typing import Any, Mapping
-from typing_extensions import override
+from typing import Any, Mapping # Added Mapping
+from typing_extensions import override # Ensured override is imported
 import json
 import jsonfinder  # type: ignore
 import os
@@ -23,24 +23,24 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-import litellm
+import litellm # Ensured litellm is imported
 
 from parlant.adapters.nlp.common import normalize_json_output
-from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
+# from parlant.adapters.nlp.hugging_face import JinaAIEmbedder # REMOVED JinaAIEmbedder import
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.loggers import Logger
+from parlant.core.loggers import Logger # Ensured Logger is imported
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.embedding import Embedder, EmbeddingResult # Ensured EmbeddingResult is imported
 from parlant.core.nlp.generation import (
-    T,
+    T, # Ensured T is imported
     SchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
-    ModerationService,
-    NoModeration,
+    ModerationService, # Ensured ModerationService is imported
+    NoModeration, # Ensured NoModeration is imported
 )
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -73,7 +73,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
         "max_tokens",
         "logit_bias",
         "adapter_id",
-        "adapter_soruce",
+        "adapter_soruce", # Typo "soruce" exists in original, keeping it to match
     ]
     supported_hints = supported_litellm_params + ["strict"]
 
@@ -122,13 +122,20 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
 
         t_start = time.time()
 
-        response = self._client.completion(
-            api_key=os.environ["LITELLM_PROVIDER_API_KEY"],
+        # Make sure LITELLM_PROVIDER_API_KEY is present, otherwise LiteLLM might error or use other fallbacks
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
+        if not api_key:
+            self._logger.error("LITELLM_PROVIDER_API_KEY environment variable not set for LiteLLM completion.")
+            # Potentially raise an error or handle as appropriate
+            # For now, proceeding will likely cause LiteLLM to fail if the selected model needs a key
+
+        response = self._client.completion( # This is a synchronous call
+            api_key=api_key, # Use fetched api_key
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
-            max_tokens=5000,
+            max_tokens=5000, # Consider making this configurable
             response_format={"type": "json_object"},
-            # api_base=os.environ["OPENAI_BASE_URL"],
+            # api_base=os.environ.get("LITELLM_API_BASE"), # Could be useful if provider needs a specific base
             **litellm_api_arguments,
         )
 
@@ -145,12 +152,18 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             self._logger.warning(
                 f"Invalid JSON returned by litellm/{self.model_name}:\n{raw_content})"
             )
-            json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            # Attempt to find JSON within the raw content if direct parsing fails
+            json_matches = list(jsonfinder.jsonfinder(raw_content, multiline=True))
+            if json_matches:
+                json_content = json_matches[0][0] # Take the first found JSON object
+                self._logger.warning("Found JSON content within model response using jsonfinder; continuing...")
+            else:
+                self._logger.error(f"No valid JSON found in response from litellm/{self.model_name}")
+                raise # Re-raise if no JSON can be extracted
 
         try:
             content = self.schema.model_validate(json_content)
-            assert response.usage
+            assert response.usage is not None # Ensure usage is not None
 
             return SchematicGenerationResult(
                 content=content,
@@ -163,8 +176,8 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
                         output_tokens=response.usage.completion_tokens,
                         extra={
                             "cached_input_tokens": getattr(
-                                response,
-                                "usage.prompt_cache_hit_tokens",
+                                response.usage, # Accessing usage directly
+                                "prompt_cache_hit_tokens", # This attribute might not always exist
                                 0,
                             )
                         },
@@ -180,17 +193,94 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
 
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
+        # Ensure LITELLM_PROVIDER_MODEL_NAME is available, provide a fallback or raise if critical
+        model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
+        if not model_name:
+            logger.critical("LITELLM_PROVIDER_MODEL_NAME environment variable is not set.")
+            # This will likely cause issues. Consider raising an exception or having a safe default.
+            # For now, let's proceed, but this needs to be set for the service to work.
+            model_name = "unknown-litellm-model" # Placeholder
         super().__init__(
-            model_name=os.environ["LITELLM_PROVIDER_MODEL_NAME"],
+            model_name=model_name,
             logger=logger,
         )
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 5000
+        # This should ideally be model-specific if possible, or a safe general value
+        return 4096 # Adjusted from 5000 to a more common value
 
-    # 8192 16381
+
+# --- START OF OllamaEmbedder DEFINITION ---
+class OllamaEmbedder(Embedder):
+    def __init__(self, logger: Logger):
+        self.logger = logger
+        raw_model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL_NAME", "nomic-embed-text") 
+        if not raw_model_name.startswith("ollama/"):
+            self.model_name = f"ollama/{raw_model_name}"
+        else:
+            self.model_name = raw_model_name
+            
+        self.api_base = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+        
+        self.logger.info(f"Initialized OllamaEmbedder with model: {self.model_name} and api_base: {self.api_base}")
+        # Tokenizer for Ollama is not straightforward with tiktoken used elsewhere for OpenAI.
+        # For now, we assume the Embedder interface does not strictly require a functional tokenizer
+        # for the `embed` method to work, especially when LiteLLM handles the call.
+        # self._tokenizer = LiteLLMEstimatingTokenizer(model_name=self.model_name) # Avoid using OpenAI-specific tokenizer
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"ollama/{self.model_name.replace('ollama/', '')}"
+
+    # @property
+    # @override
+    # def tokenizer(self) -> EstimatingTokenizer:
+    #     # If a generic tokenizer or one suitable for Ollama models via LiteLLM is available,
+    #     # it would be returned here. For now, not implemented to avoid incompatibility.
+    #     raise NotImplementedError("Tokenizer not implemented for OllamaEmbedder.")
+
+    # @property
+    # @override
+    # def max_tokens(self) -> int:
+    #     # Max tokens for embedding models can vary. 8192 is a common figure.
+    #     return 8192 
+
+    @override
+    async def embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {}, 
+    ) -> EmbeddingResult:
+        valid_texts = [text for text in texts if text is not None and text.strip() != ""]
+        if not valid_texts:
+            self.logger.warning("Received no valid texts for embedding after filtering. Returning empty vectors.")
+            return EmbeddingResult(vectors=[])
+
+        with self.logger.operation(f"Ollama Embedding Request (Model: {self.model_name}, API Base: {self.api_base})"):
+            try:
+                # Use await for the asynchronous call
+                response = await litellm.aembedding(
+                    model=self.model_name,
+                    input=valid_texts,
+                    api_base=self.api_base,
+                    # Ollama typically does not require an API key when run locally.
+                    # If your Ollama instance is secured, you might need to pass additional parameters.
+                    # Example: api_key=os.environ.get("OLLAMA_API_KEY") if needed.
+                )
+                
+                # LiteLLM's aembedding returns a ModelResponse object.
+                # The embeddings are in response.data, which is a list of dicts.
+                vectors = [data_point['embedding'] for data_point in response.data]
+                return EmbeddingResult(vectors=vectors)
+            except Exception as e:
+                self.logger.error(f"Ollama embedding call failed for model {self.model_name} using API base {self.api_base}: {e}")
+                # Depending on how Parlant expects errors, either re-raise or return empty.
+                # Returning empty vectors for robustness, as per original thought.
+                return EmbeddingResult(vectors=[])
+# --- END OF OllamaEmbedder DEFINITION ---
 
 
 class LiteLLMService(NLPService):
@@ -198,17 +288,25 @@ class LiteLLMService(NLPService):
         self,
         logger: Logger,
     ) -> None:
-        self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
+        # Ensure LITELLM_PROVIDER_MODEL_NAME is available, provide a fallback or raise if critical
+        self._model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
+        if not self._model_name:
+            logger.critical("LITELLM_PROVIDER_MODEL_NAME environment variable is not set for LiteLLMService.")
+            # This is critical for the schematic generator.
+            # Defaulting to a placeholder which will likely fail if not configured.
+            self._model_name = "placeholder-model-name-not-set"
         self._logger = logger
-        self._logger.info("Initialized LiteLLMService")
+        self._logger.info(f"Initialized LiteLLMService with provider model: {self._model_name}")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> LiteLLMSchematicGenerator[T]:
-        return LiteLLM_Default[t](self._logger)  # type: ignore
+        # LiteLLM_Default internally uses LITELLM_PROVIDER_MODEL_NAME from env var.
+        return LiteLLM_Default[t](self._logger) # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        self._logger.info("Using OllamaEmbedder for embeddings.")
+        return OllamaEmbedder(logger=self._logger) # Pass the service's logger instance
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -12,20 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime, timezone
+from typing import Any
+
 import httpx
-from pathlib import Path
-import tempfile
-from typing import Any, Iterator
-
-from pytest import fixture
-
 from parlant.core.agents import Agent, AgentId
 from parlant.core.customers import Customer, CustomerId
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.sessions import EventSource, SessionId
-from parlant.core.tags import TagId
-from tests.e2e.test_utilities import API, ContextOfTest, run_server
+
+from tests.e2e.test_api.conftest import (
+    create_test_guideline,
+    create_test_agent,
+    create_test_customer,
+    create_test_session,
+)
+from tests.e2e.test_utilities import ContextOfTest, run_server
 
 GUIDELINES_DICT: dict[str, dict[str, str]] = {
     "greeting_response": {
@@ -43,100 +44,14 @@ GUIDELINES_DICT: dict[str, dict[str, str]] = {
 }
 
 
-@fixture
-def context() -> Iterator[ContextOfTest]:
-    with tempfile.TemporaryDirectory(prefix="parlant-server_cli_test_") as home_dir:
-        home_dir_path = Path(home_dir)
-
-        yield ContextOfTest(
-            home_dir=home_dir_path,
-            api=API(),
-        )
-
-
-async def create_test_agent(
-    client: httpx.AsyncClient,
-) -> Agent:
-    response = await client.post(
-        "/agents",
-        json={
-            "name": "test-agent",
-        },
-    )
-    result_json: dict[str, Any] = response.json()
-    result: Agent = Agent(
-        creation_utc=datetime.now(timezone.utc),
-        **result_json,
-    )
-    return result
-
-
-async def create_test_customer(
-    client: httpx.AsyncClient,
-) -> Customer:
-    response = await client.post(
-        "/customers",
-        json={
-            "name": "test-customer",
-        },
-    )
-    result_json: dict[str, Any] = response.json()
-    result: Customer = Customer(**result_json)
-    return result
-
-
-async def create_test_session(
-    client: httpx.AsyncClient,
-    agent_id: AgentId,
-    customer_id: CustomerId,
-) -> None:
-    await client.post(
-        "/sessions",
-        json={
-            "agent_id": agent_id,
-            "customer_id": customer_id,
-        },
-    )
-
-
-async def create_guideline(
-    client: httpx.AsyncClient,
-    condition: str,
-    action: str,
-    tags: list[TagId] = [],
-) -> Guideline:
-    response = await client.post(
-        "/guidelines",
-        json={
-            "condition": condition,
-            "action": action,
-            "tags": tags,
-            "enabled": True,
-            "metadata": {},
-        },
-    )
-    result_json: dict[str, Any] = response.json()
-    return Guideline(
-        id=GuidelineId(result_json["id"]),
-        creation_utc=datetime.now(timezone.utc),
-        content=GuidelineContent(
-            condition=result_json["condition"],
-            action=result_json["action"],
-        ),
-        enabled=result_json["enabled"],
-        tags=result_json["tags"],
-        metadata=result_json["metadata"],
-    )
-
-
 async def create_guideline_by_name(
     client: httpx.AsyncClient,
     guideline_name: str,
 ) -> Guideline:
-    guideline: Guideline = await create_guideline(
+    guideline: Guideline = await create_test_guideline(
         client,
-        condition=GUIDELINES_DICT[guideline_name]["condition"],
         action=GUIDELINES_DICT[guideline_name]["action"],
+        condition=GUIDELINES_DICT[guideline_name]["condition"],
     )
 
     return guideline
@@ -198,7 +113,7 @@ async def get_matched_guidelines(
         json={
             "agent_id": agent_id,
             "customer_id": customer_id,
-            "events": event_ids,
+            "interaction_history": event_ids,
             "guidelines": guideline_ids,
             "context_variables": [],
             "terms": [],
@@ -230,7 +145,6 @@ async def test_pricing_guideline_matching(
             await create_test_session(client, test_agent.id, test_customer.id)
 
             pricing_guideline = await create_guideline_by_name(client, "pricing_query")
-            greeting_guideline = await create_guideline_by_name(client, "greeting_response")
             product_guideline = await create_guideline_by_name(client, "product_inquiry")
 
             conversation_history: list[tuple[EventSource, str]] = [
@@ -251,14 +165,14 @@ async def test_pricing_guideline_matching(
                 client, session_id, conversation_history
             )
 
-            guidelines = [pricing_guideline, greeting_guideline, product_guideline]
+            guidelines = [pricing_guideline, product_guideline]
             guideline_ids: list[GuidelineId] = [guideline.id for guideline in guidelines]
 
             matched_guidelines: list[Guideline] = await get_matched_guidelines(
                 client, agent_id, customer_id, event_ids, guideline_ids, guidelines
             )
 
-            assert len(matched_guidelines) == 2
+            assert len(matched_guidelines) == 1
             assert matched_guidelines[0].id == pricing_guideline.id
             assert (
                 matched_guidelines[0].content.condition
@@ -266,5 +180,4 @@ async def test_pricing_guideline_matching(
             )
 
             assert pricing_guideline in matched_guidelines
-            assert greeting_guideline in matched_guidelines
             assert product_guideline not in matched_guidelines

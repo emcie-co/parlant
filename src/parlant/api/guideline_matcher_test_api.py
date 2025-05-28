@@ -81,20 +81,20 @@ class GuidelineMatchingParamsDTO(DefaultBaseModel):
     agent_id: AgentIdPath
     customer_id: CustomerIdPath
     context_variables: Sequence[ContextVariableIdPath]
-    events: Sequence[EventIdPath]
+    interaction_history: Sequence[EventIdPath]
     terms: Sequence[TermIdPath]
     staged_events: Sequence[EmittedEventDTO]
     guidelines: Sequence[GuidelineIdPath]
 
 
 def create_test_guideline_matching_router(
-    guideline_matcher: GuidelineMatcher,
     agent_store: AgentStore,
     customer_store: CustomerStore,
     context_variable_store: ContextVariableStore,
-    guideline_store: GuidelineStore,
-    glossary_store: GlossaryStore,
     session_store: SessionStore,
+    glossary_store: GlossaryStore,
+    guideline_store: GuidelineStore,
+    guideline_matcher: GuidelineMatcher,
 ) -> APIRouter:
     test_router = APIRouter()
 
@@ -135,15 +135,11 @@ def create_test_guideline_matching_router(
 
         session_id = sessions[0].id
         events: list[Event] = []
-        for event_id in params.events:
+        for event_id in params.interaction_history:
             event = await session_store.read_event(session_id, event_id)
             events.append(event)
 
-        terms: list[Term] = []
-        for term_id in params.terms:
-            if glossary_store:
-                term = await glossary_store.read_term(term_id)
-                terms.append(term)
+        terms: list[Term] = [await glossary_store.read_term(term_id) for term_id in params.terms]
 
         staged_events: list[EmittedEvent] = []
         for staged_event in params.staged_events:
@@ -163,6 +159,7 @@ def create_test_guideline_matching_router(
 
         guideline_matching_result = await guideline_matcher.match_guidelines(
             agent=agent,
+            session=sessions[0],
             customer=customer,
             context_variables=context_variables,
             interaction_history=events,
@@ -192,8 +189,6 @@ def create_test_guideline_matching_router(
                     score=match.score,
                     rationale=match.rationale,
                     guideline_previously_applied=match.guideline_previously_applied,
-                    guideline_is_continuous=match.guideline_is_continuous,
-                    should_reapply=match.should_reapply,
                 )
                 for match in batch
             ]

@@ -17,18 +17,37 @@ from fastapi import APIRouter, HTTPException, status
 
 from parlant.api.agents import AgentIdPath
 from parlant.api.common import JSONSerializableDTO, ToolNameField, apigen_config
+from parlant.api.context_variables import ContextVariableIdPath
 from parlant.api.customers import CustomerIdPath
-from parlant.api.sessions import EventCorrelationIdField, EventIdPath, EventKindDTO, EventSourceDTO
+from parlant.api.glossary import TermIdPath
+from parlant.api.journeys import JourneyIdPath
+from parlant.api.sessions import (
+    EventCorrelationIdField,
+    EventIdPath,
+    EventKindDTO,
+    EventSourceDTO,
+)
 from parlant.core.agents import AgentStore
 from parlant.core.common import DefaultBaseModel
-from parlant.core.context_variables import ContextVariable, ContextVariableValue
+from parlant.core.context_variables import (
+    ContextVariable,
+    ContextVariableStore,
+    ContextVariableValue,
+)
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
+    GuidelineMatch,
+    GuidelineMatchDTO,
+)
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCall, ToolCaller
-from parlant.core.glossary import Term
+from parlant.core.glossary import GlossaryStore, Term
+from parlant.core.guidelines import GuidelineStore
+from parlant.core.journeys import Journey, JourneyStore
+from parlant.core.loggers import Logger
 from parlant.core.sessions import Event, EventKind, EventSource, SessionStore
-from parlant.core.tools import Tool, ToolContext, ToolId, ToolService
+from parlant.core.tools import Tool, ToolContext, ToolId
+from parlant.core.services.tools.service_registry import ServiceRegistry
 
 
 API_GROUP = "engine_test"
@@ -69,17 +88,39 @@ class EmittedEventDTO(DefaultBaseModel):
 class ToolCallInferenceParamsDTO(DefaultBaseModel):
     agent_id: AgentIdPath
     customer_id: CustomerIdPath
-    events: Sequence[EventIdPath]
+    context_variables: Sequence[ContextVariableIdPath]
+    interaction_history: Sequence[EventIdPath]
+    terms: Sequence[TermIdPath]
+    ordinary_guideline_matches: Sequence[GuidelineMatchDTO]
+    tool_enabled_guideline_matches: Sequence[GuidelineMatchDTO]
+    journeys: Sequence[JourneyIdPath]
     staged_events: Sequence[EmittedEventDTO]
     available_tools: Sequence[ToolNameField]
 
 
+async def _convert_guideline_match(
+    guideline_store: GuidelineStore,
+    dto: GuidelineMatchDTO,
+) -> GuidelineMatch:
+    return GuidelineMatch(
+        await guideline_store.read_guideline(dto.guideline_id),
+        dto.score,
+        dto.rationale,
+        dto.guideline_previously_applied,
+    )
+
+
 def create_test_tool_call_inference_router(
-    tool_caller: ToolCaller,
     agent_store: AgentStore,
     customer_store: CustomerStore,
+    context_variable_store: ContextVariableStore,
     session_store: SessionStore,
-    tool_service: ToolService,
+    glossary_store: GlossaryStore,
+    guideline_store: GuidelineStore,
+    service_registry: ServiceRegistry,
+    journey_store: JourneyStore,
+    tool_caller: ToolCaller,
+    logger: Logger,
 ) -> APIRouter:
     test_router = APIRouter()
 
@@ -104,6 +145,13 @@ def create_test_tool_call_inference_router(
         agent = await agent_store.read_agent(params.agent_id)
         customer = await customer_store.read_customer(params.customer_id)
 
+        context_variables: list[tuple[ContextVariable, ContextVariableValue]] = []
+        for context_variable_id in params.context_variables:
+            context_variable = await context_variable_store.read_variable(context_variable_id)
+            context_variable_values = await context_variable_store.list_values(context_variable_id)
+            for _, context_variable_value in context_variable_values:
+                context_variables.append((context_variable, context_variable_value))
+
         sessions = await session_store.list_sessions(params.agent_id, params.customer_id)
         if len(sessions) == 0:
             raise HTTPException(
@@ -113,7 +161,7 @@ def create_test_tool_call_inference_router(
 
         session_id = sessions[0].id
         events: list[Event] = []
-        for event_id in params.events:
+        for event_id in params.interaction_history:
             event = await session_store.read_event(session_id, event_id)
             events.append(event)
 
@@ -121,8 +169,8 @@ def create_test_tool_call_inference_router(
         for staged_event in params.staged_events:
             staged_events.append(
                 EmittedEvent(
-                    source=EventSource(staged_event.source),
-                    kind=EventKind(staged_event.kind),
+                    source=EventSource(staged_event.source.value),
+                    kind=EventKind(staged_event.kind.value),
                     correlation_id=staged_event.correlation_id,
                     data=staged_event.data,
                 )
@@ -133,19 +181,40 @@ def create_test_tool_call_inference_router(
         for tool_id_str in params.available_tools:
             tool_id = ToolId.from_string(tool_id_str)
             tool_ids.append(tool_id)
-            tool = await tool_service.read_tool(tool_id.tool_name)
-            available_tools.append(tool)
 
-        context_variables: list[tuple[ContextVariable, ContextVariableValue]] = []
-        terms: list[Term] = []
-        ordinary_guideline_matches: list[GuidelineMatch] = []
-        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = {}
+            try:
+                tool_service = await service_registry.read_tool_service(tool_id.service_name)
+                tool = await tool_service.read_tool(tool_id.tool_name)
+                available_tools.append(tool)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tool '{tool_id.tool_name}' not found in service '{tool_id.service_name}': {str(e)}",
+                )
+
+        terms: list[Term] = [await glossary_store.read_term(term_id) for term_id in params.terms]
+
+        ordinary_guideline_matches: list[GuidelineMatch] = [
+            await _convert_guideline_match(guideline_store, match_dto)
+            for match_dto in params.ordinary_guideline_matches
+        ]
+
+        tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = {
+            await _convert_guideline_match(guideline_store, match_dto): [
+                ToolId.from_string(id) for id in (match_dto.associated_tool_ids or [])
+            ]
+            for match_dto in params.tool_enabled_guideline_matches
+        }
 
         tool_context = ToolContext(
             agent_id=agent.id,
             customer_id=customer.id,
             session_id=session_id,
         )
+
+        journeys: list[Journey] = [
+            await journey_store.read_journey(journey_id) for journey_id in params.journeys
+        ]
 
         tool_call_inference_result = await tool_caller.infer_tool_calls(
             agent=agent,
@@ -154,7 +223,7 @@ def create_test_tool_call_inference_router(
             terms=terms,
             ordinary_guideline_matches=ordinary_guideline_matches,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-            journeys=[],
+            journeys=journeys,
             staged_events=staged_events,
             tool_context=tool_context,
         )

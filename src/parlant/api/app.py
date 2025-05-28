@@ -60,7 +60,6 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import Guid
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCaller
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
 from parlant.core.journeys import JourneyStore
-from parlant.core.tools import LocalToolService
 from parlant.core.utterances import UtteranceStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
@@ -619,24 +618,29 @@ async def configure_test_router(
 ) -> AsyncIterator[FastAPI]:
     test_router_guideline_matching = (
         guideline_matcher_test_api.create_test_guideline_matching_router(
-            guideline_matcher=container[GuidelineMatcher],
             agent_store=container[AgentStore],
             customer_store=container[CustomerStore],
             context_variable_store=container[ContextVariableStore],
-            guideline_store=container[GuidelineStore],
-            glossary_store=container[GlossaryStore],
             session_store=container[SessionStore],
+            glossary_store=container[GlossaryStore],
+            guideline_store=container[GuidelineStore],
+            guideline_matcher=container[GuidelineMatcher],
         )
     )
     app.include_router(test_router_guideline_matching, prefix="/test/alpha/guideline-matching")
 
     test_router_tool_call_inference = (
         tool_call_inference_test_api.create_test_tool_call_inference_router(
-            tool_caller=container[ToolCaller],
             agent_store=container[AgentStore],
             customer_store=container[CustomerStore],
+            context_variable_store=container[ContextVariableStore],
             session_store=container[SessionStore],
-            tool_service=container[LocalToolService],
+            glossary_store=container[GlossaryStore],
+            guideline_store=container[GuidelineStore],
+            service_registry=container[ServiceRegistry],
+            journey_store=container[JourneyStore],
+            tool_caller=container[ToolCaller],
+            logger=container[Logger],
         )
     )
     app.include_router(test_router_tool_call_inference, prefix="/test/alpha/tool-call-inference")

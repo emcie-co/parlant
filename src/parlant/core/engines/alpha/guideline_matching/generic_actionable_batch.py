@@ -71,7 +71,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
         self._context = context
 
     @override
@@ -90,10 +90,19 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
             self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+        if not all(
+            any(batch_id == g.id for g in self._guidelines.values())
+            for batch_id in self._guidelines.keys()
+        ):
+            self._logger.warning(
+                "Completion:\nActionable guideline matching results are missing for some guidelines."
+            )
 
         matches = []
 
         for match in inference.content.checks:
+            if match.guideline_id not in self._guidelines:
+                continue
             if (match.applies_score >= 6) and (
                 (match.guideline_previously_applied in [None, "no"])
                 or match.guideline_should_reapply
@@ -102,7 +111,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                 matches.append(
                     GuidelineMatch(
-                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        guideline=self._guidelines[match.guideline_id],
                         score=match.applies_score,
                         rationale=f'''Condition Application: "{match.condition_application_rationale}"; Guideline Previously Applied: "{"; ".join(
                             [r.rationale for r in match.guideline_previously_applied_rationale]
@@ -182,7 +191,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> PromptBuilder:
         result_structure = [
             {
-                "guideline_id": g.id,
+                "guideline_id": batch_id,
                 "condition": g.content.condition,
                 "condition_application_rationale": "<Explanation for why the condition is or isn't met>",
                 "condition_applies": "<BOOL>",
@@ -201,7 +210,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                 "guideline_should_reapply": "<BOOL: Optional, only necessary if guideline_previously_applied is not 'no'>",
                 "applies_score": "<Relevance score of the guideline between 1 and 10. A higher score indicates that the guideline should be active>",
             }
-            for g in self._guidelines.values()
+            for batch_id, g in self._guidelines.items()
         ]
         guidelines_text = "\n".join(
             f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
@@ -315,7 +324,6 @@ Expected Output
                 "guidelines_len": len(self._guidelines),
             },
         )
-
         return builder
 
 

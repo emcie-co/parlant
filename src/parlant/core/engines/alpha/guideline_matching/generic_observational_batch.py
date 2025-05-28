@@ -57,7 +57,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
         self._context = context
 
     @override
@@ -76,16 +76,22 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
             self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+        if not all(
+            any(batch_id == g.id for g in self._guidelines.values())
+            for batch_id in self._guidelines.keys()
+        ):
+            self._logger.warning(
+                "Completion:\n Observational guideline matching results are missing for some guidelines."
+            )
 
         matches = []
 
         for match in inference.content.checks:
-            if match.applies:
+            if match.guideline_id in self._guidelines and match.applies:
                 self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
-
                 matches.append(
                     GuidelineMatch(
-                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        guideline=self._guidelines[match.guideline_id],
                         score=10 if match.applies else 1,
                         rationale=f'''Condition Application: "{match.rationale}"''',
                         guideline_previously_applied=PreviouslyAppliedType("irrelevant"),
@@ -158,12 +164,12 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> PromptBuilder:
         result_structure = [
             {
-                "guideline_id": g.id,
+                "guideline_id": batch_id,
                 "condition": g.content.condition,
                 "rationale": "<Explanation for why the condition is or isn't met>",
                 "applies": "<BOOL>",
             }
-            for g in self._guidelines.values()
+            for batch_id, g in self._guidelines.items()
         ]
         conditions_text = "\n".join(
             f"{i}) {g.content.condition}." for i, g in self._guidelines.items()

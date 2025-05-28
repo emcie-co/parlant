@@ -6512,4 +6512,4 @@ together = ["together", "torch", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "576780bd541187081ff26ced4ea10a0a01c09f46da8c85488342807dfa2b94f6"
+content-hash = "2109b4e3524ef16bd6f034917e100df4c22aa78523b36a353cbd6751adfe5e46"

@@ -124,10 +124,11 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
                 json_content = jsonfinder.only_json(raw_content)[2]
                 self._logger.warning(f"Extracted JSON: {json.dumps(json_content, indent=2)}")
 
+            content = self.schema.model_validate(json_content)
+            input_tokens = response.usage.prompt_tokens if response.usage else await self._tokenizer.estimate_token_count(formatted_prompt)
+            output_tokens = response.usage.completion_tokens if response.usage else await self._tokenizer.estimate_token_count(raw_content)
             try:
-                content = self.schema.model_validate(json_content)
-                input_tokens = response.usage.prompt_tokens if response.usage else await self._tokenizer.estimate_token_count(formatted_prompt)
-                output_tokens = response.usage.completion_tokens if response.usage else await self._tokenizer.estimate_token_count(raw_content)
+                
 
                 self._logger.info(f"Successful generation for schema {self.schema.__name__}")
                 return SchematicGenerationResult(

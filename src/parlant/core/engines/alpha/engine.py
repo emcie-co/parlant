@@ -793,6 +793,8 @@ class AlphaEngine(Engine):
             guidelines=all_stored_guidelines,
         )
 
+        context.guideline_matcher_running_time = matching_result.total_duration
+
         # Step 4: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
         journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
@@ -987,8 +989,6 @@ class AlphaEngine(Engine):
             staged_events=context.state.tool_events,
             guideline_matches=matches_to_analyze,
         )
-
-        context.guideline_matcher_running_time = analysis_result.total_duration
 
         applied_guideline_ids = [
             p.guideline.id

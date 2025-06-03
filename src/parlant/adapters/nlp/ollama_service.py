@@ -33,6 +33,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.adapters.nlp.common import normalize_json_output
 import jsonfinder
+import re
 
 class OllamaEstimatingTokenizer(EstimatingTokenizer):
     """A simple tokenizer for estimating token count for local models."""
@@ -84,144 +85,51 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
                 return await self._do_generate(prompt, hints)
 
     async def _do_generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> SchematicGenerationResult[T]:
+    self,
+    prompt: str | PromptBuilder,
+    hints: Mapping[str, Any] = {},
+) -> SchematicGenerationResult[T]:
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
+
+        # Minimal instruction to guide JSON output
+        formatted_prompt = f"Generate a JSON response:\n{prompt}"
 
         ollama_api_arguments = {k: v for k, v in hints.items() if k in self.supported_ollama_params}
 
         try:
             t_start = time.time()
-            response = await self._client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=self.model_name,
-                response_format={"type": "json_object"},
-                **ollama_api_arguments,
-            )
-            t_end = time.time()
-        except (APIConnectionError, APITimeoutError, RateLimitError, BadRequestError) as e:
-            self._logger.error(f"Ollama API error: {str(e)}")
-            raise
-
-        raw_content = response.choices[0].message.content or "{}"
-
-        try:
-            json_content = json.loads(normalize_json_output(raw_content))
-        except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
-            json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
-
-        try:
-            content = self.schema.model_validate(json_content)
-            input_tokens = await self._tokenizer.estimate_token_count(prompt)
-            output_tokens = await self._tokenizer.estimate_token_count(raw_content)
-
-            return SchematicGenerationResult(
-                content=content,
-                info=GenerationInfo(
-                    schema_name=self.schema.__name__,
-                    model=self.id,
-                    duration=(t_end - t_start),
-                    usage=UsageInfo(
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        extra={},
-                    ),
-                ),
-            )
-        except ValidationError as e:
-            self._logger.error(
-                f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
-            )
-            raise
-
-class LMStudioSchematicGenerator(OllamaSchematicGenerator[T]):
-    """Schematic generator for LM Studio models."""
-    def __init__(self, model_name: str, logger: Logger) -> None:
-        super().__init__(model_name=model_name, logger=logger, base_url="http://localhost:1234/v1")
-
-    @property
-    @override
-    def id(self) -> str:
-        return f"lmstudio/{self.model_name}"
-
-    @override
-    async def _do_generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> SchematicGenerationResult[T]:
-        if isinstance(prompt, PromptBuilder):
-            prompt = prompt.build()
-
-        # Format prompt for Gemma 3
-        formatted_prompt = (
-            f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>assistant\n"
-        )
-
-        lmstudio_api_arguments = {k: v for k, v in hints.items() if k in self.supported_ollama_params}
-
-        # Simplified JSON schema
-        json_schema = {
-            "name": self.schema.__name__,
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "produced_reply": {"type": "boolean"},
-                    "produced_reply_rationale": {"type": ["string", "null"]},
-                    "revisions": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "revision_number": {"type": "integer"},
-                                "content": {"type": "string"},
-                                "is_repeat_message": {"type": "boolean"},
-                                "followed_all_instructions": {"type": "boolean"},
-                                "all_facts_and_services_sourced_from_prompt": {"type": "boolean"},
-                                "further_revisions_required": {"type": "boolean"}
-                            },
-                            "required": ["revision_number", "content", "is_repeat_message", "followed_all_instructions"],
-                            "additionalProperties": True
-                        }
-                    }
-                },
-                "required": ["produced_reply", "revisions"],
-                "additionalProperties": True
-            }
-        }
-
-        try:
-            t_start = time.time()
-            self._logger.debug(f"Sending LM Studio request: model={self.model_name}, prompt={formatted_prompt}, schema={json.dumps(json_schema, indent=2)}")
+            self._logger.info(f"Sending Ollama request: model={self.model_name}, prompt={formatted_prompt[:1000]}, args={ollama_api_arguments}")
             response = await self._client.chat.completions.create(
                 messages=[{"role": "user", "content": formatted_prompt}],
                 model=self.model_name,
-                response_format={"type": "json_schema", "json_schema": json_schema},
-                **lmstudio_api_arguments,
+                **ollama_api_arguments,
             )
             t_end = time.time()
+            self._logger.info(f"Ollama response received in {t_end - t_start:.2f}s")
+
+            if response.usage:
+                self._logger.info(f"Usage: {response.usage.model_dump_json(indent=2)}")
+            else:
+                self._logger.warning("No usage data in response")
 
             raw_content = response.choices[0].message.content or "{}"
-            self._logger.debug(f"Raw response: {raw_content}")
+            self._logger.info(f"Raw response: {raw_content}")
 
             try:
                 json_content = json.loads(normalize_json_output(raw_content))
+                self._logger.info(f"Parsed JSON: {json.dumps(json_content, indent=2)}")
             except json.JSONDecodeError:
                 self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
                 json_content = jsonfinder.only_json(raw_content)[2]
-                self._logger.warning("Found JSON content within model response; continuing...")
+                self._logger.warning(f"Extracted JSON: {json.dumps(json_content, indent=2)}")
 
             try:
                 content = self.schema.model_validate(json_content)
                 input_tokens = response.usage.prompt_tokens if response.usage else await self._tokenizer.estimate_token_count(formatted_prompt)
                 output_tokens = response.usage.completion_tokens if response.usage else await self._tokenizer.estimate_token_count(raw_content)
 
+                self._logger.info(f"Successful generation for schema {self.schema.__name__}")
                 return SchematicGenerationResult(
                     content=content,
                     info=GenerationInfo(
@@ -231,7 +139,7 @@ class LMStudioSchematicGenerator(OllamaSchematicGenerator[T]):
                         usage=UsageInfo(
                             input_tokens=input_tokens,
                             output_tokens=output_tokens,
-                            extra={},
+                            extra={"cached_input_tokens": 0},
                         ),
                     ),
                 )
@@ -239,25 +147,62 @@ class LMStudioSchematicGenerator(OllamaSchematicGenerator[T]):
                 self._logger.error(
                     f"Validation error: {e.json(indent=2)}\nJSON content: {json.dumps(json_content, indent=2)}"
                 )
+                # Fallback for MessageSchema-specific case
+                if self.schema.__name__ == "MessageSchema":
+                    last_message_match = re.search(r'"last_message_of_customer":\s*"([^"]*)"', prompt if isinstance(prompt, str) else prompt.build())
+                    last_message = last_message_match.group(1) if last_message_match else None
+                    fallback_content = (
+                        f"I'm sorry, I couldn't fully understand your request{'' if not last_message else f': \"{last_message}\"'}. "
+                        "Could you clarify or provide more details?"
+                    )
+                    self._logger.info("Returning MessageSchema fallback response")
+                    return SchematicGenerationResult(
+                        content=self.schema(
+                            produced_reply=True,
+                            produced_reply_rationale=None,
+                            guidelines=[],
+                            context_evaluation={
+                                "most_recent_customer_inquiries_or_needs": last_message,
+                                "was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs": False,
+                                "should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs": True
+                            },
+                            insights=["Unable to process due to validation error"],
+                            revisions=[{
+                                "revision_number": 1,
+                                "content": fallback_content,
+                                "is_repeat_message": False,
+                                "followed_all_instructions": False,
+                                "all_facts_and_services_sourced_from_prompt": True,
+                                "further_revisions_required": False
+                            }]
+                        ),
+                        info=GenerationInfo(
+                            schema_name=self.schema.__name__,
+                            model=self.id,
+                            duration=(t_end - t_start),
+                            usage=UsageInfo(
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                                extra={"validation_error": str(e), "cached_input_tokens": 0},
+                            ),
+                        ),
+                    )
                 raise
         except (APIConnectionError, APITimeoutError, RateLimitError, BadRequestError) as e:
-            self._logger.error(f"LM Studio API error: {str(e)}, response: {getattr(e, 'response', 'No response')}")
+            self._logger.error(f"Ollama API error: {str(e)}, response: {getattr(e, 'response', 'No response')}")
+            raise
+        except Exception as e:
+            self._logger.error(f"Unexpected error in _do_generate: {str(e)}")
             raise
 
+
+    
 class OllamaLlama3Generator(OllamaSchematicGenerator[T]):
-    """Schematic generator for Llama 3 model via Ollama."""
+    """Schematic generator for models via Ollama."""
     def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="llama3", logger=logger)
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 8192
-
-class LMStudioGemma3Generator(LMStudioSchematicGenerator[T]):
-    """Schematic generator for Gemma 3 4B Instruct QAT model via LM Studio."""
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gemma-3-4b-it-qat", logger=logger)
+        selected_model = os.environ.get("OLLAMA_MODEL", "gemma3:latest")
+        super().__init__(model_name=selected_model, logger=logger)
+        self._logger.info(f"Initialized OllamaModelGenerator with model: {selected_model}")
 
     @property
     @override
@@ -336,8 +281,6 @@ class OllamaService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OllamaSchematicGenerator[T]:
-        if self._use_lm_studio:
-            return LMStudioGemma3Generator[t](self._logger)  # type: ignore
         return OllamaLlama3Generator[t](self._logger)  # type: ignore
 
     @override

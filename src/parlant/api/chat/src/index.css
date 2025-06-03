@@ -2,6 +2,7 @@
 @import url('/fonts/ubuntu-sans/ubuntu_sans.css');
 @import url('/fonts/ubuntu-mono/ubuntu_mono.css');
 @import url('/fonts/Inter/inter.css');
+@import url('/fonts/ibm-plex-mono/ibm-plex-mono.css');
 
 @tailwind base;
 @tailwind components;

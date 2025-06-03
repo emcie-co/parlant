@@ -38,8 +38,11 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposition,
 )
 from parlant.core.engines.alpha.message_generator import MessageGenerator
+from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.journeys import Journey
+from parlant.core.tags import Tag
 from parlant.core.utterances import Utterance, UtteranceId, UtteranceStore
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -67,14 +70,20 @@ DEFAULT_NO_MATCH_UTTERANCE = "Not sure I understand. Could you please say that a
 class UtteranceDraftSchema(DefaultBaseModel):
     last_message_of_user: Optional[str]
     guidelines: list[str]
+    journey_state: Optional[str] = None
     insights: Optional[list[str]] = None
-    message: Optional[str] = None
+    response_preamble_that_was_already_sent: Optional[str] = None
+    response_body: Optional[str] = None
 
 
 class UtteranceSelectionSchema(DefaultBaseModel):
     reasoning: Optional[str] = None
     chosen_template_id: Optional[str] = None
     match_quality: Optional[str] = None
+
+
+class UtteranceFluidPreambleSchema(DefaultBaseModel):
+    preamble: str
 
 
 class UtteranceRevisionSchema(DefaultBaseModel):
@@ -102,8 +111,9 @@ class _UtteranceSelectionResult:
     utterances: list[tuple[UtteranceId, str]]
 
 
-@dataclass(frozen=True)
+@dataclass
 class UtteranceContext:
+    event_emitter: EventEmitter
     agent: Agent
     customer: Customer
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
@@ -152,6 +162,7 @@ class StandardFieldExtraction(UtteranceFieldExtractionMethod):
             },
             "missing_params": self._extract_missing_params(context.tool_insights),
             "invalid_params": self._extract_invalid_params(context.tool_insights),
+            "glossary": {term.name: term.description for term in context.terms},
         }
 
     def _extract_missing_params(
@@ -389,6 +400,8 @@ class UtteranceSelector(MessageEventComposer):
         utterance_draft_generator: SchematicGenerator[UtteranceDraftSchema],
         utterance_selection_generator: SchematicGenerator[UtteranceSelectionSchema],
         utterance_composition_generator: SchematicGenerator[UtteranceRevisionSchema],
+        utterance_fluid_preamble_generator: SchematicGenerator[UtteranceFluidPreambleSchema],
+        perceived_performance_policy: PerceivedPerformancePolicy,
         utterance_store: UtteranceStore,
         field_extractor: UtteranceFieldExtractor,
         message_generator: MessageGenerator,
@@ -398,7 +411,9 @@ class UtteranceSelector(MessageEventComposer):
         self._utterance_draft_generator = utterance_draft_generator
         self._utterance_selection_generator = utterance_selection_generator
         self._utterance_composition_generator = utterance_composition_generator
+        self._utterance_fluid_preamble_generator = utterance_fluid_preamble_generator
         self._utterance_store = utterance_store
+        self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
         self._message_generator = message_generator
         self._cached_utterance_fields: dict[UtteranceId, set[str]] = {}
@@ -411,7 +426,94 @@ class UtteranceSelector(MessageEventComposer):
         return supported_shots
 
     @override
-    async def generate_response_message_events(
+    async def generate_preamble(
+        self,
+        event_emitter: EventEmitter,
+        agent: Agent,
+        customer: Customer,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
+        tool_insights: ToolInsights,
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[MessageEventComposition]:
+        if agent.composition_mode not in [
+            # TODO: Add support for fluid and strict mode (and adjust the tests accordingly)
+            CompositionMode.COMPOSITED_UTTERANCE,
+        ]:
+            return []
+
+        last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
+
+        await event_emitter.emit_status_event(
+            correlation_id=f"{self._correlator.correlation_id}.preamble",
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "typing",
+                "data": {},
+            },
+        )
+
+        prompt_builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.debug(f"Utterance Preamble Prompt:\n{prompt}")
+        )
+
+        prompt_builder.add_agent_identity(agent)
+
+        prompt_builder.add_section(
+            name="utterance-fluid-preamble-instructions",
+            template="""\
+You are an AI agent that is expected to generate a preamble message for the customer.
+
+The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble in order to save time.
+You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
+
+Example preamble messages:
+- "Hey there!"
+- "Just a moment."
+- "Hello."
+- "Sorry to hear that."
+- "Definitely."
+- "Let me check that for you."
+etc.
+
+Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
+We leave that later response to another agent. Make sure you understand this.
+
+You must generate the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string.
+
+You will now be given the current state of the interaction to which you must generate the next preamble message.
+""",
+            props={},
+        )
+
+        prompt_builder.add_interaction_history(interaction_history)
+
+        response = await self._utterance_fluid_preamble_generator.generate(
+            prompt=prompt_builder, hints={"temperature": 0.1}
+        )
+
+        self._logger.debug(
+            f"Utterance Preamble Completion:\n{response.content.model_dump_json(indent=2)}"
+        )
+
+        emitted_event = await event_emitter.emit_message_event(
+            correlation_id=f"{self._correlator.correlation_id}.preamble",
+            data=response.content.preamble,
+        )
+
+        return [
+            MessageEventComposition(
+                generation_info={"message": response.info},
+                events=[emitted_event],
+            )
+        ]
+
+    @override
+    async def generate_response(
         self,
         event_emitter: EventEmitter,
         agent: Agent,
@@ -445,7 +547,7 @@ class UtteranceSelector(MessageEventComposer):
                             latch=latch,
                         )
             except FluidUtteranceFallback:
-                return await self._message_generator.generate_response_message_events(
+                return await self._message_generator.generate_response(
                     event_emitter,
                     agent,
                     customer,
@@ -464,10 +566,38 @@ class UtteranceSelector(MessageEventComposer):
         self,
         context: UtteranceContext,
     ) -> list[Utterance]:
-        stored_utterances = list(await self._utterance_store.list_utterances())
+        query = ""
 
+        if context.context_variables:
+            query += f"\n{context_variables_to_json(context.context_variables)}"
+
+        if context.interaction_history:
+            query += str([e.data for e in context.interaction_history])
+
+        if context.guidelines:
+            query += str(
+                [
+                    f"When {g.guideline.content.condition}, then {g.guideline.content.action}"
+                    if g.guideline.content.action
+                    else f"When {g.guideline.content.condition}"
+                    for g in context.guidelines
+                ]
+            )
+
+        if context.staged_events:
+            query += str([e.data for e in context.staged_events])
+
+        tags = [Tag.for_agent_id(context.agent.id)]
+
+        stored_utterances = list(
+            await self._utterance_store.find_relevant_utterances(
+                query,
+                tags=tags,
+            )
+        )
+
+        # Add utterances from staged tool events (transient)
         utterances_by_staged_event: list[Utterance] = []
-
         for event in context.staged_events:
             if event.kind == EventKind.TOOL:
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
@@ -546,6 +676,7 @@ class UtteranceSelector(MessageEventComposer):
             return []
 
         context = UtteranceContext(
+            event_emitter=event_emitter,
             agent=agent,
             customer=customer,
             context_variables=context_variables,
@@ -563,17 +694,6 @@ class UtteranceSelector(MessageEventComposer):
         if not utterances and agent.composition_mode == CompositionMode.FLUID_UTTERANCE:
             self._logger.warning("No utterances found; falling back to fluid generation")
             raise FluidUtteranceFallback()
-
-        last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
-
-        await event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
-            data={
-                "acknowledged_offset": last_known_event_offset,
-                "status": "typing",
-                "data": {},
-            },
-        )
 
         generation_attempt_temperatures = {
             0: 0.1,
@@ -596,7 +716,7 @@ class UtteranceSelector(MessageEventComposer):
                     latch.enable()
 
                 if result is not None:
-                    sub_messages = result.message.split("\n\n")
+                    sub_messages = result.message.strip().split("\n\n")
                     events = []
 
                     while sub_messages:
@@ -614,6 +734,26 @@ class UtteranceSelector(MessageEventComposer):
 
                         events.append(event)
 
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "acknowledged_offset": 0,
+                                "status": "ready",
+                                "data": {},
+                            },
+                        )
+
+                        await self._perceived_performance_policy.get_follow_up_delay()
+
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "acknowledged_offset": 0,
+                                "status": "typing",
+                                "data": {},
+                            },
+                        )
+
                         if next_message := sub_messages[0] if sub_messages else None:
                             typing_speed_in_words_per_minute = 50
 
@@ -627,7 +767,7 @@ class UtteranceSelector(MessageEventComposer):
                                 initial_delay += (
                                     word_count_for_the_message_that_was_just_sent
                                     / typing_speed_in_words_per_minute
-                                ) * 3
+                                ) * 2
 
                             word_count_for_next_message = len(next_message.split())
 
@@ -660,7 +800,9 @@ class UtteranceSelector(MessageEventComposer):
         ordinary: Sequence[GuidelineMatch],
         tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
     ) -> str:
-        all_matches = list(chain(ordinary, tool_enabled))
+        all_matches = [
+            match for match in chain(ordinary, tool_enabled) if match.guideline.content.action
+        ]
 
         if not all_matches:
             return """
@@ -766,6 +908,7 @@ Always abide by the following general principles (note these are not the "guidel
 """,
             props={},
         )
+
         if not interaction_history or all(
             [event.kind != EventKind.MESSAGE for event in interaction_history]
         ):
@@ -778,8 +921,10 @@ If you decide not to emit a message, output the following:
 {{
     "last_message_of_user": "<user's last message>",
     "guidelines": [<list of strings- a re-statement of all guidelines>],
+    "journey_state": "<current state of the journey(s), if any>",
     "insights": [<list of strings- up to 3 original insights>],
-    "message": null
+    "response_preamble_that_was_already_sent": null,
+    "response_body": null
 }}
 Otherwise, follow the rest of this prompt to choose the content of your response.
         """,
@@ -924,7 +1069,7 @@ You should inform the user about this invalid data: ###
         builder.add_section(
             name="utterance-selector-output-format",
             template="""
-Produce a valid JSON object in the following format: ###
+Produce a valid JSON object according to the following spec. Use the values provided as follows, and only replace those in <angle brackets> with appropriate values: ###
 
 {formatted_output_format}
 """,
@@ -934,11 +1079,14 @@ Produce a valid JSON object in the following format: ###
                     list(chain(ordinary_guideline_matches, tool_enabled_guideline_matches)),
                 ),
                 "interaction_history": interaction_history,
-                "guidelines": list(
-                    chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
-                ),
+                "guidelines": [
+                    g
+                    for g in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
+                    if g.guideline.content.action
+                ],
             },
         )
+
         return builder
 
     def _get_draft_output_format(
@@ -946,26 +1094,53 @@ Produce a valid JSON object in the following format: ###
         interaction_history: Sequence[Event],
         guidelines: Sequence[GuidelineMatch],
     ) -> str:
-        last_user_message = next(
+        last_user_message_event = next(
             (
-                event.data["message"] if not event.data.get("flagged", False) else "<N/A>"
+                event
                 for event in reversed(interaction_history)
-                if (
-                    event.kind == EventKind.MESSAGE
-                    and event.source == EventSource.CUSTOMER
-                    and isinstance(event.data, dict)
-                )
+                if (event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER)
             ),
-            "",
+            None,
         )
-        guidelines_list_text = ", ".join([f'"{g.guideline}"' for g in guidelines])
+
+        agent_preamble = ""
+
+        if event := last_user_message_event:
+            event_data = cast(MessageEventData, event.data)
+
+            last_user_message = (
+                event_data["message"]
+                if not event_data.get("flagged", False)
+                else "<N/A -- censored>"
+            )
+
+            agent_preamble = next(
+                (
+                    cast(MessageEventData, event.data)["message"]
+                    for event in reversed(interaction_history)
+                    if (
+                        event.kind == EventKind.MESSAGE
+                        and event.source == EventSource.AI_AGENT
+                        and event.offset > last_user_message_event.offset
+                    )
+                ),
+                "",
+            )
+        else:
+            last_user_message = ""
+
+        guidelines_list_text = ", ".join(
+            [f'"{g.guideline}"' for g in guidelines if g.guideline.content.action]
+        )
 
         return f"""
 {{
     "last_message_of_user": "{last_user_message}",
     "guidelines": [{guidelines_list_text}],
+    "journey_state": "<current state of the journey(s), if any>",
     "insights": [<Up to 3 original insights to adhere to>],
-    "message": "<message text>"
+    "response_preamble_that_was_already_sent": "{agent_preamble}",
+    "response_body": "<response message text (that would immediately follow the preamble)>"
 }}
 ###"""
 
@@ -982,10 +1157,8 @@ Produce a valid JSON object in the following format: ###
         if context.guidelines:
             formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
 
-            for g in context.guidelines:
-                formatted_guidelines += (
-                    f"\n- When {g.guideline.content.condition}, then {g.guideline.content.action}."
-                )
+            for guideline in [g for g in context.guidelines if g.guideline.content.action]:
+                formatted_guidelines += f"\n- When {guideline.guideline.content.condition}, then {guideline.guideline.content.action}."
 
             formatted_guidelines += "\n###"
         else:
@@ -1003,7 +1176,9 @@ Produce a valid JSON object in the following format: ###
 3. You are presented with a number of Jinja2 reply templates to choose from. These templates have been pre-approved by business stakeholders for producing fluent customer-facing AI conversations.
 4. Your role is to choose (classify) the pre-approved reply template that MOST faithfully captures the human operator's draft reply.
 5. Note that there may be multiple relevant choices. Out of those, you must choose the MOST suitable one that is MOST LIKE the human operator's draft reply.
-6. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
+6. In cases where there are multiple templates that provide a partial match, you may encounter different types of partial matches. Prefer templates that do not deviate from the draft message semantically, even if they only address part of the draft message. They are better than a template that would have captured multiple parts of the draft message while introducing semantic deviations. In other words, better to match fewer parts with higher semantic fidelity than to match more parts with lower semantic fidelity.
+7. If there is any noticeable semantic deviation between the draft message and the template, i.e., the draft says "Do X" and the template says "Do Y" (even if Y is a sibling concept under the same category as X), you should not choose that template, even if it captures other parts of the draft message. We want to maintain true fidelity with the draft message.
+8. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
         )
 
         builder.add_interaction_history(context.interaction_history)
@@ -1033,12 +1208,11 @@ Output a JSON object with three properties:
                 "draft_message": draft_message,
                 "utterances": utterances,
                 "formatted_utterances": formatted_utterances,
-                "guidelines": context.guidelines,
+                "guidelines": [g for g in context.guidelines if g.guideline.content.action],
                 "formatted_guidelines": formatted_guidelines,
                 "composition_mode": context.agent.composition_mode,
             },
         )
-
         return builder
 
     async def _generate_utterance(
@@ -1048,6 +1222,10 @@ Output a JSON object with three properties:
         composition_mode: CompositionMode,
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_UtteranceSelectionResult]]:
+        last_known_event_offset = (
+            context.interaction_history[-1].offset if context.interaction_history else -1
+        )
+
         draft_prompt = self._build_draft_prompt(
             agent=context.agent,
             context_variables=context.context_variables,
@@ -1063,6 +1241,19 @@ Output a JSON object with three properties:
             shots=await self.shots(context.agent.composition_mode),
         )
 
+        if (
+            not utterances
+            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
+        ):
+            await context.event_emitter.emit_status_event(
+                correlation_id=self._correlator.correlation_id,
+                data={
+                    "acknowledged_offset": last_known_event_offset,
+                    "status": "typing",
+                    "data": {},
+                },
+            )
+
         draft_response = await self._utterance_draft_generator.generate(
             prompt=draft_prompt,
             hints={"temperature": temperature},
@@ -1072,13 +1263,34 @@ Output a JSON object with three properties:
             f"Utterance Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
 
-        if not draft_response.content.message:
+        if not draft_response.content.response_body:
             return {"draft": draft_response.info}, None
+
+        if (
+            not utterances
+            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
+        ):
+            return {
+                "draft": draft_response.info,
+            }, _UtteranceSelectionResult(
+                message=draft_response.content.response_body,
+                draft=draft_response.content.response_body,
+                utterances=[],
+            )
+
+        await context.event_emitter.emit_status_event(
+            correlation_id=self._correlator.correlation_id,
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "typing",
+                "data": {},
+            },
+        )
 
         selection_response = await self._utterance_selection_generator.generate(
             prompt=self._build_selection_prompt(
                 context=context,
-                draft_message=draft_response.content.message,
+                draft_message=draft_response.content.response_body,
                 utterances=utterances,
             ),
             hints={"temperature": 0.1},
@@ -1100,14 +1312,14 @@ Output a JSON object with three properties:
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
-                }, _UtteranceSelectionResult.no_match(draft=draft_response.content.message)
+                }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
             else:
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
                 }, _UtteranceSelectionResult(
-                    message=draft_response.content.message,
-                    draft=draft_response.content.message,
+                    message=draft_response.content.response_body,
+                    draft=draft_response.content.response_body,
                     utterances=[],
                 )
 
@@ -1119,8 +1331,8 @@ Output a JSON object with three properties:
                 "draft": draft_response.info,
                 "selection": selection_response.info,
             }, _UtteranceSelectionResult(
-                message=draft_response.content.message,
-                draft=draft_response.content.message,
+                message=draft_response.content.response_body,
+                draft=draft_response.content.response_body,
                 utterances=[],
             )
 
@@ -1136,7 +1348,7 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.message)
+            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
 
         try:
             rendered_utterance = await self._render_utterance(context, utterance)
@@ -1147,7 +1359,7 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.message)
+            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
 
         match composition_mode:
             case CompositionMode.COMPOSITED_UTTERANCE if (
@@ -1155,7 +1367,7 @@ Output a JSON object with three properties:
             ):
                 recomposition_generation_info, recomposed_utterance = await self._recompose(
                     context,
-                    draft_response.content.message,
+                    draft_response.content.response_body,
                     rendered_utterance,
                 )
 
@@ -1165,7 +1377,7 @@ Output a JSON object with three properties:
                     "composition": recomposition_generation_info,
                 }, _UtteranceSelectionResult(
                     message=recomposed_utterance,
-                    draft=draft_response.content.message,
+                    draft=draft_response.content.response_body,
                     utterances=[(utterance_id, utterance)],
                 )
             case _:
@@ -1174,7 +1386,7 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _UtteranceSelectionResult(
                     message=rendered_utterance,
-                    draft=draft_response.content.message,
+                    draft=draft_response.content.response_body,
                     utterances=[(utterance_id, utterance)],
                 )
 
@@ -1267,11 +1479,13 @@ example_1_expected = UtteranceDraftSchema(
         "When the user chooses and orders a burger, then provide it",
         "When the user chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order",
     ],
+    journey_state="Journey 1. Still need to stay in step 2 (choose ingredients for burger), as the user's choice is not available and I need to inform them about it",
     insights=[
         "All of our cheese has expired and is currently out of stock",
         "The user is a long-time user and we should treat him with extra respect",
     ],
-    message="Unfortunately we're out of cheese. Would you like anything else instead?",
+    response_preamble_that_was_already_sent="Let me check",
+    response_body="Unfortunately we're out of cheese. Would you like anything else instead?",
 )
 
 example_1_shot = UtteranceSelectorDraftShot(
@@ -1284,11 +1498,13 @@ example_1_shot = UtteranceSelectorDraftShot(
 example_2_expected = UtteranceDraftSchema(
     last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
+    journey_state="Journey 2. Still stuck in step 1 (take initial order), as I don't have the menu yet so I can't proceed from here",
     insights=[
         "According to contextual information about the user, this is their first time here",
         "There's no menu information in my context",
     ],
-    message="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
+    response_preamble_that_was_already_sent="Just a moment",
+    response_body="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
 )
 
 example_2_shot = UtteranceSelectorDraftShot(
@@ -1303,12 +1519,12 @@ example_2_shot = UtteranceSelectorDraftShot(
 
 
 example_3_expected = UtteranceDraftSchema(
-    last_message_of_user="This is not what I was asking for!",
+    last_message_of_user="Sure, I'll take the Pepsi",
     guidelines=[],
-    insights=[
-        "I should not keep repeating myself asking for clarifications, as it makes me sound robotic"
-    ],
-    message="I apologize for failing to assist you with your issue. If there's anything else I can do for you, please let me know.",
+    journey_state="Journey 1. Moving from step 4 (offer drinks) to step 5 (order confirmation)",
+    insights=[],
+    response_preamble_that_was_already_sent="Great!",
+    response_body="So just to confirm, you'll have a cheeseburger with onions and a Pepsi, right?",
 )
 
 example_3_shot = UtteranceSelectorDraftShot(
@@ -1325,10 +1541,12 @@ example_3_shot = UtteranceSelectorDraftShot(
 example_4_expected = UtteranceDraftSchema(
     last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
+    journey_state=None,
     insights=[
         "When I cannot help with a topic, I should tell the user I can't help with it",
     ],
-    message="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
+    response_preamble_that_was_already_sent="Hello",
+    response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
 example_4_shot = UtteranceSelectorDraftShot(

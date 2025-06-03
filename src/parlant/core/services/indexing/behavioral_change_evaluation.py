@@ -18,7 +18,7 @@ from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import md5_checksum
+from parlant.core.common import JSONSerializable, md5_checksum
 from parlant.core.evaluations import (
     CoherenceCheck,
     CoherenceCheckKind,
@@ -40,6 +40,10 @@ from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
 from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.customer_dependent_action_detector import (
+    CustomerDependentActionDetector,
+    CustomerDependentActionProposition,
+)
 from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionProposition,
@@ -514,16 +518,50 @@ class GuidelineEvaluator:
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
+        customer_dependent_action_detector: CustomerDependentActionDetector,
     ) -> None:
         self._logger = logger
         self._entity_queries = entity_queries
         self._guideline_action_proposer = guideline_action_proposer
         self._guideline_continuous_proposer = guideline_continuous_proposer
+        self._customer_dependent_action_detector = customer_dependent_action_detector
+
+    def _build_invoice_data(
+        self,
+        action_propositions: Sequence[Optional[GuidelineActionProposition]],
+        continuous_propositions: Sequence[Optional[GuidelineContinuousProposition]],
+        customer_dependant_action_detections: Sequence[
+            Optional[CustomerDependentActionProposition]
+        ],
+    ) -> Sequence[InvoiceGuidelineData]:
+        results = []
+        for payload_action, payload_continuous, payload_customer_dependent in zip(
+            action_propositions, continuous_propositions, customer_dependant_action_detections
+        ):
+            action_prop = payload_action.content.action if payload_action else None
+
+            properties_prop: dict[str, JSONSerializable] = {
+                "continuous": payload_continuous.is_continuous if payload_continuous else None,
+                "customer_dependent_action_data": payload_customer_dependent.model_dump()
+                if payload_customer_dependent
+                else None,
+            }
+
+            invoice_data = InvoiceGuidelineData(
+                coherence_checks=None,
+                entailment_propositions=None,
+                action_proposition=action_prop,
+                properties_proposition=properties_prop,
+            )
+
+            results.append(invoice_data)
+
+        return results
 
     async def evaluate(
         self,
         payloads: Sequence[Payload],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[InvoiceGuidelineData]:
         action_propositions = await self._propose_actions(
             payloads,
@@ -536,24 +574,20 @@ class GuidelineEvaluator:
             progress_report,
         )
 
-        return [
-            InvoiceGuidelineData(
-                coherence_checks=None,
-                entailment_propositions=None,
-                action_proposition=payload_action.content.action if payload_action else None,
-                properties_proposition={"continuous": payload_continuous.is_continuous}
-                if payload_continuous
-                else None,
-            )
-            for payload_action, payload_continuous in zip(
-                action_propositions, continuous_propositions
-            )
-        ]
+        customer_dependant_action_detections = await self._detect_customer_dependant_actions(
+            payloads, action_propositions, progress_report
+        )
+
+        return self._build_invoice_data(
+            action_propositions,
+            continuous_propositions,
+            customer_dependant_action_detections,
+        )
 
     async def _propose_actions(
         self,
         payloads: Sequence[Payload],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineActionProposition]]:
         tasks: list[asyncio.Task[GuidelineActionProposition]] = []
         indices: list[int] = []
@@ -578,11 +612,44 @@ class GuidelineEvaluator:
 
         return results
 
+    async def _detect_customer_dependant_actions(
+        self,
+        payloads: Sequence[Payload],
+        proposed_actions: Sequence[Optional[GuidelineActionProposition]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[Optional[CustomerDependentActionProposition]]:
+        tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
+        indices: list[int] = []
+        for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
+            if not p.properties_proposition:
+                continue
+            action_to_use = (
+                action_prop.content.action if action_prop is not None else p.content.action
+            )
+            guideline_content = GuidelineContent(
+                condition=p.content.condition,
+                action=action_to_use,
+            )
+            indices.append(i)
+            tasks.append(
+                asyncio.create_task(
+                    self._customer_dependent_action_detector.detect_if_customer_dependent(
+                        guideline=guideline_content,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+        sparse_results = await async_utils.safe_gather(*tasks)
+        results: list[Optional[CustomerDependentActionProposition]] = [None] * len(payloads)
+        for i, res in zip(indices, sparse_results):
+            results[i] = res
+        return results
+
     async def _propose_continuous(
         self,
         payloads: Sequence[Payload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
-        progress_report: ProgressReport,
+        progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineContinuousProposition]]:
         tasks: list[asyncio.Task[GuidelineContinuousProposition]] = []
         indices: list[int] = []
@@ -626,6 +693,7 @@ class BehavioralChangeEvaluator:
         entity_queries: EntityQueries,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
+        customer_dependent_action_detector: CustomerDependentActionDetector,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -637,6 +705,7 @@ class BehavioralChangeEvaluator:
             entity_queries=entity_queries,
             guideline_action_proposer=guideline_action_proposer,
             guideline_continuous_proposer=guideline_continuous_proposer,
+            customer_dependent_action_detector=customer_dependent_action_detector,
         )
 
     async def validate_payloads(

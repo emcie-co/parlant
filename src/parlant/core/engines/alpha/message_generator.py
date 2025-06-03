@@ -17,6 +17,7 @@ from itertools import chain
 import json
 import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
+from typing_extensions import override
 
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent
@@ -127,7 +128,25 @@ class MessageGenerator(MessageEventComposer):
     async def shots(self) -> Sequence[MessageGeneratorShot]:
         return await shot_collection.list()
 
-    async def generate_response_message_events(
+    @override
+    async def generate_preamble(
+        self,
+        event_emitter: EventEmitter,
+        agent: Agent,
+        customer: Customer,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
+        tool_insights: ToolInsights,
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[MessageEventComposition]:
+        return []
+
+    @override
+    async def generate_response(
         self,
         event_emitter: EventEmitter,
         agent: Agent,
@@ -594,6 +613,7 @@ Produce a valid JSON object in the following format: ###
                 "guidelines": actionable_guidelines,
             },
         )
+
         return builder
 
     def _format_missing_data(self, missing_data: Sequence[MissingToolData]) -> str:

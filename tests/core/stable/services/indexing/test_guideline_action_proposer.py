@@ -19,15 +19,11 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.customers import Customer
-from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
-    GenericActionableGuidelineMatchesSchema,
-)
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatcher
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
-from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.guideline_action_proposer import GuidelineActionProposer
-from parlant.core.sessions import EventSource
+from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
 from parlant.core.tools import LocalToolService, Tool, ToolId
 from tests.core.common.engines.alpha.steps.tools import TOOLS
 from tests.core.common.utils import create_event_message
@@ -48,7 +44,6 @@ def context(
         sync_await,
         guidelines=list(),
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
     )
 
 
@@ -106,6 +101,7 @@ async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are
 async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_1(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -114,12 +110,15 @@ async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_1(
     condition = "the customer specifies toppings or drinks"
     conversation = [(EventSource.CUSTOMER, "Hey, can I order a large pepperoni pizza with Sprite?")]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_2(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -130,12 +129,15 @@ async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_2(
         (EventSource.CUSTOMER, "What is 8+2 and 4*6?"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_3(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -146,12 +148,15 @@ async def test_that_guideline_with_proposed_action_and_two_tools_is_matched_3(
         (EventSource.CUSTOMER, "I'd like to return a product please?"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_1(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -162,12 +167,15 @@ async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_1(
         (EventSource.CUSTOMER, "What's my account balance?"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_2(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -178,12 +186,15 @@ async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_2(
         (EventSource.CUSTOMER, "Hey, can I order a large pepperoni pizza with Sprite?"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_32(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -194,12 +205,15 @@ async def test_that_guideline_with_proposed_action_and_one_tool_is_matched_32(
         (EventSource.CUSTOMER, "Let's please pay my credit card bill"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_tool_name_not_informative_but_description_is(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -210,12 +224,15 @@ async def test_that_guideline_with_proposed_action_and_tool_name_not_informative
         (EventSource.CUSTOMER, "I'd like to return a product please?"),
     ]
     tools = [await local_tool_service.create_tool(**TOOLS[tool_name]) for tool_name in tool_names]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def test_that_guideline_with_proposed_action_and_tool_with_no_description_is_matched(
     context: ContextOfTest,
     agent: Agent,
+    new_session: Session,
     customer: Customer,
 ) -> None:
     local_tool_service = context.container[LocalToolService]
@@ -245,25 +262,29 @@ async def test_that_guideline_with_proposed_action_and_tool_with_no_description_
         ),
     ]
     tools = [await local_tool_service.create_tool(**tool)]
-    await base_test_action_proposition(context, agent, customer, tools, conversation, condition)
+    await base_test_action_proposition(
+        context, agent, new_session.id, customer, tools, conversation, condition
+    )
 
 
 async def base_test_action_proposition(
     context: ContextOfTest,
     agent: Agent,
+    session_id: SessionId,
     customer: Customer,
     tools: list[Tool],
     conversation: list[tuple[EventSource, str]],
     condition: str,
 ) -> None:
     await base_test_that_guideline_with_proposed_action_matched(
-        context, agent, customer, tools, conversation, condition
+        context, agent, session_id, customer, tools, conversation, condition
     )
 
 
 async def base_test_that_guideline_with_proposed_action_matched(
     context: ContextOfTest,
     agent: Agent,
+    session_id: SessionId,
     customer: Customer,
     tools: list[Tool],
     conversation_context: list[tuple[EventSource, str]],
@@ -296,8 +317,11 @@ async def base_test_that_guideline_with_proposed_action_matched(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
+    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+
     guideline_matching_result = await context.container[GuidelineMatcher].match_guidelines(
         agent=agent,
+        session=session,
         customer=customer,
         context_variables=[],
         interaction_history=interaction_history,

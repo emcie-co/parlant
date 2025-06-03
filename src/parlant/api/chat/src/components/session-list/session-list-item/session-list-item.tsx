@@ -2,9 +2,9 @@ import {Dispatch, ReactElement, SetStateAction, useEffect, useRef, useState} fro
 import {Input} from '../../ui/input';
 import Tooltip from '../../ui/custom/tooltip';
 import {Button} from '../../ui/button';
-import {deleteData, patchData} from '@/utils/api';
+import {BASE_URL, deleteData, patchData} from '@/utils/api';
 import {toast} from 'sonner';
-import {SessionInterface} from '@/utils/interfaces';
+import {EventInterface, SessionCsvInterafce, SessionInterface} from '@/utils/interfaces';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
@@ -13,7 +13,7 @@ import {spaceClick} from '@/utils/methods';
 import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
-import {copy} from '@/lib/utils';
+import {copy, exportToCsv} from '@/lib/utils';
 import Avatar from '@/components/avatar/avatar';
 
 interface Props {
@@ -115,6 +115,63 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		);
 	};
 
+	const exportSessionToCsv = async (e: React.MouseEvent) => {
+		e.stopPropagation();
+		
+		try {
+			const sessionEvents: EventInterface[] = (await fetchSessionData(session.id)) || [];
+			const messages = sessionEvents.filter(sessionEvent => sessionEvent.kind === 'message');
+			
+			const exportData: SessionCsvInterafce[] = [];
+			
+			if (messages?.length) {
+				messages.forEach(message => {
+					exportData.push({
+						Source: message.source === 'ai_agent' ? 'AI Agent' : 'Customer',
+						Participant: message?.data?.participant?.display_name || '',
+						Timestamp: message.creation_utc || '',
+						Message: message.data?.message || '',
+					});
+				});
+			}
+			
+			const headers = [
+				'Source',
+				'Participant',
+				'Timestamp',
+				'Message',
+			];
+			
+			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
+			
+			const success = exportToCsv(exportData, filename, {
+				headers,
+				dateFormat: 'readable'
+			});
+			
+			if (success) {
+				toast.success(`Session "${session.title}" exported successfully`);
+			} else {
+				throw new Error('Export failed');
+			}
+			
+		} catch (error) {
+			console.error('Export failed:', error);
+			toast.error('Failed to export session');
+		}
+	};
+
+const fetchSessionData = async (sessionId: string) => {
+	try {
+		const response = await fetch(`${BASE_URL}/sessions/${sessionId}/events`);
+		if (!response.ok) throw new Error('Failed to fetch session data');
+		return await response.json();
+	} catch (error) {
+		console.error('Failed to fetch session data:', error);
+		return { messages: [] };
+	}
+};
+
 	const editTitle = async (e: React.MouseEvent) => {
 		e.stopPropagation();
 		setEditingTitle?.(session.id);
@@ -162,6 +219,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			imgPath: 'icons/copy-session.svg',
 		},
 		{title: 'rename', onClick: editTitle, imgPath: 'icons/rename.svg'},
+		{title: 'export', onClick: exportSessionToCsv, imgPath: 'icons/export.svg'},
 		{title: 'delete', onClick: deleteSession, imgPath: 'icons/delete.svg'},
 	];
 	const agent = agentsMap.get(session.agent_id);

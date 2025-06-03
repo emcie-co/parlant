@@ -24,7 +24,7 @@ from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
 
-class SegmentPreviouslyAppliedRationale(DefaultBaseModel):
+class SegmentPreviouslyAppliedActionableRationale(DefaultBaseModel):
     action_segment: str
     rationale: str
 
@@ -64,9 +64,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
-        with self._logger.operation(
-            f"GenericGuidelineMatchingBatch: {len(self._guidelines)} guidelines"
-        ):
+        with self._logger.operation(f"GuidelineMatchingBatch: {len(self._guidelines)} guidelines"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
@@ -87,10 +85,8 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                     GuidelineMatch(
                         guideline=self._guidelines[GuidelineId(match.guideline_id)],
                         score=10 if match.applies else 1,
-                        rationale=f'''Condition Application: "{match.rationale}"''',
-                        guideline_previously_applied=PreviouslyAppliedType("irrelevant"),
-                        guideline_is_continuous=True,
-                        should_reapply=True,
+                        rationale=f'''Condition Application Rationale: "{match.rationale}"''',
+                        guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                     )
                 )
             else:
@@ -252,10 +248,11 @@ Expected Output
                 "guidelines_len": len(self._guidelines),
             },
         )
+
         return builder
 
 
-class GenericObservationalGuidelineMatching(GuidelineMatchingStrategy):
+class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
@@ -265,7 +262,7 @@ class GenericObservationalGuidelineMatching(GuidelineMatchingStrategy):
         self._schematic_generator = schematic_generator
 
     @override
-    async def create_batches(
+    async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,

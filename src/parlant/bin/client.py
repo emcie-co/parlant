@@ -426,80 +426,78 @@ class Actions:
         client = cast(ParlantClient, ctx.obj.client)
         tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
 
-        if tool_id and action is None:
-            tool_id_obj = Actions._fetch_tool_id(
-                ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
-            )
+        tool_ids = (
+            [
+                Actions._fetch_tool_id(
+                    ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
+                )
+            ]
+            if tool_id
+            else []
+        )
 
-            evaluation = client.evaluations.create(
-                payloads=[
-                    Payload(
-                        kind="guideline",
-                        guideline=GuidelinePayload(
-                            content=GuidelineContent(condition=condition),
-                            tool_ids=[tool_id_obj],
-                            operation="add",
-                            action_proposition=True,
-                            properties_proposition=True,
+        evaluation = client.evaluations.create(
+            payloads=[
+                Payload(
+                    kind="guideline",
+                    guideline=GuidelinePayload(
+                        content=GuidelineContent(condition=condition),
+                        tool_ids=tool_ids,
+                        operation="add",
+                        action_proposition=True,
+                        properties_proposition=True,
+                    ),
+                )
+            ]
+        )
+
+        with Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(style="bold blue"),
+            "{task.completed}/{task.total}",
+            TimeElapsedColumn(),
+        ) as progress:
+            progress_task = progress.add_task("Evaluating guideline\n", total=100)
+
+            while True:
+                time.sleep(0.2)
+                evaluation_result = client.evaluations.retrieve(
+                    evaluation.id,
+                    wait_for_completion=0,
+                )
+
+                if evaluation_result.status in ["pending", "running"]:
+                    progress.update(progress_task, completed=int(evaluation_result.progress))
+                    continue
+
+                if evaluation_result.status == "completed":
+                    progress.update(progress_task, completed=100)
+
+                    invoice = evaluation_result.invoices[0]
+                    assert invoice.approved
+                    assert invoice.data
+                    assert invoice.data.guideline
+                    assert invoice.payload.guideline
+
+                    guideline = client.guidelines.create(
+                        condition=condition,
+                        action=action if action else invoice.data.guideline.action_proposition,
+                        tags=tags,
+                        metadata=invoice.data.guideline.properties_proposition or {},
+                    )
+
+                    guideline_with_relationships_and_associations = client.guidelines.update(
+                        guideline.id,
+                        tool_associations=GuidelineToolAssociationUpdateParams(
+                            add=tool_ids,
                         ),
                     )
-                ]
-            )
 
-            with Progress(
-                "[progress.description]{task.description}",
-                BarColumn(),
-                TaskProgressColumn(style="bold blue"),
-                "{task.completed}/{task.total}",
-                TimeElapsedColumn(),
-            ) as progress:
-                progress_task = progress.add_task("Evaluating guideline\n", total=100)
+                    return guideline_with_relationships_and_associations
 
-                while True:
-                    time.sleep(0.2)
-                    evaluation_result = client.evaluations.retrieve(
-                        evaluation.id,
-                        wait_for_completion=0,
-                    )
-
-                    if evaluation_result.status in ["pending", "running"]:
-                        progress.update(progress_task, completed=int(evaluation_result.progress))
-                        continue
-
-                    if evaluation_result.status == "completed":
-                        progress.update(progress_task, completed=100)
-
-                        invoice = evaluation_result.invoices[0]
-                        assert invoice.approved
-                        assert invoice.data
-                        assert invoice.data.guideline
-                        assert invoice.payload.guideline
-
-                        guideline = client.guidelines.create(
-                            condition=condition,
-                            action=invoice.data.guideline.action_proposition,
-                            tags=tags,
-                            metadata=invoice.data.guideline.properties_proposition or {},
-                        )
-
-                        guideline_with_relationships_and_associations = client.guidelines.update(
-                            guideline.id,
-                            tool_associations=GuidelineToolAssociationUpdateParams(
-                                add=[tool_id_obj],
-                            ),
-                        )
-
-                        return guideline_with_relationships_and_associations
-
-                    elif evaluation_result.status == "failed":
-                        raise ValueError(evaluation_result.error)
-
-        else:
-            guideline = client.guidelines.create(
-                condition=condition,
-                action=action,
-                tags=tags,
-            )
+                elif evaluation_result.status == "failed":
+                    raise ValueError(evaluation_result.error)
 
         if tool_id:
             tool_id_obj = Actions._fetch_tool_id(
@@ -3469,11 +3467,6 @@ async def async_main() -> None:
         tool_id: Optional[str],
         tag: tuple[str],
     ) -> None:
-        if not action and not tool_id:
-            Interface.write_error("At least one of --action or --tool-id must be specified")
-            set_exit_status(1)
-            raise FastExit()
-
         Interface.create_guideline(
             ctx=ctx,
             condition=condition,

@@ -133,7 +133,7 @@ async def test_that_properties_proposition_is_evaluated(
                     "guideline": {
                         "content": {
                             "condition": "the customer asks for a discount",
-                            "action": "maintain helpful tone",
+                            "action": "maintain a helpful tone and ask the customer what discount they would like",
                         },
                         "operation": "add",
                         "action_proposition": True,
@@ -146,7 +146,6 @@ async def test_that_properties_proposition_is_evaluated(
             ],
         },
     )
-
     assert response.status_code == status.HTTP_201_CREATED
 
     evaluation_id = response.raise_for_status().json()["id"]
@@ -160,7 +159,16 @@ async def test_that_properties_proposition_is_evaluated(
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["properties_proposition"] == {"continuous": True}
+    assert invoice["data"]["guideline"]["properties_proposition"]["continuous"]
+    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+        "is_customer_dependent"
+    ]
+    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+        "customer_action"
+    ]
+    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+        "agent_action"
+    ]
 
 
 async def test_that_action_proposition_is_evaluated(

@@ -49,6 +49,7 @@ from parlant.core.sessions import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId
 from parlant.core.tools import ToolService
+from parlant.core.utterances import UtteranceStore
 
 
 class EntityQueries:
@@ -64,6 +65,7 @@ class EntityQueries:
         glossary_store: GlossaryStore,
         journey_store: JourneyStore,
         service_registry: ServiceRegistry,
+        utterance_store: UtteranceStore,
     ) -> None:
         self._agent_store = agent_store
         self._session_store = session_store
@@ -75,6 +77,7 @@ class EntityQueries:
         self._glossary_store = glossary_store
         self._journey_store = journey_store
         self._service_registry = service_registry
+        self._utterance_store = utterance_store
 
     async def read_agent(
         self,

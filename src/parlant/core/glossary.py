@@ -219,6 +219,7 @@ class GlossaryVectorStore(GlossaryStore):
                 embedder_type=embedder_type,
                 document_loader=self._document_loader,
             )
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._document_db,

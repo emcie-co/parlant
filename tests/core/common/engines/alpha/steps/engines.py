@@ -13,15 +13,29 @@
 # limitations under the License.
 
 import asyncio
+from collections.abc import Sequence
 from typing import cast
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
 from parlant.core.agents import AgentId, AgentStore, CompositionMode
-from parlant.core.customers import CustomerStore
+from parlant.core.context_variables import (
+    ContextVariable,
+    ContextVariableStore,
+    ContextVariableValue,
+)
+from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
+    GenericResponseAnalysisBatch,
+    GenericResponseAnalysisSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    ReportAnalysisContext,
+)
 from parlant.core.engines.alpha.message_generator import MessageGenerator
+from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.alpha.utterance_selector import (
     UtteranceSelector,
 )
@@ -29,8 +43,19 @@ from parlant.core.engines.alpha.message_event_composer import MessageEventCompos
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context, UtteranceReason, UtteranceRequest
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.sessions import SessionId, SessionStore
+from parlant.core.entity_cq import EntityCommands, EntityQueries
+from parlant.core.glossary import Term
+from parlant.core.loggers import Logger
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.sessions import (
+    AgentState,
+    EventSource,
+    SessionId,
+    SessionStore,
+    SessionUpdateParams,
+)
 
+from parlant.core.tags import Tag
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
@@ -47,7 +72,7 @@ def given_a_faulty_message_production_mechanism(
     context: ContextOfTest,
 ) -> None:
     generator = context.container[MessageGenerator]
-    generator.generate_response_message_events = AsyncMock(side_effect=Exception())  # type: ignore
+    generator.generate_response = AsyncMock(side_effect=Exception())  # type: ignore
 
 
 @step(
@@ -80,6 +105,158 @@ def when_processing_is_triggered(
     buffer = EventBuffer(
         context.sync_await(
             context.container[AgentStore].read_agent(agent_id),
+        )
+    )
+
+    context.sync_await(
+        engine.process(
+            Context(
+                session_id=session_id,
+                agent_id=agent_id,
+            ),
+            buffer,
+        )
+    )
+
+    return buffer.events
+
+
+def _load_context_variables(
+    context: ContextOfTest,
+    customer_id: CustomerId,
+    agent_id: AgentId,
+) -> list[tuple[ContextVariable, ContextVariableValue]]:
+    customer = context.sync_await(
+        context.container[CustomerStore].read_customer(customer_id),
+    )
+    # TODO The function need to be replaced by AlphaEngine._load_context_variables once will be public
+    variables_supported_by_agent = context.sync_await(
+        context.container[EntityQueries].find_context_variables_for_agent(
+            agent_id=agent_id,
+        )
+    )
+
+    result = []
+
+    keys_to_check_in_order_of_importance = (
+        [customer_id]  # Customer-specific value
+        + [f"tag:{tag_id}" for tag_id in customer.tags]  # Tag-specific value
+        + [ContextVariableStore.GLOBAL_KEY]  # Global value
+    )
+
+    for variable in variables_supported_by_agent:
+        # Try keys in order of importance, stopping at and using
+        # the first (and most important) set key for each variable.
+        for key in keys_to_check_in_order_of_importance:
+            if value := context.sync_await(
+                context.container[EntityQueries].read_context_variable_value(
+                    variable_id=variable.id,
+                    key=key,
+                )
+            ):
+                result.append((variable, value))
+                break
+
+    return result
+
+
+def _load_glossary_terms(
+    context: ContextOfTest,
+    agent_id: AgentId,
+    context_variables: list[tuple[ContextVariable, ContextVariableValue]],
+) -> Sequence[Term]:
+    # TODO The function need to be replaced by AlphaEngine._load_glossary_terms once will be public
+    query = ""
+
+    if context_variables:
+        query += f"\n{context_variables_to_json(context_variables)}"
+
+    if context.events:
+        query += str([e.data for e in context.events])
+
+    if context.guidelines:
+        query += str(
+            [
+                f"When {g.content.condition}, then {g.content.action}"
+                for g in context.guidelines.values()
+            ]
+        )
+    if query:
+        return context.sync_await(
+            context.container[EntityQueries].find_relevant_glossary_terms(
+                query=query,
+                tags=[Tag.for_agent_id(agent_id)],
+            )
+        )
+
+    return []
+
+
+@step(when, "detection and processing are triggered", target_fixture="emitted_events")
+def when_detection_and_processing_are_triggered(
+    context: ContextOfTest,
+    engine: AlphaEngine,
+    session_id: SessionId,
+    agent_id: AgentId,
+    customer_id: CustomerId,
+) -> list[EmittedEvent]:
+    agent = context.sync_await(
+        context.container[AgentStore].read_agent(agent_id),
+    )
+    customer = context.sync_await(
+        context.container[CustomerStore].read_customer(customer_id),
+    )
+
+    buffer = EventBuffer(agent)
+    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+
+    context_variables = _load_context_variables(
+        context,
+        customer_id,
+        agent_id,
+    )
+
+    terms = _load_glossary_terms(context, agent_id, context_variables)
+
+    matches_to_prepare = [
+        g
+        for g in context.guideline_matches.values()
+        if g.guideline.id not in session.agent_state["applied_guideline_ids"]
+        and not g.guideline.metadata.get("continuous", False)
+    ]
+
+    interaction_history = (
+        context.events[:-1] if context.events[-1].source == EventSource.CUSTOMER else context.events
+    )
+
+    response_analysis = GenericResponseAnalysisBatch(
+        logger=context.container[Logger],
+        schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
+        context=ReportAnalysisContext(
+            agent=agent,
+            session=session,
+            customer=customer,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            terms=terms,
+            staged_events=[],
+        ),
+        guideline_matches=matches_to_prepare,
+    )
+
+    applied_guideline_ids = [
+        p.guideline.id
+        for p in (context.sync_await(response_analysis.process())).previously_applied_guidelines
+    ]
+
+    applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+
+    context.sync_await(
+        context.container[EntityCommands].update_session(
+            session_id=session.id,
+            params=SessionUpdateParams(
+                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
+            ),
         )
     )
 
@@ -160,7 +337,7 @@ def when_messages_are_emitted(
             message_event_composer = context.container[UtteranceSelector]
 
     result = context.sync_await(
-        message_event_composer.generate_response_message_events(
+        message_event_composer.generate_response(
             event_emitter=event_buffer,
             agent=agent,
             customer=customer,

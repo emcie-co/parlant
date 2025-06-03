@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import enum
 from itertools import chain
 from typing import Annotated, Any, Mapping, Optional, Sequence
+import uuid
+from pathlib import Path
 from lagom import Container
 from pytest import fixture
 from typing_extensions import override
+from ast import literal_eval
 
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id
@@ -57,7 +60,8 @@ from parlant.core.tools import (
 )
 
 from tests.core.common.utils import create_event_message
-from tests.test_utilities import run_service_server
+from tests.test_utilities import run_service_server, get_random_port
+from parlant.core.services.tools.mcp_service import MCPToolServer
 
 
 @fixture
@@ -407,6 +411,10 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
 
     assert "categories" in tool_call.arguments
     assert isinstance(tool_call.arguments["categories"], str)
+    assert literal_eval(tool_call.arguments["categories"]) == [
+        ProductCategory.LAPTOPS.value,
+        ProductCategory.PERIPHERALS.value,
+    ]
     assert ProductCategory.LAPTOPS.value in tool_call.arguments["categories"]
     assert ProductCategory.PERIPHERALS.value in tool_call.arguments["categories"]
 
@@ -807,6 +815,79 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
     assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
     assert (
         insights.invalid_data[0].choices is not None and len(insights.invalid_data[0].choices) > 0
+    )
+
+
+async def test_that_mcp_tool_with_uuid_path_timedelta_and_datetime_parameters_interacts_correctly(
+    container: Container,
+    agent: Agent,
+) -> None:
+    service_registry = container[ServiceRegistry]
+    tool_caller = container[ToolCaller]
+
+    async def report_update_duration(
+        reporter: uuid.UUID,
+        path: Path,
+        update_start: datetime,
+        update_duration: timedelta,
+    ) -> str:
+        return f"Agent {reporter} reported a duration of {update_duration} for {path} started from {update_start}"
+
+    conversation_context = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I am agent id deadface-fade-cafe-9876-000decade000 reporting that updating the file /secret/path/to.file started at 1999-11-01 03:22:41 and took me 2 hours 3 minutes and 31 seconds to complete",
+        ),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="agent wants to report an update duration",
+            action="report the update duration and relevant details",
+            score=9,
+            rationale="agent wants to report that a file update took a long time",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="my_mcp_service", tool_name="report_update_duration")]
+    }
+
+    async with MCPToolServer([report_update_duration], port=get_random_port()) as server:
+        await service_registry.update_tool_service(
+            name="my_mcp_service",
+            kind="mcp",
+            url=f"http://localhost:{server.get_port()}",
+        )
+
+        context = await tool_context(container, agent)
+        inference_tool_calls_result = await tool_caller.infer_tool_calls(
+            agent=agent,
+            context_variables=[],
+            interaction_history=interaction_history,
+            terms=[],
+            ordinary_guideline_matches=[],
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=[],
+            staged_events=[],
+            tool_context=context,
+        )
+
+        tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+        assert len(tool_calls) == 1
+        assert len(tool_calls[0].arguments) == 4
+
+        tc = tool_calls[0]
+        assert tc.arguments["reporter"] == "deadface-fade-cafe-9876-000decade000"
+        assert tc.arguments["path"] == "/secret/path/to.file"
+        assert tc.arguments["update_start"] == str(datetime(1999, 11, 1, 3, 22, 41))
+        assert tc.arguments["update_duration"] == str(timedelta(hours=2, minutes=3, seconds=31))
+
+        results = await tool_caller.execute_tool_calls(context, tool_calls)
+
+    assert len(results) == 1
+    assert (
+        results[0].result["data"]
+        == "Agent deadface-fade-cafe-9876-000decade000 reported a duration of 2:03:31 for /secret/path/to.file started from 1999-11-01 03:22:41"
     )
 
 

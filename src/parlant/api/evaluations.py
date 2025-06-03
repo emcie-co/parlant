@@ -233,7 +233,7 @@ class GuidelineInvoiceDataDTO(
 ):
     """Evaluation results for a Guideline, including action propositions"""
 
-    action_proposition: ActionPropositionField
+    action_proposition: Optional[ActionPropositionField] = None
     properties_proposition: Optional[PropertiesPropositionField] = None
 
 

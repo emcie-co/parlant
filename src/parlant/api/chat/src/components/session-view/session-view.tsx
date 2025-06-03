@@ -17,10 +17,11 @@ import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom, viewingMessageDetailsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import DateHeader from './date-header/date-header';
-import SessoinViewHeader from './session-view-header/session-view-header';
+// import SessoinViewHeader from './session-view-header/session-view-header';
 import {isSameDay} from '@/lib/utils';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
 import {ShieldEllipsis} from 'lucide-react';
+import { soundDoubleBlip } from '@/utils/sounds';
 
 const SessionView = (): ReactElement => {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -156,11 +157,11 @@ const SessionView = (): ReactElement => {
 
 		const lastStatusEventStaus = lastStatusEvent?.data?.status;
 
+		if (newMessages?.length && (showThinking || showTyping)) soundDoubleBlip(true);
 		if (lastStatusEventStaus) {
 			setShowThinking(lastStatusEventStaus === 'processing');
 			setShowTyping(lastStatusEventStaus === 'typing');
 		}
-
 		refetch();
 	};
 
@@ -184,8 +185,8 @@ const SessionView = (): ReactElement => {
 	useEffect(scrollToLastMessage, [messages?.length, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
 	useEffect(() => {
-		if (showThinking) lastMessageRef?.current?.scrollIntoView({behavior: 'smooth'});
-	}, [showThinking]);
+		if (showThinking || showTyping) lastMessageRef?.current?.scrollIntoView({behavior: 'smooth'});
+	}, [showThinking, showTyping]);
 	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
 	}, [agents, agent?.id]);
@@ -215,6 +216,7 @@ const SessionView = (): ReactElement => {
 		const useContentFilteringStatus = useContentFiltering ? 'auto' : 'none';
 		postData(`sessions/${eventSession}/events?moderation=${useContentFilteringStatus}`, {kind: 'message', message: content, source: 'customer'})
 			.then(() => {
+				soundDoubleBlip();
 				refetch();
 			})
 			.catch(() => toast.error('Something went wrong'));
@@ -238,11 +240,11 @@ const SessionView = (): ReactElement => {
 	return (
 		<>
 			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
-				<div className={twMerge('h-full w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all duration-500 bg-white', showLogsForMessage && 'w-[calc(100%-min(700px,35vw))]')}>
+				<div className={twMerge('h-full w-full pb-[14px] pt-[10px] rounded-[10px] flex flex-col transition-all duration-500 bg-white', showLogsForMessage && 'w-[calc(100%-min(700px,35vw))]')}>
 					<div className='h-full flex flex-col rounded-[10px] m-auto w-full min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
-						<SessoinViewHeader />
-						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
+						{/* <SessoinViewHeader /> */}
+						{/* <div className={twMerge('h-[21px] border-t-0 bg-white')}></div> */}
 						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-hidden')}>
 							<div className='messages [scroll-snap-type:y_mandatory] fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
@@ -254,6 +256,7 @@ const SessionView = (): ReactElement => {
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
 												event={event}
+												isSameSourceAsPrevious={event.source === visibleMessages[i - 1]?.source}
 												isContinual={event.correlation_id === visibleMessages[i - 1]?.correlation_id}
 												regenerateMessageFn={regenerateMessageDialog(i)}
 												resendMessageFn={resendMessageDialog(i)}
@@ -311,7 +314,7 @@ const SessionView = (): ReactElement => {
 										onKeyDown={handleTextareaKeydown}
 										onChange={(e) => setMessage(e.target.value)}
 										rows={1}
-										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
+										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[100%] bg-white'
 									/>
 									<p className={twMerge('absolute invisible left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter', (showTyping || showThinking) && 'visible')}>
 										{showTyping ? 'Typing...' : 'Thinking...'}

@@ -15,8 +15,9 @@
 import os
 import time
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
-from google import genai  # type: ignore
-from typing import Any, Mapping
+import google.genai  # type: ignore
+import google.genai.types  # type: ignore
+from typing import Any, Mapping, cast
 from typing_extensions import override
 import jsonfinder  # type: ignore
 from pydantic import ValidationError
@@ -39,7 +40,7 @@ from parlant.core.loggers import Logger
 
 
 class GoogleEstimatingTokenizer(EstimatingTokenizer):
-    def __init__(self, client: genai.Client, model_name: str) -> None:
+    def __init__(self, client: google.genai.Client, model_name: str) -> None:
         self._client = client
         self._model_name = model_name
 
@@ -54,7 +55,7 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
             contents=prompt,
         )
 
-        return int(result.total_tokens)
+        return int(result.total_tokens or 0)
 
 
 class GeminiSchematicGenerator(SchematicGenerator[T]):
@@ -68,7 +69,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         self.model_name = model_name
         self._logger = logger
 
-        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
@@ -115,7 +116,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             response = await self._client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=config,
+                config=cast(google.genai.types.GenerateContentConfigOrDict, config),
             )
         except TooManyRequests:
             self._logger.error(
@@ -137,7 +138,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         raw_content = response.text
         try:
-            json_content = normalize_json_output(raw_content)
+            json_content = normalize_json_output(raw_content or "{}")
             json_content = json_content.replace("“", '"').replace("”", '"')
 
             # Fix cases where Gemini return double-escaped sequences
@@ -155,6 +156,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         try:
             model_content = self.schema.model_validate(json_object)
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -162,13 +164,19 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                     model=self.id,
                     duration=(t_end - t_start),
                     usage=UsageInfo(
-                        input_tokens=response.usage_metadata.prompt_token_count,
-                        output_tokens=response.usage_metadata.candidates_token_count,
+                        input_tokens=response.usage_metadata.prompt_token_count or 0,
+                        output_tokens=response.usage_metadata.candidates_token_count or 0,
                         extra={
-                            "cached_input_tokens": response.usage_metadata.cached_content_token_count
+                            "cached_input_tokens": (
+                                response.usage_metadata.cached_content_token_count
+                                if response.usage_metadata
+                                else 0
+                            )
                             or 0
                         },
-                    ),
+                    )
+                    if response.usage_metadata
+                    else UsageInfo(input_tokens=0, output_tokens=0, extra={}),
                 ),
             )
         except ValidationError:
@@ -237,7 +245,7 @@ class GoogleEmbedder(Embedder):
         self.model_name = model_name
 
         self._logger = logger
-        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
     @property
@@ -274,8 +282,8 @@ class GoogleEmbedder(Embedder):
             with self._logger.operation("Embedding text with gemini"):
                 response = await self._client.aio.models.embed_content(  # type: ignore
                     model=self.model_name,
-                    contents=texts,
-                    config=gemini_api_arguments,
+                    contents=texts,  # type: ignore
+                    config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
                 )
         except TooManyRequests:
             self._logger.error(
@@ -293,7 +301,9 @@ class GoogleEmbedder(Embedder):
             )
             raise
 
-        vectors = [data_point.values for data_point in response.embeddings if data_point.values]
+        vectors = [
+            data_point.values for data_point in response.embeddings or [] if data_point.values
+        ]
         return EmbeddingResult(vectors=vectors)
 
 

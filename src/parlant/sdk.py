@@ -57,7 +57,7 @@ from parlant.core.sessions import (
     StatusEventData,
     ToolEventData,
 )
-from parlant.core.utterances import UtteranceDocumentStore, UtteranceId, UtteranceStore
+from parlant.core.utterances import UtteranceVectorStore, UtteranceId, UtteranceStore
 from parlant.core.evaluations import EvaluationDocumentStore, EvaluationStore
 from parlant.core.guidelines import GuidelineDocumentStore, GuidelineId, GuidelineStore
 from parlant.core.journeys import JourneyDocumentStore, JourneyId, JourneyStore
@@ -202,7 +202,7 @@ class Journey:
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        action: str | None = None,
         tools: Iterable[ToolEntry] = [],
     ) -> Guideline:
         guideline = await self._container[GuidelineStore].create_guideline(
@@ -285,7 +285,7 @@ class Agent:
     async def create_guideline(
         self,
         condition: str,
-        action: str,
+        action: str | None = None,
         tools: Iterable[ToolEntry] = [],
     ) -> Guideline:
         guideline = await self._container[GuidelineStore].create_guideline(
@@ -394,14 +394,14 @@ class Server:
         self,
         name: str,
         description: str,
-        composition_mode: CompositionMode | None = None,
+        composition_mode: CompositionMode = CompositionMode.COMPOSITED_UTTERANCE,
         max_engine_iterations: int | None = None,
     ) -> Agent:
         agent = await self._container[AgentStore].create_agent(
             name=name,
             description=description,
             max_engine_iterations=max_engine_iterations or 1,
-            composition_mode=composition_mode or CompositionMode.FLUID,
+            composition_mode=composition_mode,
         )
 
         return Agent(
@@ -452,7 +452,6 @@ class Server:
                 (CustomerStore, CustomerDocumentStore),
                 (EvaluationStore, EvaluationDocumentStore),
                 (TagStore, TagDocumentStore),
-                (UtteranceStore, UtteranceDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
                 (JourneyStore, JourneyDocumentStore),
@@ -509,6 +508,15 @@ class Server:
 
             c[GlossaryStore] = await self._exit_stack.enter_async_context(
                 GlossaryVectorStore(
+                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    document_db=TransientDocumentDatabase(),
+                    embedder_factory=embedder_factory,
+                    embedder_type_provider=get_embedder_type,
+                )
+            )
+
+            c[UtteranceStore] = await self._exit_stack.enter_async_context(
+                UtteranceVectorStore(
                     vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,

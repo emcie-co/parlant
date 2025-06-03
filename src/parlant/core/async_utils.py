@@ -14,10 +14,21 @@
 
 from __future__ import annotations
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Coroutine, Iterable, TypeVar, overload, AsyncContextManager
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    Coroutine,
+    Iterable,
+    TypeVar,
+    overload,
+    AsyncContextManager,
+)
 import asyncio
 import math
 import aiorwlock
+
+from parlant.core.loggers import Logger
 
 
 class Timeout:
@@ -144,6 +155,42 @@ async def with_timeout(
     except asyncio.TimeoutError:
         fut.cancel()
         raise
+
+
+@overload
+def completed_task() -> asyncio.Task[None]:
+    """
+    Returns a completed asyncio Task with no value.
+    """
+    ...
+
+
+@overload
+def completed_task(value: _TResult0) -> asyncio.Task[_TResult0]:
+    """
+    Returns a completed asyncio Task with the given value.
+    """
+    ...
+
+
+def completed_task(value: _TResult0 | None = None) -> asyncio.Task[_TResult0 | None]:
+    async def return_value() -> _TResult0 | None:
+        return value
+
+    return asyncio.create_task(return_value())
+
+
+def default_done_callback(
+    logger: Logger,
+) -> Callable[[asyncio.Task[_TResult0]], object]:
+    def done_callback(task: asyncio.Task[_TResult0]) -> object:
+        try:
+            return task.result()
+        except Exception as e:
+            logger.error(f"Exception encountered in background task: {e}")
+            return None
+
+    return done_callback
 
 
 class ReaderWriterLock:

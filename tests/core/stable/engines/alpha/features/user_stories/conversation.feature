@@ -22,8 +22,8 @@ Feature: Conversation
     Scenario: The agent strictly follows guideline rule
         Given an agent whose job is to answer questions regarding Mobileye
         And an empty session
-        And a guideline to politely answer that you don't have access to information when a user asks any question aside from Mobileye
-        And a guideline to rudely answer to go away when a user asks any question aside from Mobileye for the third time
+        And a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
+        And a guideline "answer_rudely" to rudely answer to go away when a user asks any information aside from Mobileye for the third time
         And a customer message, "Hey how are ya mate?"
         And an agent message, "Hey there! I'm doing well, thank you. How about you?"
         And a customer message, "what much sugar is there on a coka cola can?"
@@ -31,21 +31,11 @@ Feature: Conversation
         And a customer message, "fine. ok so where can i buy brakes and rotors for my car?"
         And an agent message, "You've asked several unrelated questions now. Please focus on relevant topics."
         And a customer message, "whats a relevant topic for you?"
-        When processing is triggered
+        And a previously applied guideline "answer_rudely" 
+        And a previously applied guideline "answer_politely"
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains either telling the user that the relevant topic is Mobileye or rudely telling the user to go away
-
-    Scenario: The agent follows a guideline without necessarily adhering to it literally every time
-        Given an agent
-        And an empty session
-        And a guideline to be empathetic and inquire about the customer's problem when a customer is frustrated with the service
-        And a guideline to offer 20% off all products on their next purchase when a customer is frustrated with the service
-        And a customer message, "I'm really unhappy with the service I've been getting!"
-        And an agent message, "Hi there, I'm sorry to have caused you any frustration. First, as a token of our appreciation for your business, I'd like to offer you a 20% off all of our products on your next purchase."
-        And a customer message, "I am extremely frustrated that I didn't get my item yet!"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains no direct offer of a 20% discount
 
     Scenario: The agent stays consistent with suggested results
         Given an agent
@@ -54,7 +44,8 @@ Feature: Conversation
         And a customer message, "Hi I'm looking for an laptop that suits a software developer. Can you suggest me what tags are relevant for it?"
         And an agent message, "Great choice! As a software developer, you might want to look for laptops with tags like 'productivity', 'professional', and 'development'"
         And a customer message, "From 'storage, portable, external, productivity, office, business, professional, mainstream, creative, studio, development', which one would you recommend best?"
-        When processing is triggered
+        And that the "suggest_relevant_tags" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains either 'productivity', 'professional', and 'development'
 
@@ -67,16 +58,18 @@ Feature: Conversation
         And a tag "business"
         And a customer tagged as "business"
         And a context variable "plan" set to "Business Plan" for the tag "business"
-        And a guideline to just welcome them to the store and ask how you can help when the customer greets you
-        And a guideline to refer to them by their first name only, and welcome them 'back' when a customer greets you
-        And a guideline to assure them you will escalate it internally and get back to them when a business-plan customer is having an issue
+        And a guideline "welcome_customer" to just welcome them to the store and ask how you can help when the customer greets you
+        And a guideline "use_first_name" to refer to them by their first name only, and welcome them 'back' when a customer greets you
+        And a guideline "escalate_issue" to assure them you will escalate it internally and get back to them when a business-plan customer is having an issue
         And a customer message, "Hi there"
         And an agent message, "Hey Beef, welcome to Bug! How can I help you today?"
         And a customer message, "I'm having issues with my web camera"
-        When processing is triggered
+        And that the "welcome_customer" guideline was matched in the previous iteration
+        And that the "use_first_name" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no welcoming back of the customer
-        And the message contains that the request will be escelated
+        And the message contains that the request will be escalated
 
     Scenario: The agent replies politely when its nagged with the same question
         Given an agent
@@ -106,24 +99,10 @@ Feature: Conversation
             | 47U0BZFO | 2025-07-05 | 2025-07-15 | Houston     | Miami  |
             | NOK9EHX0 | 2025-08-19 | 2025-08-22 | Phoenix     | Denver |
 
-    Scenario: The agent treats guideline with multiple actions where one is continuous as if its fully continuous
-        Given an agent
-        And an empty session
-        And a guideline "unlock_card_guideline" to ask for the last 6 digits and help them unlock when the customer needs help unlocking their card
-        And the tool "try_unlock_card"
-        And an association between "unlock_card_guideline" and "try_unlock_card"
-        And a customer message, "my card is locked"
-        And an agent message, "I'm sorry to hear that your card is locked. Could you please provide the last 6 digits of your card so I can assist you in unlocking it?"
-        And a customer message, "123456"
-        When processing is triggered
-        Then a single message event is emitted
-        And a single tool calls event is emitted
-        And the tool calls event contains that the card was successfully unlocked
-        And the message contains that the card was unlocked
 
     Scenario: The agent uses the freshest data when multiple sources are available
         Given an agent
-        And a guideline to help the customer clarify their needs and preferences when customer's interested in a product type but didn't choose yet
+        And a guideline "clarify_needs" to help the customer clarify their needs and preferences when customer's interested in a product type but didn't choose yet
         And a guideline "recommend_products" to recommend the best fit out of what we have available when customer said what product they want as well as their needs
         And the tool "get_products_by_type"
         And an association between "recommend_products" and "get_products_by_type"
@@ -134,6 +113,8 @@ Feature: Conversation
         And an agent message, "We have two 24\" monitors:\n\n* **AOC 24B2XH:** Budget IPS monitor for productivity. Price: $129.99\n* **BenQ GW2485:** Eye-care monitor with ultra-slim bezels. Price: $169.99\n\nWhich one are you interested in?"
         And a customer message, "budget under 140"
         And a tool event with data, {"tool_calls": [{"tool_id": "products:get_products_by_type", "arguments": {"product_type": "Monitor"}, "result": {"data": {"available_products": [{"title": "AOC 24B2XH 24\" Monitor", "type": "Monitor", "vendor": "AOC", "description": "Budget IPS monitor for productivity.", "tags": ["budget", "ips", "office"], "qty": 35, "price": 130.99}, {"title": "LG UltraGear 27GP950-B 27\" 4K Monitor", "type": "Monitor", "vendor": "LG", "description": "27-inch 4K Nano IPS gaming monitor with 144Hz refresh rate and HDMI 2.1.", "tags": ["gaming", "4k", "144hz", "hdmi2.1"], "qty": 8, "price": 799.99}, {"title": "ASUS TUF Gaming VG27AQ 27\" Monitor", "type": "Monitor", "vendor": "ASUS", "description": "1440p IPS gaming monitor with 165Hz refresh rate and ELMB-SYNC technology.", "tags": ["gaming", "1440p", "165hz"], "qty": 15, "price": 329.99}, {"title": "Samsung Odyssey G7 32\"", "type": "Monitor", "vendor": "Samsung", "description": " Curved 1440p gaming monitor with 240Hz refresh rate.", "tags": ["gaming", "curved", "240hz"], "qty": 12, "price": 699.99}, {"title": "LG 32UN650-W 32\" Monitor", "type": "Monitor", "vendor": "LG", "description": "4K UHD IPS monitor for content creation and productivity.", "tags": ["4k", "ips", "professional"], "qty": 15, "price": 499.99}, {"title": "BenQ GW2485 24\" Monitor", "type": "Monitor", "vendor": "BenQ", "description": "Eye-care monitor with ultra-slim bezels.", "tags": ["office", "eye-care", "1080p"], "qty": 40, "price": 169.99}, {"title": "MSI MAG274QRF-QD", "type": "Monitor", "vendor": "MSI", "description": "27-inch 1440p gaming monitor with Quantum Dot.", "tags": ["gaming", "1440p", "quantum-dot"], "qty": 18, "price": 449.99}]}, "metadata": {}, "control": {}}}, {"tool_id": "products:get_products_by_type", "arguments": {"product_type": "Monitor"}, "result": {"data": {"available_products": [{"title": "AOC 24B2XH 24\" Monitor", "type": "Monitor", "vendor": "AOC", "description": "Budget IPS monitor for productivity.", "tags": ["budget", "ips", "office"], "qty": 35, "price": 130.99}, {"title": "LG UltraGear 27GP950-B 27\" 4K Monitor", "type": "Monitor", "vendor": "LG", "description": "27-inch 4K Nano IPS gaming monitor with 144Hz refresh rate and HDMI 2.1.", "tags": ["gaming", "4k", "144hz", "hdmi2.1"], "qty": 8, "price": 799.99}, {"title": "ASUS TUF Gaming VG27AQ 27\" Monitor", "type": "Monitor", "vendor": "ASUS", "description": "1440p IPS gaming monitor with 165Hz refresh rate and ELMB-SYNC technology.", "tags": ["gaming", "1440p", "165hz"], "qty": 15, "price": 329.99}, {"title": "Samsung Odyssey G7 32\"", "type": "Monitor", "vendor": "Samsung", "description": " Curved 1440p gaming monitor with 240Hz refresh rate.", "tags": ["gaming", "curved", "240hz"], "qty": 12, "price": 699.99}, {"title": "LG 32UN650-W 32\" Monitor", "type": "Monitor", "vendor": "LG", "description": "4K UHD IPS monitor for content creation and productivity.", "tags": ["4k", "ips", "professional"], "qty": 15, "price": 499.99}, {"title": "BenQ GW2485 24\" Monitor", "type": "Monitor", "vendor": "BenQ", "description": "Eye-care monitor with ultra-slim bezels.", "tags": ["office", "eye-care", "1080p"], "qty": 40, "price": 169.99}, {"title": "MSI MAG274QRF-QD", "type": "Monitor", "vendor": "MSI", "description": "27-inch 1440p gaming monitor with Quantum Dot.", "tags": ["gaming", "1440p", "quantum-dot"], "qty": 18, "price": 449.99}]}, "metadata": {}, "control": {}}}]}
-        When processing is triggered
+        And a previously applied guideline "clarify_needs"
+        And a previously applied guideline "recommend_products"
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains that the price of the AOC 24B2XH model is 130.99

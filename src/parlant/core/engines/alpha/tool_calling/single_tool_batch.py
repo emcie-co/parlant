@@ -503,7 +503,6 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
                 ),
             },
         )
-
         return builder
 
     def _format_tool_calls_for_candidate_tool_json_description(
@@ -559,13 +558,27 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         candidate_tool: tuple[ToolId, Tool],
         reference_tools: Sequence[tuple[ToolId, Tool]],
     ) -> tuple[str, dict[str, Any]]:
+        def _get_type_suffix(descriptor_type: str) -> str:
+            """Return the type-specific format suffix for the given descriptor type."""
+            if descriptor_type == "datetime":
+                return ": year-month-day hour:minute:second"
+            if descriptor_type == "date":
+                return ": year-month-day"
+            if descriptor_type == "timedelta":
+                return ": hours:minutes:seconds"
+            return ""
+
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
             descriptor, options = spec
 
-            result: dict[str, Any] = {"schema": {"type": descriptor["type"]}}
+            result: dict[str, Any] = {
+                "schema": {"type": descriptor["type"] + _get_type_suffix(descriptor["type"])}
+            }
 
             if descriptor["type"] == "array":
-                result["schema"]["items"] = {"type": descriptor["item_type"]}
+                result["schema"]["items"] = {
+                    "type": descriptor["item_type"] + _get_type_suffix(descriptor["item_type"])
+                }
 
                 if enum := descriptor.get("enum"):
                     result["schema"]["items"]["enum"] = enum
@@ -715,7 +728,6 @@ Guidelines:
             prompt=prompt,
             hints={"temperature": 0.05},
         )
-
         self._logger.debug(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         return inference.info, inference.content.tool_calls_for_candidate_tool

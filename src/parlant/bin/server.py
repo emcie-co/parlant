@@ -33,19 +33,39 @@ import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.core.engines.alpha import message_generator
-from parlant.core.engines.alpha.guideline_matching.default_guideline_matching_strategy import (
-    DefaultGuidelineMatchingStrategyResolver,
+from parlant.core.engines.alpha.guideline_matching.generic import (
+    guideline_actionable_batch,
+    guideline_previously_applied_actionable_batch,
+    guideline_previously_applied_actionable_customer_dependent_batch,
+    response_analysis_batch,
 )
-from parlant.core.engines.alpha.guideline_matching import generic_actionable_batch
-from parlant.core.engines.alpha.guideline_matching.generic_actionable_batch import (
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
+    GenericGuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
+    GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
+    GenericPreviouslyAppliedActionableGuidelineMatching,
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
+    GenericResponseAnalysisSchema,
+    GenericResponseAnalysisBatch,
+    GenericResponseAnalysisShot,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
     GenericActionableGuidelineMatchesSchema,
     GenericActionableGuidelineMatching,
-    GenericActionableGuidelineMatchingShot,
+    GenericActionableGuidelineGuidelineMatchingShot,
 )
-from parlant.core.engines.alpha.guideline_matching import generic_observational_batch
-from parlant.core.engines.alpha.guideline_matching.generic_observational_batch import (
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_customer_dependent_batch import (
+    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
+    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
+    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingShot,
+)
+from parlant.core.engines.alpha.guideline_matching.generic import observational_batch
+from parlant.core.engines.alpha.guideline_matching.generic.observational_batch import (
     GenericObservationalGuidelineMatchesSchema,
-    GenericObservationalGuidelineMatching,
+    ObservationalGuidelineMatching,
     GenericObservationalGuidelineMatchingShot,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
@@ -53,6 +73,10 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingStrategyResolver,
 )
 from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.alpha.perceived_performance_policy import (
+    DefaultPerceivedPerformancePolicy,
+    PerceivedPerformancePolicy,
+)
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
@@ -61,12 +85,17 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceDraftSchema,
     UtteranceFieldExtractionSchema,
     UtteranceFieldExtractor,
+    UtteranceFluidPreambleSchema,
     UtteranceSelectionSchema,
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
 from parlant.core.journeys import JourneyDocumentStore, JourneyStore
 from parlant.core.persistence.vector_database import VectorDatabase
+from parlant.core.services.indexing.customer_dependent_action_detector import (
+    CustomerDependentActionDetector,
+    CustomerDependentActionSchema,
+)
 from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionPropositionSchema,
@@ -75,7 +104,7 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
 )
-from parlant.core.utterances import UtteranceDocumentStore, UtteranceStore
+from parlant.core.utterances import UtteranceStore, UtteranceVectorStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
@@ -352,12 +381,18 @@ async def setup_container() -> AsyncIterator[Container]:
     web_socket_logger = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
-
-    c[ShotCollection[GenericActionableGuidelineMatchingShot]] = (
-        generic_actionable_batch.shot_collection
+    c[ShotCollection[GenericResponseAnalysisShot]] = response_analysis_batch.shot_collection
+    c[ShotCollection[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot]] = (
+        guideline_previously_applied_actionable_batch.shot_collection
+    )
+    c[ShotCollection[GenericActionableGuidelineGuidelineMatchingShot]] = (
+        guideline_actionable_batch.shot_collection
+    )
+    c[ShotCollection[GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingShot]] = (
+        guideline_previously_applied_actionable_customer_dependent_batch.shot_collection
     )
     c[ShotCollection[GenericObservationalGuidelineMatchingShot]] = (
-        generic_observational_batch.shot_collection
+        observational_batch.shot_collection
     )
     c[ShotCollection[SingleToolBatchShot]] = single_tool_batch.shot_collection
     c[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
@@ -369,11 +404,13 @@ async def setup_container() -> AsyncIterator[Container]:
     c[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
     c[UtteranceSelector] = Singleton(UtteranceSelector)
     c[MessageGenerator] = Singleton(MessageGenerator)
+    c[PerceivedPerformancePolicy] = Singleton(DefaultPerceivedPerformancePolicy)
 
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
     c[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
     c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
+    c[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
 
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
@@ -425,6 +462,31 @@ async def initialize_container(
                 )
             )
 
+    async def try_define_vector_store(
+        store_type: type,
+        store_class: type,
+        vector_db_factory: Callable[[], Awaitable[VectorDatabase]],
+        document_db_filename: str,
+        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
+        embedder_factory: EmbedderFactory,
+    ) -> None:
+        if store_type not in c.defined_types:
+            vector_db = await vector_db_factory()
+            document_db = await EXIT_STACK.enter_async_context(
+                JSONFileDocumentDatabase(
+                    c[Logger],
+                    PARLANT_HOME_DIR / document_db_filename,
+                )
+            )
+            c[store_type] = await EXIT_STACK.enter_async_context(
+                store_class(
+                    vector_db=vector_db,
+                    document_db=document_db,
+                    embedder_type_provider=embedder_type_provider,
+                    embedder_factory=embedder_factory,
+                )
+            )
+
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
 
     c[Logger].set_level(
@@ -460,7 +522,6 @@ async def initialize_container(
             (CustomerStore, CustomerDocumentStore, "customers.json"),
             (EvaluationStore, EvaluationDocumentStore, "evaluations.json"),
             (TagStore, TagDocumentStore, "tags.json"),
-            (UtteranceStore, UtteranceDocumentStore, "utterances.json"),
             (GuidelineStore, GuidelineDocumentStore, "guidelines.json"),
             (
                 GuidelineToolAssociationStore,
@@ -498,36 +559,38 @@ async def initialize_container(
 
         embedder_factory = EmbedderFactory(c)
 
-        async def get_shared_chroma_db() -> VectorDatabase:
-            from parlant.adapters.vector_db.chroma import ChromaDatabase
+        shared_chroma_db: VectorDatabase | None = None
 
-            return await EXIT_STACK.enter_async_context(
-                ChromaDatabase(
-                    c[Logger],
-                    PARLANT_HOME_DIR,
-                    embedder_factory,
-                ),
-            )
+        async def get_shared_chroma_db() -> VectorDatabase:
+            nonlocal shared_chroma_db
+            if shared_chroma_db is None:
+                from parlant.adapters.vector_db.chroma import ChromaDatabase
+
+                shared_chroma_db = await EXIT_STACK.enter_async_context(
+                    ChromaDatabase(
+                        c[Logger],
+                        PARLANT_HOME_DIR,
+                        embedder_factory,
+                    ),
+                )
+            return cast(VectorDatabase, shared_chroma_db)
 
         async def get_embedder_type() -> type[Embedder]:
             return type(await nlp_service_instance.get_embedder())
 
-        async def make_glossary_store() -> GlossaryStore:
-            return await EXIT_STACK.enter_async_context(
-                GlossaryVectorStore(
-                    vector_db=await get_shared_chroma_db(),
-                    document_db=await EXIT_STACK.enter_async_context(
-                        JSONFileDocumentDatabase(
-                            c[Logger],
-                            PARLANT_HOME_DIR / "glossary_tags.json",
-                        )
-                    ),
-                    embedder_type_provider=get_embedder_type,
-                    embedder_factory=embedder_factory,
-                )
+        for store_type, store_class, document_db_filename in [
+            (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
+            (UtteranceStore, UtteranceVectorStore, "utterance_tags.json"),
+        ]:
+            await try_define_vector_store(
+                store_type,
+                store_class,
+                lambda: get_shared_chroma_db(),
+                document_db_filename,
+                get_embedder_type,
+                embedder_factory,
             )
 
-        await try_define_func(GlossaryStore, make_glossary_store)
     except MigrationRequired as e:
         c[Logger].critical(str(e))
         die("Please re-run with `--migrate` to migrate your data to the new version.")
@@ -538,11 +601,15 @@ async def initialize_container(
         )
 
     for schema in (
+        GenericResponseAnalysisSchema,
+        GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
         GenericActionableGuidelineMatchesSchema,
+        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
         GenericObservationalGuidelineMatchesSchema,
         MessageSchema,
         UtteranceDraftSchema,
         UtteranceSelectionSchema,
+        UtteranceFluidPreambleSchema,
         UtteranceRevisionSchema,
         UtteranceFieldExtractionSchema,
         SingleToolBatchSchema,
@@ -552,6 +619,7 @@ async def initialize_container(
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,
+        CustomerDependentActionSchema,
     ):
         try_define(
             SchematicGenerator[schema],  # type: ignore
@@ -559,8 +627,18 @@ async def initialize_container(
         )
 
     try_define(
-        GenericObservationalGuidelineMatching,
-        Singleton(GenericObservationalGuidelineMatching),
+        GenericResponseAnalysisBatch,
+        Singleton(GenericResponseAnalysisBatch),
+    )
+
+    try_define(
+        ObservationalGuidelineMatching,
+        Singleton(ObservationalGuidelineMatching),
+    )
+
+    try_define(
+        GenericPreviouslyAppliedActionableGuidelineMatching,
+        Singleton(GenericPreviouslyAppliedActionableGuidelineMatching),
     )
 
     try_define(
@@ -569,13 +647,18 @@ async def initialize_container(
     )
 
     try_define(
-        DefaultGuidelineMatchingStrategyResolver,
-        Singleton(DefaultGuidelineMatchingStrategyResolver),
+        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
+        Singleton(GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching),
+    )
+
+    try_define(
+        GenericGuidelineMatchingStrategyResolver,
+        Singleton(GenericGuidelineMatchingStrategyResolver),
     )
 
     try_define(
         GuidelineMatchingStrategyResolver,
-        lambda container: container[DefaultGuidelineMatchingStrategyResolver],
+        lambda container: container[GenericGuidelineMatchingStrategyResolver],
     )
 
     try_define(GuidelineMatcher, Singleton(GuidelineMatcher))

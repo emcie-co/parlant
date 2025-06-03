@@ -33,5 +33,9 @@ class GuidelineMatch:
     score: int
     rationale: str
     guideline_previously_applied: PreviouslyAppliedType = PreviouslyAppliedType.NO
-    guideline_is_continuous: bool = False
-    should_reapply: bool = False
+
+
+@dataclass(frozen=True)
+class GuidelinePreviouslyApplied:
+    guideline: Guideline
+    is_previously_applied: bool

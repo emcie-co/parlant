@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from ast import literal_eval
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum, auto
 import importlib
 import inspect
 import sys
+from types import UnionType
 from typing import (
     Any,
     Awaitable,
@@ -30,9 +32,11 @@ from typing import (
     Optional,
     Sequence,
     TypeAlias,
+    Union,
     get_args,
+    get_origin,
 )
-from pydantic import Field
+from pydantic import BaseModel, Field, TypeAdapter
 from typing_extensions import override, TypedDict
 
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
@@ -44,9 +48,16 @@ ToolParameterType = Literal[
     "integer",
     "boolean",
     "array",
+    "date",
+    "datetime",
+    "timedelta",
+    "path",
+    "uuid",
 ]
 
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
+
+VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime]
 
 
 class ToolParameterDescriptor(TypedDict, total=False):
@@ -397,72 +408,75 @@ def validate_tool_arguments(
         message = f"Argument mismatch.\n - Expected parameters: {sorted(expected)}"
         raise ToolExecutionError(message)
 
-    type_map = {
-        "string": (str,),
-        "boolean": (
-            str,
-            bool,
-        ),
-        "integer": (
-            str,
-            int,
-        ),
-        "number": (str, int, float),
-    }
-
-    for param_name, arg_value in arguments.items():
-        param_def, _ = tool.parameters[param_name]
-        param_type = param_def["type"]
-
-        values = [arg_value]
-
-        if param_type == "array":
-            values = arg_value
-
-        for value in values:
-            if allowed_values := param_def.get("enum", []):
-                if value is not None and value not in allowed_values:
-                    message = (
-                        f"Parameter '{param_name}' must be one of {allowed_values}, "
-                        f"but got '{value}'."
-                    )
-                    raise ToolExecutionError(tool.name, message)
-            else:
-                expected_types = type_map.get(param_type)
-                if expected_types is None:
-                    raise ToolExecutionError(
-                        tool.name, f"Parameter '{param_name}' has unknown type '{param_type}'"
-                    )
-                if value is not None and type(value) not in expected_types:
-                    raise ToolExecutionError(
-                        tool.name,
-                        f"Parameter '{param_name}' must be of type {expected_types}, "
-                        f"but got {type(value).__name__}: {value}",
-                    )
-
 
 def normalize_tool_arguments(
     parameters: Mapping[str, inspect.Parameter],
     arguments: Mapping[str, Any],
 ) -> Any:
     return {
-        param_name: normalize_tool_argument(parameters[param_name].annotation, argument)
+        param_name: cast_tool_argument(parameters[param_name].annotation, argument)
         for param_name, argument in arguments.items()
     }
 
 
-def normalize_tool_argument(parameter_type: Any, argument: Any) -> Any:
+def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
+    """This function converts the argument values to the type expected by the function.
+    First - "type wrappers" such as Optional and annotated are "translated" to the inner type.
+    Second - Collections (currently only lists) are split and run recursively on the items.
+    Third - The argument is cast to the type of the parameter, according to the type of the parameter.
+    """
     try:
-        if getattr(parameter_type, "__name__", None) == "Annotated":
-            parameter_type = get_args(parameter_type)[0]
-        if (
-            inspect.isclass(parameter_type)
-            and issubclass(parameter_type, Enum)
-            or parameter_type in [str, int, float, bool]
-        ):
-            return parameter_type(argument)
-        return argument
+        cast_target = parameter_type
+        # If parameter_type is Annotated -> get the inner type
+        if getattr(cast_target, "__name__", None) == "Annotated":
+            cast_target = get_args(cast_target)[0]
+
+        # For Optional parameters - use the inner type
+        if get_origin(cast_target) is Union or get_origin(cast_target) is UnionType:
+            args = get_args(cast_target)
+            cast_target = next((arg for arg in args if arg is not type(None)), None)
+
+        # If parameter_type is a list -> split it and run recursively on the items
+        if get_origin(cast_target) is list:
+            item_type = get_args(cast_target)[0]
+
+            arg_list = split_arg_list(argument, item_type)
+            return [cast_tool_argument(item_type, item) for item in arg_list]
+
+        # Scalar types
+        if cast_target is datetime:
+            return datetime.fromisoformat(argument)
+        if cast_target is date:
+            return date.fromisoformat(argument)
+        if cast_target is bool:
+            return bool(argument.capitalize())
+        if argument is None:
+            return argument
+        if issubclass(cast_target, BaseModel):
+            return TypeAdapter(cast_target).validate_json(argument)
+        if issubclass(cast_target, Enum) or cast_target in VALID_TOOL_BASE_TYPES:
+            return cast_target(argument)
+        else:
+            # Note that the parameter_type here may be an inner type (i.e. in cases of Optional ot lists)
+            raise TypeError(f"Unsupported type {parameter_type} for parameter {argument}.")
+
     except Exception as exc:
         raise ToolExecutionError(
             f"Failed to convert argument '{argument}' into a {parameter_type}"
         ) from exc
+
+
+def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
+    if isinstance(argument, list):
+        # Already a list - no work required
+        return argument
+    if item_type is str or issubclass(item_type, Enum):
+        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
+        return list(literal_eval(argument))
+    if item_type in VALID_TOOL_BASE_TYPES:
+        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
+        list_str = argument.strip()
+        if list_str.startswith("[") and list_str.endswith("]"):
+            return list_str[1:-1].split(",")
+        raise ValueError(f"Invalid list format for argument '{argument}'")
+    raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")

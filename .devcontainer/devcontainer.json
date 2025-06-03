@@ -10,7 +10,7 @@
   // "forwardPorts": [],
 
   // 👇 Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "(cd /workspaces/parlant && git config --global --add safe.directory /workspaces/parlant && python ./initialize_repo.py)",
+  "postCreateCommand": "(cd /workspaces/parlant* && git config --global --add safe.directory $PWD && python ./initialize_repo.py)",
 
   // 👇 Configure tool-specific properties.
   "customizations": {
@@ -37,10 +37,10 @@
   },
   // 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
   "features": {
-    "ghcr.io/devcontainers-contrib/features/mypy:2": {
+    "ghcr.io/devcontainers-extra/features/mypy:2": {
       "version": "latest"
     },
-    "ghcr.io/devcontainers-contrib/features/poetry:2": {
+    "ghcr.io/devcontainers-extra/features/poetry:2": {
       "version": "latest"
     },
     "node": {

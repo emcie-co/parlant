@@ -442,6 +442,18 @@ def then_an_error_status_event_is_emitted(
     assert _has_status_event("error", acknowledged_event_offset, emitted_events)
 
 
+@step(then, parsers.parse("no tool error has occurred"))
+def then_no_tool_error_occurred(emitted_events: list[EmittedEvent]) -> None:
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
+    for tool_event in tool_events:
+        tool_event_data = cast(ToolEventData, tool_event.data)
+        for tc in tool_event_data["tool_calls"]:
+            result_data = tc["result"].get("data", [])
+            assert not (
+                isinstance(result_data, str) and "error" in result_data
+            ), f"A tool error has occurred in tool: {tc}"
+
+
 @step(then, parsers.parse("a {status_type} status event is not emitted"))
 def then_a_status_event_type_is_not_emitted(
     emitted_events: list[EmittedEvent],

@@ -16,13 +16,19 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import NewType, Optional, Sequence, cast
-from typing_extensions import override, TypedDict, Self
+from itertools import chain
+import json
+from typing import Awaitable, Callable, NewType, Optional, Sequence, cast
+from typing_extensions import override, TypedDict, Self, Required
 
+from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.vector_database import VectorCollection, VectorDatabase
+from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -93,6 +99,14 @@ class UtteranceStore(ABC):
     ) -> Sequence[Utterance]: ...
 
     @abstractmethod
+    async def find_relevant_utterances(
+        self,
+        query: str,
+        tags: Optional[Sequence[TagId]] = None,
+        max_utterances: int = 5,
+    ) -> Sequence[Utterance]: ...
+
+    @abstractmethod
     async def upsert_tag(
         self,
         utterance_id: UtteranceId,
@@ -114,12 +128,22 @@ class _UtteranceFieldDocument(TypedDict):
     examples: list[str]
 
 
-class _UtteranceDocument(TypedDict, total=False):
+class UtteranceDocument_v_0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     value: str
     fields: Sequence[_UtteranceFieldDocument]
+
+
+class _UtteranceDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    content: str
+    checksum: Required[str]
+    value: str
+    fields: str
 
 
 class _UtteranceTagAssociationDocument(TypedDict, total=False):
@@ -130,49 +154,92 @@ class _UtteranceTagAssociationDocument(TypedDict, total=False):
     tag_id: TagId
 
 
-class UtteranceDocumentStore(UtteranceStore):
-    VERSION = Version.from_string("0.1.0")
+class UtteranceVectorStore(UtteranceStore):
+    VERSION = Version.from_string("0.2.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
-        self._database = database
-        self._utterances_collection: DocumentCollection[_UtteranceDocument]
+    def __init__(
+        self,
+        vector_db: VectorDatabase,
+        document_db: DocumentDatabase,
+        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
+        embedder_factory: EmbedderFactory,
+        allow_migration: bool = True,
+    ) -> None:
+        self._vector_db = vector_db
+        self._database = document_db
+
+        self._utterances_collection: VectorCollection[_UtteranceDocument]
         self._utterance_tag_association_collection: DocumentCollection[
             _UtteranceTagAssociationDocument
         ]
         self._allow_migration = allow_migration
         self._lock = ReaderWriterLock()
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
+        self._embedder: Embedder
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_UtteranceDocument]:
         if doc["version"] == "0.1.0":
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+        if doc["version"] == "0.2.0":
             return cast(_UtteranceDocument, doc)
-
         return None
 
     async def _association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_UtteranceTagAssociationDocument]:
         if doc["version"] == "0.1.0":
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+
+        if doc["version"] == "0.2.0":
             return cast(_UtteranceTagAssociationDocument, doc)
+
         return None
 
     async def __aenter__(self) -> Self:
+        embedder_type = await self._embedder_type_provider()
+
+        self._embedder = self._embedder_factory.create_embedder(embedder_type)
+
+        async with VectorDocumentStoreMigrationHelper(
+            store=self,
+            database=self._vector_db,
+            allow_migration=self._allow_migration,
+        ):
+            self._utterances_collection = await self._vector_db.get_or_create_collection(
+                name="utterances",
+                schema=_UtteranceDocument,
+                embedder_type=embedder_type,
+                document_loader=self._document_loader,
+            )
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
         ):
-            self._utterances_collection = await self._database.get_or_create_collection(
-                name="utterances",
-                schema=_UtteranceDocument,
-                document_loader=self._document_loader,
-            )
-
             self._utterance_tag_association_collection = (
                 await self._database.get_or_create_collection(
                     name="utterance_tag_associations",
                     schema=_UtteranceTagAssociationDocument,
                     document_loader=self._association_document_loader,
                 )
+            )
+
+        async with VectorDocumentStoreMigrationHelper(
+            store=self,
+            database=self._vector_db,
+            allow_migration=self._allow_migration,
+        ):
+            self._utterances_collection = await self._vector_db.get_or_create_collection(
+                name="utterances",
+                schema=_UtteranceDocument,
+                embedder_type=embedder_type,
+                document_loader=self._document_loader,
             )
 
         return self
@@ -186,16 +253,32 @@ class UtteranceDocumentStore(UtteranceStore):
         return False
 
     def _serialize_utterance(self, utterance: Utterance) -> _UtteranceDocument:
+        content = self.assemble_content(utterance.value, utterance.fields)
+
         return _UtteranceDocument(
             id=ObjectId(utterance.id),
             version=self.VERSION.to_string(),
             creation_utc=utterance.creation_utc.isoformat(),
+            content=content,
+            checksum=md5_checksum(content),
             value=utterance.value,
-            fields=[
-                {"name": s.name, "description": s.description, "examples": s.examples}
-                for s in utterance.fields
-            ],
+            fields=json.dumps(
+                [
+                    {"name": s.name, "description": s.description, "examples": s.examples}
+                    for s in utterance.fields
+                ]
+            ),
         )
+
+    @staticmethod
+    def assemble_content(
+        value: str,
+        fields: Sequence[UtteranceField],
+    ) -> str:
+        field_str = "; ".join(
+            f"{f.name}: {f.description} (examples: {', '.join(f.examples)})" for f in fields
+        )
+        return f"{value}\n{field_str}"
 
     async def _deserialize_utterance(self, utterance_document: _UtteranceDocument) -> Utterance:
         tags = [
@@ -211,7 +294,7 @@ class UtteranceDocumentStore(UtteranceStore):
             value=utterance_document["value"],
             fields=[
                 UtteranceField(name=d["name"], description=d["description"], examples=d["examples"])
-                for d in utterance_document["fields"]
+                for d in json.loads(utterance_document["fields"])
             ],
             tags=tags,
         )
@@ -281,14 +364,20 @@ class UtteranceDocumentStore(UtteranceStore):
             if not utterance_document:
                 raise ItemNotFoundError(item_id=UniqueId(utterance_id))
 
+            content = self.assemble_content(params["value"], params["fields"])
+
             result = await self._utterances_collection.update_one(
                 filters={"id": {"$eq": utterance_id}},
                 params={
                     "value": params["value"],
-                    "fields": [
-                        {"name": s.name, "description": s.description, "examples": s.examples}
-                        for s in params["fields"]
-                    ],
+                    "fields": json.dumps(
+                        [
+                            {"name": s.name, "description": s.description, "examples": s.examples}
+                            for s in params["fields"]
+                        ]
+                    ),
+                    "content": content,
+                    "checksum": md5_checksum(content),
                 },
             )
 
@@ -401,3 +490,56 @@ class UtteranceDocumentStore(UtteranceStore):
 
         if not utterance_document:
             raise ItemNotFoundError(item_id=UniqueId(utterance_id))
+
+    async def _query_chunks(self, query: str) -> list[str]:
+        max_length = self._embedder.max_tokens // 5
+        total_token_count = await self._embedder.tokenizer.estimate_token_count(query)
+
+        words = query.split()
+        total_word_count = len(words)
+
+        tokens_per_word = total_token_count / total_word_count
+
+        words_per_chunk = max(int(max_length / tokens_per_word), 1)
+
+        chunks = []
+        for i in range(0, total_word_count, words_per_chunk):
+            chunk_words = words[i : i + words_per_chunk]
+            chunk = " ".join(chunk_words)
+            chunks.append(chunk)
+
+        return [
+            text if await self._embedder.tokenizer.estimate_token_count(text) else ""
+            for text in chunks
+        ]
+
+    @override
+    async def find_relevant_utterances(
+        self,
+        query: str,
+        tags: Optional[Sequence[TagId]] = None,
+        max_utterances: int = 5,
+    ) -> Sequence[Utterance]:
+        async with self._lock.reader_lock:
+            queries = await self._query_chunks(query)
+
+            filters: Where = {}
+
+            utterances = await self.list_utterances(tags=tags)
+            if utterances:
+                filters = {"id": {"$in": [str(t.id) for t in utterances]}}
+
+            tasks = [
+                self._utterances_collection.find_similar_documents(
+                    filters=filters,
+                    query=q,
+                    k=max_utterances,
+                )
+                for q in queries
+            ]
+
+        all_results = chain.from_iterable(await async_utils.safe_gather(*tasks))
+        unique_results = list(set(all_results))
+        top_results = sorted(unique_results, key=lambda r: r.distance)[:max_utterances]
+
+        return [await self._deserialize_utterance(r.document) for r in top_results]

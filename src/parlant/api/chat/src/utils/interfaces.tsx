@@ -29,6 +29,7 @@ export interface EventInterface {
 	offset: number;
 	creation_utc: Date;
 	data: {
+		participant?: {display_name?: string}
 		status?: ServerStatus;
 		draft?: string;
 		utterances?: string[];
@@ -44,4 +45,11 @@ export interface SessionInterface {
 	customer_id: string;
 	agent_id: string;
 	creation_utc: string;
+}
+
+export interface SessionCsvInterafce {
+	Source: 'AI Agent' | 'Customer';
+	Participant: string;
+	Timestamp: Date;
+	Message: string;
 }

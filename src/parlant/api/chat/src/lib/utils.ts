@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {clsx, type ClassValue} from 'clsx';
 import {toast} from 'sonner';
 import {twMerge} from 'tailwind-merge';
@@ -69,4 +70,72 @@ export const timeAgo = (date: Date): string => {
 	// if (months < 12) return `${months} months ago`;
 	// if (years === 1) return 'last year';
 	return `${years} years ago`;
+};
+
+export const exportToCsv = (data: any[], filename: string, options: any = {}) => {
+  try {
+    const {
+      headers = [],
+      delimiter = ',',
+      includeHeaders = true,
+      dateFormat = 'iso'
+    } = options;
+
+    if (!data || data.length === 0) {
+      throw new Error('No data to export');
+    }
+
+    const csvHeaders = headers.length > 0 ? headers : Object.keys(data[0]);
+    
+    const escapeField = (field: string) => {
+      const stringField = String(field || '');
+      if (stringField.includes(delimiter) || stringField.includes('"') || stringField.includes('\n')) {
+        return `"${stringField.replace(/"/g, '""')}"`;
+      }
+      return stringField;
+    };
+
+    const formatValue = (value: string | Date) => {
+      if (value instanceof Date) {
+        return dateFormat === 'readable' ? value.toLocaleString() : value.toISOString();
+      }
+      return value;
+    };
+
+    const csvRows = [];
+    
+    if (includeHeaders) {
+      csvRows.push(csvHeaders.map((header: string) => escapeField(header)).join(delimiter));
+    }
+    
+    data.forEach(row => {
+      const values = csvHeaders.map((header: string) => {
+        const value = row[header];
+        return escapeField(formatValue(value));
+      });
+      csvRows.push(values.join(delimiter));
+    });
+
+    const csvContent = csvRows.join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('CSV export failed:', error);
+    throw error;
+  }
 };

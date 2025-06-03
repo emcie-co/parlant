@@ -48,6 +48,12 @@ class EngineHooks:
     on_acknowledged: list[EngineHook] = field(default_factory=list)
     """Called right after emitting an acknowledgement status event"""
 
+    on_generating_preamble: list[EngineHook] = field(default_factory=list)
+    """Called just before generating the preamble message"""
+
+    on_generated_preamble: list[EngineHook] = field(default_factory=list)
+    """Called right after generating the preamble message"""
+
     on_preparing: list[EngineHook] = field(default_factory=list)
     """Called just before beginning the preparation iterations"""
 
@@ -80,6 +86,12 @@ class EngineHooks:
 
     async def call_on_preparation_iteration_end(self, context: LoadedContext) -> bool:
         return await self.call_hooks(self.on_preparation_iteration_end, context)
+
+    async def call_on_generating_preamble(self, context: LoadedContext) -> bool:
+        return await self.call_hooks(self.on_generating_preamble, context)
+
+    async def call_on_generated_preamble(self, context: LoadedContext) -> bool:
+        return await self.call_hooks(self.on_generated_preamble, context)
 
     async def call_on_generating_messages(self, context: LoadedContext) -> bool:
         return await self.call_hooks(self.on_generating_messages, context)

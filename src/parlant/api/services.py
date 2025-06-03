@@ -25,6 +25,7 @@ from parlant.api.common import (
     tool_to_dto,
 )
 from parlant.core.common import DefaultBaseModel
+from parlant.core.services.tools.mcp_service import MCPToolClient
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
@@ -46,6 +47,7 @@ class ToolServiceKindDTO(Enum):
 
     SDK = "sdk"
     OPENAPI = "openapi"
+    MCP = "mcp"
 
 
 ServiceParamsURLField: TypeAlias = Annotated[
@@ -106,6 +108,17 @@ class OpenAPIServiceParamsDTO(
     source: ServiceOpenAPIParamsSourceField
 
 
+class MCPServiceParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": sdk_service_params_example},
+):
+    """
+    Configuration parameters for MCP-based service integration.
+    """
+
+    url: ServiceParamsURLField
+
+
 ServiceUpdateSDKServiceParamsField: TypeAlias = Annotated[
     SDKServiceParamsDTO,
     Field(
@@ -117,6 +130,13 @@ ServiceUpdateOpenAPIServiceParamsField: TypeAlias = Annotated[
     OpenAPIServiceParamsDTO,
     Field(
         description="OpenAPI service configuration parameters. Required when kind is 'openapi'.",
+    ),
+]
+
+ServiceUpdateMCPServiceParamsField: TypeAlias = Annotated[
+    MCPServiceParamsDTO,
+    Field(
+        description="MCP service configuration parameters. Required when kind is 'mcp'.",
     ),
 ]
 
@@ -145,6 +165,7 @@ class ServiceUpdateParamsDTO(
     kind: ToolServiceKindDTO
     sdk: Optional[ServiceUpdateSDKServiceParamsField] = None
     openapi: Optional[ServiceUpdateOpenAPIServiceParamsField] = None
+    mcp: Optional[ServiceUpdateMCPServiceParamsField] = None
 
 
 ServiceURLField: TypeAlias = Annotated[
@@ -208,17 +229,23 @@ class ServiceDTO(
 
 
 def _get_service_kind(service: ToolService) -> ToolServiceKindDTO:
-    return (
-        ToolServiceKindDTO.OPENAPI if isinstance(service, OpenAPIClient) else ToolServiceKindDTO.SDK
-    )
+    if isinstance(service, OpenAPIClient):
+        return ToolServiceKindDTO.OPENAPI
+    if isinstance(service, PluginClient):
+        return ToolServiceKindDTO.SDK
+    if isinstance(service, MCPToolClient):
+        return ToolServiceKindDTO.MCP
+    raise ValueError(f"Unknown service kind: {type(service)}")
 
 
 def _get_service_url(service: ToolService) -> str:
-    return (
-        service.server_url
-        if isinstance(service, OpenAPIClient)
-        else cast(PluginClient, service).url
-    )
+    if isinstance(service, OpenAPIClient):
+        return service.server_url
+    if isinstance(service, PluginClient):
+        return service.url
+    if isinstance(service, MCPToolClient):
+        return f"{service.url}:{service.port}"
+    raise ValueError(f"Unknown service kind: {type(service)}")
 
 
 def _tool_service_kind_dto_to_tool_service_kind(dto: ToolServiceKindDTO) -> ToolServiceKind:
@@ -227,6 +254,7 @@ def _tool_service_kind_dto_to_tool_service_kind(dto: ToolServiceKindDTO) -> Tool
         {
             ToolServiceKindDTO.OPENAPI: "openapi",
             ToolServiceKindDTO.SDK: "sdk",
+            ToolServiceKindDTO.MCP: "mcp",
         }[dto],
     )
 
@@ -235,6 +263,7 @@ def _tool_service_kind_to_dto(kind: ToolServiceKind) -> ToolServiceKindDTO:
     return {
         "openapi": ToolServiceKindDTO.OPENAPI,
         "sdk": ToolServiceKindDTO.SDK,
+        "mcp": ToolServiceKindDTO.MCP,
     }[kind]
 
 
@@ -319,6 +348,17 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
+        elif params.kind == ToolServiceKindDTO.MCP:
+            if not params.mcp:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Missing MCP parameters",
+                )
+            if not (params.mcp.url.startswith("http://") or params.mcp.url.startswith("https://")):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Service URL is missing schema (http:// or https://)",
+                )
         else:
             raise Exception("Should never logically get here")
 
@@ -330,6 +370,10 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
             assert params.openapi
             url = params.openapi.url
             source = params.openapi.source
+        elif params.kind == ToolServiceKindDTO.MCP:
+            assert params.mcp
+            url = params.mcp.url
+            source = None
         else:
             raise Exception("Should never logically get here")
 
@@ -405,7 +449,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
                 url=_get_service_url(service),
             )
             for name, service in await service_registry.list_tool_services()
-            if type(service) in [OpenAPIClient, PluginClient]
+            if type(service) in [OpenAPIClient, PluginClient, MCPToolClient]
         ]
 
     @router.get(

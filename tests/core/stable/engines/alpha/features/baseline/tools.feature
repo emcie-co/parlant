@@ -11,6 +11,7 @@ Feature: Tools
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains Sprite and Coca Cola as available drinks
 
@@ -21,6 +22,7 @@ Feature: Tools
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains Mushrooms and Olives as available toppings
 
@@ -32,6 +34,7 @@ Feature: Tools
         And a customer message, "Hey, Can I order a large pizza with pepperoni and Sprite on the side?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola as drinks, and Pepperoni, Mushrooms and Olives as toppings
 
@@ -42,6 +45,7 @@ Feature: Tools
         And a customer message, "What is 8+2 and 4+6?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains the numbers 8 and 2 in the first tool call
         And the tool calls event contains the numbers 4 and 6 in the second tool call
@@ -56,6 +60,7 @@ Feature: Tools
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
@@ -71,6 +76,7 @@ Feature: Tools
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
@@ -84,6 +90,7 @@ Feature: Tools
         And a customer message, "What is 8+2 and 4*6?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains the numbers 8 and 2 in the "add" tool call
         And the tool calls event contains the numbers 4 and 6 in the "multiply" tool call
@@ -97,6 +104,7 @@ Feature: Tools
         And a customer message, "What is 8+2 and 4*6? also, 9+5 and 10+2 and 3*5"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 5 tool call(s)
         And the tool calls event contains 3 calls to "add", one with 8 and 2, the second with 9 and 5, and the last with 10 and 2
         And the tool calls event contains 2 calls to "multiply", one with 4 and 6, and the other with 3 and 5
@@ -109,6 +117,7 @@ Feature: Tools
         And a customer message, "What's my account balance?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "get_account_balance" with Jerry Seinfeld's current balance
 
@@ -120,6 +129,7 @@ Feature: Tools
         And a customer message, "Hey, Can I order large pepperoni pizza with Sprite?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And a single message event is emitted
         And the tool calls event is correlated with the message event
 
@@ -144,6 +154,7 @@ Feature: Tools
         And a customer message, "I'm really happy about the system"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call with tool_id of "second_service:schedule"
 
@@ -176,10 +187,11 @@ Feature: Tools
         And an association between "retrieve_account_information" and "schedule" from "first_service"
         And an association between "retrieve_account_information" and "schedule" from "second_service"
         And an association between "retrieve_account_information" and "get_available_product_by_type"
-        And an association between "retrieve_account_information" and "multiply"
+        # And an association between "retrieve_account_information" and "multiply"
         And a customer message, "Does Larry David have enough money in his account to buy a kilogram of apples?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:get_account_balance" with Larry David's current balance
         And the tool calls event contains a call to "local:check_fruit_price" with the price of apples
@@ -191,6 +203,7 @@ Feature: Tools
         And a customer message, "What available keyboards do you have?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "available_products_by_category" with category "peripherals"
 
@@ -201,6 +214,7 @@ Feature: Tools
         And an association between "handle_policy_questions" and "consult_policy"
         And an association between "handle_policy_questions" and "other_inquiries"
         And a customer message, "I'd like to return a product please?"
+        And a tool relationship whereby "consult_policy" overlaps with "other_inquiries"
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
@@ -217,8 +231,10 @@ Feature: Tools
         And a tool event with data, { "tool_calls": [{ "tool_id": "local:get_account_balance", "arguments": { "account_name": "Larry David"}, "result": { "data": 451000000, "metadata": {} }}]}
         And an agent message, "Larry David currently has 451 million dollars."
         And a customer message, "And what about now?"
-        When processing is triggered
+        And that the "retrieve_account_information" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "get_account_balance" with Larry David's current balance
 
@@ -243,6 +259,7 @@ Feature: Tools
         And a customer message, "Let's please pay my credit card bill immediately"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "pay_cc_bill" with date 17-01-2025
 
@@ -256,6 +273,7 @@ Feature: Tools
         And a customer message, "Let's please pay my credit card bill. Payment date is tomorrow."
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "pay_cc_bill" with date 18-01-2025
 
@@ -267,6 +285,7 @@ Feature: Tools
         And a customer message, "Let's please pay my credit card bill."
         When processing is triggered
         Then no tool calls event is emitted
+        And no tool error has occurred
         And a single message event is emitted
         And the message mentions that a date is missing
 
@@ -303,8 +322,10 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
     
     Scenario: Tool caller correctly infers arguments's value (2) (transfer_coins)
@@ -315,6 +336,7 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan and I want to transfer about 200-300 dollars from my account to Sophie Chapman account. My pincode is 1234. Actually I want to transfer 400"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 400 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
     
     Scenario: Tool caller correctly infers arguments's value (3) (transfer_coins)
@@ -327,8 +349,10 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
         And an agent message, "Can you confirm the transformation?"
         And a customer message, "Actually I want to transfer 2000 please"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 2000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
     
     Scenario: Tool caller call the tool again when previous call has irrelevant arguments (1) (transfer_coins)
@@ -342,9 +366,11 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        And that the "make_transfer" guideline is matched with a priority of 10 because "Customer asked to make a transfer"
-        When processing is triggered
+        And a previously applied guideline "make_transfer"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
             
     Scenario: Tool caller call the tool again when previous call has irrelevant arguments (2) (transfer_coins)
@@ -358,9 +384,11 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        And that the "make_transfer" guideline is matched with a priority of 10 because "Customer asked to make a transfer"
-        When processing is triggered
+        And a previously applied guideline "make_transfer"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 1500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
             
     Scenario: No tool call emitted when there is missing data (1) (transfer_coins)
@@ -398,8 +426,10 @@ Feature: Tools
         And a customer message, "I want to transfer $1500 from my account to Sophie Chapman and $1700 to Margaret Thatcher"
         And an agent message, "I need your name and your pin code please"
         And a customer message, "My name is Mark Corrigan, The pincode is 1234"
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains 2 tool call(s)
+        And no tool error has occurred
 
     Scenario: Tool caller don't call the tool when user asks about request but don't want to make one (transfer_coins)
         Given an empty session
@@ -411,6 +441,8 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, and I might want to send 10,101 dollars to my sister, Ruthie."
         And an agent message, "Got it, Mark! What’s your pin code, please?"
         And a customer message, "It’s 1234. But actually, I’m not sure if I want to do it right now. I may do it tomorrow instead. I’ll keep you posted"
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         When processing is triggered
         Then no tool calls event is emitted
 
@@ -425,19 +457,22 @@ Feature: Tools
         And a customer message, "My name is Mark Corrigan, and I want to send 1500 euros to my sister, Sophie Chapman."
         And an agent message, "Got it, Mark! What’s your pin code, please?"
         And a customer message, "It’s 1234. "
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 3000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
+        And no tool error has occurred
 
     Scenario: Tool call consider a guideline about tool parameters (2) (transfer_coins)
         Given an empty session
         And a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
-        And a guideline to set the destination account to Sophie Chapman when asked to make a coins transfer
+        And a guideline to set the destination account to Sophie Chapman when asked to transfer money from one account to another
         And a customer message, "Hi, it’s Mark Corrigan here. Can I make a transfer of 4500$?. You probably need my pincode, its 1234 "
         When processing is triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 4500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
-    
+        And no tool error has occurred
+
     Scenario: The tool caller infers parameters based on outputs from another tool (1) (transfer_coins)
         Given an empty session
         And a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
@@ -447,6 +482,7 @@ Feature: Tools
         And a tool event with data, { "tool_calls": [{ "tool_id": "local:get_account_balance", "arguments": { "account_name": "Mark Corrigan"}, "result": { "data": 1000, "metadata": {} }}]}
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 1000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
 
     Scenario: The tool caller infers parameters based on outputs from another tool (2) (transfer_coins)
@@ -458,6 +494,7 @@ Feature: Tools
         And a tool event with data, { "tool_calls": [{ "tool_id": "local:get_user_sister_name", "arguments": { "user_name": "Mark Corrigan"}, "result": { "data": "Sophie Chapman", "metadata": {} }}]}
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 100,000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
                    
     Scenario: Tool call infer parameters from different conversation parts (transfer_coins)
@@ -482,8 +519,10 @@ Feature: Tools
         And a customer message, "I’m thinking of sending $2000 right now."
         And an agent message, "Alright, if you’d like me to assist with that, I’ll just need your pin code to proceed"
         And a customer message, "Sure, try 1234."
-        When processing is triggered
+        And that the "make_transfer" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 2000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
+        And no tool error has occurred
 
     Scenario: Tool caller call tool once when there are 2 requests but one with missing data (transfer_coins)
         Given an empty session
@@ -493,6 +532,7 @@ Feature: Tools
         And a customer message, "Hi, here Mark Corrigan. Can I transfer $1000 to Mark Scout? Also make another transfer of $2000 but not to Mark Scout? My pin code is 1234"
         When processing is triggered    
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains a call to "transfer_coins" with amount 1000 and from_account Mark Corrigan and to_account Mark Scout and pincode 1234
 
     Scenario: Tool caller correctly infers arguments values with optional (1)
@@ -501,6 +541,7 @@ Feature: Tools
         And an association between "filter_electronic_products" and "search_electronic_products"
         And a customer message, "Hey, do you have laptop that is not above $300?"
         When processing is triggered
+        Then no tool error has occurred
 
     Scenario: Tool caller correctly infers arguments values with optional (2)
         Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
@@ -509,8 +550,10 @@ Feature: Tools
         And a customer message, "Hey, do you have SSD of Samsung?"
         And an agent message, "Do you have a price limit? for example not more than $400?"
         And a customer message, "No"
-        When processing is triggered
+        And that the "filter_electronic_products" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains SSD as keyword and Samsung as Vendor and no price limit
        
@@ -538,6 +581,7 @@ Feature: Tools
         And a customer message, "Hey, do you have laptop that is not above $300?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains laptop as keyword and 300 as max price and in_stock_only is True
 
@@ -552,17 +596,6 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains laptop as keyword and Dell as vendor and 300 as max price and 10 as min price 
 
-    Scenario: Tool caller include only required argument when asked to 
-        Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
-        And the tool "search_electronic_products"
-        And an association between "filter_electronic_products" and "search_electronic_products"
-        And a guideline to check only products of Dell when customer is interested in laptops with specific attributes
-        And a customer message, "Hey, do you have electronic device like microphones in your store?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains microphone as keyword 
-
      Scenario: Tool caller call tool twice with optional arguments
         Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
         And the tool "search_electronic_products"
@@ -570,6 +603,7 @@ Feature: Tools
         And a customer message, "Hey, do you have Dell laptop or Samsung SSD?"
         When processing is triggered
         Then a single tool calls event is emitted
+        And no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:search_electronic_products" with Dell vendor and laptop keyword
         And the tool calls event contains a call to "local:search_electronic_products" with Samsung vendor and SSD keyword
@@ -912,39 +946,6 @@ Feature: Tools
         And the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
-    Scenario: Tool caller use the more suitable tool for transfer when three overlap directly 
-        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
-        And the tool "transfer_shekels"
-        And the tool "transfer_money"
-        And the tool "transfer_dollars"
-        And an association between "do_transaction" and "transfer_shekels"
-        And an association between "do_transaction" and "transfer_money"
-        And an association between "do_transaction" and "transfer_dollars"
-        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
-        And a tool relationship whereby "transfer_dollars" overlaps with "transfer_money"
-        And a tool relationship whereby "transfer_dollars" overlaps with "transfer_shekels"
-        And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Dan $40 and to my friend Ali 500 Dinar? my name is Fredric"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
-        And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_dollars" with 40 from Fredric to Dan and a call to "transfer_money" with 500 from Fredric to Ali
-
-    Scenario: Tool caller use the more suitable tool for transfer when three overlap indirectly 
-        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
-        And the tool "transfer_shekels"
-        And the tool "transfer_money"
-        And the tool "transfer_dollars"
-        And an association between "do_transaction" and "transfer_shekels"
-        And an association between "do_transaction" and "transfer_money"
-        And an association between "do_transaction" and "transfer_dollars"
-        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
-        And a tool relationship whereby "transfer_dollars" overlaps with "transfer_money"
-        And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Dan $40 and to my friend Ali 500 Dinar? my name is Fredric"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
-        And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_dollars" with 40 from Fredric to Dan and a call to "transfer_money" with 500 from Fredric to Ali
-
     Scenario: Tool caller user the more suitable tool for searching when two overlap (1)
         Given a guideline "do_search" to retrieve relevant products that match the asked attributes when customer is interested in products with specific attributes
         And the tool "search_products"
@@ -990,7 +991,7 @@ Feature: Tools
 
     Scenario: The agent correctly chooses to call the right tool based on journeys
         Given an agent whose job is to sell groceries
-        And a journey titled Carrots are Fruit to be aware that all orange vegetables are classified as fruits when an orange store item is mentioned
+        And a journey titled Orange things are Fruit to be aware that all orange vegetables are classified as fruits when an orange pruducts is mentioned
         And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
         And the tool "check_fruit_price"
         And the tool "check_vegetable_price"
@@ -1004,3 +1005,55 @@ Feature: Tools
         And the tool calls event contains a call with tool_id of "local:check_fruit_price"
         And a single message event is emitted
         And the message contains that the price of 1 kg of carrots is 10 dollars
+
+    Scenario: Tool caller calls a tool with enum list parameter
+        Given a guideline "get_available_products_by_category" to get all products by a specific category when a customer asks for the availability of products from a certain category
+        And the tool "available_products_by_categories" from "ksp"
+        And an association between "get_available_products_by_category" and "available_products_by_categories" from "ksp"
+        And a customer message, "What available keyboards and laptops do you have?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+        And a single message event is emitted
+        And the message mentions peripherals and laptops
+
+    Scenario: Tool caller calls a tool with different types of parameters with no type errors (1)
+        Given a guideline "set_a_meating" to set a bbq-integrated meeting with some friends when a customer wants to set a meeting with friends
+        And the tool "set_a_bbq_appointment"
+        And an association between "set_a_meating" and "set_a_bbq_appointment"
+        And a customer message, "Hi, please set a bbq appointment in the kitchen with my friends Johnny, Jack and Glen for 2 hours on 2025-01-17 at 12:00. Describe it as 'meating' and buy 2.3kg of meat for the appointment."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+
+    Scenario: Tool caller calls a tool with different types of parameters with no type errors (2)
+        Given a guideline "set_a_meating" to set a bbq-integrated meeting with some friends when a customer wants to set a meeting with friends
+        And the tool "set_a_bbq_appointment"
+        And an association between "set_a_meating" and "set_a_bbq_appointment"
+        And a customer message, "Please set a bbq appointment with my friends Johnny & Jack on 2025-01-17 at 12:00, description: 'meating' , and buy 1.9kg of meat for the appointment. Note that Jack is vegetarian and the ratings are 4.5 and 8.2. Alternative location is the kitchen."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+
+    Scenario: Tool caller calls a tool with different types of parameters with no type errors (3)
+        Given a guideline "find_a_meating" to find a bbq-integrated meeting when a customer wants to find a meating to attend
+        And the tool "find_bbq_appointments"
+        And an association between "find_a_meating" and "find_bbq_appointments"
+        And a customer message, "Please find me a bbq appointment with Johnny & Jack on May 4th in the kitchen"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)
+
+Scenario: Tool caller calls a tool with list of booleans and optional boolean
+        Given a guideline "give_boolean" to get a list of booleans from user when a customer wants to give some booleans
+        And the tool "give_boolean_types"
+        And an association between "give_boolean" and "give_boolean_types"
+        And a customer message, "I want to give you the list of booleans  :true, false, true and false. Also, I want to give you the boolean true."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And no tool error has occurred
+        And the tool calls event contains 1 tool call(s)

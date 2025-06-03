@@ -16,6 +16,7 @@ import { Switch } from '../ui/switch';
 interface Props {
 	event: EventInterface;
 	isContinual: boolean;
+	isSameSourceAsPrevious?: boolean;
 	isRegenerateHidden?: boolean;
 	isFirstMessageInDate?: boolean;
 	showLogsForMessage?: EventInterface | null;
@@ -167,7 +168,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	);
 };
 
-function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
+function Message({event, isFirstMessageInDate, isSameSourceAsPrevious, isContinual, showLogs, showLogsForMessage, resendMessageFn}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
 
 	return (
@@ -175,6 +176,7 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 			<div
 				className={twMerge(
 					'group/main flex py-[12px] mx-0 mb-1 w-full justify-between animate-fade-in scrollbar',
+					isSameSourceAsPrevious && 'py-0 pb-[12px]',
 					isEditing && 'flex-1 flex justify-start max-w-[1000px] items-end w-[calc(100%-412px)] max-[2100px]:w-[calc(100%-200px)] self-end max-[1700px]:w-[calc(100%-40px)]'
 				)}>
 				<Spacer />

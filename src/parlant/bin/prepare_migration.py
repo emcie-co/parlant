@@ -76,6 +76,12 @@ from parlant.core.persistence.document_database import (
 )
 from parlant.core.persistence.document_database_helper import MetadataDocument
 from parlant.core.tags import Tag
+from parlant.core.utterances import (
+    _UtteranceTagAssociationDocument,
+    UtteranceDocument_v_0_1_0,
+    UtteranceField,
+    UtteranceVectorStore,
+)
 
 DEFAULT_HOME_DIR = "runtime-data" if Path("runtime-data").exists() else "parlant-data"
 PARLANT_HOME_DIR = Path(os.environ.get("PARLANT_HOME", DEFAULT_HOME_DIR))
@@ -191,6 +197,13 @@ async def get_component_versions() -> list[tuple[str, str]]:
             versions.append(
                 ("glossary", cast(dict[str, Any], await glossary_db.read_metadata())["version"])
             )
+
+    utterances_version = _get_version_from_json_file(
+        PARLANT_HOME_DIR / "utterances.json",
+        "utterances",
+    )
+    if utterances_version:
+        versions.append(("utterances", utterances_version))
 
     return versions
 
@@ -644,6 +657,111 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
     await db.upsert_metadata("version", Version.String("0.2.0"))
 
     rich.print("[green]Successfully migrated glossary from 0.1.0 to 0.2.0")
+
+
+@register_migration("utterances", "0.1.0", "0.2.0")
+async def migrate_utterances_0_1_0_to_0_2_0() -> None:
+    rich.print("[green]Starting migration for utterances 0.1.0 -> 0.2.0")
+
+    async def _association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[_UtteranceTagAssociationDocument]:
+        return cast(_UtteranceTagAssociationDocument, doc)
+
+    utterances_json_file = PARLANT_HOME_DIR / "utterances.json"
+
+    embedder_factory = EmbedderFactory(Container())
+
+    utterances_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(
+            LOGGER,
+            utterances_json_file,
+        )
+    )
+
+    utterances_collection = await utterances_db.get_or_create_collection(
+        "utterances",
+        BaseDocument,
+        identity_loader,
+    )
+
+    utterance_tags_collection = await utterances_db.get_or_create_collection(
+        "utterance_tag_associations",
+        _UtteranceTagAssociationDocument,
+        _association_document_loader,
+    )
+
+    db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+    )
+
+    utterance_tags_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "utterance_tags.json")
+    )
+
+    chroma_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "utterances_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="utterances_unembedded")
+
+    new_utterance_tags_collection = await utterance_tags_db.get_or_create_collection(
+        "utterance_tags",
+        _UtteranceTagAssociationDocument,
+        _association_document_loader,
+    )
+
+    migrated_count = 0
+    for doc in await utterances_collection.find(filters={}):
+        if doc["version"] == "0.1.0":
+            doc = cast(UtteranceDocument_v_0_1_0, doc)
+
+            content = UtteranceVectorStore.assemble_content(
+                value=doc["value"],
+                fields=[UtteranceField(**f) for f in doc["fields"]],
+            )
+
+            new_doc = {
+                "id": doc["id"],
+                "version": Version.String("0.2.0"),
+                "content": content,
+                "checksum": md5_checksum(content),
+                "creation_utc": doc["creation_utc"],
+                "value": doc["value"],
+                "fields": json.dumps(doc["fields"]),
+            }
+
+            chroma_unembedded_collection.add(
+                ids=[str(doc["id"])],
+                documents=[content],
+                metadatas=[cast(chromadb.Metadata, new_doc)],
+                embeddings=[0],
+            )
+
+            migrated_count += 1
+
+    for tag_doc in await utterance_tags_collection.find(filters={}):
+        await new_utterance_tags_collection.insert_one(
+            {
+                "id": tag_doc["id"],
+                "version": Version.String("0.2.0"),
+                "creation_utc": tag_doc["creation_utc"],
+                "utterance_id": tag_doc["utterance_id"],
+                "tag_id": tag_doc["tag_id"],
+            }
+        )
+
+    chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    await db.upsert_metadata("version", Version.String("0.2.0"))
+    await upgrade_document_database_metadata(utterance_tags_db, Version.String("0.2.0"))
+
+    utterances_json_file.unlink()
+
+    rich.print("[green]Successfully migrated utterances from 0.1.0 to 0.2.0")
 
 
 @register_migration("evaluations", "0.1.0", "0.2.0")

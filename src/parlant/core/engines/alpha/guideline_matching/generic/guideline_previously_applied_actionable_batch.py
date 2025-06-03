@@ -1,0 +1,603 @@
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+import math
+from typing import Optional, Sequence
+from typing_extensions import override
+from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
+    GuidelineMatch,
+    PreviouslyAppliedType,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingBatch,
+    GuidelineMatchingBatchResult,
+    GuidelineMatchingContext,
+    GuidelineMatchingStrategy,
+)
+from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.loggers import Logger
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.sessions import Event, EventId, EventKind, EventSource
+from parlant.core.shots import Shot, ShotCollection
+
+
+class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
+    guideline_id: str
+    condition: str
+    action: str
+    condition_met_again: bool
+    action_wasnt_taken: Optional[bool] = None
+    # tldr: str
+    should_reapply: bool
+
+
+class GenericPreviouslyAppliedActionableGuidelineMatchesSchema(DefaultBaseModel):
+    checks: Sequence[GenericPreviouslyAppliedActionableBatch]
+
+
+@dataclass
+class GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(Shot):
+    interaction_events: Sequence[Event]
+    guidelines: Sequence[GuidelineContent]
+    expected_result: GenericPreviouslyAppliedActionableGuidelineMatchesSchema
+
+
+class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
+    def __init__(
+        self,
+        logger: Logger,
+        schematic_generator: SchematicGenerator[
+            GenericPreviouslyAppliedActionableGuidelineMatchesSchema
+        ],
+        guidelines: Sequence[Guideline],
+        context: GuidelineMatchingContext,
+    ) -> None:
+        self._logger = logger
+        self._schematic_generator = schematic_generator
+        self._guidelines = {g.id: g for g in guidelines}
+        self._context = context
+
+    @override
+    async def process(self) -> GuidelineMatchingBatchResult:
+        prompt = self._build_prompt(shots=await self.shots())
+
+        with self._logger.operation(
+            f"PreviouslyAppliedActionableGuidelineMatchingBatch: {len(self._guidelines)} guidelines"
+        ):
+            inference = await self._schematic_generator.generate(
+                prompt=prompt,
+                hints={"temperature": 0.15},
+            )
+
+        if not inference.content.checks:
+            self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
+        else:
+            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+
+        matches = []
+
+        for match in inference.content.checks:
+            if match.should_reapply:
+                self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
+
+                matches.append(
+                    GuidelineMatch(
+                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        score=10 if match.should_reapply else 1,
+                        rationale='''reapply rational: ""''',
+                        guideline_previously_applied=PreviouslyAppliedType.FULLY,
+                    )
+                )
+            else:
+                self._logger.debug(f"Completion::Skipped:\n{match.model_dump_json(indent=2)}")
+
+        return GuidelineMatchingBatchResult(
+            matches=matches,
+            generation_info=inference.info,
+        )
+
+    async def shots(
+        self,
+    ) -> Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot]:
+        return await shot_collection.list()
+
+    def _format_shots(
+        self, shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot]
+    ) -> str:
+        return "\n".join(
+            f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
+        )
+
+    def _format_shot(
+        self, shot: GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot
+    ) -> str:
+        def adapt_event(e: Event) -> JSONSerializable:
+            source_map: dict[EventSource, str] = {
+                EventSource.CUSTOMER: "user",
+                EventSource.CUSTOMER_UI: "frontend_application",
+                EventSource.HUMAN_AGENT: "human_service_agent",
+                EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: "ai_agent",
+                EventSource.AI_AGENT: "ai_agent",
+                EventSource.SYSTEM: "system-provided",
+            }
+
+            return {
+                "event_kind": e.kind.value,
+                "event_source": source_map[e.source],
+                "data": e.data,
+            }
+
+        formatted_shot = ""
+        if shot.interaction_events:
+            formatted_shot += f"""
+- **Interaction Events**:
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+
+"""
+        if shot.guidelines:
+            formatted_guidelines = "\n".join(
+                f"{i}) {g.condition}" for i, g in enumerate(shot.guidelines, start=1)
+            )
+            formatted_shot += f"""
+- **Guidelines**:
+{formatted_guidelines}
+
+"""
+
+        formatted_shot += f"""
+- **Expected Result**:
+```json
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```
+"""
+
+        return formatted_shot
+
+    def _build_prompt(
+        self,
+        shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot],
+    ) -> PromptBuilder:
+        guidelines_text = "\n".join(
+            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
+            for i, g in self._guidelines.items()
+        )
+
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+
+        builder.add_section(
+            name="guideline-previously-applied-general-instructions",
+            template="""
+GENERAL INSTRUCTIONS
+-----------------
+In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
+Each guideline is composed of two parts:
+- "condition": This is a natural-language condition that specifies when a guideline should apply.
+          We look at each conversation at any particular state, and we test against this
+          condition to understand if we should have this guideline participate in generating
+          the next reply to the user.
+- "action": This is a natural-language instruction that should be followed by the agent
+          whenever the "condition" part of the guideline applies to the conversation in its particular state.
+          Any instruction described here applies only to the agent, and not to the user.
+
+
+Task Description
+----------------
+You will be given a set of guidelines, each associated with an action that has already been applied one or more times during the conversation.
+
+In general, a guideline should be reapplied if:
+1. The condition is met again for a new reason in the most recent user message, and
+2. The associated action has not yet been taken in response to this new occurrence, but still needs to be.
+
+Your task is to determine whether reapplying the action is appropriate, based on whether the guideline’s condition is met again in a way that justifies repeating the action. We will want to repeat the action if the current application refers
+ to a new or subtly different context or information
+For example, a guideline with the condition “the customer is asking a question” should be reapplied each time the customer asks a new question. 
+In contrast, guidelines involving one-time behaviors (e.g., “send the user our address”) should be reapplied more conservatively: only if the condition ceased to be true for a while and is now clearly true again in the current context.
+For instance, if the customer previously complained about an issue and you already offered compensation, then mentions the same issue again, it is usually not necessary to repeat the compensation offer. However, if the customer raises a new
+ issue or clearly indicates a different concern, it may warrant reapplying the guideline.
+
+-- Focusing on the most recent context --
+When evaluating whether a guideline should be reapplied, the most recent part of the conversation, specifically the last user message, is what matters. A guideline should only be reapplied if its condition is clearly met again in that latest message.
+Always base your decision on the current context to avoid unnecessary repetition and to keep the response aligned with the user’s present needs.
+Context May Shift:
+    Sometimes, the user may briefly raise an issue that would normally trigger a guideline, but then shift the topic within the same message or shortly after. In such cases, the condition should NOT be considered active, and the guideline should
+    not be reapplied.
+Conditions Can Arise and Resolve Multiple Times:
+    A condition may be met more than once over the course of a conversation and may also be resolved multiple times (the action was taken). If the most recent instance of the condition has already been addressed and resolved, there is no need to 
+    reapply the guideline. However, if the user is still clearly engaging with the same unresolved issue, or if a new instance of the condition arises, reapplying the guideline may be appropriate.
+
+
+The conversation and guidelines will follow. Instructions on how to format your response will be provided after that.
+
+""",
+            props={},
+        )
+        builder.add_section(
+            name="guideline-matcher-examples-of-previously-applied-evaluations",
+            template="""
+Examples of Guideline Match Evaluations:
+-------------------
+{formatted_shots}
+""",
+            props={
+                "formatted_shots": self._format_shots(shots),
+                "shots": shots,
+            },
+        )
+        builder.add_agent_identity(self._context.agent)
+        builder.add_context_variables(self._context.context_variables)
+        builder.add_glossary(self._context.terms)
+        builder.add_interaction_history(self._context.interaction_history)
+        builder.add_staged_events(self._context.staged_events)
+        builder.add_section(
+            name=BuiltInSection.GUIDELINES,
+            template="""
+- Conditions List: ###
+{guidelines_text}
+###
+""",
+            props={"guidelines_text": guidelines_text},
+            status=SectionStatus.ACTIVE,
+        )
+
+        builder.add_section(
+            name="guideline-previously-applied-output-format",
+            template="""
+IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
+
+OUTPUT FORMAT
+-----------------
+- Specify the applicability of each guideline by filling in the details in the following list as instructed:
+```json
+{{
+    {result_structure_text}
+}}
+```
+""",
+            props={
+                "result_structure_text": self._format_of_guideline_check_json_description(),
+                "guidelines_len": len(self._guidelines),
+            },
+        )
+
+        return builder
+
+    def _format_of_guideline_check_json_description(self) -> str:
+        result_structure = [
+            {
+                "guideline_id": g.id,
+                "condition": g.content.condition,
+                "action": g.content.action,
+                "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
+                "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
+                # "tldr": "<str, Explanation for why the guideline condition is met AGAIN and should reapply when focusing on the MOST RECENT interaction>",
+                "should_reapply": "<BOOL>",
+            }
+            for g in self._guidelines.values()
+        ]
+        result = {"checks": result_structure}
+        return json.dumps(result, indent=4)
+
+
+class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrategy):
+    def __init__(
+        self,
+        logger: Logger,
+        schematic_generator: SchematicGenerator[
+            GenericPreviouslyAppliedActionableGuidelineMatchesSchema
+        ],
+    ) -> None:
+        self._logger = logger
+        self._schematic_generator = schematic_generator
+
+    @override
+    async def create_matching_batches(
+        self,
+        guidelines: Sequence[Guideline],
+        context: GuidelineMatchingContext,
+    ) -> Sequence[GuidelineMatchingBatch]:
+        batches = []
+
+        guidelines_dict = {g.id: g for g in guidelines}
+        batch_size = self._get_optimal_batch_size(guidelines_dict)
+        guidelines_list = list(guidelines_dict.items())
+        batch_count = math.ceil(len(guidelines_dict) / batch_size)
+
+        for batch_number in range(batch_count):
+            start_offset = batch_number * batch_size
+            end_offset = start_offset + batch_size
+            batch = dict(guidelines_list[start_offset:end_offset])
+            batches.append(
+                self._create_batch(
+                    guidelines=list(batch.values()),
+                    context=context,
+                )
+            )
+
+        return batches
+
+    def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
+        guideline_n = len(guidelines)
+
+        if guideline_n <= 10:
+            return 1
+        elif guideline_n <= 20:
+            return 2
+        elif guideline_n <= 30:
+            return 3
+        else:
+            return 5
+
+    def _create_batch(
+        self,
+        guidelines: Sequence[Guideline],
+        context: GuidelineMatchingContext,
+    ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
+        return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
+            logger=self._logger,
+            schematic_generator=self._schematic_generator,
+            guidelines=guidelines,
+            context=context,
+        )
+
+
+def _make_event(e_id: str, source: EventSource, message: str) -> Event:
+    return Event(
+        id=EventId(e_id),
+        source=source,
+        kind=EventKind.MESSAGE,
+        creation_utc=datetime.now(timezone.utc),
+        offset=0,
+        correlation_id="",
+        data={"message": message},
+        deleted=False,
+    )
+
+
+example_1_events = [
+    _make_event("11", EventSource.CUSTOMER, "Can I purchase a subscription to your software?"),
+    _make_event("23", EventSource.AI_AGENT, "Absolutely, I can assist you with that right now."),
+    _make_event(
+        "34", EventSource.CUSTOMER, "Cool, let's go with the subscription for the Pro plan."
+    ),
+    _make_event(
+        "56",
+        EventSource.AI_AGENT,
+        "Your subscription has been successfully activated. Is there anything else I can help you with?",
+    ),
+    _make_event(
+        "88",
+        EventSource.CUSTOMER,
+        "Will my son be able to see that I'm subscribed? Or is my data protected?",
+    ),
+    _make_event(
+        "98",
+        EventSource.AI_AGENT,
+        "If your son is not a member of your same household account, he won't be able to see your subscription. Please refer to our privacy policy page for additional up-to-date information.",
+    ),
+    _make_event(
+        "99",
+        EventSource.CUSTOMER,
+        "Gotcha, and I imagine that if he does try to add me to the household account he won't be able to see that there already is an account, right?",
+    ),
+]
+
+
+example_1_guidelines = [
+    GuidelineContent(
+        condition="the customer initiates a purchase.",
+        action="Open a new cart for the customer",
+    ),
+    GuidelineContent(
+        condition="the customer asks about data security",
+        action="Refer the customer to our privacy policy page",
+    ),
+]
+
+example_1_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer initiates a purchase.",
+            action="Open a new cart for the customer",
+            condition_met_again=False,
+            # tldr="The purchase-related guideline was initiated earlier, but is currently irrelevant since the customer completed the purchase and the conversation has moved to a new topic.",
+            should_reapply=False,
+        ),
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer asks about data security",
+            action="Refer the customer to our privacy policy page",
+            condition_met_again=True,
+            action_wasnt_taken=True,
+            # tldr="While the customer has already asked a question to do with data security, and has been REFERRED to the privacy policy page, they now asked another question, so I should tell"
+            # " them once again to refer to the privacy policy page, perhaps stressing it more this time",
+            should_reapply=True,
+        ),
+    ]
+)
+
+
+example_2_events = [
+    _make_event("11", EventSource.CUSTOMER, "Hi there, what is the S&P500 trading at right now?"),
+    _make_event("23", EventSource.AI_AGENT, "Hello! It's currently priced at just about 6,000$."),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Better than I hoped. And what's the weather looking like today?",
+    ),
+    _make_event("56", EventSource.AI_AGENT, "It's 5 degrees Celsius in London today"),
+    _make_event(
+        "78", EventSource.CUSTOMER, "Bummer. Does S&P500 still trade at 6,000$ by the way?"
+    ),
+]
+
+example_2_guidelines = [
+    GuidelineContent(
+        condition="the customer asks about the value of a stock.",
+        action="provide the price using the 'check_stock_price' tool",
+    ),
+    GuidelineContent(
+        condition="the weather at a certain location is discussed.",
+        action="check the weather at that location using the 'check_weather' tool",
+    ),
+]
+
+
+example_2_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer asks about the value of a stock.",
+            action="provide the price using the 'check_stock_price' tool",
+            condition_met_again=True,
+            action_wasnt_taken=True,
+            # tldr="The agent previously provided the price of that stock, but since the price might have changed since it should be checked and provided again",
+            should_reapply=True,
+        ),
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the weather at a certain location is discussed.",
+            action="check the weather at that location using the 'check_weather' tool",
+            condition_met_again=False,
+            # tldr="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
+            should_reapply=False,
+        ),
+    ]
+)
+
+example_3_events = [
+    _make_event("11", EventSource.CUSTOMER, "Can you tell me my current account balance?"),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Your current account balance is $75.20. Would you like to hear about your recent payments?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "What’s the amount due on my latest bill?",
+    ),
+    _make_event(
+        "56",
+        EventSource.AI_AGENT,
+        "Your latest bill is $45.60, due on June 15th",
+    ),
+    _make_event(
+        "88",
+        EventSource.CUSTOMER,
+        "Have I made any payments this month?",
+    ),
+    _make_event(
+        "98",
+        EventSource.AI_AGENT,
+        "Yes, you made a payment of $30 on May 5th. Can I help with anything else?",
+    ),
+    _make_event(
+        "99",
+        EventSource.CUSTOMER,
+        "Yes can you provide me your contact details?",
+    ),
+]
+
+example_3_guidelines = [
+    GuidelineContent(
+        condition="The customer asks about their account balance, billing amount, or payment status.",
+        action="Provide the current account balance or billing information clearly.",
+    ),
+]
+
+example_3_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="The customer asks about their account balance, billing amount, or payment status.",
+            action="Provide the current account balance or billing information clearly.",
+            condition_met_again=False,
+            # tldr="The customer last request is not related to balance or payment",
+            should_reapply=False,
+        ),
+    ]
+)
+
+example_4_events = [
+    _make_event("11", EventSource.CUSTOMER, "Hi there, what is the S&P500 trading at right now?"),
+    _make_event("23", EventSource.AI_AGENT, "Hello! It's currently priced at just about 6,000$."),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Better than I hoped. And what's the weather looking like today?",
+    ),
+    _make_event("56", EventSource.AI_AGENT, "It's 5 degrees Celsius in London today"),
+    _make_event(
+        "78", EventSource.CUSTOMER, "Bummer. Does S&P500 still trade at 6,000$ by the way?"
+    ),
+    _make_event("99", EventSource.AI_AGENT, "I checked that for you and it's still on 6000$!"),
+    _make_event("111", EventSource.CUSTOMER, "Cool thanks"),
+]
+
+example_4_guidelines = [
+    GuidelineContent(
+        condition="the customer asks about the value of a stock.",
+        action="provide the price using the 'check_stock_price' tool",
+    ),
+    GuidelineContent(
+        condition="the weather at a certain location is discussed.",
+        action="check the weather at that location using the 'check_weather' tool",
+    ),
+]
+
+
+example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer asks about the value of a stock.",
+            action="provide the price using the 'check_stock_price' tool",
+            condition_met_again=True,
+            action_wasnt_taken=False,
+            # tldr="The customer asked for the stock price again and was answered.",
+            should_reapply=False,
+        ),
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the weather at a certain location is discussed.",
+            action="check the weather at that location using the 'check_weather' tool",
+            condition_met_again=False,
+            # tldr="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
+            should_reapply=False,
+        ),
+    ]
+)
+
+_baseline_shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot] = [
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
+        description="",
+        interaction_events=example_1_events,
+        guidelines=example_1_guidelines,
+        expected_result=example_1_expected,
+    ),
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
+        description="",
+        interaction_events=example_2_events,
+        guidelines=example_2_guidelines,
+        expected_result=example_2_expected,
+    ),
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
+        description="",
+        interaction_events=example_3_events,
+        guidelines=example_3_guidelines,
+        expected_result=example_3_expected,
+    ),
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
+        description="",
+        interaction_events=example_4_events,
+        guidelines=example_4_guidelines,
+        expected_result=example_4_expected,
+    ),
+]
+
+shot_collection = ShotCollection[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot](
+    _baseline_shots
+)

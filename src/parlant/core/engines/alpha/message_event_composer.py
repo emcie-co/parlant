@@ -43,7 +43,23 @@ class MessageCompositionError(Exception):
 
 class MessageEventComposer:
     @abstractmethod
-    async def generate_response_message_events(
+    async def generate_preamble(
+        self,
+        event_emitter: EventEmitter,
+        agent: Agent,
+        customer: Customer,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
+        tool_insights: ToolInsights,
+        staged_events: Sequence[EmittedEvent],
+    ) -> Sequence[MessageEventComposition]: ...
+
+    @abstractmethod
+    async def generate_response(
         self,
         event_emitter: EventEmitter,
         agent: Agent,

@@ -220,7 +220,7 @@ SessionMode: TypeAlias = Literal["auto", "manual"]
 
 
 class AgentState(TypedDict):
-    applied_guideline_ids: Sequence[GuidelineId]
+    applied_guideline_ids: list[GuidelineId]
 
 
 @dataclass(frozen=True)
@@ -396,12 +396,12 @@ class _PreparationIterationGenerationsDocument(TypedDict):
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
-class _MessageGenerationInspectionDocument_V_0_1_0(TypedDict):
+class _MessageGenerationInspectionDocument_v_0_1_0(TypedDict):
     generation: _GenerationInfoDocument
     messages: Sequence[Optional[MessageEventData]]
 
 
-class _MessageGenerationInspectionDocument_V_0_2_0(TypedDict):
+class _MessageGenerationInspectionDocument_v_0_2_0(TypedDict):
     generation: _GenerationInfoDocument
     messages: Sequence[Optional[str]]
 
@@ -412,7 +412,7 @@ class _MessageGenerationInspectionDocument(TypedDict):
     messages: Sequence[Optional[str]]
 
 
-class _PreparationIterationDocument_V_0_2_0(TypedDict):
+class _PreparationIterationDocument_v_0_2_0(TypedDict):
     guideline_propositions: Sequence[GuidelineMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
@@ -420,7 +420,7 @@ class _PreparationIterationDocument_V_0_2_0(TypedDict):
     generations: _PreparationIterationGenerationsDocument_V_0_2_0
 
 
-_PreparationIterationDocument_V_0_1_0: TypeAlias = _PreparationIterationDocument_V_0_2_0
+_PreparationIterationDocument_v_0_1_0: TypeAlias = _PreparationIterationDocument_v_0_2_0
 
 
 class _PreparationIterationDocument(TypedDict):
@@ -431,13 +431,13 @@ class _PreparationIterationDocument(TypedDict):
     generations: _PreparationIterationGenerationsDocument
 
 
-class _InspectionDocument_V_0_1_0(TypedDict, total=False):
+class _InspectionDocument_v_0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_1_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_V_0_1_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_1_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument_v_0_1_0]
 
 
 class _InspectionDocument_V_0_2_0(TypedDict, total=False):
@@ -445,8 +445,8 @@ class _InspectionDocument_V_0_2_0(TypedDict, total=False):
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_2_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_V_0_2_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_2_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument_v_0_2_0]
 
 
 class _InspectionDocument_V_0_3_0(TypedDict, total=False):
@@ -454,7 +454,7 @@ class _InspectionDocument_V_0_3_0(TypedDict, total=False):
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_V_0_2_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_2_0]
     preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
@@ -545,14 +545,14 @@ class SessionDocumentStore(SessionStore):
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:
         async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_InspectionDocument_V_0_1_0, doc)
+            doc = cast(_InspectionDocument_v_0_1_0, doc)
             return _InspectionDocument_V_0_2_0(
                 id=doc["id"],
                 version=Version.String("0.2.0"),
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument_V_0_2_0(
+                    _MessageGenerationInspectionDocument_v_0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -572,7 +572,7 @@ class SessionDocumentStore(SessionStore):
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument_V_0_2_0(
+                    _MessageGenerationInspectionDocument_v_0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -637,6 +637,7 @@ class SessionDocumentStore(SessionStore):
                     )
                     for mg in doc["message_generations"]
                 ],
+                preparation_iterations=doc["preparation_iterations"],
             )
 
         async def v0_4_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -1171,4 +1172,4 @@ class PollingSessionListener(SessionListener):
             elif timeout.expired():
                 return False
             else:
-                await timeout.wait_up_to(1)
+                await timeout.wait_up_to(0.25)

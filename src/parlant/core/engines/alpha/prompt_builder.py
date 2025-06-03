@@ -217,6 +217,15 @@ The user you're interacting with is called {customer_name}.
         if events:
             interaction_events = [self.adapt_event(e) for e in events if e.kind != EventKind.STATUS]
 
+            last_event_note = ""
+
+            if last_message_event := next(
+                (e for e in reversed(events) if e.kind == EventKind.MESSAGE), None
+            ):
+                if last_message_event.source == EventSource.AI_AGENT:
+                    last_message = cast(MessageEventData, last_message_event.data)["message"]
+                    last_event_note = f"\nIMPORTANT: Please note that the last message was sent by you, the AI agent (likely as a preamble). Your last message was: ###\n{last_message}\n###\n\nYou must keep that in mind when responding to the user, to continue the last message naturally (without repeating anything similar in your last message - make sure you don't repeat something like this in your next message - it was already said!)."
+
             self.add_section(
                 name=BuiltInSection.INTERACTION_HISTORY,
                 template="""
@@ -224,8 +233,12 @@ The following is a list of events describing a back-and-forth
 interaction between you and a user: ###
 {interaction_events}
 ###
+{last_event_note}
 """,
-                props={"interaction_events": interaction_events},
+                props={
+                    "interaction_events": interaction_events,
+                    "last_event_note": last_event_note,
+                },
                 status=SectionStatus.ACTIVE,
             )
         else:
@@ -317,7 +330,7 @@ Prioritize their data over any other sources and use their details to complete y
             self.add_section(
                 name=BuiltInSection.OBSERVATIONS,
                 template="""
-The following are observations that were deemed relevant to the interaction with the customer. Use them to inform your response:
+The following are observations that were deemed relevant to the interaction with the user. Use them to inform your response:
 ###
 {observations_string}
 ###
@@ -336,7 +349,8 @@ The following are observations that were deemed relevant to the interaction with
             journeys_string = "\n\n".join(
                 [
                     f"""
-Journey {i}: {journey.title}
+Supported Journey {i}: {journey.title}
+----------------------------
 {journey.description}
 """
                     for i, journey in enumerate(journeys, start=1)
@@ -346,16 +360,16 @@ Journey {i}: {journey.title}
             self.add_section(
                 name=BuiltInSection.JOURNEYS,
                 template="""
-The following are 'journeys' - predefined processes from the business you represent that guide customer interactions. Journeys may include step-by-step workflows, general instructions, or relevant knowledge to help you assist customers effectively.
+The following are 'journeys' - predefined processes from the business you represent that guide user interactions. Journeys may include step-by-step workflows, general instructions, or relevant knowledge to help you assist users effectively.
 
 If a conversation is already in progress along a journey path, continue with the next appropriate step. For journeys with multiple steps:
 1. Identify which steps have already been completed
 2. Perform only the next logical step (either by the journey's steps or by your deduction) in the sequence
 3. Reserve subsequent steps for later in the conversation
 
-Follow each journey exactly as specified. If a journey indicates multiple actions should be taken in a single step, follow those instructions. Otherwise, take only one step at a time to avoid overwhelming the customer.
+Follow each journey exactly as specified. If a journey indicates multiple actions should be taken in a single step, follow those instructions. Otherwise, take only one step at a time to avoid overwhelming the user.
 
-Example: In a product return journey with steps to 1) verify purchase details, 2) assess return eligibility, 3) provide return instructions, and 4) process refund, if you've just confirmed the item is eligible for return (step 2 complete), your next response should only provide shipping instructions (step 3), leaving the refund processing (step 4) for after the customer has shipped the item.
+Example: In a product return journey with steps to 1) verify purchase details, 2) assess return eligibility, 3) provide return instructions, and 4) process refund, if you've just confirmed the item is eligible for return (step 2 complete), your next response should only provide shipping instructions (step 3), leaving the refund processing (step 4) for after the user has shipped the item.
 ###
 {journeys_string}
 ###

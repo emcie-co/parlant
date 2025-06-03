@@ -17,8 +17,11 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import logging
+import socket
+import sys
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from random import randint
 from time import sleep
 from typing import (
     Any,
@@ -69,6 +72,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.services.tools.mcp_service import MCPToolServer
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.sessions import (
     _GenerationInfoDocument,
@@ -90,10 +94,11 @@ T = TypeVar("T")
 GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
 
 SERVER_PORT = 8089
-SERVER_ADDRESS = f"http://localhost:{SERVER_PORT}"
-
 PLUGIN_SERVER_PORT = 8091
 OPENAPI_SERVER_PORT = 8092
+
+SERVER_BASE_URL = "http://localhost"
+SERVER_ADDRESS = f"{SERVER_BASE_URL}:{SERVER_PORT}"
 
 
 class NLPTestSchema(DefaultBaseModel):
@@ -554,9 +559,10 @@ async def run_service_server(
     tools: list[ToolEntry],
     plugin_data: Mapping[str, Any] = {},
 ) -> AsyncIterator[PluginServer]:
+    port = get_random_port(50001, 65535)
     async with PluginServer(
         tools=tools,
-        port=PLUGIN_SERVER_PORT,
+        port=port,
         host="127.0.0.1",
         plugin_data=plugin_data,
     ) as server:
@@ -564,9 +570,6 @@ async def run_service_server(
             yield server
         finally:
             await server.shutdown()
-
-
-OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"
 
 
 async def one_required_query_param(
@@ -610,8 +613,8 @@ async def one_required_query_param_one_required_body_param(
     return JSONResponse({"result": f"{body.body_param}: {query_param}"})
 
 
-def rng_app() -> FastAPI:
-    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+def rng_app(port: int = OPENAPI_SERVER_PORT) -> FastAPI:
+    app = FastAPI(servers=[{"url": f"{SERVER_BASE_URL}:{port}"}])
 
     @app.middleware("http")
     async def debug_request(
@@ -628,6 +631,30 @@ def rng_app() -> FastAPI:
     return app
 
 
+def is_port_available(port: int, host: str = "localhost") -> bool:
+    available = True
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.1)  # Short timeout for faster testing
+        sock.bind((host, port))
+    except (socket.error, OSError):
+        available = False
+    finally:
+        sock.close()
+
+    return available
+
+
+def get_random_port(
+    min_port: int = 1024, max_port: int = 65535, max_iterations: int = sys.maxsize
+) -> int:
+    iter = 0
+    while not is_port_available(port := randint(min_port, max_port)) and iter < max_iterations:
+        iter += 1
+        pass
+    return port
+
+
 class DummyDTO(DefaultBaseModel):
     number: int
     text: str
@@ -637,14 +664,87 @@ async def dto_object(dto: DummyDTO) -> JSONResponse:
     return JSONResponse({})
 
 
+@dataclass
+class ServerInfo:
+    port: int
+    url: str
+
+
 @asynccontextmanager
-async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
-    config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
+async def run_openapi_server(
+    app: Optional[FastAPI] = None,
+) -> AsyncIterator[ServerInfo]:
+    port = get_random_port(10001, 65535)
+
+    if app is None:
+        app = rng_app(port=port)
+
+    config = uvicorn.Config(app=app, port=port)
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    yield
-    server.should_exit = True
-    await task
+
+    try:
+        while not server.started:
+            await asyncio.sleep(0.01)
+
+        await asyncio.sleep(0.05)
+
+        server_info = ServerInfo(
+            port=port,
+            url=SERVER_BASE_URL,
+        )
+
+        yield server_info
+    finally:
+        server.should_exit = True
+        await asyncio.sleep(0.1)
+
+        # If it's still running close it more aggressively
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+@asynccontextmanager
+async def run_mcp_server(tools: Sequence[Callable[..., Any]] = []) -> AsyncIterator[ServerInfo]:
+    port = get_random_port(10001, 65535)
+
+    server = MCPToolServer(
+        port=port,
+        host=SERVER_BASE_URL,
+        tools=tools,
+    )
+
+    try:
+        await server.__aenter__()
+
+        # Wait for server to start with timeout
+        start_timeout = 8
+        sample_frequency = 0.1
+        for _ in range(int(start_timeout / sample_frequency)):
+            if server.started():
+                break
+            await asyncio.sleep(sample_frequency)
+        else:
+            raise TimeoutError("MCP server failed to start within timeout period")
+
+        # Additional wait to ensure server is fully initialized
+        await asyncio.sleep(0.5)
+
+        server_info = ServerInfo(
+            port=port,
+            url=SERVER_BASE_URL,
+        )
+
+        yield server_info
+    finally:
+        try:
+            await server.__aexit__(None, None, None)
+        except Exception:
+            pass
 
 
 async def get_json(address: str, params: dict[str, str] = {}) -> Any:

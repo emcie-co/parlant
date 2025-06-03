@@ -727,7 +727,8 @@ async def test_that_a_plugin_raises_tool_error_for_argument_mismatch(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"paramA": True},
+        {"paramA": "True"},
+        {"paramA": "true"},
         {"paramA": "not_an_int"},
     ],
 )

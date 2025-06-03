@@ -58,10 +58,10 @@ export default function Chatbot(): ReactElement {
 					<div className='hidden max-mobile:block rounded-[16px]'>
 						<ChatHeader setFilterSessionVal={setFilterSessionVal} />
 					</div>
-					<div className={twMerge('flex bg-green-light justify-between flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]')}>
+					<div className={twMerge('flex bg-green-light flex-1 gap-[14px] w-full overflow-auto flex-row pb-[14px] px-[14px]')}>
 						<SessionsSection />
 						{session?.id ? (
-							<div className='h-full w-[calc(100vw-352px-55px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-55px)] max-[800px]:max-w-full max-[800px]:w-full '>
+							<div className='h-full w-[calc(100vw-352px-40px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-40px)] max-[800px]:max-w-full max-[800px]:w-full '>
 								{/* <Suspense> */}
 								<SessionView />
 								{/* </Suspense> */}

@@ -988,6 +988,8 @@ class AlphaEngine(Engine):
             guideline_matches=matches_to_analyze,
         )
 
+        context.guideline_matcher_running_time = analysis_result.total_duration
+
         applied_guideline_ids = [
             p.guideline.id
             for p in analysis_result.previously_applied_guidelines

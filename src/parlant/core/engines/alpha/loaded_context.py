@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Sequence, cast
+from typing import Optional, Sequence, cast
 
 from parlant.core.agents import Agent
 from parlant.core.common import JSONSerializable
@@ -110,6 +110,8 @@ class LoadedContext:
 
     state: ResponseState
     """The current state of the response being processed"""
+
+    guideline_matcher_running_time: Optional[float] = -1.0
 
     async def add_tool_event(
         self,

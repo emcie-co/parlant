@@ -97,7 +97,7 @@ class EntityQueries:
     ) -> Customer:
         return await self._customer_store.read_customer(customer_id)
 
-    async def find_guidelines_for_agent(
+    async def find_guidelines_for_agent_and_journeys(
         self,
         agent_id: AgentId,
         journeys: Sequence[Journey],

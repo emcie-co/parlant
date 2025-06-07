@@ -15,8 +15,29 @@
 from typing import Awaitable, Callable, Generic, Mapping, Optional, cast
 from typing_extensions import Self
 from parlant.core.common import Version
+from parlant.core.nlp.embedding import Embedder
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated, VersionedStore
 from parlant.core.persistence.vector_database import BaseDocument, TDocument, VectorDatabase
+
+
+async def query_chunks(query: str, embedder: Embedder) -> list[str]:
+    max_length = embedder.max_tokens // 5
+    total_token_count = await embedder.tokenizer.estimate_token_count(query)
+
+    words = query.split()
+    total_word_count = len(words)
+
+    tokens_per_word = total_token_count / total_word_count
+
+    words_per_chunk = max(int(max_length / tokens_per_word), 1)
+
+    chunks = []
+    for i in range(0, total_word_count, words_per_chunk):
+        chunk_words = words[i : i + words_per_chunk]
+        chunk = " ".join(chunk_words)
+        chunks.append(chunk)
+
+    return [text if await embedder.tokenizer.estimate_token_count(text) else "" for text in chunks]
 
 
 class VectorDocumentStoreMigrationHelper:

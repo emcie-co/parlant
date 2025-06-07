@@ -778,7 +778,7 @@ class AlphaEngine(Engine):
         # Step 2:
         all_stored_guidelines = [
             g
-            for g in await self._entity_queries.find_guidelines_for_agent(
+            for g in await self._entity_queries.find_guidelines_for_agent_and_journeys(
                 agent_id=context.agent.id,
                 journeys=all_journeys,
             )

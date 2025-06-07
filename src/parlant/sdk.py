@@ -60,7 +60,7 @@ from parlant.core.sessions import (
 from parlant.core.utterances import UtteranceVectorStore, UtteranceId, UtteranceStore
 from parlant.core.evaluations import EvaluationDocumentStore, EvaluationStore
 from parlant.core.guidelines import GuidelineDocumentStore, GuidelineId, GuidelineStore
-from parlant.core.journeys import JourneyDocumentStore, JourneyId, JourneyStore
+from parlant.core.journeys import JourneyId, JourneyStore, JourneyVectorStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
@@ -454,7 +454,6 @@ class Server:
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
-                (JourneyStore, JourneyDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
                 c[interface] = await self._exit_stack.enter_async_context(
@@ -517,6 +516,15 @@ class Server:
 
             c[UtteranceStore] = await self._exit_stack.enter_async_context(
                 UtteranceVectorStore(
+                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    document_db=TransientDocumentDatabase(),
+                    embedder_factory=embedder_factory,
+                    embedder_type_provider=get_embedder_type,
+                )
+            )
+
+            c[JourneyStore] = await self._exit_stack.enter_async_context(
+                JourneyVectorStore(
                     vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,

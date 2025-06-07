@@ -90,7 +90,7 @@ class LegacyGuidelineEvaluator:
         progress_report: ProgressReport,
     ) -> Sequence[InvoiceGuidelineData]:
         journeys = await self._entity_queries.find_journeys_for_agent(agent.id)
-        existing_guidelines = await self._entity_queries.find_guidelines_for_agent(
+        existing_guidelines = await self._entity_queries.find_guidelines_for_agent_and_journeys(
             agent.id, journeys
         )
 
@@ -390,8 +390,10 @@ class LegacyBehavioralChangeEvaluator:
                     )
 
                 journeys = await self._entity_queries.find_journeys_for_agent(agent.id)
-                existing_guidelines = await self._entity_queries.find_guidelines_for_agent(
-                    agent.id, journeys
+                existing_guidelines = (
+                    await self._entity_queries.find_guidelines_for_agent_and_journeys(
+                        agent.id, journeys
+                    )
                 )
 
                 if guideline := next(

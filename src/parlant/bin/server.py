@@ -90,7 +90,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
-from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.journeys import JourneyStore, JourneyVectorStore
 from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -520,7 +520,6 @@ async def initialize_container(
                 GuidelineToolAssociationDocumentStore,
                 "guideline_tool_associations.json",
             ),
-            (JourneyStore, JourneyDocumentStore, "journeys.json"),
             (RelationshipStore, RelationshipDocumentStore, "relationships.json"),
             (SessionStore, SessionDocumentStore, "sessions.json"),
         ]:
@@ -573,6 +572,7 @@ async def initialize_container(
         for store_type, store_class, document_db_filename in [
             (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
             (UtteranceStore, UtteranceVectorStore, "utterance_tags.json"),
+            (JourneyStore, JourneyVectorStore, "journey_associations.json"),
         ]:
             await try_define_vector_store(
                 store_type,

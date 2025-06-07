@@ -32,6 +32,7 @@ from parlant.core.persistence.vector_database import (
 from parlant.core.persistence.vector_database_helper import (
     VectorDocumentMigrationHelper,
     VectorDocumentStoreMigrationHelper,
+    query_chunks,
 )
 from parlant.core.persistence.document_database import (
     DocumentCollection,
@@ -426,28 +427,6 @@ class GlossaryVectorStore(GlossaryStore):
                     filters={"id": {"$eq": tag_association["id"]}}
                 )
 
-    async def _query_chunks(self, query: str) -> list[str]:
-        max_length = self._embedder.max_tokens // 5
-        total_token_count = await self._embedder.tokenizer.estimate_token_count(query)
-
-        words = query.split()
-        total_word_count = len(words)
-
-        tokens_per_word = total_token_count / total_word_count
-
-        words_per_chunk = max(int(max_length / tokens_per_word), 1)
-
-        chunks = []
-        for i in range(0, total_word_count, words_per_chunk):
-            chunk_words = words[i : i + words_per_chunk]
-            chunk = " ".join(chunk_words)
-            chunks.append(chunk)
-
-        return [
-            text if await self._embedder.tokenizer.estimate_token_count(text) else ""
-            for text in chunks
-        ]
-
     @override
     async def find_relevant_terms(
         self,
@@ -459,7 +438,7 @@ class GlossaryVectorStore(GlossaryStore):
             return []
 
         async with self._lock.reader_lock:
-            queries = await self._query_chunks(query)
+            queries = await query_chunks(query, self._embedder)
 
             filters: Where = {"id": {"$in": [str(t.id) for t in available_terms]}}
 

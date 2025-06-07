@@ -207,6 +207,16 @@ class EntityQueries:
 
         return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
 
+    async def find_relevant_journeys_for_agent(
+        self,
+        agent_id: AgentId,
+        query: str,
+    ) -> Sequence[Journey]:
+        return await self._journey_store.find_relevant_journeys(
+            query=query,
+            available_journeys=await self.find_journeys_for_agent(agent_id),
+        )
+
     async def find_utterances_for_agent_and_journey(
         self,
         agent_id: AgentId,

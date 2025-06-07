@@ -130,6 +130,14 @@ class JourneyStore(ABC):
         tag_id: TagId,
     ) -> None: ...
 
+    @abstractmethod
+    async def find_relevant_journeys(
+        self,
+        query: str,
+        available_journeys: Sequence[Journey],
+        max_journeys: int = 3,
+    ) -> Sequence[Journey]: ...
+
 
 class JourneyDocument_v_0_1_0(TypedDict, total=False):
     id: ObjectId
@@ -586,11 +594,12 @@ class JourneyVectorStore(JourneyStore):
         if not journey_document:
             raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
+    @override
     async def find_relevant_journeys(
         self,
         query: str,
         available_journeys: Sequence[Journey],
-        max_journeys: int = 5,
+        max_journeys: int = 3,
     ) -> Sequence[Journey]:
         if not available_journeys:
             return []

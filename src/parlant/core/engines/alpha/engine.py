@@ -771,9 +771,7 @@ class AlphaEngine(Engine):
         list[Journey],
     ]:
         # Step 1: Retrieve all of the journeys for this agent.
-        all_journeys = await self._entity_queries.find_journeys_for_agent(
-            agent_id=context.agent.id,
-        )
+        all_journeys = await self._load_journeys(context)
 
         # Step 2:
         all_stored_guidelines = [
@@ -874,6 +872,44 @@ class AlphaEngine(Engine):
 
         if query:
             return await self._entity_queries.find_glossary_terms_for_agent(
+                agent_id=context.agent.id,
+                query=query,
+            )
+
+        return []
+
+    async def _load_journeys(self, context: LoadedContext) -> Sequence[Journey]:
+        # Journeys are retrieved using semantic similarity.
+        # The querying process is done with a text query, for which
+        # the K most relevant terms are retrieved.
+        #
+        # We thus build an optimized query here based on our context and state.
+        query = ""
+
+        if context.state.context_variables:
+            query += f"\n{context_variables_to_json(context.state.context_variables)}"
+
+        if context.interaction.history:
+            query += str([e.data for e in context.interaction.history])
+
+        if context.state.guidelines:
+            query += str(
+                [
+                    f"When {g.content.condition}, then {g.content.action}"
+                    if g.content.action
+                    else f"When {g.content.condition}"
+                    for g in context.state.guidelines
+                ]
+            )
+
+        if context.state.all_events:
+            query += str([e.data for e in context.state.all_events])
+
+        if context.state.glossary_terms:
+            query += str([t.name for t in context.state.glossary_terms])
+
+        if query:
+            return await self._entity_queries.find_relevant_journeys_for_agent(
                 agent_id=context.agent.id,
                 query=query,
             )

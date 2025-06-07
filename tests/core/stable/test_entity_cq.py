@@ -310,3 +310,41 @@ async def test_that_find_glossary_terms_for_agent_returns_none_for_non_matching_
 
     results = await entity_queries.find_glossary_terms_for_agent(agent_id=agent.id, query="Tagged")
     assert len(results) == 0
+
+
+async def test_find_relevant_journeys_for_agent_returns_most_relevant(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    condition = await guideline_store.create_guideline(
+        condition="the customer wants to reset their password",
+    )
+
+    onboarding_journey = await journey_store.create_journey(
+        title="Reset Password Journey",
+        description="""follow these steps to reset a customers password:
+        1. ask for their account name
+        2. ask for their email or phone number
+        3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort.
+        4. use the tool reset_password with the provided information
+        5. report the result to the customer""",
+        conditions=[condition.id],
+    )
+
+    support_journey = await journey_store.create_journey(
+        title="Change Credit Limits",
+        description="Remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch",
+        conditions=[],
+    )
+
+    results = await entity_queries.find_relevant_journeys_for_agent(
+        agent.id, "I'd like to reset my password"
+    )
+
+    assert len(results) == 2
+    assert results[0].id == onboarding_journey.id
+    assert results[1].id == support_journey.id

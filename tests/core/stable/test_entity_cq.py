@@ -17,10 +17,16 @@ from lagom import Container
 from parlant.core.agents import Agent, AgentStore
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.glossary import GlossaryStore
+from parlant.core.relationships import (
+    RelationshipEntity,
+    RelationshipStore,
+    GuidelineRelationshipKind,
+    RelationshipEntityKind,
+)
 from parlant.core.utterances import UtteranceStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
-from parlant.core.tags import Tag, TagId
+from parlant.core.tags import Tag, TagId, TagStore
 
 
 async def test_that_list_guidelines_with_mutual_agent_tag_are_returned(
@@ -348,3 +354,105 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
     assert len(results) == 2
     assert results[0].id == onboarding_journey.id
     assert results[1].id == support_journey.id
+
+
+async def test_list_guidelines_dependent_directly_on_journey(
+    container: Container,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+    relationship_store = container[RelationshipStore]
+
+    journey = await journey_store.create_journey(
+        title="Test Journey",
+        description="A journey for testing dependencies",
+        conditions=[],
+    )
+
+    guideline1 = await guideline_store.create_guideline(
+        condition="condition 1",
+        action="action 1",
+    )
+    _ = await guideline_store.create_guideline(
+        condition="condition 2",
+        action="action 2",
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(
+            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+        ),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    result = await entity_queries.list_guidelines_dependent_on_journey(journey)
+
+    assert len(result) == 1
+    assert result[0] == guideline1.id
+
+
+async def test_list_guidelines_dependent_indirectly_on_journey(
+    container: Container,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+    relationship_store = container[RelationshipStore]
+    tag_store = container[TagStore]
+
+    journey = await journey_store.create_journey(
+        title="Test Journey",
+        description="A journey for testing dependencies",
+        conditions=[],
+    )
+
+    guideline1 = await guideline_store.create_guideline(
+        condition="condition 1",
+        action="action 1",
+    )
+    guideline2 = await guideline_store.create_guideline(
+        condition="condition 2",
+        action="action 2",
+    )
+    guideline3 = await guideline_store.create_guideline(
+        condition="condition 3",
+        action="action 3",
+    )
+    tag = await tag_store.create_tag(name="test tag")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(
+            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+        ),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=guideline2.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=guideline3.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        target=RelationshipEntity(
+            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+        ),
+        kind=GuidelineRelationshipKind.DEPENDENCY,
+    )
+
+    result = await entity_queries.list_guidelines_dependent_on_journey(journey)
+
+    assert len(result) == 3
+
+    assert any(guideline1.id == g for g in result)
+    assert any(guideline2.id == g for g in result)
+    assert any(guideline3.id == g for g in result)

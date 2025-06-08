@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from itertools import chain
-from typing import Optional, Sequence
+from typing import Optional, Sequence, cast
 
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.common import JSONSerializable
@@ -26,10 +26,13 @@ from parlant.core.context_variables import (
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.guidelines import (
     Guideline,
+    GuidelineId,
     GuidelineStore,
 )
 from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.relationships import (
+    GuidelineRelationshipKind,
+    RelationshipEntityKind,
     RelationshipStore,
 )
 from parlant.core.guideline_tool_associations import (
@@ -127,6 +130,46 @@ class EntityQueries:
 
         return list(all_guidelines)
 
+    async def list_guidelines_dependent_on_journey(
+        self,
+        journey: Journey,
+    ) -> Sequence[GuidelineId]:
+        """Return guidelines that are dependent on the specified journey."""
+        iterated_relationships = set()
+
+        guideline_ids = set()
+
+        relationships = set(
+            await self._relationship_store.list_relationships(
+                kind=GuidelineRelationshipKind.DEPENDENCY,
+                indirect=False,
+                target_id=Tag.for_journey_id(journey.id),
+            )
+        )
+
+        while relationships:
+            r = relationships.pop()
+
+            if r in iterated_relationships:
+                continue
+
+            if r.source.kind == RelationshipEntityKind.GUIDELINE:
+                guideline_ids.add(cast(GuidelineId, r.source.id))
+
+            new_relationships = await self._relationship_store.list_relationships(
+                kind=GuidelineRelationshipKind.DEPENDENCY,
+                indirect=False,
+                target_id=r.source.id,
+            )
+            if new_relationships:
+                relationships.update(
+                    [rel for rel in new_relationships if rel not in iterated_relationships]
+                )
+
+            iterated_relationships.add(r)
+
+        return list(guideline_ids)
+
     async def find_context_variables_for_agent(
         self,
         agent_id: AgentId,
@@ -142,7 +185,9 @@ class EntityQueries:
 
         all_context_variables = set(
             chain(
-                agent_context_variables, global_context_variables, context_variables_for_agent_tags
+                agent_context_variables,
+                global_context_variables,
+                context_variables_for_agent_tags,
             )
         )
         return list(all_context_variables)

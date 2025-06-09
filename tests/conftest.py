@@ -23,6 +23,7 @@ from pytest import fixture, Config
 import pytest
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.adapters.nlp.anthropic_service import AnthropicService
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
@@ -185,6 +186,12 @@ from .test_utilities import (
     create_schematic_generation_result_collection,
 )
 
+SERVICE_DICT = {
+    "openai": OpenAIService,
+    "anthropic": AnthropicService,
+}
+SERVICE_NAME = "openai"
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("caching")
@@ -318,7 +325,9 @@ async def container(
                 event_emitter_factory=container[EventEmitterFactory],
                 logger=container[Logger],
                 correlator=container[ContextualCorrelator],
-                nlp_services_provider=lambda: {"default": OpenAIService(container[Logger])},
+                nlp_services_provider=lambda: {
+                    "default": SERVICE_DICT[SERVICE_NAME](container[Logger])
+                },
             )
         )
 

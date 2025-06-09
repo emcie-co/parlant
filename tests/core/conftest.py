@@ -23,6 +23,7 @@ from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.sessions import Session, SessionStore
 
+from tests.conftest import SERVICE_NAME
 from tests.core.common.utils import ContextOfTest
 from tests.test_utilities import SyncAwaiter
 
@@ -122,7 +123,7 @@ def pytest_runtest_setup(item):
     """Initialize data collection for the test"""
     test_data[item.nodeid] = {
         "test_name": item.nodeid,
-        "service": "",
+        "model_name": SERVICE_NAME,
         "timestamp": datetime.now().isoformat(),
         "guideline_matcher_responses": [],
         "guideline_matcher_tokens": [],
@@ -157,11 +158,12 @@ def pytest_runtest_teardown(item):
 
     data_to_write = {
         "test_name": test_data[item.nodeid]["test_name"],
-        "service": test_data[item.nodeid]["service"],
+        "model_name": test_data[item.nodeid]["model_name"],
         "timestamp": test_data[item.nodeid]["timestamp"],
         "guideline_matcher_responses": test_data[item.nodeid]["guideline_matcher_responses"],
         "guideline_matcher_tokens": test_data[item.nodeid]["guideline_matcher_tokens"],
         "status": test_data[item.nodeid]["status"],
+        "duration": test_data[item.nodeid]["guideline_matcher_duration"],
         "result": test_data[item.nodeid].get("result", "unknown"),
     }
 
@@ -203,6 +205,7 @@ def capture_guideline_matching(original_function):
                                     "guideline_id": str(prop.guideline.id),
                                     "condition": prop.guideline.content.condition,
                                     "action": prop.guideline.content.action,
+                                    "score": prop.score,
                                     "rationale": prop.rationale
                                     if hasattr(prop, "rationale")
                                     else None,
@@ -212,7 +215,7 @@ def capture_guideline_matching(original_function):
                         propositions.append(batch_props)
 
             # Extract token info
-            if hasattr(result, "batch_generations"):
+            if hasattr(result, "batch_generations") and len(result.batch_generations) > 0:
                 for generation_info in result.batch_generations:
                     token_count = extract_token_count(generation_info)
                     if token_count is not None:
@@ -224,7 +227,7 @@ def capture_guideline_matching(original_function):
             if token_counts:
                 test_data[current_test]["guideline_matcher_tokens"].extend(token_counts)
             if result:
-                test_data["guideline_matcher_duration"].extend(result.total_duration)
+                test_data[current_test]["guideline_matcher_duration"] = result.total_duration
 
         return result
 

@@ -327,7 +327,7 @@ class TogetherService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> TogetherAISchematicGenerator[T]:
-        return Llama3_3_70B[t](self._logger)  # type: ignore
+        return Llama3_1_405B[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

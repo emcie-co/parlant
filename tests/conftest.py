@@ -25,6 +25,9 @@ import pytest
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.anthropic_service import AnthropicService
 from parlant.adapters.nlp.openai_service import OpenAIService
+from parlant.adapters.nlp.together_service import (
+    TogetherService,
+)
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
@@ -187,10 +190,16 @@ from .test_utilities import (
 )
 
 SERVICE_DICT = {
-    "openai": OpenAIService,
+    "openai_4o": OpenAIService,
+    "openai_4o_24_08_06": OpenAIService,
+    "openai_4o_mini": OpenAIService,
     "anthropic": AnthropicService,
+    "together_llama3_1_8b": TogetherService,
+    "together_llama3_1_70b": TogetherService,
+    "together_llama3_1_405b": TogetherService,
+    "together_llama3_3_70b": TogetherService,
 }
-SERVICE_NAME = "openai"
+SERVICE_NAME = "together_llama3_1_405b"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

@@ -980,6 +980,8 @@ class AlphaEngine(Engine):
             and match.guideline.content.action
         ]
 
+        self._todo_add_associated_guidelines(matches_to_analyze)
+
         result = await self._guideline_matcher.analyze_response(
             agent=context.agent,
             session=session,
@@ -1003,6 +1005,11 @@ class AlphaEngine(Engine):
                 agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
             ),
         )
+
+
+def _todo_add_associated_guidelines(matches: Sequence[GuidelineMatch]) -> None:
+    pass
+    # TODO: Add associated guidelines to the matches
 
 
 # This is module-level and public for isolated testability purposes.

@@ -27,7 +27,7 @@ async def retry_async(
     for attempt in range(max_retries):
         try:
             return await func_factory()
-        except retry_exceptions as e:
+        except retry_exceptions:
             if attempt == max_retries - 1:
                 raise
             await asyncio.sleep(delay)
@@ -116,7 +116,7 @@ async def run_benchmark():
         ),
         "together-llama-3.3-70B": TogetherLLMRunner("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
         "openai-gpt-4o-2024-11-20": OpenaiLLMRunner("gpt-4o-2024-11-20"),
-        "openai-gpt-4o-2024-08-06": OpenaiLLMRunner("gpt-4o-2024-08-06"),
+        "openai-gpt-4o-latest": OpenaiLLMRunner("gpt-4o"),
         "openai-gpt-4o-mini": OpenaiLLMRunner("gpt-4o-mini"),
     }
 
@@ -278,9 +278,13 @@ async def run_benchmark():
             f"{'Tok/sec (excl)':<14} {'(stdev)':<10}"
         )
         print("-" * 140)
+        max_llm_width = 22
         for llm_name, metrics in successful_results.items():
+            display_name = (
+                llm_name[: max_llm_width - 1] + "…" if len(llm_name) > max_llm_width else llm_name
+            )
             print(
-                f"{llm_name:<25} {metrics['first_token_time']:<18.4f} {metrics['first_token_time_stdev']:<10.4f} "
+                f"{display_name:<{max_llm_width}} {metrics['first_token_time']:<18.4f} {metrics['first_token_time_stdev']:<10.4f} "
                 f"{metrics['subsequent_token_time']:<14.4f} {metrics['subsequent_token_time_stdev']:<10.4f} "
                 f"{metrics['total_time']:<16.4f} {metrics['total_time_stdev']:<10.4f} "
                 f"{metrics['tokens_per_second_excl_first']:<14.2f} {metrics['tokens_per_second_excl_first_stdev']:<10.2f}"
@@ -311,50 +315,22 @@ async def run_benchmark():
 def export_results_csv(results: Dict, filename: str = "llm_benchmark_results.csv"):
     import csv
 
-    with open(filename, "w", newline="", encoding="utf-8") as csvfile:
-        fieldnames = [
-            "llm_name",
-            "avg_first_token_time",
-            "stdev_first_token_time",
-            "avg_subsequent_token_time",
-            "stdev_subsequent_token_time",
-            "avg_total_tokens",
-            "stdev_total_tokens",
-            "avg_total_time",
-            "stdev_total_time",
-            "avg_tokens_per_second_excl_first",
-            "stdev_tokens_per_second_excl_first",
-            "error",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    # Collect all possible keys from all result dicts (excluding 'error' if not present)
+    all_keys = set()
+    for metrics in results.values():
+        all_keys.update(metrics.keys())
+    all_keys.discard("error")
+    # Always include llm_name and error as first columns
+    fieldnames = ["llm_name"] + sorted(all_keys) + ["error"]
 
+    with open(filename, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for llm_name, metrics in results.items():
             row = {"llm_name": llm_name}
-            if "error" in metrics:
-                row["error"] = metrics["error"]
-            else:
-                row.update(
-                    {
-                        "avg_first_token_time": metrics["first_token_time"],
-                        "stdev_first_token_time": metrics.get("first_token_time_stdev", ""),
-                        "avg_subsequent_token_time": metrics["subsequent_token_time"],
-                        "stdev_subsequent_token_time": metrics.get(
-                            "subsequent_token_time_stdev", ""
-                        ),
-                        "avg_total_tokens": metrics["total_tokens_generated"],
-                        "stdev_total_tokens": metrics.get("total_tokens_generated_stdev", ""),
-                        "avg_total_time": metrics["total_time"],
-                        "stdev_total_time": metrics.get("total_time_stdev", ""),
-                        "avg_tokens_per_second_excl_first": metrics.get(
-                            "tokens_per_second_excl_first", ""
-                        ),
-                        "stdev_tokens_per_second_excl_first": metrics.get(
-                            "tokens_per_second_excl_first_stdev", ""
-                        ),
-                        "error": "",
-                    }
-                )
+            for key in all_keys:
+                row[key] = metrics.get(key, "")
+            row["error"] = metrics.get("error", "")
             writer.writerow(row)
 
     print(f"Results exported to {filename}")
@@ -362,4 +338,5 @@ def export_results_csv(results: Dict, filename: str = "llm_benchmark_results.csv
 
 if __name__ == "__main__":
     benchmark_results = asyncio.run(run_benchmark())
-    # export_results_csv(benchmark_results)
+    if benchmark_results is not None:
+        export_results_csv(benchmark_results)

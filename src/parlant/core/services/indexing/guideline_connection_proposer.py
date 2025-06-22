@@ -528,7 +528,7 @@ ADDITIONAL INFORMATION
             for id, g in comparison_set.items()
         )
         test_guideline = f"{{id: 0, when: '{evaluated_guideline.condition}', then: '{evaluated_guideline.action}'}}"
-        terms = await self._entity_queries.find_glossary_terms_for_context(
+        terms = await self._entity_queries.find_glossary_terms_for_agent(
             agent_id=agent.id,
             query=test_guideline + causation_candidates,
         )

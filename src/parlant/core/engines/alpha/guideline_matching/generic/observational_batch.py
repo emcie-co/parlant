@@ -16,12 +16,9 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatchResult,
     GuidelineMatchingContext,
     GuidelineMatchingStrategy,
-    GuidelineMatchingStrategyContext,
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
-from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -57,13 +54,11 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         logger: Logger,
         schematic_generator: SchematicGenerator[GenericObservationalGuidelineMatchesSchema],
         guidelines: Sequence[Guideline],
-        journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
-        self._journeys = journeys
         self._context = context
 
     @override
@@ -227,7 +222,6 @@ Examples of Condition Evaluations:
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
-        builder.add_journeys(self._journeys)
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
@@ -269,27 +263,17 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
-        entity_queries: EntityQueries,
         schematic_generator: SchematicGenerator[GenericObservationalGuidelineMatchesSchema],
     ) -> None:
         self._logger = logger
-        self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
 
     @override
     async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingStrategyContext,
+        context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
-        journeys = (
-            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
-                guidelines[0].id, []
-            )
-            if guidelines
-            else []
-        )
-
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
@@ -304,18 +288,7 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
             batches.append(
                 self._create_batch(
                     guidelines=list(batch.values()),
-                    journeys=journeys,
-                    context=GuidelineMatchingContext(
-                        agent=context.agent,
-                        session=context.session,
-                        customer=context.customer,
-                        context_variables=context.context_variables,
-                        interaction_history=context.interaction_history,
-                        terms=context.terms,
-                        capabilities=context.capabilities,
-                        staged_events=context.staged_events,
-                        relevant_journeys=journeys,
-                    ),
+                    context=context,
                 )
             )
 
@@ -336,14 +309,12 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
     def _create_batch(
         self,
         guidelines: Sequence[Guideline],
-        journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> GenericObservationalGuidelineMatchingBatch:
         return GenericObservationalGuidelineMatchingBatch(
             logger=self._logger,
             schematic_generator=self._schematic_generator,
             guidelines=guidelines,
-            journeys=journeys,
             context=context,
         )
 

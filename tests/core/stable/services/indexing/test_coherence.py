@@ -59,7 +59,7 @@ async def nlp_test_action_contradiction(
     guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: "{incoherence.guideline_a.action}"}}"""
     guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: "{incoherence.guideline_b.action}"}}"""
 
-    terms = await entity_queries.find_glossary_terms_for_context(
+    terms = await entity_queries.find_glossary_terms_for_agent(
         agent_id=agent.id,
         query=guideline_a_text + guideline_b_text,
     )
@@ -89,7 +89,7 @@ async def nlp_test_condition_entailment(
     guideline_a_text = f"""{{when: "{incoherence.guideline_a.condition}", then: {incoherence.guideline_a.action}"}}"""
     guideline_b_text = f"""{{when: "{incoherence.guideline_b.condition}", then: {incoherence.guideline_b.action}"}}"""
 
-    terms = await entity_queries.find_glossary_terms_for_context(
+    terms = await entity_queries.find_glossary_terms_for_agent(
         agent_id=agent.id,
         query=guideline_a_text + guideline_b_text,
     )

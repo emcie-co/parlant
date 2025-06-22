@@ -13,9 +13,7 @@
 # limitations under the License.
 
 from itertools import chain
-from typing import Optional, Sequence, cast
-
-from cachetools import TTLCache
+from typing import Optional, Sequence
 
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.capabilities import Capability, CapabilityStore
@@ -29,13 +27,10 @@ from parlant.core.context_variables import (
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.guidelines import (
     Guideline,
-    GuidelineId,
     GuidelineStore,
 )
 from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.relationships import (
-    GuidelineRelationshipKind,
-    RelationshipEntityKind,
     RelationshipStore,
 )
 from parlant.core.guideline_tool_associations import (
@@ -87,10 +82,6 @@ class EntityQueries:
         self._service_registry = service_registry
         self._utterance_store = utterance_store
 
-        self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
-            maxsize=1024, ttl=120
-        )
-
     async def read_agent(
         self,
         agent_id: AgentId,
@@ -109,7 +100,7 @@ class EntityQueries:
     ) -> Customer:
         return await self._customer_store.read_customer(customer_id)
 
-    async def find_guidelines_for_context(
+    async def find_guidelines_for_agent(
         self,
         agent_id: AgentId,
         journeys: Sequence[Journey],
@@ -139,53 +130,7 @@ class EntityQueries:
 
         return list(all_guidelines)
 
-    async def find_journey_scoped_guidelines(
-        self,
-        journey: Journey,
-    ) -> Sequence[GuidelineId]:
-        """Return guidelines that are dependent on the specified journey."""
-        iterated_relationships = set()
-
-        guideline_ids = set()
-
-        relationships = set(
-            await self._relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.DEPENDENCY,
-                indirect=False,
-                target_id=Tag.for_journey_id(journey.id),
-            )
-        )
-
-        while relationships:
-            r = relationships.pop()
-
-            if r in iterated_relationships:
-                continue
-
-            if r.source.kind == RelationshipEntityKind.GUIDELINE:
-                guideline_ids.add(cast(GuidelineId, r.source.id))
-
-            new_relationships = await self._relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.DEPENDENCY,
-                indirect=False,
-                target_id=r.source.id,
-            )
-            if new_relationships:
-                relationships.update(
-                    [rel for rel in new_relationships if rel not in iterated_relationships]
-                )
-
-            iterated_relationships.add(r)
-
-        for id in guideline_ids:
-            journeys = self.find_journeys_on_which_this_guideline_depends.get(id, [])
-            journeys.append(journey)
-
-            self.find_journeys_on_which_this_guideline_depends[id] = journeys
-
-        return list(guideline_ids)
-
-    async def find_context_variables_for_context(
+    async def find_context_variables_for_agent(
         self,
         agent_id: AgentId,
     ) -> Sequence[ContextVariable]:
@@ -200,9 +145,7 @@ class EntityQueries:
 
         all_context_variables = set(
             chain(
-                agent_context_variables,
-                global_context_variables,
-                context_variables_for_agent_tags,
+                agent_context_variables, global_context_variables, context_variables_for_agent_tags
             )
         )
         return list(all_context_variables)
@@ -255,7 +198,7 @@ class EntityQueries:
 
         return result
 
-    async def find_glossary_terms_for_context(
+    async def find_glossary_terms_for_agent(
         self,
         agent_id: AgentId,
         query: str,
@@ -279,7 +222,7 @@ class EntityQueries:
     ) -> ToolService:
         return await self._service_registry.read_tool_service(service_name)
 
-    async def finds_journeys_for_context(
+    async def find_journeys_for_agent(
         self,
         agent_id: AgentId,
     ) -> Sequence[Journey]:
@@ -297,18 +240,7 @@ class EntityQueries:
 
         return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
 
-    async def find_relevant_journeys_for_context(
-        self,
-        available_journeys: Sequence[Journey],
-        query: str,
-    ) -> Sequence[Journey]:
-        return await self._journey_store.find_relevant_journeys(
-            query=query,
-            available_journeys=available_journeys,
-            max_journeys=len(available_journeys),
-        )
-
-    async def find_utterances_for_context(
+    async def find_utterances_for_agent_and_journey(
         self,
         agent_id: AgentId,
         journeys: Sequence[Journey],

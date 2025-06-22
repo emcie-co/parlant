@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import dataclass
-import time
 from typing import Callable, cast
 
 from parlant.client import AsyncParlantClient as Client
@@ -29,8 +28,6 @@ class Context:
 
 
 class SDKTest:
-    STARTUP_TIMEOUT = 60
-
     async def test_run(self) -> None:
         port = get_random_port()
 
@@ -42,37 +39,32 @@ class SDKTest:
             await self.run(Context(client, self.get_container()))
         finally:
             server_task.cancel()
-
-            try:
-                await server_task
-            except asyncio.CancelledError:
-                pass
+            await server_task
 
     async def _create_server_task(self, port: int) -> asyncio.Task[None]:
         async def server_task() -> None:
             server, self.get_container = await self.create_server(port)
 
             async with server:
-                try:
-                    await self.setup(server)
-                except BaseException:
-                    raise
+                await self.setup(server)
 
-        task = asyncio.create_task(server_task(), name="SDK Server Task")
+        task = asyncio.create_task(server_task())
         return task
 
     async def _wait_for_startup(self, client: Client) -> None:
-        start_time = time.time()
+        attempts = 0
 
         while True:
             try:
                 await client.agents.list()
                 return
             except Exception:
-                if time.time() >= (start_time + self.STARTUP_TIMEOUT):
+                attempts += 1
+
+                if attempts > 10:
                     raise RuntimeError("Server did not start in time")
 
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.333)
 
     async def create_server(self, port: int) -> tuple[p.Server, Callable[[], p.Container]]:
         test_container: p.Container = p.Container()

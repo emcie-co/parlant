@@ -80,7 +80,7 @@ Feature: Strict Utterance
         And the message contains the text "not eligible to participate in the sweepstake"
 
     Scenario: Multistep journey is partially followed 1 (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -96,7 +96,7 @@ Feature: Strict Utterance
         And the message contains asking the customer for their username, but not for their email or phone number
 
     Scenario: Irrelevant journey is ignored (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
+        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -112,7 +112,7 @@ Feature: Strict Utterance
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2 (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -132,7 +132,7 @@ Feature: Strict Utterance
 
 
     Scenario: Critical guideline overrides journey (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -161,7 +161,7 @@ Feature: Strict Utterance
         And an utterance, "I recommend mushrooms"
         And an utterance, "I recommend mushrooms or pepperoni"
         And an utterance, "I recommend pepperoni"
-        And a journey titled "Vegetarian Customers" to Be aware that the customer is vegetarian. Only discuss vegetarian options with them. when the customer has a name that begins with R
+        And a journey titled Vegetarian Customers to Be aware that the customer is vegetarian. Only discuss vegetarian options with them. when the customer has a name that begins with R
         And a customer message, "Hey, there. How are you?"
         And an agent message, "I'm doing alright, thank you! What's your name?"
         And a customer message, "Rajon, have we spoken before? I want one large pie but I'm not sure which topping to get, what do you recommend?"
@@ -170,7 +170,7 @@ Feature: Strict Utterance
         And the message contains recommendations for either mushrooms or tomatoes, but not pepperoni
 
     Scenario: Journey information is followed (strict utterance)
-        Given a journey titled "Change Credit Limits" to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
+        Given a journey titled Change Credit Limits to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
         And an utterance, "To increase credit limits, you must visit a physical branch"
         And an utterance, "Sure. Let me check how that could be done"
         And a customer message, "Hey there. I want to increase the credit limit on my platinum silver gold card. I want the new limits to be twice as high, please."

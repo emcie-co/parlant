@@ -26,10 +26,7 @@ from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.persistence.vector_database import VectorCollection, VectorDatabase
-from parlant.core.persistence.vector_database_helper import (
-    VectorDocumentStoreMigrationHelper,
-    query_chunks,
-)
+from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
@@ -152,7 +149,7 @@ class _UtteranceDocument(TypedDict, total=False):
     fields: str
 
 
-class UtteranceTagAssociationDocument(TypedDict, total=False):
+class _UtteranceTagAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -176,7 +173,7 @@ class UtteranceVectorStore(UtteranceStore):
 
         self._utterances_collection: VectorCollection[_UtteranceDocument]
         self._utterance_tag_association_collection: DocumentCollection[
-            UtteranceTagAssociationDocument
+            _UtteranceTagAssociationDocument
         ]
         self._allow_migration = allow_migration
         self._lock = ReaderWriterLock()
@@ -195,14 +192,14 @@ class UtteranceVectorStore(UtteranceStore):
 
     async def _association_document_loader(
         self, doc: BaseDocument
-    ) -> Optional[UtteranceTagAssociationDocument]:
+    ) -> Optional[_UtteranceTagAssociationDocument]:
         if doc["version"] == "0.1.0":
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
         if doc["version"] == "0.2.0":
-            return cast(UtteranceTagAssociationDocument, doc)
+            return cast(_UtteranceTagAssociationDocument, doc)
 
         return None
 
@@ -231,7 +228,7 @@ class UtteranceVectorStore(UtteranceStore):
             self._utterance_tag_association_collection = (
                 await self._database.get_or_create_collection(
                     name="utterance_tag_associations",
-                    schema=UtteranceTagAssociationDocument,
+                    schema=_UtteranceTagAssociationDocument,
                     document_loader=self._association_document_loader,
                 )
             )
@@ -452,7 +449,7 @@ class UtteranceVectorStore(UtteranceStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_document: UtteranceTagAssociationDocument = {
+            association_document: _UtteranceTagAssociationDocument = {
                 "id": ObjectId(generate_id()),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
@@ -530,7 +527,7 @@ class UtteranceVectorStore(UtteranceStore):
             return []
 
         async with self._lock.reader_lock:
-            queries = await query_chunks(query, self._embedder)
+            queries = await self._query_chunks(query)
 
             filters: Where = {"id": {"$in": [str(t.id) for t in available_utterances]}}
 

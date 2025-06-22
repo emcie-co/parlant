@@ -83,9 +83,6 @@ class Relationship:
     target: RelationshipEntity
     kind: RelationshipKind
 
-    def __hash__(self) -> int:
-        return hash(self.id)
-
 
 class RelationshipStore(ABC):
     @abstractmethod

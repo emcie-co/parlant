@@ -291,7 +291,6 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
         terms,
         capabilities,
         staged_events,
-        relevant_journeys=[],
     )
 
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(
@@ -688,7 +687,7 @@ async def test_that_when_agent_already_asked_for_clarification_new_clarification
     )
 
 
-async def test_that_when_agent_already_asked_for_clarification_new_clarification_guideline_does_not_created_2(
+async def test_that_when_agent_already_asked_for_clarification_new_clarification_guideline_doesnot_created_2(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

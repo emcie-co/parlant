@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,7 +49,6 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipStore,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
 from parlant.core.services.tools.service_registry import ServiceDocumentRegistry, ServiceRegistry
 from parlant.core.sessions import (
     EventKind,
@@ -63,22 +61,9 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.utterances import UtteranceVectorStore, UtteranceId, UtteranceStore
-from parlant.core.evaluations import (
-    EvaluationDocumentStore,
-    EvaluationStatus,
-    EvaluationStore,
-    GuidelinePayload,
-    GuidelinePayloadOperation,
-    PayloadDescriptor,
-    PayloadKind,
-)
-from parlant.core.guidelines import (
-    GuidelineContent,
-    GuidelineDocumentStore,
-    GuidelineId,
-    GuidelineStore,
-)
-from parlant.core.journeys import JourneyId, JourneyStore, JourneyVectorStore
+from parlant.core.evaluations import EvaluationDocumentStore, EvaluationStore
+from parlant.core.guidelines import GuidelineDocumentStore, GuidelineId, GuidelineStore
+from parlant.core.journeys import JourneyDocumentStore, JourneyId, JourneyStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
@@ -245,7 +230,7 @@ class Guideline:
 class Journey:
     id: JourneyId
     description: str
-    conditions: list[Guideline]
+    conditions: list[str]
 
     _parlant: Server
     _container: Container
@@ -259,18 +244,7 @@ class Journey:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=action,
-        )
-
-        await self._container[RelationshipStore].create_relationship(
-            source=RelationshipEntity(
-                id=guideline.id,
-                kind=RelationshipEntityKind.GUIDELINE,
-            ),
-            target=RelationshipEntity(
-                id=Tag.for_journey_id(self.id),
-                kind=RelationshipEntityKind.TAG,
-            ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            tags=[Tag.for_journey_id(self.id)],
         )
 
         for t in list(tools):
@@ -300,19 +274,7 @@ class Journey:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=f"Consider using the tool {tool.tool.name}",
-            tags=[],
-        )
-
-        await self._container[RelationshipStore].create_relationship(
-            source=RelationshipEntity(
-                id=guideline.id,
-                kind=RelationshipEntityKind.GUIDELINE,
-            ),
-            target=RelationshipEntity(
-                id=Tag.for_journey_id(self.id),
-                kind=RelationshipEntityKind.TAG,
-            ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            tags=[Tag.for_journey_id(self.id)],
         )
 
         await self._container[GuidelineToolAssociationStore].create_association(
@@ -347,16 +309,14 @@ class Agent:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        conditions: list[str],
     ) -> Journey:
         journey = await self._parlant.create_journey(title, description, conditions)
-
         await self.attach_journey(journey)
-
         return Journey(
             id=journey.id,
             description=description,
-            conditions=journey.conditions,
+            conditions=conditions,
             _parlant=self._parlant,
             _container=self._container,
         )
@@ -530,88 +490,25 @@ class Server:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        conditions: list[str],
     ) -> Journey:
-        condition_guidelines = [c for c in conditions if isinstance(c, Guideline)]
+        condition_ids = []
 
-        str_conditions = [c for c in conditions if isinstance(c, str)]
-        if str_conditions:
-            evaluation_id = await self._container[BehavioralChangeEvaluator].create_evaluation_task(
-                payload_descriptors=[
-                    PayloadDescriptor(
-                        PayloadKind.GUIDELINE,
-                        GuidelinePayload(
-                            content=GuidelineContent(
-                                condition=c,
-                                action=None,
-                            ),
-                            tool_ids=[],
-                            operation=GuidelinePayloadOperation.ADD,
-                            coherence_check=False,  # Legacy and will be removed in the future
-                            connection_proposition=False,  # Legacy and will be removed in the future
-                            action_proposition=False,
-                            properties_proposition=True,
-                        ),
-                    )
-                    for c in str_conditions
-                ]
+        for c in conditions:
+            condition_ids.append(
+                (await self._container[GuidelineStore].create_guideline(condition=c)).id
             )
-
-            evaluation = await self._container[EvaluationStore].read_evaluation(
-                evaluation_id=evaluation_id
-            )
-
-            while evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
-                await asyncio.sleep(0.1)
-                evaluation = await self._container[EvaluationStore].read_evaluation(
-                    evaluation_id=evaluation_id
-                )
-
-            if evaluation.status == EvaluationStatus.FAILED:
-                raise SDKError(f"Evaluation failed during journey creation: {evaluation.error}")
-
-            for invoice in evaluation.invoices:
-                if not invoice.approved:
-                    raise SDKError("Invoice was not approved during journey creation.")
-                if not invoice.data:
-                    raise SDKError("Invoice has no data during journey creation.")
-                if not invoice.data.properties_proposition:
-                    raise SDKError(
-                        "Invoice is missing properties_proposition during journey creation."
-                    )
-
-                guideline = await self._container[GuidelineStore].create_guideline(
-                    condition=invoice.payload.content.condition,
-                    metadata=invoice.data.properties_proposition,
-                )
-
-                condition_guidelines.append(
-                    Guideline(
-                        id=guideline.id,
-                        condition=guideline.content.condition,
-                        action=guideline.content.action,
-                        tags=guideline.tags,
-                        _parlant=self,
-                        _container=self._container,
-                    )
-                )
 
         journey = await self._container[JourneyStore].create_journey(
             title,
             description,
-            [c.id for c in condition_guidelines],
+            condition_ids,
         )
-
-        for c in condition_guidelines:
-            await self._container[GuidelineStore].upsert_tag(
-                guideline_id=c.id,
-                tag_id=Tag.for_journey_id(journey_id=journey.id),
-            )
 
         return Journey(
             id=journey.id,
             description=description,
-            conditions=condition_guidelines,
+            conditions=conditions,
             _container=self._container,
             _parlant=self,
         )
@@ -629,6 +526,7 @@ class Server:
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
+                (JourneyStore, JourneyDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
                 c[interface] = await self._exit_stack.enter_async_context(
@@ -700,15 +598,6 @@ class Server:
 
             c[CapabilityStore] = await self._exit_stack.enter_async_context(
                 CapabilityVectorStore(
-                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
-                    document_db=TransientDocumentDatabase(),
-                    embedder_factory=embedder_factory,
-                    embedder_type_provider=get_embedder_type,
-                )
-            )
-
-            c[JourneyStore] = await self._exit_stack.enter_async_context(
-                JourneyVectorStore(
                     vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,

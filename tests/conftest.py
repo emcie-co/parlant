@@ -98,7 +98,7 @@ from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStore,
 )
-from parlant.core.journeys import JourneyStore, JourneyVectorStore
+from parlant.core.journeys import JourneyDocumentStore, JourneyStore
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
     CustomerDependentActionSchema,
@@ -291,6 +291,9 @@ async def container(
         container[GuidelineStore] = await stack.enter_async_context(
             GuidelineDocumentStore(TransientDocumentDatabase())
         )
+        container[JourneyStore] = await stack.enter_async_context(
+            JourneyDocumentStore(TransientDocumentDatabase())
+        )
         container[RelationshipStore] = await stack.enter_async_context(
             RelationshipDocumentStore(TransientDocumentDatabase())
         )
@@ -333,15 +336,6 @@ async def container(
             return type(await container[NLPService].get_embedder())
 
         embedder_factory = EmbedderFactory(container)
-
-        container[JourneyStore] = await stack.enter_async_context(
-            JourneyVectorStore(
-                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
-                document_db=TransientDocumentDatabase(),
-                embedder_factory=embedder_factory,
-                embedder_type_provider=get_embedder_type,
-            )
-        )
 
         container[GlossaryStore] = await stack.enter_async_context(
             GlossaryVectorStore(

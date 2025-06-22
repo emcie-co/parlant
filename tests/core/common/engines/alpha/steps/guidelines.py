@@ -591,32 +591,3 @@ def given_an_guideline_grouped_under(
             kind=GuidelineRelationshipKind.DISAMBIGUATION,
         )
     )
-
-
-@step(
-    given,
-    parsers.parse(
-        'a dependency relationship between the guideline "{guideline_name}" and the "{journey_title}" journey'
-    ),
-)
-def given_an_dependency_between_guideline_and_a_journey(
-    context: ContextOfTest,
-    guideline_name: str,
-    journey_title: str,
-) -> None:
-    store = context.container[RelationshipStore]
-    journey = context.journeys[journey_title]
-
-    context.sync_await(
-        store.create_relationship(
-            source=RelationshipEntity(
-                id=context.guidelines[guideline_name].id,
-                kind=RelationshipEntityKind.GUIDELINE,
-            ),
-            target=RelationshipEntity(
-                id=Tag.for_journey_id(journey.id),
-                kind=RelationshipEntityKind.TAG,
-            ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
-        )
-    )

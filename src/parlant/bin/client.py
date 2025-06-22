@@ -129,13 +129,6 @@ class Actions:
             else:
                 raise Exception(f"Agent (id: {agent_id}) not found")
 
-        if tag.startswith("journey:"):
-            journey_id = tag.split(":")[1]
-            if client.journeys.retrieve(journey_id):
-                return tag
-            else:
-                raise Exception(f"Journey (id: {journey_id}) not found")
-
         tags = client.tags.list()
         for t in tags:
             if t.name == tag or t.id == tag:

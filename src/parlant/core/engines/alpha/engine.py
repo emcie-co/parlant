@@ -735,10 +735,8 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
     ) -> list[tuple[ContextVariable, ContextVariableValue]]:
-        variables_supported_by_agent = (
-            await self._entity_queries.find_context_variables_for_context(
-                agent_id=context.agent.id,
-            )
+        variables_supported_by_agent = await self._entity_queries.find_context_variables_for_agent(
+            agent_id=context.agent.id,
         )
 
         result = []
@@ -784,31 +782,23 @@ class AlphaEngine(Engine):
         dict[GuidelineMatch, list[ToolId]],
         list[Journey],
     ]:
-        # Step 1: Retrieve the journeys likely to be activated for this agent
-        relevant_journeys = await self._load_journeys(context)
-
-        # Step 2:
-        all_stored_guidelines = {
-            g.id: g
-            for g in await self._entity_queries.find_guidelines_for_context(
-                agent_id=context.agent.id,
-                journeys=relevant_journeys,
-            )
-            if g.enabled
-        }
-
-        # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
-        # (everything beyond the first journey). Removing these low-probability
-        # dependencies up-front keeps the first matching pass fast and focused.
-        top_k = 3
-        relevant_guidelines = await self._prune_low_probability_journey_guidelines(
-            relevant_journeys=relevant_journeys,
-            all_stored_guidelines=all_stored_guidelines,
-            top_k=top_k,
+        # Step 1: Retrieve all of the journeys for this agent.
+        all_journeys = await self._entity_queries.find_journeys_for_agent(
+            agent_id=context.agent.id,
         )
 
-        # Step 4: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(  # TODO HERE BAR
+        # Step 2:
+        all_stored_guidelines = [
+            g
+            for g in await self._entity_queries.find_guidelines_for_agent(
+                agent_id=context.agent.id,
+                journeys=all_journeys,
+            )
+            if g.enabled
+        ]
+
+        # Step 3: Filter the best matches out of those.
+        matching_result = await self._guideline_matcher.match_guidelines(
             agent=context.agent,
             session=context.session,
             customer=context.customer,
@@ -817,48 +807,22 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            guidelines=relevant_guidelines,
+            guidelines=all_stored_guidelines,
         )
 
-        # Step 5: Filter the journeys that are activated by the matched guidelines.
+        # Step 4: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [j for j in relevant_journeys if set(j.conditions).intersection(match_ids)]
+        journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
 
-        # Step 6: If any of the lower-probability journeys (those originally filtered out)
-        # have in fact been activated, run an additional matching pass for the guidelines
-        # that depend on them so we don’t miss relevant behavior.
-        if second_match_result := await self._process_activated_low_probability_journey_guidelines(
-            context=context,
-            all_stored_guidelines=all_stored_guidelines,
-            relevant_journeys=relevant_journeys,
-            activated_journeys=journeys,
-            top_k=top_k,
-        ):
-            batches = list(chain(matching_result.batches, second_match_result.batches))
-            matches = list(chain.from_iterable(batches))
-
-            matching_result = GuidelineMatchingResult(
-                total_duration=matching_result.total_duration + second_match_result.total_duration,
-                batch_count=matching_result.batch_count + second_match_result.batch_count,
-                batch_generations=list(
-                    chain(
-                        matching_result.batch_generations,
-                        second_match_result.batch_generations,
-                    )
-                ),
-                batches=batches,
-                matches=matches,
-            )
-
-        # Step 7: Resolve guideline matches by loading related guidelines that may not have
+        # Step 5: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
-            usable_guidelines=list(all_stored_guidelines.values()),
+            usable_guidelines=all_stored_guidelines,
             matches=matching_result.matches,
             journeys=journeys,
         )
 
-        # Step 8: Distinguish between ordinary and tool-enabled guidelines.
+        # Step 6: Distinguish between ordinary and tool-enabled guidelines.
         # We do this here as it creates a better subsequent control flow in the engine.
         tool_enabled_guidelines = await self._find_tool_enabled_guideline_matches(
             guideline_matches=all_relevant_guidelines,
@@ -894,81 +858,6 @@ class AlphaEngine(Engine):
             )
 
         return dict(tools_for_guidelines)
-
-    async def _prune_low_probability_journey_guidelines(
-        self,
-        relevant_journeys: Sequence[Journey],
-        all_stored_guidelines: dict[GuidelineId, Guideline],
-        top_k: int,
-    ) -> list[Guideline]:
-        # Prune low-probability journey-dependent guidelines
-        # by only keeping those that are either not dependent on any journey
-        # or are dependent on the top K most relevant journeys.
-        relevant_journeys_dependent_ids = set(
-            chain.from_iterable(
-                [
-                    await self._entity_queries.find_journey_scoped_guidelines(j)
-                    for j in relevant_journeys
-                ]
-            )
-        )
-
-        high_prob_journey_dependent_ids = set(
-            chain.from_iterable(
-                [
-                    await self._entity_queries.find_journey_scoped_guidelines(j)
-                    for j in relevant_journeys[:top_k]
-                ]
-            )
-        )
-
-        return [
-            g
-            for id, g in all_stored_guidelines.items()
-            if id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids
-        ]
-
-    async def _process_activated_low_probability_journey_guidelines(
-        self,
-        context: LoadedContext,
-        all_stored_guidelines: dict[GuidelineId, Guideline],
-        relevant_journeys: Sequence[Journey],
-        activated_journeys: Sequence[Journey],
-        top_k: int,
-    ) -> Optional[GuidelineMatchingResult]:
-        activated_low_priority_dep_ids = set(
-            chain.from_iterable(
-                [
-                    await self._entity_queries.find_journey_scoped_guidelines(j)
-                    for j in [
-                        activated_journey
-                        for activated_journey in activated_journeys
-                        if activated_journey in relevant_journeys[top_k:]
-                    ]
-                ]
-            )
-        )
-
-        if activated_low_priority_dep_ids:
-            self._logger.operation(
-                "Second-pass: matching guidelines dependent on activated low-priority journeys"
-            )
-            additional_matching_guidelines = [
-                g for id, g in all_stored_guidelines.items() if id in activated_low_priority_dep_ids
-            ]
-            return await self._guideline_matcher.match_guidelines(
-                agent=context.agent,
-                session=context.session,
-                customer=context.customer,
-                context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
-                terms=list(context.state.glossary_terms),
-                capabilities=context.state.capabilities,
-                staged_events=context.state.tool_events,
-                guidelines=additional_matching_guidelines,
-            )
-
-        return None
 
     async def _load_capabilities(self, context: LoadedContext) -> Sequence[Capability]:
         # Capabilities are retrieved using semantic similarity.
@@ -1017,53 +906,8 @@ class AlphaEngine(Engine):
             query += str([e.data for e in context.state.tool_events])
 
         if query:
-            return await self._entity_queries.find_glossary_terms_for_context(
+            return await self._entity_queries.find_glossary_terms_for_agent(
                 agent_id=context.agent.id,
-                query=query,
-            )
-
-        return []
-
-    async def _load_journeys(
-        self,
-        context: LoadedContext,
-    ) -> Sequence[Journey]:
-        # Journeys are retrieved using semantic similarity.
-        # The querying process is done with a text query, for which
-        # the K most relevant terms are retrieved.
-        #
-        # We thus build an optimized query here based on our context and state.
-        all_journeys = await self._entity_queries.finds_journeys_for_context(
-            agent_id=context.agent.id,
-        )
-
-        query = ""
-
-        if context.state.context_variables:
-            query += f"\n{context_variables_to_json(context.state.context_variables)}"
-
-        if context.state.guidelines:
-            query += str(
-                [
-                    f"When {g.content.condition}, then {g.content.action}"
-                    if g.content.action
-                    else f"When {g.content.condition}"
-                    for g in context.state.guidelines
-                ]
-            )
-
-        if context.state.all_events:
-            query += str([e.data for e in context.state.all_events])
-
-        if context.state.glossary_terms:
-            query += str([t.name for t in context.state.glossary_terms])
-
-        if context.interaction.history:
-            query += str([e.data for e in context.interaction.history])
-
-        if query:
-            return await self._entity_queries.find_relevant_journeys_for_context(
-                available_journeys=all_journeys,
                 query=query,
             )
 

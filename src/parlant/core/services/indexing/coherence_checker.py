@@ -437,7 +437,7 @@ Expected Output:
         )
 
         builder.add_agent_identity(agent)
-        terms = await self._entity_queries.find_glossary_terms_for_context(
+        terms = await self._entity_queries.find_glossary_terms_for_agent(
             agent_id=agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
         )
@@ -689,7 +689,7 @@ Expected Output:
             props={"formatted_task_description": self.get_task_description()},
         )
         builder.add_agent_identity(agent)
-        terms = await self._entity_queries.find_glossary_terms_for_context(
+        terms = await self._entity_queries.find_glossary_terms_for_agent(
             agent_id=agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
         )

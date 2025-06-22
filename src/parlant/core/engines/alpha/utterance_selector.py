@@ -612,7 +612,7 @@ You will now be given the current state of the interaction to which you must gen
         if context.journeys:
             query += str([f"{j.title}: {j.description}" for j in context.journeys])
 
-        stored_utterances = await self._entity_queries.find_utterances_for_context(
+        stored_utterances = await self._entity_queries.find_utterances_for_agent_and_journey(
             agent_id=context.agent.id,
             journeys=context.journeys,
             query=query,

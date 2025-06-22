@@ -20,6 +20,7 @@ from datetime import date, datetime, timezone
 from enum import Enum, auto
 import importlib
 import inspect
+import re
 import sys
 from types import UnionType
 from typing import (
@@ -48,6 +49,16 @@ ToolParameterType = Literal[
     "integer",
     "boolean",
     "array",
+    "date",
+    "datetime",
+    "timedelta",
+    "path",
+    "uuid",
+]
+
+StringBasedTypes = [
+    "string",
+    "enum",
     "date",
     "datetime",
     "timedelta",
@@ -442,7 +453,7 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         if get_origin(cast_target) is list:
             item_type = get_args(cast_target)[0]
 
-            arg_list = split_arg_list(argument, item_type)
+            arg_list = split_list_by_type(argument, item_type)
             return [cast_tool_argument(item_type, item) for item in arg_list]
 
         # Scalar types
@@ -468,17 +479,39 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         ) from exc
 
 
-def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
+def split_list_by_type(argument: str | list[Any], item_type: Any) -> list[str]:
     if isinstance(argument, list):
         # Already a list - no work required
         return argument
-    if item_type is str or issubclass(item_type, Enum):
+
+    list_str = argument.strip()
+    if (
+        item_type is str
+        or issubclass(item_type, Enum)
+        and list_str.startswith("[")
+        and list_str.endswith("]")
+    ):
         # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
+        return list(literal_eval(list_str))
     if item_type in VALID_TOOL_BASE_TYPES:
         # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
+
         if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
+            list_str = list_str[1:-1]
+        return re.split(r"\s*,\s*", list_str)
     raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")
+
+
+def split_list_by_type_label(argument: str | list[Any], item_type: str) -> list[str]:
+    if isinstance(argument, list):
+        return argument
+
+    list_str = argument.strip()
+    if item_type in StringBasedTypes and list_str.startswith("[") and list_str.endswith("]"):
+        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
+        return list(literal_eval(argument))
+
+    list_str = argument.strip()
+    if list_str.startswith("[") and list_str.endswith("]"):
+        list_str = list_str[1:-1]
+    return re.split(r"\s*,\s*", list_str)

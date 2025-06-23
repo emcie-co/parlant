@@ -32,7 +32,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.relationships import RelationshipStore, ToolRelationshipKind
+from parlant.core.relationships import RelationshipStore, RelationshipKind
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import Tool, ToolId, ToolOverlap
 
@@ -78,10 +78,10 @@ class DefaultToolCallBatcher(ToolCallBatcher):
                 all_relationships = list(
                     chain(
                         await self._relationship_store.list_relationships(
-                            source_id=current, indirect=False, kind=ToolRelationshipKind.OVERLAP
+                            source_id=current, indirect=False, kind=RelationshipKind.OVERLAP
                         ),
                         await self._relationship_store.list_relationships(
-                            target_id=current, indirect=False, kind=ToolRelationshipKind.OVERLAP
+                            target_id=current, indirect=False, kind=RelationshipKind.OVERLAP
                         ),
                     )
                 )

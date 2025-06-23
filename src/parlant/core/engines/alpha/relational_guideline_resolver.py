@@ -21,7 +21,7 @@ from parlant.core.loggers import Logger
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipStore,
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
@@ -84,7 +84,7 @@ class RelationalGuidelineResolver:
         for match in matches:
             priority_relationships = list(
                 await self._relationship_store.list_relationships(
-                    kind=GuidelineRelationshipKind.PRIORITY,
+                    kind=RelationshipKind.PRIORITY,
                     indirect=True,
                     target_id=match.guideline.id,
                 )
@@ -142,7 +142,7 @@ class RelationalGuidelineResolver:
 
                         priority_relationships.extend(
                             await self._relationship_store.list_relationships(
-                                kind=GuidelineRelationshipKind.PRIORITY,
+                                kind=RelationshipKind.PRIORITY,
                                 indirect=True,
                                 target_id=g.id,
                             )
@@ -188,7 +188,7 @@ class RelationalGuidelineResolver:
         for match in matches:
             relationships = list(
                 await self._relationship_store.list_relationships(
-                    kind=GuidelineRelationshipKind.ENTAILMENT,
+                    kind=RelationshipKind.ENTAILMENT,
                     indirect=True,
                     source_id=match.guideline.id,
                 )
@@ -220,7 +220,7 @@ class RelationalGuidelineResolver:
                     for g in guidelines_associated_to_tag:
                         relationships.extend(
                             await self._relationship_store.list_relationships(
-                                kind=GuidelineRelationshipKind.ENTAILMENT,
+                                kind=RelationshipKind.ENTAILMENT,
                                 indirect=True,
                                 source_id=g.id,
                             )
@@ -290,7 +290,7 @@ class RelationalGuidelineResolver:
         for match in matches:
             dependencies = list(
                 await self._relationship_store.list_relationships(
-                    kind=GuidelineRelationshipKind.DEPENDENCY,
+                    kind=RelationshipKind.DEPENDENCY,
                     indirect=True,
                     source_id=match.guideline.id,
                 )
@@ -336,7 +336,7 @@ class RelationalGuidelineResolver:
                         if g.id not in iterated_guidelines:
                             dependencies.extend(
                                 await self._relationship_store.list_relationships(
-                                    kind=GuidelineRelationshipKind.DEPENDENCY,
+                                    kind=RelationshipKind.DEPENDENCY,
                                     indirect=True,
                                     source_id=g.id,
                                 )

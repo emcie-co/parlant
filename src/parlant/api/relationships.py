@@ -35,13 +35,11 @@ from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityId,
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     Relationship,
     RelationshipEntity,
     RelationshipId,
-    RelationshipKind,
     RelationshipStore,
-    ToolRelationshipKind,
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -133,15 +131,17 @@ def _relationship_kind_to_dto(
     kind: RelationshipKind,
 ) -> RelationshipKindDTO:
     match kind:
-        case GuidelineRelationshipKind.ENTAILMENT:
+        case RelationshipKind.ENTAILMENT:
             return RelationshipKindDTO.ENTAILMENT
-        case GuidelineRelationshipKind.PRIORITY:
+        case RelationshipKind.PRIORITY:
             return RelationshipKindDTO.PRIORITY
-        case GuidelineRelationshipKind.DEPENDENCY:
+        case RelationshipKind.DEPENDENCY:
             return RelationshipKindDTO.DEPENDENCY
-        case GuidelineRelationshipKind.DISAMBIGUATION:
+        case RelationshipKind.DISAMBIGUATION:
             return RelationshipKindDTO.DISAMBIGUATION
-        case ToolRelationshipKind.OVERLAP:
+        case RelationshipKind.REEVALUATION:
+            return RelationshipKindDTO.REEVALUATION
+        case RelationshipKind.OVERLAP:
             return RelationshipKindDTO.OVERLAP
         case _:
             raise ValueError(f"Invalid relationship kind: {kind.value}")
@@ -152,15 +152,17 @@ def _relationship_kind_dto_to_kind(
 ) -> RelationshipKind:
     match dto:
         case RelationshipKindDTO.ENTAILMENT:
-            return GuidelineRelationshipKind.ENTAILMENT
+            return RelationshipKind.ENTAILMENT
         case RelationshipKindDTO.PRIORITY:
-            return GuidelineRelationshipKind.PRIORITY
+            return RelationshipKind.PRIORITY
         case RelationshipKindDTO.DEPENDENCY:
-            return GuidelineRelationshipKind.DEPENDENCY
+            return RelationshipKind.DEPENDENCY
         case RelationshipKindDTO.DISAMBIGUATION:
-            return GuidelineRelationshipKind.DISAMBIGUATION
+            return RelationshipKind.DISAMBIGUATION
+        case RelationshipKindDTO.REEVALUATION:
+            return RelationshipKind.REEVALUATION
         case RelationshipKindDTO.OVERLAP:
-            return ToolRelationshipKind.OVERLAP
+            return RelationshipKind.OVERLAP
         case _:
             raise ValueError(f"Invalid relationship kind: {dto.value}")
 
@@ -315,7 +317,7 @@ def create_router(
             target_tool=tool_to_dto(cast(Tool, target_tool))
             if relationship.target.kind == RelationshipEntityKind.TOOL
             else None,
-            kind=_relationship_kind_to_dto(cast(GuidelineRelationshipKind, relationship.kind)),
+            kind=_relationship_kind_to_dto(cast(RelationshipKind, relationship.kind)),
         )
 
     router = APIRouter()

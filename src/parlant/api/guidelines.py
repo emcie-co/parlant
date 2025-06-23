@@ -64,7 +64,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipEntity,
     RelationshipId,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipStore,
 )
 from parlant.core.guidelines import (
@@ -81,7 +81,7 @@ from parlant.core.guideline_tool_associations import (
 from parlant.core.application import Application
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import TagId, TagStore, Tag
-from parlant.core.tools import ToolId
+from parlant.core.tools import Tool, ToolId
 
 API_GROUP = "guidelines"
 
@@ -383,14 +383,14 @@ class LegacyGuidelineUpdateParamsDTO(
 
 @dataclass
 class _GuidelineRelationship:
-    """Represents one relationship between two Guidelines."""
+    """Represents a relationship between a guideline and another entity (guideline, tag, or tool)."""
 
     id: RelationshipId
-    source: Guideline | Tag
+    source: Guideline | Tag | Tool
     source_type: RelationshipEntityKind
-    target: Guideline | Tag
+    target: Guideline | Tag | Tool
     target_type: RelationshipEntityKind
-    kind: GuidelineRelationshipKind
+    kind: RelationshipKind
 
 
 def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
@@ -524,7 +524,7 @@ async def _get_guideline_relationships_by_kind(
     tag_store: TagStore,
     relationship_store: RelationshipStore,
     entity_id: GuidelineId | TagId,
-    kind: GuidelineRelationshipKind,
+    kind: RelationshipKind,
     include_indirect: bool = True,
 ) -> Sequence[tuple[_GuidelineRelationship, bool]]:
     async def _get_entity(
@@ -554,7 +554,7 @@ async def _get_guideline_relationships_by_kind(
     ):
         assert r.source.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
         assert r.target.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
-        assert type(r.kind) is GuidelineRelationshipKind
+        assert type(r.kind) is RelationshipKind
 
         relationships.append(
             _GuidelineRelationship(
@@ -572,32 +572,36 @@ async def _get_guideline_relationships_by_kind(
 
 def _guideline_relationship_kind_dto_to_kind(
     dto: RelationshipKindDTO,
-) -> GuidelineRelationshipKind:
+) -> RelationshipKind:
     match dto:
         case RelationshipKindDTO.ENTAILMENT:
-            return GuidelineRelationshipKind.ENTAILMENT
+            return RelationshipKind.ENTAILMENT
         case RelationshipKindDTO.PRIORITY:
-            return GuidelineRelationshipKind.PRIORITY
+            return RelationshipKind.PRIORITY
         case RelationshipKindDTO.DEPENDENCY:
-            return GuidelineRelationshipKind.DEPENDENCY
+            return RelationshipKind.DEPENDENCY
         case RelationshipKindDTO.DISAMBIGUATION:
-            return GuidelineRelationshipKind.DISAMBIGUATION
+            return RelationshipKind.DISAMBIGUATION
+        case RelationshipKindDTO.REEVALUATION:
+            return RelationshipKind.REEVALUATION
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {dto.value}")
 
 
 def _guideline_relationship_kind_to_dto(
-    kind: GuidelineRelationshipKind,
+    kind: RelationshipKind,
 ) -> RelationshipKindDTO:
     match kind:
-        case GuidelineRelationshipKind.ENTAILMENT:
+        case RelationshipKind.ENTAILMENT:
             return RelationshipKindDTO.ENTAILMENT
-        case GuidelineRelationshipKind.PRIORITY:
+        case RelationshipKind.PRIORITY:
             return RelationshipKindDTO.PRIORITY
-        case GuidelineRelationshipKind.DEPENDENCY:
+        case RelationshipKind.DEPENDENCY:
             return RelationshipKindDTO.DEPENDENCY
-        case GuidelineRelationshipKind.DISAMBIGUATION:
+        case RelationshipKind.DISAMBIGUATION:
             return RelationshipKindDTO.DISAMBIGUATION
+        case RelationshipKind.REEVALUATION:
+            return RelationshipKindDTO.REEVALUATION
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
 
@@ -620,7 +624,7 @@ async def _get_relationships(
                     kind=kind,
                     include_indirect=include_indirect,
                 )
-                for kind in list(GuidelineRelationshipKind)
+                for kind in list(RelationshipKind)
             ]
         )
     )
@@ -739,7 +743,7 @@ def create_legacy_router(
                             tag_store=tag_store,
                             relationship_store=relationship_store,
                             entity_id=guideline.id,
-                            kind=GuidelineRelationshipKind.ENTAILMENT,
+                            kind=RelationshipKind.ENTAILMENT,
                             include_indirect=True,
                         )
                     ],
@@ -795,7 +799,7 @@ def create_legacy_router(
             tag_store=tag_store,
             relationship_store=relationship_store,
             entity_id=guideline_id,
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
             include_indirect=True,
         )
 
@@ -960,7 +964,7 @@ def create_legacy_router(
                 await relationship_store.create_relationship(
                     source=RelationshipEntity(id=req.source, kind=RelationshipEntityKind.GUIDELINE),
                     target=RelationshipEntity(id=req.target, kind=RelationshipEntityKind.GUIDELINE),
-                    kind=GuidelineRelationshipKind.ENTAILMENT,
+                    kind=RelationshipKind.ENTAILMENT,
                 )
 
         relationships = await _get_guideline_relationships_by_kind(
@@ -968,7 +972,7 @@ def create_legacy_router(
             tag_store=tag_store,
             relationship_store=relationship_store,
             entity_id=guideline_id,
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
             include_indirect=False,
         )
 
@@ -1038,7 +1042,7 @@ def create_legacy_router(
                     tag_store=tag_store,
                     relationship_store=relationship_store,
                     entity_id=guideline_id,
-                    kind=GuidelineRelationshipKind.ENTAILMENT,
+                    kind=RelationshipKind.ENTAILMENT,
                     include_indirect=True,
                 )
             ],
@@ -1105,12 +1109,12 @@ def create_legacy_router(
             deleted = True
         for r in chain(
             await relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.ENTAILMENT,
+                kind=RelationshipKind.ENTAILMENT,
                 indirect=False,
                 source_id=guideline_id,
             ),
             await relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.ENTAILMENT,
+                kind=RelationshipKind.ENTAILMENT,
                 indirect=False,
                 target_id=guideline_id,
             ),

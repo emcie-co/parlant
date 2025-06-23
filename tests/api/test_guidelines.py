@@ -22,7 +22,7 @@ from parlant.core.common import ItemNotFoundError
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
@@ -67,7 +67,7 @@ async def create_guidelines_and_create_relationships_between_them(
                 id=target.id,
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
         )
 
     return guidelines
@@ -280,7 +280,7 @@ async def test_legacy_that_a_connection_between_two_introduced_guidelines_is_cre
     assert source_guideline_item
 
     relationships = await container[RelationshipStore].list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=source_guideline_item["guideline"]["id"],
     )
@@ -350,7 +350,7 @@ async def test_legacy_that_a_connection_to_an_existing_guideline_is_created(
     )
 
     relationships = await container[RelationshipStore].list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=existing_guideline.id,
     )
@@ -448,7 +448,7 @@ async def test_legacy_that_a_connection_can_be_added_to_a_guideline(
 
     stored_relationships = list(
         await container[RelationshipStore].list_relationships(
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
             indirect=False,
             source_id=guidelines[0].id,
         )
@@ -495,7 +495,7 @@ async def test_legacy_that_a_direct_target_connection_can_be_removed_from_a_guid
     assert len(response_collections) == 0
 
     stored_relationships = await container[RelationshipStore].list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=True,
         source_id=guidelines[0].id,
     )
@@ -530,7 +530,7 @@ async def test_legacy_that_an_indirect_connection_cannot_be_removed_from_a_guide
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     stored_relationships = await container[RelationshipStore].list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=True,
         source_id=guidelines[0].id,
     )
@@ -557,7 +557,7 @@ async def test_legacy_that_deleting_a_guideline_also_deletes_all_of_its_direct_c
     ).raise_for_status()
 
     stored_relationships = await container[RelationshipStore].list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=guidelines[0].id,
     )
@@ -602,7 +602,7 @@ async def test_legacy_that_reading_a_guideline_lists_both_direct_and_indirect_co
                 id=target.id,
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
         )
 
     third_item = (
@@ -1017,7 +1017,7 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
             id=connected_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     new_action = "reply with 'Howdy!'"
@@ -1076,7 +1076,7 @@ async def test_legacy_that_an_existing_guideline_can_be_updated(
     assert updated_guideline["action"] == new_action
 
     updated_relationships = await relationship_store.list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=existing_guideline.id,
     )
@@ -1200,7 +1200,7 @@ async def test_legacy_that_an_updated_guideline_can_entail_an_added_guideline(
     added_guideline = await guideline_store.read_guideline(added_guideline_id)
 
     updated_relationships = await relationship_store.list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=updated_guideline.id,
     )
@@ -1247,7 +1247,7 @@ async def test_legacy_that_guideline_update_retains_existing_connections_with_di
             id=connected_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     new_action = "reply with 'Howdy!'"
@@ -1294,7 +1294,7 @@ async def test_legacy_that_guideline_update_retains_existing_connections_with_di
     assert updated_guideline["action"] == new_action
 
     updated_relationships = await relationship_store.list_relationships(
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
         indirect=False,
         source_id=existing_guideline.id,
     )
@@ -2026,7 +2026,7 @@ async def test_that_guideline_relationships_can_be_read(
             id=connected_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     response = await async_client.get(f"/guidelines/{guideline.id}")

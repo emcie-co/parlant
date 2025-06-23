@@ -43,7 +43,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipEntity,
     RelationshipStore,
-    ToolRelationshipKind,
+    RelationshipKind,
 )
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -1241,7 +1241,7 @@ async def test_that_two_non_overlapping_tools_are_overlapping_with_a_third_tool_
             id=b_tool_id,
             kind=RelationshipEntityKind.TOOL,
         ),
-        kind=ToolRelationshipKind.OVERLAP,
+        kind=RelationshipKind.OVERLAP,
     )
 
     await relationship_store.create_relationship(
@@ -1253,7 +1253,7 @@ async def test_that_two_non_overlapping_tools_are_overlapping_with_a_third_tool_
             id=c_tool_id,
             kind=RelationshipEntityKind.TOOL,
         ),
-        kind=ToolRelationshipKind.OVERLAP,
+        kind=RelationshipKind.OVERLAP,
     )
 
     tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]] = {
@@ -1334,7 +1334,7 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
             id=b_tool_id,
             kind=RelationshipEntityKind.TOOL,
         ),
-        kind=ToolRelationshipKind.OVERLAP,
+        kind=RelationshipKind.OVERLAP,
     )
 
     await relationship_store.create_relationship(
@@ -1346,7 +1346,7 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
             id=c_tool_id,
             kind=RelationshipEntityKind.TOOL,
         ),
-        kind=ToolRelationshipKind.OVERLAP,
+        kind=RelationshipKind.OVERLAP,
     )
 
     tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]] = {

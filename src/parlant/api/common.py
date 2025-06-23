@@ -645,6 +645,7 @@ class RelationshipKindDTO(Enum):
     DEPENDENCY = "dependency"
     DISAMBIGUATION = "disambiguation"
     OVERLAP = "overlap"
+    REEVALUATION = "reevaluation"
 
 
 class RelationshipDTO(

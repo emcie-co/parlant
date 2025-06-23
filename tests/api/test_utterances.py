@@ -81,6 +81,33 @@ async def test_that_an_utterance_can_be_created_with_tags(
     assert set(utterance_dto["tags"]) == {tag_1.id, tag_2.id}
 
 
+async def test_that_an_utterance_can_be_created_with_queries(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    payload = {
+        "value": "Your account balance is {{balance}}",
+        "fields": [
+            {
+                "name": "balance",
+                "description": "Account's balance",
+                "examples": ["9000"],
+            }
+        ],
+        "queries": ["One", "Two", "Three"],
+    }
+
+    response = await async_client.post("/utterances", json=payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    utterance_dto = (
+        (await async_client.get(f"/utterances/{response.json()['id']}")).raise_for_status().json()
+    )
+
+    assert len(utterance_dto["queries"]) == 3
+    assert set(utterance_dto["queries"]) == {"One", "Two", "Three"}
+
+
 async def test_that_an_utterance_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,

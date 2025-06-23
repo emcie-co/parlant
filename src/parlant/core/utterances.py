@@ -58,6 +58,7 @@ class Utterance:
     creation_utc: datetime
     value: str
     fields: Sequence[UtteranceField]
+    queries: Sequence[str]
     tags: Sequence[TagId]
 
     def __hash__(self) -> int:
@@ -75,6 +76,7 @@ class UtteranceStore(ABC):
         self,
         value: str,
         fields: Sequence[UtteranceField],
+        queries: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Utterance: ...
@@ -134,7 +136,7 @@ class _UtteranceFieldDocument(TypedDict):
     examples: list[str]
 
 
-class UtteranceDocument_v_0_1_0(TypedDict, total=False):
+class UtteranceDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -150,6 +152,7 @@ class _UtteranceDocument(TypedDict, total=False):
     checksum: Required[str]
     value: str
     fields: str
+    queries: Sequence[str]
 
 
 class UtteranceTagAssociationDocument(TypedDict, total=False):
@@ -161,7 +164,7 @@ class UtteranceTagAssociationDocument(TypedDict, total=False):
 
 
 class UtteranceVectorStore(UtteranceStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(
         self,
@@ -191,6 +194,9 @@ class UtteranceVectorStore(UtteranceStore):
             )
         if doc["version"] == "0.2.0":
             return cast(_UtteranceDocument, doc)
+        if doc["version"] == "0.3.0":
+            # Added optional queries field in version 0.3.0
+            return cast(_UtteranceDocument, doc)
         return None
 
     async def _association_document_loader(
@@ -201,7 +207,7 @@ class UtteranceVectorStore(UtteranceStore):
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        if doc["version"] == "0.2.0":
+        if doc["version"] in ["0.2.0", "0.3.0"]:
             return cast(UtteranceTagAssociationDocument, doc)
 
         return None
@@ -274,6 +280,7 @@ class UtteranceVectorStore(UtteranceStore):
                     for s in utterance.fields
                 ]
             ),
+            queries=utterance.queries,
         )
 
     @staticmethod
@@ -303,6 +310,7 @@ class UtteranceVectorStore(UtteranceStore):
                 for d in json.loads(utterance_document["fields"])
             ],
             tags=tags,
+            queries=utterance_document.get("queries", []),
         )
 
     @override
@@ -310,6 +318,7 @@ class UtteranceVectorStore(UtteranceStore):
         self,
         value: str,
         fields: Sequence[UtteranceField],
+        queries: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Utterance:
@@ -322,6 +331,7 @@ class UtteranceVectorStore(UtteranceStore):
                 fields=fields,
                 creation_utc=creation_utc,
                 tags=tags or [],
+                queries=queries or [],
             )
 
             await self._utterances_collection.insert_one(

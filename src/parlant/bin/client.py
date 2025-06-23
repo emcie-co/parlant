@@ -1207,10 +1207,13 @@ class Actions:
 
             tag_names = utterance_data.get("tags", [])
 
+            queries = utterance_data.get("queries", [])
+
             utterance = client.utterances.create(
                 value=value,
                 fields=fields,
                 tags=[tag_ids[tag_name] for tag_name in tag_names if tag_name in tag_ids] or None,
+                queries=queries,
             )
 
             utterances.append(utterance)
@@ -1801,41 +1804,41 @@ class Interface:
 
             if iteration.guideline_matches:
                 for match in iteration.guideline_matches:
-                    rich.print(f"{INDENT*2}Condition: {match.condition}")
-                    rich.print(f"{INDENT*2}Action: {match.action}")
-                    rich.print(f"{INDENT*2}Relevance Score: {match.score}/10")
-                    rich.print(f"{INDENT*2}Rationale: {match.rationale}\n")
+                    rich.print(f"{INDENT * 2}Condition: {match.condition}")
+                    rich.print(f"{INDENT * 2}Action: {match.action}")
+                    rich.print(f"{INDENT * 2}Relevance Score: {match.score}/10")
+                    rich.print(f"{INDENT * 2}Rationale: {match.rationale}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Tool Calls:", style="bold"))
 
             if iteration.tool_calls:
                 for tool_call in iteration.tool_calls:
-                    rich.print(f"{INDENT*2}Tool Id: {tool_call.tool_id}")
-                    rich.print(f"{INDENT*2}Arguments: {tool_call.arguments}")
-                    rich.print(f"{INDENT*2}Result: {tool_call.result}\n")
+                    rich.print(f"{INDENT * 2}Tool Id: {tool_call.tool_id}")
+                    rich.print(f"{INDENT * 2}Arguments: {tool_call.arguments}")
+                    rich.print(f"{INDENT * 2}Result: {tool_call.result}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Context Variables:", style="bold"))
 
             if iteration.context_variables:
                 for variable in iteration.context_variables:
-                    rich.print(f"{INDENT*2}Name: {variable.name}")
-                    rich.print(f"{INDENT*2}Key: {variable.key}")
-                    rich.print(f"{INDENT*2}Value: {variable.value}\n")
+                    rich.print(f"{INDENT * 2}Name: {variable.name}")
+                    rich.print(f"{INDENT * 2}Key: {variable.key}")
+                    rich.print(f"{INDENT * 2}Value: {variable.value}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Glossary Terms:", style="bold"))
 
             if iteration.terms:
                 for term in iteration.terms:
-                    rich.print(f"{INDENT*2}Name: {term.name}")
-                    rich.print(f"{INDENT*2}Description: {term.description}\n")
+                    rich.print(f"{INDENT * 2}Name: {term.name}")
+                    rich.print(f"{INDENT * 2}Description: {term.description}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
     @staticmethod
     def _render_glossary(terms: list[Term]) -> None:

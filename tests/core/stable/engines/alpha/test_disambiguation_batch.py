@@ -609,7 +609,7 @@ async def test_that_ambiguity_is_not_detected_when_not_needed_based_on_earlier_p
         ),
         (
             EventSource.CUSTOMER,
-            "Ok so book me to the roller coaster please",
+            "Ok so book me to the first one please",
         ),
     ]
     to_disambiguate_guidelines = [

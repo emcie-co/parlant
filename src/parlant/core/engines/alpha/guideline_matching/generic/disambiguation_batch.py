@@ -24,12 +24,12 @@ from parlant.core.shots import Shot, ShotCollection
 
 class GuidelineCheck(DefaultBaseModel):
     guideline_id: str
-    short_evaluation: str
+    tldr: str
     requires_disambiguation: bool
 
 
 class DisambiguationGuidelineMatchesSchema(DefaultBaseModel):
-    rationale: str
+    tldr: str
     is_ambiguous: bool
     guidelines: Optional[list[GuidelineCheck]] = []
     clarification_action: Optional[str] = ""
@@ -38,12 +38,12 @@ class DisambiguationGuidelineMatchesSchema(DefaultBaseModel):
 @dataclass
 class DisambiguationGuidelineMatchingShot(Shot):
     interaction_events: Sequence[Event]
-    guidelines: Sequence[GuidelineContent]
-    guideline_head: GuidelineContent
+    disambiguation_condition: GuidelineContent
+    disambiguation_targets: Sequence[GuidelineContent]
     expected_result: DisambiguationGuidelineMatchesSchema
 
 
-# TODO - when adding the new clarification guideline, add it with customer dependent flag
+# TODO: when adding the new clarification guideline, add it with customer dependent flag
 
 
 class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
@@ -57,18 +57,18 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guideline_head = disambiguation_guideline
+        self._disambiguation_guideline = disambiguation_guideline
         self._disambiguation_targets = {g.id: g for g in disambiguation_targets}
+        self._context = context
 
-        self._guideline_ids = {
+        self._target_ids = {
             str(i): id for i, id in enumerate(self._disambiguation_targets.keys(), start=1)
         }
-        self._context = context
 
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
-        with self._logger.operation("DisambiguationGuidelineMatchingBatch:"):
+        with self._logger.operation("DisambiguationGuidelineMatchingBatch"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
@@ -79,7 +79,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
 
         if inference.content.is_ambiguous:
             guidelines: list[str] = [
-                self._guideline_ids[g.guideline_id]
+                self._target_ids[g.guideline_id]
                 for g in inference.content.guidelines or []
                 if g.requires_disambiguation
             ]
@@ -93,9 +93,9 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
 
         matches = [
             GuidelineMatch(
-                guideline=self._guideline_head,
+                guideline=self._disambiguation_guideline,
                 score=10 if inference.content.is_ambiguous else 1,
-                rationale=f'''Not previously applied matcher rationale: "{inference.content.rationale}"''',
+                rationale=f'''Not previously applied matcher rationale: "{inference.content.tldr}"''',
                 guideline_previously_applied=PreviouslyAppliedType.NO,
                 metadata=metadata,
             )
@@ -138,19 +138,16 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        if shot.guideline_head:
-            guideline_head = (
-                f"Condition {shot.guideline_head.condition}. Action: {shot.guideline_head.action}"
-            )
+        if shot.disambiguation_condition:
             formatted_shot += f"""
-- **Guideline Head**:
-{guideline_head}
+- **Disambiguation Condition:**
+{shot.disambiguation_condition.condition}
 
 """
-        if shot.guidelines:
+        if shot.disambiguation_targets:
             formatted_guidelines = "\n".join(
                 f"{i}) Condition {g.condition}. Action: {g.action}"
-                for i, g in enumerate(shot.guidelines, start=1)
+                for i, g in enumerate(shot.disambiguation_targets, start=1)
             )
             formatted_shot += f"""
 - **Guidelines**:
@@ -171,17 +168,16 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         self,
         shots: Sequence[DisambiguationGuidelineMatchingShot],
     ) -> PromptBuilder:
-        guideline_head_representation = internal_representation(self._guideline_head)
-        guideline_targets_representations = {
+        disambiguation_condition_internal = internal_representation(self._disambiguation_guideline)
+        disambiguation_targets_internal = {
             g.id: internal_representation(g) for g in self._disambiguation_targets.values()
         }
 
-        guidelines_text = "\n".join(
-            f"{i}) Condition: {guideline_targets_representations[id].condition}. Action: {guideline_targets_representations[id].action}"
-            for i, id in self._guideline_ids.items()
+        disambiguation_targets_text = "\n".join(
+            f"{i}) Condition: {disambiguation_targets_internal[id].condition}. Action: {disambiguation_targets_internal[id].action}"
+            for i, id in self._target_ids.items()
         )
 
-        guideline_head_text = f"Condition {guideline_head_representation.condition}. Action: {guideline_head_representation.action}"
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
@@ -192,37 +188,33 @@ GENERAL INSTRUCTIONS
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
 Each guideline is composed of two parts:
 - "condition": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at any particular state, and we test against this
+          We look at each conversation at its most recent state, and we test against this
           condition to understand if we should have this guideline participate in generating
-          the next reply to the user.
+          the next response to the user.
 - "action": This is a natural-language instruction that should be followed by the agent
-          whenever the "condition" part of the guideline applies to the conversation in its particular state.
+          whenever the "condition" part of the guideline applies to the conversation at its latest state.
           Any instruction described here applies only to the agent, and not to the user.
 
 
 Task Description
 ----------------
-Sometimes a customer expresses that they’ve experienced something or want to proceed with something, but there are multiple possible ways to go, and it’s unclear what exactly they intend. 
+Sometimes a customer expresses that they’ve experienced something or want to proceed with something, but there are multiple possible ways to go, and it’s as-yet unclear what exactly they intend.
 In such cases, we need to identify the potential options and ask the customer which one they mean.
 
-Your task is to determine whether the customer’s request is ambiguous and, if so, what the possible interpretations or directions are. 
-You’ll be given a guideline head — a condition that, if true, signals a potential ambiguity — and a list of related guidelines, each representing a possible path the customer might want to follow.
+Your task is to determine whether the customer’s intention is currently ambiguous and, if so, what the possible interpretations or directions are.
+You’ll be given a disambiguation condition — one that, if true, signals a potential ambiguity — and a list of related guidelines, each representing a possible path the customer might want to follow.
 
-If you identify an ambiguity, return the relevant guidelines that represent the available options. 
+If you identify an ambiguity, return the relevant guidelines that represent the available options.
 Then, formulate a response in the format:
 "Ask the customer whether they want to do X, Y, or Z..."
 This response should clearly present the options to help resolve the ambiguity in the customer's request.
 
 Notes:
-- If a guideline might be relevant - include it. We prefer to let the customer choose of all plausible options.
 - Base your evaluation on the customer's most recent request.
-- Some guidelines may turn out to be irrelevant based on the interaction—for example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or 
-as a context variable) rules them out. In such cases, the ambiguity may already be resolved (only one or none option is relevant) and no clarification is needed.
-- If during the interaction, the agent asked for clarification but the customer hasn't asked yet, do not consider it as there is a disambiguation, unless a new disambiguation arises.
-
-
-
-
+- If you determine that there is indeed an ambiguity - then, when one of the guidelines might be relevant - include it. We prefer to let the customer choose of all plausible options.
+- Some guidelines may turn out to be irrelevant based on the interaction—for example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or
+as a context variable) rules them out. In such cases, the ambiguity may already be resolved (only one or none option is relevant) and note that no clarification is needed in such cases.
+- If during the interaction, the agent asked for clarification but the customer hasn't answered yet, do not consider it as there is a disambiguation, unless a new disambiguation arises.
 """,
             props={},
         )
@@ -246,14 +238,18 @@ Examples of Guidelines Ambiguity Evaluations:
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
             template="""
-- Guidelines Head: ###
-{guideline_head_text}
+- Disambiguation Condition: ###
+{disambiguation_condition}
 ###
 - Guidelines List: ###
-{guidelines_text}
+{disambiguation_targets_text}
 ###
 """,
-            props={"guidelines_text": guidelines_text, "guideline_head_text": guideline_head_text},
+            props={
+                "disambiguation_targets": self._disambiguation_targets.values(),
+                "disambiguation_targets_text": disambiguation_targets_text,
+                "disambiguation_condition": disambiguation_condition_internal.condition,
+            },
             status=SectionStatus.ACTIVE,
         )
 
@@ -279,15 +275,15 @@ OUTPUT FORMAT
 
     def _format_of_guideline_check_json_description(self) -> str:
         result = {
-            "rationale": "<str, Explanation for why there is or isn't an ambiguity>",
+            "tldr": "<str, Briefly state the customer's intent based on their latest input, and explain why there is or isn't an ambiguity>",
             "is_ambiguous": "<BOOL>",
             "guidelines (include only if is_ambiguous is true)": [
                 {
                     "guideline_id": i,
-                    "short_evaluation": "<str. Brief explanation of is this guideline needs disambiguation>",
+                    "tldr": "<str. Brief explanation of is this guideline needs disambiguation>",
                     "requires_disambiguation": "<BOOL>",
                 }
-                for i in self._guideline_ids.keys()
+                for i in self._target_ids.keys()
             ],
             "clarification_action": "<include only if is_ambiguous is true. An action of the form ask the user whether they want to...>",
         }
@@ -315,7 +311,7 @@ example_1_events = [
     ),
 ]
 
-example_1_guidelines = [
+example_1_disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to return an item for a refund",
         action="refund the order",
@@ -326,23 +322,23 @@ example_1_guidelines = [
     ),
 ]
 
-example_1_guideline_head = GuidelineContent(
+example_1_disambiguation_condition = GuidelineContent(
     condition="The customer received a wrong or damaged item",
     action="-",
 )
 
 example_1_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="The customer received the wrong item and may want to either replace it or get a refund.",
+    tldr="The customer claimed to receive the wrong item; may want to either replace it or get a refund.",
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
             guideline_id="1",
-            short_evaluation="may want to refund the wrong item",
+            tldr="may want to refund the wrong item",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="2",
-            short_evaluation="may want to replace the wrong item",
+            tldr="may want to replace the wrong item",
             requires_disambiguation=True,
         ),
     ],
@@ -358,7 +354,7 @@ example_2_events = [
     ),
 ]
 
-example_2_guidelines = [
+example_2__disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to book an appointment with a doctor",
         action="book the appointment",
@@ -373,28 +369,28 @@ example_2_guidelines = [
     ),
 ]
 
-example_2_guideline_head = GuidelineContent(
+example_2_disambiguation_condition = GuidelineContent(
     condition="The customer wants to book an appointment, but it’s unclear whether it’s with a doctor or a psychologist, and whether it should be online or in-person.",
     action="-",
 )
 
 example_2_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="The customer asks to book an appointment but didn't specify the type. Since they mention needing a prescription, it likely relates to a medical consultation, not psychological.",
+    tldr="The customer asks to book an appointment but didn't specify the type. Since they mention needing a prescription, it likely relates to a medical consultation, not psychological.",
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
             guideline_id="1",
-            short_evaluation="the appointment is with a doctor",
+            tldr="the appointment is with a doctor",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="2",
-            short_evaluation="psychologist is not relevant",
+            tldr="psychologist is not relevant",
             requires_disambiguation=False,
         ),
         GuidelineCheck(
             guideline_id="3",
-            short_evaluation="online appointment can be relevant",
+            tldr="online appointment can be relevant",
             requires_disambiguation=True,
         ),
     ],
@@ -410,7 +406,7 @@ example_3_events = [
     ),
 ]
 
-example_3_guidelines = [
+example_3__disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to book an appointment with a doctor",
         action="book the appointment",
@@ -425,13 +421,13 @@ example_3_guidelines = [
     ),
 ]
 
-example_3_guideline_head = GuidelineContent(
-    condition="The customer wants to book an appointment, but it’s unclear whether it’s with a doctor or a psychologist, and whether it should be online or in-person.",
+example_3_disambiguation_condition = GuidelineContent(
+    condition="The customer asked to book an appointment, but it’s unclear whether it’s with a doctor or a psychologist, and whether it should be online or in-person.",
     action="-",
 )
 
 example_3_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="The customer requests an online appointment and mentions needing a prescription, which suggests a medical consultation",
+    tldr="The customer requests an online appointment and mentions needing a prescription, which suggests a medical consultation",
     is_ambiguous=False,
 )
 
@@ -454,7 +450,7 @@ example_4_events = [
     ),
 ]
 
-example_4_guidelines = [
+example_4__disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to book an appointment with a doctor",
         action="book the appointment",
@@ -469,13 +465,13 @@ example_4_guidelines = [
     ),
 ]
 
-example_4_guideline_head = GuidelineContent(
+example_4_disambiguation_condition = GuidelineContent(
     condition="The customer wants to book an appointment, but it’s unclear whether it’s with a doctor or a psychologist, and whether it should be online or in-person.",
     action="-",
 )
 
 example_4_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="The customer asks to book an appointment. Online sessions are not available. Since they mention hurting throat, it likely relates to a medical consultation, not a psychologist.",
+    tldr="The customer asks to book an appointment. Online sessions are not available. Since they mention hurting throat, it likely relates to a medical consultation, not a psychologist.",
     is_ambiguous=False,
 )
 
@@ -497,7 +493,7 @@ example_5_events = [
     ),
 ]
 
-example_5_guidelines = [
+example_5__disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to return an item for a refund",
         action="refund the order",
@@ -512,28 +508,28 @@ example_5_guidelines = [
     ),
 ]
 
-example_5_guideline_head = GuidelineContent(
+example_5_disambiguation_condition = GuidelineContent(
     condition="The customer received a wrong or damaged item",
     action="-",
 )
 
 example_5_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="There is a new disambiguated request. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in person",
+    tldr="There is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in person",
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
             guideline_id="1",
-            short_evaluation="the appointment may be with a doctor",
+            tldr="the appointment may be with a doctor",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="2",
-            short_evaluation="psychologist may be relevant",
+            tldr="psychologist may be relevant",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="3",
-            short_evaluation="online appointment can be relevant",
+            tldr="online appointment can be relevant",
             requires_disambiguation=True,
         ),
     ],
@@ -549,7 +545,7 @@ example_6_events = [
     ),
 ]
 
-example_6_guidelines = [
+example_6__disambiguation_targets = [
     GuidelineContent(
         condition="The customer asks to book an appointment with a doctor",
         action="book the appointment",
@@ -568,33 +564,33 @@ example_6_guidelines = [
     ),
 ]
 
-example_6_guideline_head = GuidelineContent(
+example_6_disambiguation_condition = GuidelineContent(
     condition="The customer wants to book an appointment, but it’s unclear whether it should be online or in-person. They say prescription so they need a doctor.",
     action="-",
 )
 
 example_6_expected = DisambiguationGuidelineMatchesSchema(
-    rationale="For the first appointment there is an ambiguity. Need to clarify a doctor or a psychologist, and should it be online or in person",
+    tldr="The customer asked to book two appointments. For the first appointment there is an ambiguity between doctor or psychologist, and online or in-person.",
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
             guideline_id="1",
-            short_evaluation="need a doctor",
+            tldr="need a doctor",
             requires_disambiguation=False,
         ),
         GuidelineCheck(
             guideline_id="2",
-            short_evaluation="psychologist can't be relevant",
+            tldr="psychologist can't be relevant",
             requires_disambiguation=False,
         ),
         GuidelineCheck(
             guideline_id="3",
-            short_evaluation="online appointment can be relevant",
+            tldr="online appointment can be relevant",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="4",
-            short_evaluation="in person appointment can be relevant",
+            tldr="in person appointment can be relevant",
             requires_disambiguation=True,
         ),
     ],
@@ -605,43 +601,43 @@ _baseline_shots: Sequence[DisambiguationGuidelineMatchingShot] = [
     DisambiguationGuidelineMatchingShot(
         description="Disambiguation example",
         interaction_events=example_1_events,
-        guidelines=example_1_guidelines,
-        guideline_head=example_1_guideline_head,
+        disambiguation_targets=example_1_disambiguation_targets,
+        disambiguation_condition=example_1_disambiguation_condition,
         expected_result=example_1_expected,
     ),
     DisambiguationGuidelineMatchingShot(
         description="Disambiguation example when not all guidelines are relevant",
         interaction_events=example_2_events,
-        guidelines=example_2_guidelines,
-        guideline_head=example_2_guideline_head,
+        disambiguation_targets=example_2__disambiguation_targets,
+        disambiguation_condition=example_2_disambiguation_condition,
         expected_result=example_2_expected,
     ),
     DisambiguationGuidelineMatchingShot(
         description="Non disambiguation example",
         interaction_events=example_3_events,
-        guidelines=example_3_guidelines,
-        guideline_head=example_3_guideline_head,
+        disambiguation_targets=example_3__disambiguation_targets,
+        disambiguation_condition=example_3_disambiguation_condition,
         expected_result=example_3_expected,
     ),
     DisambiguationGuidelineMatchingShot(
         description="Disambiguation resolves based on the interaction",
         interaction_events=example_4_events,
-        guidelines=example_4_guidelines,
-        guideline_head=example_4_guideline_head,
+        disambiguation_targets=example_4__disambiguation_targets,
+        disambiguation_condition=example_4_disambiguation_condition,
         expected_result=example_4_expected,
     ),
     DisambiguationGuidelineMatchingShot(
         description="New ambiguous request",
         interaction_events=example_5_events,
-        guidelines=example_5_guidelines,
-        guideline_head=example_5_guideline_head,
+        disambiguation_targets=example_5__disambiguation_targets,
+        disambiguation_condition=example_5_disambiguation_condition,
         expected_result=example_5_expected,
     ),
     DisambiguationGuidelineMatchingShot(
         description="Several requests, one needs disambiguation",
         interaction_events=example_6_events,
-        guidelines=example_6_guidelines,
-        guideline_head=example_6_guideline_head,
+        disambiguation_targets=example_6__disambiguation_targets,
+        disambiguation_condition=example_6_disambiguation_condition,
         expected_result=example_6_expected,
     ),
 ]

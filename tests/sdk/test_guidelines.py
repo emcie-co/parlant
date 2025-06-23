@@ -1,5 +1,5 @@
 import pytest
-from parlant.core.relationships import GuidelineRelationshipKind, RelationshipStore
+from parlant.core.relationships import RelationshipKind, RelationshipStore
 import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
 
@@ -20,7 +20,7 @@ class Test_that_guideline_priority_relationship_can_be_created(SDKTest):
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(id=self.relationship.id)
-        assert relationship.kind == GuidelineRelationshipKind.PRIORITY
+        assert relationship.kind == RelationshipKind.PRIORITY
 
 
 class Test_that_guideline_entailment_relationship_can_be_created(SDKTest):
@@ -39,7 +39,7 @@ class Test_that_guideline_entailment_relationship_can_be_created(SDKTest):
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(id=self.relationship.id)
-        assert relationship.kind == GuidelineRelationshipKind.ENTAILMENT
+        assert relationship.kind == RelationshipKind.ENTAILMENT
 
 
 class Test_that_guideline_dependency_relationship_can_be_created(SDKTest):
@@ -58,7 +58,7 @@ class Test_that_guideline_dependency_relationship_can_be_created(SDKTest):
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(id=self.relationship.id)
-        assert relationship.kind == GuidelineRelationshipKind.DEPENDENCY
+        assert relationship.kind == RelationshipKind.DEPENDENCY
 
 
 class Test_that_guideline_disambiguation_creates_relationships(SDKTest):
@@ -78,7 +78,7 @@ class Test_that_guideline_disambiguation_creates_relationships(SDKTest):
         assert len(self.relationships) == 2
 
         for rel in self.relationships:
-            assert rel.kind == GuidelineRelationshipKind.DISAMBIGUATION
+            assert rel.kind == RelationshipKind.DISAMBIGUATION
             assert rel.source == self.g1.id
             assert rel.target in [self.g2.id, self.g3.id]
 

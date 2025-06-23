@@ -21,7 +21,7 @@ from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
@@ -562,7 +562,7 @@ def given_an_entailment_guideline_relationship(
                 id=context.guidelines[guideline_b].id,
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
         )
     )
 
@@ -588,7 +588,7 @@ def given_an_guideline_grouped_under(
                 id=context.guidelines[guideline].id,
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
-            kind=GuidelineRelationshipKind.DISAMBIGUATION,
+            kind=RelationshipKind.DISAMBIGUATION,
         )
     )
 
@@ -617,6 +617,6 @@ def given_an_dependency_between_guideline_and_a_journey(
                 id=Tag.for_journey_id(journey.id),
                 kind=RelationshipEntityKind.TAG,
             ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            kind=RelationshipKind.DEPENDENCY,
         )
     )

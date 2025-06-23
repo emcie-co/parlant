@@ -20,7 +20,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipEntity,
     RelationshipStore,
-    ToolRelationshipKind,
+    RelationshipKind,
 )
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.guideline_tool_associations import (
@@ -985,6 +985,6 @@ def given_an_overlapping_tools_relationship(
                 id=tool_b_id,
                 kind=RelationshipEntityKind.TOOL,
             ),
-            kind=ToolRelationshipKind.OVERLAP,
+            kind=RelationshipKind.OVERLAP,
         )
     )

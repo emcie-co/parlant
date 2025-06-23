@@ -3967,6 +3967,7 @@ async def async_main() -> None:
                 "priority",
                 "dependency",
                 "disambiguation",
+                "reevaluation",
                 "overlap",
             ]
         ),
@@ -4009,6 +4010,7 @@ async def async_main() -> None:
                 "priority",
                 "dependency",
                 "disambiguation",
+                "reevaluation",
                 "overlap",
             ]
         ),
@@ -4050,6 +4052,7 @@ async def async_main() -> None:
                 "priority",
                 "dependency",
                 "disambiguation",
+                "reevaluation",
                 "overlap",
             ]
         ),

@@ -606,6 +606,7 @@ You will now be given the current state of the interaction to which you must gen
                             fields=f.fields,
                             creation_utc=datetime.now(),
                             tags=[],
+                            queries=[],
                         )
                         for f in tool_call["result"].get("utterances", [])
                     )

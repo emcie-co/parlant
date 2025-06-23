@@ -95,6 +95,7 @@ def multiply(first_number: int, second_number: int) -> ToolResult:
                 value="asd",
                 fields=[],
                 tags=[],
+                queries=[],
             )
         ],
     )

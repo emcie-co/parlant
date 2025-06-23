@@ -777,6 +777,7 @@ async def test_that_a_plugin_tool_can_return_utterances(
                 )
             ],
             tags=[],
+            queries=[],
         ),
         Utterance(
             id=UtteranceId("<test-utterance-2>"),
@@ -784,6 +785,7 @@ async def test_that_a_plugin_tool_can_return_utterances(
             value="Another utterance for testing",
             fields=[],
             tags=[],
+            queries=[],
         ),
     ]
 

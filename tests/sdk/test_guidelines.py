@@ -14,6 +14,8 @@
 
 import pytest
 from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.services.tools.plugins import tool
+from parlant.core.tools import ToolContext, ToolResult
 import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
 
@@ -110,3 +112,26 @@ class Test_that_attempting_to_disambiguate_a_single_target_raises_an_error(SDKTe
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
             await self.g1.disambiguate([self.g2])
+
+
+class Test_that_a_reevaluation_relationship_can_be_created(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Tool Agent",
+            description="Agent for tool test",
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        self.g1 = await self.agent.create_guideline(condition="Reevaluation")
+
+        @tool
+        def test_tool(context: ToolContext) -> ToolResult:
+            return ToolResult(data={})
+
+        self.relationship = await self.g1.reevaluate_after(tool=test_tool)
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+
+        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        assert relationship.kind == RelationshipKind.REEVALUATION

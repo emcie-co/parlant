@@ -56,7 +56,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.relationships import GuidelineRelationshipKind, RelationshipStore
+from parlant.core.relationships import RelationshipKind, RelationshipStore
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -466,7 +466,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines_dict = {g.id: g for g in guidelines}
 
         if relationships := await self._relationship_store.list_relationships(
-            kind=GuidelineRelationshipKind.DISAMBIGUATION,
+            kind=RelationshipKind.DISAMBIGUATION,
             source_id=candidate.id,
         ):
             targets = [guidelines_dict[cast(GuidelineId, r.target.id)] for r in relationships]

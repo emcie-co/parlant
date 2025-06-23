@@ -22,7 +22,7 @@ from parlant.core.glossary import GlossaryStore
 from parlant.core.relationships import (
     RelationshipEntity,
     RelationshipStore,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntityKind,
 )
 from parlant.core.utterances import UtteranceStore
@@ -418,7 +418,7 @@ async def test_list_guidelines_dependent_directly_on_journey(
         target=RelationshipEntity(
             id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await entity_queries.find_journey_scoped_guidelines(journey)
@@ -461,26 +461,26 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
         target=RelationshipEntity(
             id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline2.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline3.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
         target=RelationshipEntity(
             id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await entity_queries.find_journey_scoped_guidelines(journey)

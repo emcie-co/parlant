@@ -64,7 +64,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.relationships import (
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipEntityKind,
     RelationshipStore,
@@ -434,7 +434,7 @@ async def create_disambiguation_guideline(
                 id=g.id,
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
-            kind=GuidelineRelationshipKind.DISAMBIGUATION,
+            kind=RelationshipKind.DISAMBIGUATION,
         )
 
     return guideline

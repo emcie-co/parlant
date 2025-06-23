@@ -16,7 +16,7 @@ from textwrap import dedent
 
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
-from parlant.core.relationships import GuidelineRelationshipKind, RelationshipStore
+from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.tags import Tag
 from tests.sdk.utils import Context, SDKTest, get_message
 from tests.test_utilities import nlp_test
@@ -136,7 +136,7 @@ class Test_that_guideline_creation_from_journey_creates_dependency_relationship(
         relationship_store = ctx.container[RelationshipStore]
 
         relationships = await relationship_store.list_relationships(
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            kind=RelationshipKind.DEPENDENCY,
             source_id=self.guideline.id,
         )
 

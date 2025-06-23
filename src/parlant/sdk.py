@@ -383,6 +383,26 @@ class Guideline:
             for t in targets
         ]
 
+    async def reevaluate_after(self, tool: ToolEntry) -> Relationship:
+        relationship = await self._container[RelationshipStore].create_relationship(
+            source=RelationshipEntity(
+                id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            target=RelationshipEntity(
+                id=self.id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            kind=RelationshipKind.REEVALUATION,
+        )
+
+        return Relationship(
+            id=relationship.id,
+            kind=relationship.kind,
+            source=relationship.source.id,
+            target=relationship.target.id,
+        )
+
     async def _create_relationship(
         self,
         guideline: Guideline,

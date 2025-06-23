@@ -34,7 +34,7 @@ from parlant.core.guidelines import (
 )
 from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.relationships import (
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntityKind,
     RelationshipStore,
 )
@@ -150,7 +150,7 @@ class EntityQueries:
 
         relationships = set(
             await self._relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.DEPENDENCY,
+                kind=RelationshipKind.DEPENDENCY,
                 indirect=False,
                 target_id=Tag.for_journey_id(journey.id),
             )
@@ -166,7 +166,7 @@ class EntityQueries:
                 guideline_ids.add(cast(GuidelineId, r.source.id))
 
             new_relationships = await self._relationship_store.list_relationships(
-                kind=GuidelineRelationshipKind.DEPENDENCY,
+                kind=RelationshipKind.DEPENDENCY,
                 indirect=False,
                 target_id=r.source.id,
             )

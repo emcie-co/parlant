@@ -34,7 +34,7 @@ from parlant.core.evaluations import (
 )
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
@@ -202,7 +202,7 @@ class Application:
                     id=target_guideline_id,
                     kind=RelationshipEntityKind.GUIDELINE,
                 ),
-                kind=GuidelineRelationshipKind.ENTAILMENT,
+                kind=RelationshipKind.ENTAILMENT,
             )
 
         content_guidelines: dict[str, GuidelineId] = {
@@ -232,7 +232,7 @@ class Application:
 
                 relationships_to_delete = list(
                     await self._relationship_store.list_relationships(
-                        kind=GuidelineRelationshipKind.ENTAILMENT,
+                        kind=RelationshipKind.ENTAILMENT,
                         indirect=False,
                         source_id=guideline_id,
                     )
@@ -240,7 +240,7 @@ class Application:
 
                 relationships_to_delete.extend(
                     await self._relationship_store.list_relationships(
-                        kind=GuidelineRelationshipKind.ENTAILMENT,
+                        kind=RelationshipKind.ENTAILMENT,
                         indirect=False,
                         target_id=guideline_id,
                     )
@@ -275,7 +275,7 @@ class Application:
                                 id=content_guidelines[target_key],
                                 kind=RelationshipEntityKind.GUIDELINE,
                             ),
-                            kind=GuidelineRelationshipKind.ENTAILMENT,
+                            kind=RelationshipKind.ENTAILMENT,
                         )
                     else:
                         await _create_with_existing_guideline(

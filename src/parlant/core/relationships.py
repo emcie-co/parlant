@@ -40,7 +40,7 @@ from parlant.core.tools import ToolId
 RelationshipId = NewType("RelationshipId", str)
 
 
-class GuidelineRelationshipKind(Enum):
+class RelationshipKind(Enum):
     ENTAILMENT = "entailment"
     PRECEDENCE = "precedence"
     REQUIREMENT = "requirement"
@@ -48,13 +48,8 @@ class GuidelineRelationshipKind(Enum):
     PERSISTENCE = "persistence"
     DEPENDENCY = "dependency"
     DISAMBIGUATION = "disambiguation"
-
-
-class ToolRelationshipKind(Enum):
+    REEVALUATION = "reevaluation"
     OVERLAP = "overlap"
-
-
-RelationshipKind = Union[GuidelineRelationshipKind, ToolRelationshipKind]
 
 
 RelationshipEntityId = Union[GuidelineId, TagId, ToolId]
@@ -132,7 +127,7 @@ class GuidelineRelationshipDocument_v0_2_0(TypedDict, total=False):
     creation_utc: str
     source: GuidelineId
     target: GuidelineId
-    kind: GuidelineRelationshipKind
+    kind: RelationshipKind
 
 
 class RelationshipDocument(TypedDict, total=False):
@@ -152,7 +147,7 @@ class RelationshipDocumentStore(RelationshipStore):
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
         self._collection: DocumentCollection[RelationshipDocument]
-        self._graphs: dict[GuidelineRelationshipKind | ToolRelationshipKind, networkx.DiGraph] = {}
+        self._graphs: dict[RelationshipKind | RelationshipKind, networkx.DiGraph] = {}
         self._allow_migration = allow_migration
         self._lock = ReaderWriterLock()
 
@@ -239,9 +234,9 @@ class RelationshipDocumentStore(RelationshipStore):
         )
 
         kind = (
-            GuidelineRelationshipKind(relationship_document["kind"])
+            RelationshipKind(relationship_document["kind"])
             if source.kind in {RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG}
-            else ToolRelationshipKind(relationship_document["kind"])
+            else RelationshipKind(relationship_document["kind"])
         )
 
         return Relationship(
@@ -409,8 +404,8 @@ class RelationshipDocumentStore(RelationshipStore):
                     [kind]
                     if kind
                     else [
-                        *list(GuidelineRelationshipKind),
-                        *list(ToolRelationshipKind),
+                        *list(RelationshipKind),
+                        *list(RelationshipKind),
                     ]
                 ):
                     graph = await self._get_relationships_graph(_kind)

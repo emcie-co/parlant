@@ -58,13 +58,12 @@ from parlant.core.nlp.generation import (
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.persistence.document_database import DocumentDatabase
 from parlant.core.relationships import (
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipDocumentStore,
     RelationshipEntity,
     RelationshipEntityId,
     RelationshipEntityKind,
     RelationshipId,
-    RelationshipKind,
     RelationshipStore,
 )
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
@@ -210,21 +209,21 @@ class Guideline:
     async def prioritize_over(self, guideline: Guideline) -> Relationship:
         return await self._create_relationship(
             guideline=guideline,
-            kind=GuidelineRelationshipKind.PRIORITY,
+            kind=RelationshipKind.PRIORITY,
             direction="source",
         )
 
     async def entail(self, guideline: Guideline) -> Relationship:
         return await self._create_relationship(
             guideline=guideline,
-            kind=GuidelineRelationshipKind.ENTAILMENT,
+            kind=RelationshipKind.ENTAILMENT,
             direction="source",
         )
 
     async def depend_on(self, guideline: Guideline) -> Relationship:
         return await self._create_relationship(
             guideline=guideline,
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            kind=RelationshipKind.DEPENDENCY,
             direction="source",
         )
 
@@ -237,7 +236,7 @@ class Guideline:
         return [
             await self._create_relationship(
                 guideline=t,
-                kind=GuidelineRelationshipKind.DISAMBIGUATION,
+                kind=RelationshipKind.DISAMBIGUATION,
                 direction="source",
             )
             for t in targets
@@ -246,7 +245,7 @@ class Guideline:
     async def _create_relationship(
         self,
         guideline: Guideline,
-        kind: GuidelineRelationshipKind,
+        kind: RelationshipKind,
         direction: Literal["source", "target"],
     ) -> Relationship:
         if direction == "source":
@@ -301,7 +300,7 @@ class Journey:
                 id=Tag.for_journey_id(self.id),
                 kind=RelationshipEntityKind.TAG,
             ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            kind=RelationshipKind.DEPENDENCY,
         )
 
         for t in list(tools):
@@ -343,7 +342,7 @@ class Journey:
                 id=Tag.for_journey_id(self.id),
                 kind=RelationshipEntityKind.TAG,
             ),
-            kind=GuidelineRelationshipKind.DEPENDENCY,
+            kind=RelationshipKind.DEPENDENCY,
         )
 
         await self._container[GuidelineToolAssociationStore].create_association(

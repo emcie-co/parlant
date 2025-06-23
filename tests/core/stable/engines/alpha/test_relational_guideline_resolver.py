@@ -19,7 +19,7 @@ from parlant.core.engines.alpha.relational_guideline_resolver import RelationalG
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
@@ -47,7 +47,7 @@ async def test_that_relational_guideline_resolver_prioritizes_indirectly_between
             id=g2.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     await relationship_store.create_relationship(
@@ -59,7 +59,7 @@ async def test_that_relational_guideline_resolver_prioritizes_indirectly_between
             id=g3.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
@@ -94,7 +94,7 @@ async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritize
             id=deprioritized_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     matches: list[GuidelineMatch] = [
@@ -125,7 +125,7 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines(
             id=deprioritized_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     matches: list[GuidelineMatch] = [
@@ -165,7 +165,7 @@ async def test_that_relational_guideline_resolver_infers_guidelines_from_tags(
             id=t1.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
@@ -177,7 +177,7 @@ async def test_that_relational_guideline_resolver_infers_guidelines_from_tags(
             id=g4.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     result = await resolver.resolve(
@@ -219,7 +219,7 @@ async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritize
             id=deprioritized_tag.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     await relationship_store.create_relationship(
@@ -231,7 +231,7 @@ async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritize
             id=deprioritized_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
@@ -270,7 +270,7 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines_from_ta
             id=t1.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     await relationship_store.create_relationship(
@@ -282,7 +282,7 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines_from_ta
             id=g2.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
@@ -323,7 +323,7 @@ async def test_that_relational_guideline_resolver_handles_indirect_guidelines_fr
             id=t1.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     await relationship_store.create_relationship(
@@ -335,7 +335,7 @@ async def test_that_relational_guideline_resolver_handles_indirect_guidelines_fr
             id=g3.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
@@ -375,7 +375,7 @@ async def test_that_relational_guideline_resolver_filters_out_guidelines_with_un
             id=target_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
@@ -416,7 +416,7 @@ async def test_that_relational_guideline_resolver_filters_out_guidelines_with_un
             id=target_tag.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
@@ -468,7 +468,7 @@ async def test_that_relational_guideline_resolver_filters_dependent_guidelines_b
             id=Tag.for_journey_id(enabled_journey.id),
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
@@ -480,7 +480,7 @@ async def test_that_relational_guideline_resolver_filters_dependent_guidelines_b
             id=Tag.for_journey_id(disabled_journey.id),
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(

@@ -22,8 +22,7 @@ from parlant.core.agents import AgentStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    GuidelineRelationshipKind,
-    ToolRelationshipKind,
+    RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
@@ -177,7 +176,7 @@ async def test_that_relationships_can_be_listed_by_guideline_id(
             id=tag.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     response = await async_client.get(f"/relationships?guideline_id={guideline.id}&kind=priority")
@@ -216,7 +215,7 @@ async def test_that_relationships_can_be_listed_by_tag_id(
             id=tag.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     response = await async_client.get(f"/relationships?tag_id={tag.id}&kind=priority")
@@ -254,7 +253,7 @@ async def test_that_relationship_can_be_read(
             id=tag.id,
             kind=RelationshipEntityKind.TAG,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     response = await async_client.get(f"/relationships/{relationship.id}")
@@ -325,7 +324,7 @@ async def test_that_entailment_relationship_can_be_deleted(
             id=target_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     response = await async_client.delete(f"/relationships/{relationship.id}")
@@ -387,7 +386,7 @@ async def test_that_dependency_relationship_can_be_deleted(
             id=source_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.delete(f"/relationships/{relationship.id}")
@@ -454,7 +453,7 @@ async def test_that_priority_relationship_can_be_deleted(
             id=target_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     response = await async_client.delete(f"/relationships/{relationship.id}")
@@ -521,7 +520,74 @@ async def test_that_disambiguation_relationship_can_be_deleted(
             id=target_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.DISAMBIGUATION,
+        kind=RelationshipKind.DISAMBIGUATION,
+    )
+
+    response = await async_client.delete(f"/relationships/{relationship.id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    with raises(ItemNotFoundError):
+        await relationship_store.read_relationship(id=relationship.id)
+
+
+async def test_that_reevaluation_relationship_can_be_created(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    response = await async_client.post(
+        "/relationships",
+        json={
+            "source_guideline": source_guideline.id,
+            "target_guideline": target_guideline.id,
+            "kind": "reevaluation",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    relationship = response.json()
+    assert relationship["source_guideline"]["id"] == source_guideline.id
+    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["kind"] == "reevaluation"
+
+
+async def test_that_reevaluation_relationship_can_be_deleted(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    relationship = await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=source_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        target=RelationshipEntity(
+            id=target_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        kind=RelationshipKind.REEVALUATION,
     )
 
     response = await async_client.delete(f"/relationships/{relationship.id}")
@@ -595,7 +661,7 @@ async def test_that_overlap_relationship_can_be_deleted(
             id=second_tool_id,
             kind=RelationshipEntityKind.TOOL,
         ),
-        kind=ToolRelationshipKind.OVERLAP,
+        kind=RelationshipKind.OVERLAP,
     )
 
     response = await async_client.delete(f"/relationships/{relationship.id}")
@@ -618,19 +684,25 @@ async def test_that_all_relationships_can_be_listed(
     r1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     r2 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     r3 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.DISAMBIGUATION,
+        kind=RelationshipKind.DISAMBIGUATION,
+    )
+
+    r4 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.REEVALUATION,
     )
 
     response = await async_client.get("/relationships")
@@ -643,6 +715,7 @@ async def test_that_all_relationships_can_be_listed(
     assert r1.id in returned_ids
     assert r2.id in returned_ids
     assert r3.id in returned_ids
+    assert r4.id in returned_ids
 
 
 async def test_that_relationships_can_be_listed_by_kind_only(
@@ -657,13 +730,13 @@ async def test_that_relationships_can_be_listed_by_kind_only(
     priority_relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.PRIORITY,
+        kind=RelationshipKind.PRIORITY,
     )
 
     _ = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     response = await async_client.get("/relationships?kind=priority")
@@ -689,13 +762,13 @@ async def test_that_relationships_can_be_listed_by_guideline_id_without_kind_fil
     rel1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     rel2 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.get(f"/relationships?guideline_id={g1.id}")
@@ -741,13 +814,13 @@ async def test_that_relationships_can_be_listed_by_tool_id(
         rel1 = await relationship_store.create_relationship(
             source=RelationshipEntity(id=first_tool_id, kind=RelationshipEntityKind.TOOL),
             target=RelationshipEntity(id=second_tool_id, kind=RelationshipEntityKind.TOOL),
-            kind=ToolRelationshipKind.OVERLAP,
+            kind=RelationshipKind.OVERLAP,
         )
 
         rel2 = await relationship_store.create_relationship(
             source=RelationshipEntity(id=first_tool_id, kind=RelationshipEntityKind.TOOL),
             target=RelationshipEntity(id=third_tool_id, kind=RelationshipEntityKind.TOOL),
-            kind=ToolRelationshipKind.OVERLAP,
+            kind=RelationshipKind.OVERLAP,
         )
 
         response = await async_client.get(
@@ -781,7 +854,7 @@ async def test_that_relationships_of_guideline_and_a_journey_can_be_listed(
     r1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=Tag.for_journey_id(j1.id), kind=RelationshipEntityKind.TAG),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.get(f"/relationships?guideline_id={g1.id}")
@@ -813,7 +886,7 @@ async def test_that_relationships_of_a_journey_can_be_listed(
     r1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=Tag.for_journey_id(j1.id), kind=RelationshipEntityKind.TAG),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.get(f"/relationships?tag_id=journey:{j1.id}")
@@ -840,7 +913,7 @@ async def test_that_relationships_of_guideline_and_an_agent_can_be_listed(
     r1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=Tag.for_agent_id(a1.id), kind=RelationshipEntityKind.TAG),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.get(f"/relationships?guideline_id={g1.id}")
@@ -868,7 +941,7 @@ async def test_that_relationships_of_an_agent_can_be_listed(
     r1 = await relationship_store.create_relationship(
         source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=Tag.for_agent_id(a1.id), kind=RelationshipEntityKind.TAG),
-        kind=GuidelineRelationshipKind.DEPENDENCY,
+        kind=RelationshipKind.DEPENDENCY,
     )
 
     response = await async_client.get(f"/relationships?tag_id=agent:{a1.id}")

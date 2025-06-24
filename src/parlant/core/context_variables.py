@@ -217,7 +217,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def _variable_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_ContextVariableDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -225,14 +225,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         return await DocumentMigrationHelper[_ContextVariableDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(doc)
 
     async def _value_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_ContextVariableValueDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(_ContextVariableValueDocument_v0_1_0, doc)
             return _ContextVariableValueDocument(
                 id=d["id"],
@@ -246,7 +246,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         return await DocumentMigrationHelper[_ContextVariableValueDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(doc)
 

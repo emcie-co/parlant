@@ -152,17 +152,17 @@ class RelationshipDocumentStore(RelationshipStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[RelationshipDocument]:
-        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise ValueError("Cannot load v0.2.0 relationships")
 
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise ValueError("Cannot load v0.1.0 relationships")
 
         return await DocumentMigrationHelper[RelationshipDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
-                "0.2.0": v0_2_0_to_v_0_3_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
             },
         ).migrate(doc)
 

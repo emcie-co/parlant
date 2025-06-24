@@ -616,9 +616,7 @@ class Server:
                 )
 
         journey = await self._container[JourneyStore].create_journey(
-            title,
-            description,
-            [c.id for c in condition_guidelines],
+            title, description, [c.id for c in condition_guidelines], []
         )
 
         for c in condition_guidelines:

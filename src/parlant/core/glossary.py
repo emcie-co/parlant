@@ -188,7 +188,7 @@ class GlossaryVectorStore(GlossaryStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, document: VectorBaseDocument) -> Optional[_TermDocument]:
-        async def v0_1_0_to_v_0_2_0(document: VectorBaseDocument) -> Optional[VectorBaseDocument]:
+        async def v0_1_0_to_v0_2_0(document: VectorBaseDocument) -> Optional[VectorBaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -196,7 +196,7 @@ class GlossaryVectorStore(GlossaryStore):
         return await VectorDocumentMigrationHelper[_TermDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(document)
 

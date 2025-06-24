@@ -317,7 +317,7 @@ def create_router(
             target_tool=tool_to_dto(cast(Tool, target_tool))
             if relationship.target.kind == RelationshipEntityKind.TOOL
             else None,
-            kind=_relationship_kind_to_dto(cast(RelationshipKind, relationship.kind)),
+            kind=_relationship_kind_to_dto(relationship.kind),
         )
 
     router = APIRouter()

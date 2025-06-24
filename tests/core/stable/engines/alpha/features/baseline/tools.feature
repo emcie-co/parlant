@@ -1059,3 +1059,30 @@ Scenario: Tool returns a result with explicit long-term lifespan and its event i
         When processing is triggered
         Then a single tool calls event is emitted
         And the message contains the text "9:59"
+
+Scenario: Guidelines with reevaluation relationship to a tool are activated by the tool result
+    Given a guideline "offer_luxury_room" to offer the luxury room when a luxury room is available
+    And a guideline "offer_the_dungeon" to offer the dungeon when a luxury room is not available
+    And a guideline "check_rooms_availability" to check for availability when the customer want to book a room
+    And the tool "availability_check"
+    And an association between "check_rooms_availability" and "availability_check"
+    And a reevaluation relationship between the guideline "offer_luxury_room" and the "availability_check" tool
+    And a reevaluation relationship between the guideline "offer_the_dungeon" and the "availability_check" tool
+    And a customer message, "want to book a room."
+    When processing is triggered
+    Then a single tool calls event is emitted
+    And the message contains an offer for the dungeon
+    And the message doesn't contains an offer for the luxury room
+
+
+Scenario: Guideline with reevaluation is active before the tool execution but becomes inactive after the tool result
+    Given a guideline "greet_with_hello_sir" to greet the user with "Hello Sir" when there is no indication the customer is from Spain
+    And a guideline "handle_greeting_response" to check how to greet the user back when the user greets you
+    And the tool "check_customer_location"
+    And an association between "handle_greeting_response" and "check_customer_location"
+    And a reevaluation relationship between the guideline "greet_with_hello_sir" and the "check_customer_location" tool
+    And a customer message, "Hey!"
+    When processing is triggered
+    Then the session inspection contains 2 preparation iterations
+    And the guideline "greet_with_hello_sir" is matched in preparation iteration 1  
+    And the guideline "greet_with_hello_sir" is not matched in preparation iteration 2

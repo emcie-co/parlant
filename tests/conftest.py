@@ -118,6 +118,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
 )
+from parlant.core.services.indexing.tool_running_action_detector import (
+    ToolRunningActionDetector,
+    ToolRunningActionSchema,
+)
 from parlant.core.utterances import UtteranceStore, UtteranceVectorStore
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.nlp.generation import T, SchematicGenerator
@@ -395,6 +399,7 @@ async def container(
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
             CustomerDependentActionSchema,
+            ToolRunningActionSchema,
             GenericResponseAnalysisSchema,
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
@@ -435,6 +440,7 @@ async def container(
         container[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
         container[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
         container[AgentIntentionProposer] = Singleton(AgentIntentionProposer)
+        container[ToolRunningActionDetector] = Singleton(ToolRunningActionDetector)
         container[LocalToolService] = cast(
             LocalToolService,
             await container[ServiceRegistry].update_tool_service(

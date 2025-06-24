@@ -22,7 +22,7 @@ from typing_extensions import override, TypedDict, Self, Required
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import md5_checksum
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
-from parlant.core.guidelines import GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import (
     ObjectId,
@@ -46,14 +46,21 @@ from parlant.core.tags import TagId
 JourneyId = NewType("JourneyId", str)
 
 
+class JourneyStep:
+    guideline: Guideline
+    sub_steps: Sequence[
+        GuidelineId
+    ]  # TODO note to Dor - do we want this as guideline ID or as the steps themselves?
+
+
 @dataclass(frozen=True)
 class Journey:
     id: JourneyId
     creation_utc: datetime
     conditions: Sequence[GuidelineId]
     title: str
-    description: str
     tags: Sequence[TagId]
+    steps: Sequence[JourneyStep]
 
     def __hash__(self) -> int:
         return hash(self.id)

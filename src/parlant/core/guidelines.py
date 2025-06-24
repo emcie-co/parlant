@@ -221,7 +221,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 metadata={},
             )
 
-        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -230,7 +230,7 @@ class GuidelineDocumentStore(GuidelineStore):
             self,
             {
                 "0.1.0": guideline_document_converter_0_1_0_to_0_2_0,
-                "0.2.0": v0_2_0_to_v_0_3_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)

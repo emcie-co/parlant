@@ -17,6 +17,7 @@ from typing import Optional, Sequence, cast
 
 from cachetools import TTLCache
 
+from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.capabilities import Capability, CapabilityStore
 from parlant.core.common import JSONSerializable
@@ -54,7 +55,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag
-from parlant.core.tools import ToolService
+from parlant.core.tools import ToolId, ToolService
 from parlant.core.utterances import Utterance, UtteranceStore
 
 
@@ -338,6 +339,30 @@ class EntityQueries:
         )
 
         return list(all_utterances)
+
+    async def find_reevaluation_guidelines(
+        self,
+        available_guidelines: dict[GuidelineId, Guideline],
+        tool_call_ids: Sequence[ToolId],
+    ) -> Sequence[Guideline]:
+        tasks = [
+            self._relationship_store.list_relationships(
+                kind=RelationshipKind.REEVALUATION,
+                indirect=False,
+                source_id=tool_id,
+            )
+            for tool_id in tool_call_ids
+        ]
+
+        relationships = list(chain.from_iterable(await async_utils.safe_gather(*tasks)))
+
+        return list(
+            set(
+                available_guidelines[cast(GuidelineId, relationship.target.id)]
+                for relationship in relationships
+                if relationship.target.id in available_guidelines
+            )
+        )
 
 
 class EntityCommands:

@@ -30,6 +30,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
 from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
+from parlant.core.tools import ToolId
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
@@ -616,6 +617,34 @@ def given_an_dependency_between_guideline_and_a_journey(
             target=RelationshipEntity(
                 id=Tag.for_journey_id(journey.id),
                 kind=RelationshipEntityKind.TAG,
+            ),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a reevaluation relationship between the guideline "{guideline_name}" and the "{tool_name}" tool'
+    ),
+)
+def given_an_reevaluation_between_guideline_and_a_tool(
+    context: ContextOfTest,
+    guideline_name: str,
+    tool_name: str,
+) -> None:
+    store = context.container[RelationshipStore]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=ToolId(service_name="local", tool_name=tool_name),
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            target=RelationshipEntity(
+                id=context.guidelines[guideline_name].id,
+                kind=RelationshipEntityKind.GUIDELINE,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )

@@ -799,6 +799,20 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {"age": {"type": "integer", "description": "The age of the traveler"}},
         "required": ["age"],
     },
+    "availability_check": {
+        "name": "availability_check",
+        "description": "Check if the luxury suite is available for booking",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "check_customer_location": {
+        "name": "check_customer_location",
+        "description": "Check the customer's location",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
 }
 
 

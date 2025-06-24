@@ -567,7 +567,14 @@ async def _get_guideline_relationships_by_kind(
             )
         )
 
-    return [(r, entity_id not in [r.source.id, r.target.id]) for r in relationships]
+    return [
+        (
+            r,
+            entity_id
+            not in [cast(Guideline | Tag, r.source).id, cast(Guideline | Tag, r.target).id],
+        )
+        for r in relationships
+    ]
 
 
 def _guideline_relationship_kind_dto_to_kind(
@@ -734,8 +741,12 @@ def create_legacy_router(
                     connections=[
                         LegacyGuidelineConnectionDTO(
                             id=relationship.id,
-                            source=_legacy_guideline_dto(relationship.source),
-                            target=_legacy_guideline_dto(relationship.target),
+                            source=_legacy_guideline_dto(
+                                cast(Guideline | Tag, relationship.source)
+                            ),
+                            target=_legacy_guideline_dto(
+                                cast(Guideline | Tag, relationship.target)
+                            ),
                             indirect=indirect,
                         )
                         for relationship, indirect in await _get_guideline_relationships_by_kind(
@@ -813,8 +824,8 @@ def create_legacy_router(
             connections=[
                 LegacyGuidelineConnectionDTO(
                     id=relationship.id,
-                    source=_legacy_guideline_dto(relationship.source),
-                    target=_legacy_guideline_dto(relationship.target),
+                    source=_legacy_guideline_dto(cast(Guideline | Tag, relationship.source)),
+                    target=_legacy_guideline_dto(cast(Guideline | Tag, relationship.target)),
                     indirect=indirect,
                 )
                 for relationship, indirect in relationships
@@ -979,7 +990,13 @@ def create_legacy_router(
         if params.connections and params.connections.remove:
             for id in params.connections.remove:
                 if found_relationship := next(
-                    (r for r, _ in relationships if id in [r.source.id, r.target.id]), None
+                    (
+                        r
+                        for r, _ in relationships
+                        if id
+                        in [cast(Guideline | Tag, r.source).id, cast(Guideline | Tag, r.target).id]
+                    ),
+                    None,
                 ):
                     await relationship_store.delete_relationship(found_relationship.id)
                 else:
@@ -1033,8 +1050,8 @@ def create_legacy_router(
             connections=[
                 LegacyGuidelineConnectionDTO(
                     id=relationship.id,
-                    source=_legacy_guideline_dto(relationship.source),
-                    target=_legacy_guideline_dto(relationship.target),
+                    source=_legacy_guideline_dto(cast(Guideline | Tag, relationship.source)),
+                    target=_legacy_guideline_dto(cast(Guideline | Tag, relationship.target)),
                     indirect=indirect,
                 )
                 for relationship, indirect in await _get_guideline_relationships_by_kind(
@@ -1378,7 +1395,7 @@ def _guideline_relationship_to_dto(
         if relationship.source_type == RelationshipEntityKind.TAG
         else None,
         target_guideline=GuidelineDTO(
-            id=relationship.target.id,
+            id=cast(Guideline | Tag, relationship.target).id,
             creation_utc=rel_target_guideline.creation_utc,
             condition=rel_target_guideline.content.condition,
             action=rel_target_guideline.content.action,
@@ -1757,7 +1774,9 @@ def create_router(
             guideline_id=guideline_id,
             include_indirect=False,
         ):
-            related_guideline = r.target if r.source.id == guideline_id else r.source
+            related_guideline = (
+                r.target if cast(Guideline | Tag, r.source).id == guideline_id else r.source
+            )
             if (
                 isinstance(related_guideline, Guideline)
                 and related_guideline.tags

@@ -140,7 +140,7 @@ class EntityQueries:
 
         return list(all_guidelines)
 
-    async def find_journey_scoped_guidelines(
+    async def find_journey_dependent_guidelines(
         self,
         journey: Journey,
     ) -> Sequence[GuidelineId]:
@@ -299,7 +299,7 @@ class EntityQueries:
 
         return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
 
-    async def find_relevant_journeys_for_context(
+    async def sort_journeys_by_contextual_relevance(
         self,
         available_journeys: Sequence[Journey],
         query: str,
@@ -340,7 +340,7 @@ class EntityQueries:
 
         return list(all_utterances)
 
-    async def find_reevaluation_guidelines(
+    async def find_guidelines_that_need_reevaluation(
         self,
         available_guidelines: dict[GuidelineId, Guideline],
         tool_call_ids: Sequence[ToolId],

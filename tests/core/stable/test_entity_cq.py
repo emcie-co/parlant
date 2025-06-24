@@ -381,7 +381,7 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
         conditions=[],
     )
 
-    results = await entity_queries.find_relevant_journeys_for_context(
+    results = await entity_queries.sort_journeys_by_contextual_relevance(
         [onboarding_journey, support_journey], "I'd like to reset my password"
     )
 
@@ -421,7 +421,7 @@ async def test_list_guidelines_dependent_directly_on_journey(
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    result = await entity_queries.find_journey_scoped_guidelines(journey)
+    result = await entity_queries.find_journey_dependent_guidelines(journey)
 
     assert len(result) == 1
     assert result[0] == guideline1.id
@@ -483,7 +483,7 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    result = await entity_queries.find_journey_scoped_guidelines(journey)
+    result = await entity_queries.find_journey_dependent_guidelines(journey)
 
     assert len(result) == 3
 

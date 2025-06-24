@@ -69,7 +69,7 @@ def given_an_agent_message(
             session_id=session.id,
             source=EventSource.AI_AGENT,
             kind=EventKind.MESSAGE,
-            correlation_id="test_correlation_id",
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -109,7 +109,7 @@ def given_a_human_message_on_behalf_of_the_agent(
             session_id=session.id,
             source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
             kind=EventKind.MESSAGE,
-            correlation_id="test_correlation_id",
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -144,7 +144,7 @@ def given_a_customer_message(
             session_id=session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="test_correlation_id",
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -186,7 +186,7 @@ def given_a_flagged_customer_message(
             session_id=session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="test_correlation_id",
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -272,6 +272,23 @@ def then_the_message_contains(
         nlp_test(
             context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
             condition=f"The message contains {something}",
+        )
+    ), f"message: '{message}', expected to contain: '{something}'"
+
+
+@step(then, parsers.parse("the message doesn't contains {something}"))
+def then_the_doesnt_message_contains(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
+            condition=f"The message NOT contains {something}",
         )
     ), f"message: '{message}', expected to contain: '{something}'"
 
@@ -618,3 +635,74 @@ def then_the_tool_calls_staged_event_contains_expected_content(
             condition=f"The calls contain {expected_content}",
         )
     ), pformat(tool_calls, indent=2)
+
+
+@step(
+    then,
+    parsers.parse("the session inspection contains {count:d} preparation iterations"),
+)
+def then_the_session_inspection_contains_preparation_iterations(
+    context: ContextOfTest,
+    session_id: SessionId,
+    count: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    assert (
+        len(inspection.preparation_iterations) >= count
+    ), f"Expected at least {count} preparation iterations, but found {len(inspection.preparation_iterations)}"
+
+
+@step(
+    then,
+    parsers.parse(
+        'the guideline "{guideline_name}" is matched in preparation iteration {iteration:d}'
+    ),
+)
+def then_the_guideline_is_in_the_specified_preparation_iteration(
+    context: ContextOfTest,
+    session_id: SessionId,
+    guideline_name: str,
+    iteration: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    guideline_id = context.guidelines[guideline_name].id
+
+    preparation_iteration = inspection.preparation_iterations[iteration - 1]
+
+    assert any(
+        m["guideline_id"] == guideline_id for m in preparation_iteration.guideline_matches
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
+
+
+@step(
+    then,
+    parsers.parse(
+        'the guideline "{guideline_name}" is not matched in preparation iteration {iteration:d}'
+    ),
+)
+def then_the_guideline_is_not_in_the_specified_preparation_iteration(
+    context: ContextOfTest,
+    session_id: SessionId,
+    guideline_name: str,
+    iteration: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    guideline_id = context.guidelines[guideline_name].id
+
+    preparation_iteration = inspection.preparation_iterations[iteration - 1]
+
+    assert all(
+        m["guideline_id"] != guideline_id for m in preparation_iteration.guideline_matches
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."

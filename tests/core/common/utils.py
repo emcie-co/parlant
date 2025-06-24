@@ -61,7 +61,7 @@ def create_event_message(
         source=source,
         kind=EventKind.MESSAGE,
         offset=offset,
-        correlation_id="test_correlation_id",
+        correlation_id="<main>",
         data=cast(JSONSerializable, message_data),
         creation_utc=datetime.now(timezone.utc),
         deleted=False,

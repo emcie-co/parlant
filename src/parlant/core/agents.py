@@ -145,12 +145,12 @@ class AgentDocumentStore(AgentStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_AgentDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -158,8 +158,8 @@ class AgentDocumentStore(AgentStore):
         return await DocumentMigrationHelper[_AgentDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
-                "0.2.0": v0_2_0_to_v_0_3_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
             },
         ).migrate(doc)
 

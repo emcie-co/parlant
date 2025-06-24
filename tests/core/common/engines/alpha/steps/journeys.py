@@ -43,6 +43,7 @@ def given_a_journey_to_when(
     journey = context.sync_await(
         journey_store.create_journey(
             conditions=[conditioning_guideline.id],
+            steps=[],
             title=journey_title,
             description=journey_description,
         )

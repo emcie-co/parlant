@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from itertools import chain
 from typing import Sequence, cast
 
 from parlant.core.agents import Agent
@@ -35,16 +34,10 @@ from parlant.core.tools import ToolId, ToolResult
 
 
 @dataclass(frozen=True)
-class ContextualGuidelines:
-    ordinary_guideline_matches: list[GuidelineMatch]
-    tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
-
-
-@dataclass(frozen=True)
 class IterationState:
     matched_guidelines: list[GuidelineMatch]
-    resolved_guidelines: ContextualGuidelines
-    tool_call_ids: list[ToolId]
+    resolved_guidelines: list[GuidelineMatch]
+    executed_tools: list[ToolId]
 
 
 @dataclass(frozen=True)
@@ -71,26 +64,14 @@ class ResponseState:
     glossary_terms: set[Term]
     capabilities: list[Capability]
     iterations: list[IterationState]
+    ordinary_guideline_matches: list[GuidelineMatch]
+    tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
     journeys: list[Journey]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights
     iterations_completed: int
     prepared_to_respond: bool
     message_events: list[EmittedEvent]
-
-    @property
-    def ordinary_guideline_matches(self) -> list[GuidelineMatch]:
-        if not self.iterations:
-            return []
-        else:
-            return self.iterations[-1].resolved_guidelines.ordinary_guideline_matches
-
-    @property
-    def tool_enabled_guideline_matches(self) -> dict[GuidelineMatch, list[ToolId]]:
-        if not self.iterations:
-            return {}
-        else:
-            return self.iterations[-1].resolved_guidelines.tool_enabled_guideline_matches
 
     @property
     def ordinary_guidelines(self) -> list[Guideline]:
@@ -103,12 +84,6 @@ class ResponseState:
     @property
     def guidelines(self) -> list[Guideline]:
         return self.ordinary_guidelines + self.tool_enabled_guidelines
-
-    @property
-    def matched_guidelines(self) -> list[GuidelineMatch]:
-        return list(
-            set(chain.from_iterable(iteration.matched_guidelines for iteration in self.iterations))
-        )
 
     @property
     def all_events(self) -> list[EmittedEvent]:

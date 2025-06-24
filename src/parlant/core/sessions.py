@@ -334,7 +334,7 @@ class SessionStore(ABC):
     ) -> Inspection: ...
 
 
-class _SessionDocument_V_0_4_0(TypedDict, total=False):
+class _SessionDocument_v0_4_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -388,7 +388,7 @@ class _GuidelineMatchInspectionDocument(TypedDict):
     batches: Sequence[_GenerationInfoDocument]
 
 
-class _PreparationIterationGenerationsDocument_V_0_2_0(TypedDict):
+class _PreparationIterationGenerationsDocument_v0_2_0(TypedDict):
     guideline_proposition: _GuidelineMatchInspectionDocument
     tool_calls: Sequence[_GenerationInfoDocument]
 
@@ -398,12 +398,12 @@ class _PreparationIterationGenerationsDocument(TypedDict):
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
-class _MessageGenerationInspectionDocument_v_0_1_0(TypedDict):
+class _MessageGenerationInspectionDocument_v0_1_0(TypedDict):
     generation: _GenerationInfoDocument
     messages: Sequence[Optional[MessageEventData]]
 
 
-class _MessageGenerationInspectionDocument_v_0_2_0(TypedDict):
+class _MessageGenerationInspectionDocument_v0_2_0(TypedDict):
     generation: _GenerationInfoDocument
     messages: Sequence[Optional[str]]
 
@@ -414,15 +414,15 @@ class _MessageGenerationInspectionDocument(TypedDict):
     messages: Sequence[Optional[str]]
 
 
-class _PreparationIterationDocument_v_0_2_0(TypedDict):
+class _PreparationIterationDocument_v0_2_0(TypedDict):
     guideline_propositions: Sequence[GuidelineMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
-    generations: _PreparationIterationGenerationsDocument_V_0_2_0
+    generations: _PreparationIterationGenerationsDocument_v0_2_0
 
 
-_PreparationIterationDocument_v_0_1_0: TypeAlias = _PreparationIterationDocument_v_0_2_0
+_PreparationIterationDocument_v0_1_0: TypeAlias = _PreparationIterationDocument_v0_2_0
 
 
 class _PreparationIterationDocument(TypedDict):
@@ -433,30 +433,30 @@ class _PreparationIterationDocument(TypedDict):
     generations: _PreparationIterationGenerationsDocument
 
 
-class _InspectionDocument_v_0_1_0(TypedDict, total=False):
+class _InspectionDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_1_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_v_0_1_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_1_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument_v0_1_0]
 
 
-class _InspectionDocument_V_0_2_0(TypedDict, total=False):
+class _InspectionDocument_v0_2_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_2_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_v_0_2_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_2_0]
+    preparation_iterations: Sequence[_PreparationIterationDocument_v0_2_0]
 
 
-class _InspectionDocument_V_0_3_0(TypedDict, total=False):
+class _InspectionDocument_v0_3_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     session_id: SessionId
     correlation_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v_0_2_0]
+    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_2_0]
     preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
@@ -482,9 +482,9 @@ class SessionDocumentStore(SessionStore):
         self._lock = ReaderWriterLock()
 
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
-        async def v0_1_0_to_v_0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_SessionDocument_V_0_4_0, doc)
-            return _SessionDocument_V_0_4_0(
+        async def v0_1_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_SessionDocument_v0_4_0, doc)
+            return _SessionDocument_v0_4_0(
                 id=doc["id"],
                 version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
@@ -495,8 +495,8 @@ class SessionDocumentStore(SessionStore):
                 consumption_offsets=doc["consumption_offsets"],
             )
 
-        async def v0_4_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_SessionDocument_V_0_4_0, doc)
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_SessionDocument_v0_4_0, doc)
             return _SessionDocument(
                 id=doc["id"],
                 version=Version.String("0.5.0"),
@@ -512,15 +512,15 @@ class SessionDocumentStore(SessionStore):
         return await DocumentMigrationHelper[_SessionDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_4_0,
-                "0.2.0": v0_1_0_to_v_0_4_0,
-                "0.3.0": v0_1_0_to_v_0_4_0,
-                "0.4.0": v0_4_0_to_v_0_5_0,
+                "0.1.0": v0_1_0_to_v0_4_0,
+                "0.2.0": v0_1_0_to_v0_4_0,
+                "0.3.0": v0_1_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 
     async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
-        async def v0_1_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_EventDocument, doc)
             return _EventDocument(
                 id=doc["id"],
@@ -538,23 +538,23 @@ class SessionDocumentStore(SessionStore):
         return await DocumentMigrationHelper[_EventDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_5_0,
-                "0.2.0": v0_1_0_to_v_0_5_0,
-                "0.3.0": v0_1_0_to_v_0_5_0,
-                "0.4.0": v0_1_0_to_v_0_5_0,
+                "0.1.0": v0_1_0_to_v0_5_0,
+                "0.2.0": v0_1_0_to_v0_5_0,
+                "0.3.0": v0_1_0_to_v0_5_0,
+                "0.4.0": v0_1_0_to_v0_5_0,
             },
         ).migrate(doc)
 
     async def _inspection_document_loader(self, doc: BaseDocument) -> Optional[_InspectionDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_InspectionDocument_v_0_1_0, doc)
-            return _InspectionDocument_V_0_2_0(
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument_v0_1_0, doc)
+            return _InspectionDocument_v0_2_0(
                 id=doc["id"],
                 version=Version.String("0.2.0"),
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument_v_0_2_0(
+                    _MessageGenerationInspectionDocument_v0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -566,15 +566,15 @@ class SessionDocumentStore(SessionStore):
                 preparation_iterations=doc["preparation_iterations"],
             )
 
-        async def v0_2_0_to_v_0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_InspectionDocument_V_0_2_0, doc)
-            return _InspectionDocument_V_0_3_0(
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument_v0_2_0, doc)
+            return _InspectionDocument_v0_3_0(
                 id=doc["id"],
                 version=Version.String("0.3.0"),
                 session_id=doc["session_id"],
                 correlation_id=doc["correlation_id"],
                 message_generations=[
-                    _MessageGenerationInspectionDocument_v_0_2_0(
+                    _MessageGenerationInspectionDocument_v0_2_0(
                         generation=mg["generation"],
                         messages=[
                             m if isinstance(m, str) else m["message"] if m else None
@@ -618,8 +618,8 @@ class SessionDocumentStore(SessionStore):
                 ],
             )
 
-        async def v0_3_0_to_v_0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_InspectionDocument_V_0_3_0, doc)
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_InspectionDocument_v0_3_0, doc)
 
             return _InspectionDocument(
                 id=doc["id"],
@@ -642,7 +642,7 @@ class SessionDocumentStore(SessionStore):
                 preparation_iterations=doc["preparation_iterations"],
             )
 
-        async def v0_4_0_to_v_0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_InspectionDocument, doc)
             return _InspectionDocument(
                 id=doc["id"],
@@ -656,10 +656,10 @@ class SessionDocumentStore(SessionStore):
         return await DocumentMigrationHelper[_InspectionDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
-                "0.2.0": v0_2_0_to_v_0_3_0,
-                "0.3.0": v0_3_0_to_v_0_4_0,
-                "0.4.0": v0_4_0_to_v_0_5_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 

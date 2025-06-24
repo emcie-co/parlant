@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
+import json
 from typing import Awaitable, Callable, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self, Required
 
@@ -34,6 +35,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
 from parlant.core.persistence.vector_database import VectorCollection, VectorDatabase
@@ -58,6 +60,7 @@ class Journey:
     id: JourneyId
     creation_utc: datetime
     conditions: Sequence[GuidelineId]
+    steps: Sequence[GuidelineId]
     title: str
     tags: Sequence[TagId]
     steps: Sequence[JourneyStep]
@@ -69,6 +72,7 @@ class Journey:
 class JourneyUpdateParams(TypedDict, total=False):
     title: str
     description: str
+    steps: Sequence[GuidelineId]
 
 
 class JourneyStore(ABC):
@@ -78,6 +82,7 @@ class JourneyStore(ABC):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
+        steps: Sequence[GuidelineId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Journey: ...
@@ -154,7 +159,7 @@ class JourneyDocument_v0_1_0(TypedDict, total=False):
     description: str
 
 
-class _JourneyDocument(TypedDict, total=False):
+class _JourneyDocument_v0_2_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -164,12 +169,31 @@ class _JourneyDocument(TypedDict, total=False):
     description: str
 
 
+class JourneyDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    content: str
+    checksum: Required[str]
+    title: str
+    description: str
+    steps: str
+
+
 class JourneyConditionAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
     condition: GuidelineId
+
+
+class JourneyStepAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    journey_id: JourneyId
+    step: GuidelineId
 
 
 class JourneyTagAssociationDocument(TypedDict, total=False):
@@ -181,7 +205,7 @@ class JourneyTagAssociationDocument(TypedDict, total=False):
 
 
 class JourneyVectorStore(JourneyStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(
         self,
@@ -198,42 +222,70 @@ class JourneyVectorStore(JourneyStore):
         self._embedder_type_provider = embedder_type_provider
         self._embedder: Embedder
         self._lock = ReaderWriterLock()
-        self._journeys_collection: VectorCollection[_JourneyDocument]
+        self._journeys_collection: VectorCollection[JourneyDocument]
         self._tag_association_collection: DocumentCollection[JourneyTagAssociationDocument]
         self._condition_association_collection: DocumentCollection[
             JourneyConditionAssociationDocument
         ]
+        self._step_association_collection: DocumentCollection[JourneyStepAssociationDocument]
 
-    async def _document_loader(self, doc: BaseDocument) -> Optional[_JourneyDocument]:
-        if doc["version"] == "0.1.0":
+    async def _document_loader(self, doc: BaseDocument) -> Optional[JourneyDocument]:
+        async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
-        if doc["version"] == "0.2.0":
-            return cast(_JourneyDocument, doc)
-        return None
+
+        return await DocumentMigrationHelper[JourneyDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_3_0,
+            },
+        ).migrate(doc)
 
     async def _tag_association_loader(
         self, doc: BaseDocument
     ) -> Optional[JourneyTagAssociationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
-        if doc["version"] == "0.2.0":
-            return cast(JourneyTagAssociationDocument, doc)
-        return None
+
+        return await DocumentMigrationHelper[JourneyTagAssociationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_3_0,
+            },
+        ).migrate(doc)
 
     async def _condition_association_loader(
         self, doc: BaseDocument
     ) -> Optional[JourneyConditionAssociationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
-        if doc["version"] == "0.2.0":
-            return cast(JourneyConditionAssociationDocument, doc)
-        return None
+
+        return await DocumentMigrationHelper[JourneyConditionAssociationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_3_0,
+            },
+        ).migrate(doc)
+
+    async def _step_association_loader(
+        self, doc: BaseDocument
+    ) -> Optional[JourneyStepAssociationDocument]:
+        async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+
+        return await DocumentMigrationHelper[JourneyStepAssociationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_3_0,
+            },
+        ).migrate(doc)
 
     async def __aenter__(self) -> Self:
         embedder_type = await self._embedder_type_provider()
@@ -246,7 +298,7 @@ class JourneyVectorStore(JourneyStore):
         ):
             self._journeys_collection = await self._vector_db.get_or_create_collection(
                 name="journeys",
-                schema=_JourneyDocument,
+                schema=JourneyDocument,
                 embedder_type=embedder_type,
                 document_loader=self._document_loader,
             )
@@ -269,6 +321,12 @@ class JourneyVectorStore(JourneyStore):
                     document_loader=self._condition_association_loader,
                 )
             )
+
+            self._step_association_collection = await self._document_db.get_or_create_collection(
+                name="journey_steps",
+                schema=JourneyStepAssociationDocument,
+                document_loader=self._step_association_loader,
+            )
         return self
 
     async def __aexit__(
@@ -283,8 +341,10 @@ class JourneyVectorStore(JourneyStore):
         self,
         journey: Journey,
         content: str,
-    ) -> _JourneyDocument:
-        return _JourneyDocument(
+    ) -> JourneyDocument:
+        steps_json = json.dumps(list(journey.steps))
+
+        return JourneyDocument(
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             content=content,
@@ -292,6 +352,7 @@ class JourneyVectorStore(JourneyStore):
             creation_utc=journey.creation_utc.isoformat(),
             title=journey.title,
             description=journey.description,
+            steps=steps_json,
         )
 
     @staticmethod
@@ -299,10 +360,13 @@ class JourneyVectorStore(JourneyStore):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
+        steps: Sequence[GuidelineId],
     ) -> str:
-        return f"{title}\n{description}\nConditions: {', '.join(conditions)}"
+        step_string = f"\nSteps: {', '.join(steps)}" if steps else ""
 
-    async def _deserialize_journey(self, doc: _JourneyDocument) -> Journey:
+        return f"{title}\n{description}\nConditions: {', '.join(conditions)}" + step_string
+
+    async def _deserialize_journey(self, doc: JourneyDocument) -> Journey:
         tags = [
             d["tag_id"]
             for d in await self._tag_association_collection.find({"journey_id": {"$eq": doc["id"]}})
@@ -319,6 +383,7 @@ class JourneyVectorStore(JourneyStore):
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
             conditions=conditions,
+            steps=json.loads(doc["steps"]),
             title=doc["title"],
             description=doc["description"],
             tags=tags,
@@ -330,6 +395,7 @@ class JourneyVectorStore(JourneyStore):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
+        steps: Sequence[GuidelineId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Journey:
@@ -340,13 +406,17 @@ class JourneyVectorStore(JourneyStore):
                 id=JourneyId(generate_id()),
                 creation_utc=creation_utc,
                 conditions=conditions,
+                steps=steps,
                 title=title,
                 description=description,
                 tags=tags or [],
             )
 
             content = self.assemble_content(
-                title=title, description=description, conditions=conditions
+                title=title,
+                description=description,
+                conditions=conditions,
+                steps=steps,
             )
 
             await self._journeys_collection.insert_one(
@@ -372,6 +442,17 @@ class JourneyVectorStore(JourneyStore):
                         "creation_utc": creation_utc.isoformat(),
                         "journey_id": journey.id,
                         "condition": condition,
+                    }
+                )
+
+            for step in steps:
+                await self._step_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(generate_id()),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": creation_utc.isoformat(),
+                        "journey_id": journey.id,
+                        "step": step,
                     }
                 )
 
@@ -405,10 +486,41 @@ class JourneyVectorStore(JourneyStore):
                 filters={"journey_id": {"$eq": journey_id}}
             )
 
+            stored_steps = [
+                d["step"]
+                for d in await self._step_association_collection.find(
+                    filters={"journey_id": {"$eq": journey_id}}
+                )
+            ]
+
+            if "step" in params:
+                steps_to_add = set(params["steps"]).difference(stored_steps)
+                steps_to_delete = set(stored_steps).difference(set(params["steps"]))
+
+                for step in steps_to_delete:
+                    await self._step_association_collection.delete_one(
+                        filters={
+                            "journey_id": {"$eq": journey_id},
+                            "step": {"$eq": step},
+                        }
+                    )
+
+                for step in steps_to_add:
+                    await self._step_association_collection.insert_one(
+                        document={
+                            "id": ObjectId(generate_id()),
+                            "version": self.VERSION.to_string(),
+                            "creation_utc": datetime.now(timezone.utc).isoformat(),
+                            "journey_id": journey_id,
+                            "step": step,
+                        }
+                    )
+
             content = self.assemble_content(
                 title=cast(str, updated["title"]),
                 description=cast(str, updated["description"]),
                 conditions=[c["condition"] for c in conditions],
+                steps=params.get("steps", stored_steps),
             )
 
             updated["content"] = content
@@ -416,7 +528,7 @@ class JourneyVectorStore(JourneyStore):
 
             result = await self._journeys_collection.update_one(
                 filters={"id": {"$eq": journey_id}},
-                params=cast(_JourneyDocument, to_json_dict(updated)),
+                params=cast(JourneyDocument, to_json_dict(updated)),
             )
 
         assert result.updated_document
@@ -430,7 +542,7 @@ class JourneyVectorStore(JourneyStore):
         condition: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
-        tag_journey_ids: set[JourneyId] = set()
+        journey_ids: set[JourneyId] = set()
         condition_journey_ids: set[JourneyId] = set()
 
         async with self._lock.reader_lock:
@@ -440,18 +552,31 @@ class JourneyVectorStore(JourneyStore):
                         doc["journey_id"]
                         for doc in await self._tag_association_collection.find(filters={})
                     }
-                    filters = (
-                        {"$and": [{"id": {"$ne": id}} for id in journey_ids]} if journey_ids else {}
-                    )
+
+                    if not journey_ids:
+                        filters = {}
+
+                    elif len(journey_ids) == 1:
+                        filters = {"capability_id": {"$ne": journey_ids.pop()}}
+
+                    else:
+                        filters = {"$and": [{"capability_id": {"$ne": id}} for id in journey_ids]}
+
                 else:
                     tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
                     tag_associations = await self._tag_association_collection.find(
                         filters=tag_filters
                     )
-                    tag_journey_ids = {assoc["journey_id"] for assoc in tag_associations}
+                    journey_ids = {assoc["journey_id"] for assoc in tag_associations}
 
-                    if not tag_journey_ids:
+                    if not journey_ids:
                         return []
+
+                    if len(journey_ids) == 1:
+                        filters = {"capability_id": {"$eq": journey_ids.pop()}}
+
+                    else:
+                        filters = {"$or": [{"capability_id": {"$eq": id}} for id in journey_ids]}
 
             if condition is not None:
                 condition_journey_ids = {
@@ -461,15 +586,17 @@ class JourneyVectorStore(JourneyStore):
                     )
                 }
 
-            if tag_journey_ids and condition_journey_ids:
+            if journey_ids and condition_journey_ids:
                 filters = {
                     "$or": [
                         {"id": {"$eq": id}}
-                        for id in tag_journey_ids.intersection(condition_journey_ids)
+                        for id in journey_ids.intersection(condition_journey_ids)
                     ]
                 }
-            elif tag_journey_ids:
-                filters = {"$or": [{"id": {"$eq": id}} for id in tag_journey_ids]}
+
+            elif journey_ids:
+                filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
+
             elif condition_journey_ids:
                 filters = {"$or": [{"id": {"$eq": id}} for id in condition_journey_ids]}
 
@@ -485,6 +612,15 @@ class JourneyVectorStore(JourneyStore):
     ) -> None:
         async with self._lock.writer_lock:
             result = await self._journeys_collection.delete_one({"id": {"$eq": journey_id}})
+
+            for s_doc in await self._step_association_collection.find(
+                filters={
+                    "journey_id": {"$eq": journey_id},
+                }
+            ):
+                await self._step_association_collection.delete_one(
+                    filters={"id": {"$eq": s_doc["id"]}}
+                )
 
             for c_doc in await self._condition_association_collection.find(
                 filters={
@@ -572,11 +708,6 @@ class JourneyVectorStore(JourneyStore):
 
             _ = await self._tag_association_collection.insert_one(document=association_document)
 
-            journey_document = await self._journeys_collection.find_one({"id": {"$eq": journey_id}})
-
-        if not journey_document:
-            raise ItemNotFoundError(item_id=UniqueId(journey_id))
-
         return True
 
     @override
@@ -595,11 +726,6 @@ class JourneyVectorStore(JourneyStore):
 
             if delete_result.deleted_count == 0:
                 raise ItemNotFoundError(item_id=UniqueId(tag_id))
-
-            journey_document = await self._journeys_collection.find_one({"id": {"$eq": journey_id}})
-
-        if not journey_document:
-            raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
     @override
     async def find_relevant_journeys(

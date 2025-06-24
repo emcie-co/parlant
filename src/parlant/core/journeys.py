@@ -557,10 +557,10 @@ class JourneyVectorStore(JourneyStore):
                         filters = {}
 
                     elif len(journey_ids) == 1:
-                        filters = {"capability_id": {"$ne": journey_ids.pop()}}
+                        filters = {"id": {"$ne": journey_ids.pop()}}
 
                     else:
-                        filters = {"$and": [{"capability_id": {"$ne": id}} for id in journey_ids]}
+                        filters = {"$and": [{"id": {"$ne": id}} for id in journey_ids]}
 
                 else:
                     tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
@@ -573,10 +573,10 @@ class JourneyVectorStore(JourneyStore):
                         return []
 
                     if len(journey_ids) == 1:
-                        filters = {"capability_id": {"$eq": journey_ids.pop()}}
+                        filters = {"id": {"$eq": journey_ids.pop()}}
 
                     else:
-                        filters = {"$or": [{"capability_id": {"$eq": id}} for id in journey_ids]}
+                        filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
 
             if condition is not None:
                 condition_journey_ids = {

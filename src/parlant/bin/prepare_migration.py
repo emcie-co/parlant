@@ -58,6 +58,7 @@ from parlant.core.persistence.vector_database_helper import VectorDocumentStoreM
 from parlant.core.journeys import (
     JourneyConditionAssociationDocument,
     JourneyDocument_v0_1_0,
+    JourneyStepAssociationDocument,
     JourneyTagAssociationDocument,
     JourneyVectorStore,
 )
@@ -708,9 +709,7 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
                 metadatas=[cast(chromadb.Metadata, new_doc)],
                 embeddings=[0],
             )
-            migrated_count += 1
-
-            migrated_count += 1
+            migrated_count += 2
 
             await glossary_tags_collection.insert_one(
                 {
@@ -926,6 +925,7 @@ async def migrate_journeys_0_1_0_to_0_2_0() -> None:
                 title=doc["title"],
                 description=doc["description"],
                 conditions=conditions,
+                steps=[],
             )
 
             new_doc = {
@@ -1068,30 +1068,6 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
     rich.print("[green]Successfully migrated evaluations from 0.1.0 to 0.2.0")
 
 
-async def upgrade_document_database_metadata(
-    db: DocumentDatabase,
-    to_version: Version.String,
-) -> None:
-    metadata_collection = await db.get_or_create_collection(
-        "metadata",
-        BaseDocument,
-        identity_loader,
-    )
-
-    if metadata_document := await metadata_collection.find_one(filters={}):
-        await metadata_collection.update_one(
-            filters={"id": {"$eq": metadata_document["id"]}},
-            params={"version": to_version},
-        )
-    else:
-        await metadata_collection.insert_one(
-            {
-                "id": ObjectId(generate_id()),
-                "version": to_version,
-            }
-        )
-
-
 @register_migration("guideline_connections", "0.1.0", "0.2.0")
 async def migrate_guideline_relationships_0_1_0_to_0_2_0() -> None:
     rich.print("[green]Starting migration for guideline relationships 0.1.0 -> 0.2.0")
@@ -1230,6 +1206,149 @@ async def migrate_relationships_0_2_0_to_0_3_0() -> None:
     (PARLANT_HOME_DIR / "guideline_relationships.json").unlink()
 
     rich.print("[green]Successfully migrated guideline connections to guideline relationships")
+
+
+@register_migration("journeys", "0.2.0", "0.3.0")
+async def migrate_journeys_0_2_0_to_0_3_0() -> None:
+    rich.print("[green]Starting migration for journeys 0.2.0 -> 0.3.0")
+
+    async def _tag_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyTagAssociationDocument]:
+        return cast(JourneyTagAssociationDocument, doc)
+
+    async def _condition_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyConditionAssociationDocument]:
+        return cast(JourneyConditionAssociationDocument, doc)
+
+    async def _step_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyStepAssociationDocument]:
+        return cast(JourneyStepAssociationDocument, doc)
+
+    embedder_factory = EmbedderFactory(Container())
+
+    db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+    )
+
+    journey_associations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "journey_associations.json")
+    )
+
+    chroma_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "journeys_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="journeys_unembedded")
+
+    journey_tags_collection = await journey_associations_db.get_or_create_collection(
+        "journey_tags",
+        JourneyTagAssociationDocument,
+        _tag_association_document_loader,
+    )
+
+    journey_conditions_collection = await journey_associations_db.get_or_create_collection(
+        "journey_conditions",
+        JourneyConditionAssociationDocument,
+        _condition_association_document_loader,
+    )
+
+    _ = await journey_associations_db.get_or_create_collection(
+        "journey_steps",
+        JourneyStepAssociationDocument,
+        _step_association_document_loader,
+    )
+
+    migrated_count = 0
+    if metadatas := chroma_unembedded_collection.get()["metadatas"]:
+        for doc in metadatas:
+            new_doc = {
+                "id": doc["id"],
+                "version": Version.String("0.3.0"),
+                "checksum": md5_checksum(
+                    cast(str, doc["content"]) + datetime.now(timezone.utc).isoformat()
+                ),
+                "content": doc["content"],
+                "creation_utc": doc["creation_utc"],
+                "title": doc["title"],
+                "description": doc["description"],
+                "steps": "[]",
+            }
+
+            chroma_unembedded_collection.delete(
+                where=cast(chromadb.Where, {"id": {"$eq": cast(str, doc["id"])}})
+            )
+            chroma_unembedded_collection.add(
+                ids=[cast(str, doc["id"])],
+                documents=[cast(str, doc["content"])],
+                metadatas=[cast(chromadb.Metadata, new_doc)],
+                embeddings=[0],
+            )
+            migrated_count += 2
+
+    chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    for tag_doc in await journey_tags_collection.find(filters={}):
+        await journey_tags_collection.update_one(
+            filters={"id": {"$eq": tag_doc["id"]}},
+            params={
+                "id": tag_doc["id"],
+                "creation_utc": tag_doc["creation_utc"],
+                "version": Version.String("0.3.0"),
+                "journey_id": tag_doc["journey_id"],
+                "tag_id": tag_doc["tag_id"],
+            },
+        )
+
+    for condition_doc in await journey_conditions_collection.find(filters={}):
+        await journey_conditions_collection.update_one(
+            filters={"id": {"$eq": tag_doc["id"]}},
+            params={
+                "id": condition_doc["id"],
+                "creation_utc": condition_doc["creation_utc"],
+                "version": Version.String("0.3.0"),
+                "journey_id": condition_doc["journey_id"],
+                "condition": condition_doc["condition"],
+            },
+        )
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(JourneyVectorStore.__name__),
+        Version.String("0.3.0"),
+    )
+
+    await upgrade_document_database_metadata(journey_associations_db, Version.String("0.3.0"))
+
+    rich.print("[green]Successfully migrated journeys from 0.2.0 to 0.3.0")
+
+
+async def upgrade_document_database_metadata(
+    db: DocumentDatabase,
+    to_version: Version.String,
+) -> None:
+    metadata_collection = await db.get_or_create_collection(
+        "metadata",
+        BaseDocument,
+        identity_loader,
+    )
+
+    if metadata_document := await metadata_collection.find_one(filters={}):
+        await metadata_collection.update_one(
+            filters={"id": {"$eq": metadata_document["id"]}},
+            params={"version": to_version},
+        )
+    else:
+        await metadata_collection.insert_one(
+            {
+                "id": ObjectId(generate_id()),
+                "version": to_version,
+            }
+        )
 
 
 async def detect_required_migrations() -> list[tuple[str, str, str]]:

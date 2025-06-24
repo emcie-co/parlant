@@ -502,3 +502,11 @@ def check_current_time() -> ToolResult:
 
 def check_current_time_emit() -> ToolResult:
     return ToolResult(data="Current time is 9:59", control={"lifespan": "session"})
+
+
+def availability_check() -> ToolResult:
+    return ToolResult(data={"Luxury": False})
+
+
+def check_customer_location() -> ToolResult:
+    return ToolResult(data="Spain!!")

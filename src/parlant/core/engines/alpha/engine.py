@@ -35,7 +35,13 @@ from parlant.core.context_variables import (
     ContextVariableStore,
 )
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import (
+    ContextualGuidelines,
+    Interaction,
+    IterationState,
+    LoadedContext,
+    ResponseState,
+)
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
@@ -98,6 +104,18 @@ class _PreparationIterationResolution(Enum):
 class _PreparationIterationResult:
     resolution: _PreparationIterationResolution
     inspection: PreparationIteration | None = field(default=None)
+
+
+@dataclass(frozen=True)
+class _GuidelineMatchingResult:
+    matching_result: GuidelineMatchingResult
+    matches_guidelines: list[GuidelineMatch]
+    resolved_guidelines: ContextualGuidelines
+
+
+@dataclass(frozen=True)
+class _GuidelineAndJourneyMatchingResult(_GuidelineMatchingResult):
+    journeys: list[Journey]
 
 
 class AlphaEngine(Engine):
@@ -387,9 +405,8 @@ class AlphaEngine(Engine):
                 context_variables=[],
                 glossary_terms=set(),
                 capabilities=[],
-                ordinary_guideline_matches=[],
+                iterations=[],
                 journeys=[],
-                tool_enabled_guideline_matches={},
                 tool_events=[],
                 tool_insights=ToolInsights(),
                 iterations_completed=0,
@@ -420,6 +437,41 @@ class AlphaEngine(Engine):
         context: LoadedContext,
         preamble_task: asyncio.Task[bool],
     ) -> _PreparationIterationResult:
+        if context.state.iterations_completed == 0:
+            # This is the first iteration, so we need to run the initial preparation iteration.
+            result = await self._run_initial_preparation_iteration(context, preamble_task)
+
+        else:
+            # This is an additional iteration, so we run the additional preparation iteration.
+            result = await self._run_additional_preparation_iteration(context)
+
+        # Mark that another iteration has been completed
+        # (this is important to avoid running more than K max iterations)
+        context.state.iterations_completed += 1
+
+        # If there's no new information to consider (which would have come from
+        # the tools), then we can consider ourselves prepared to respond.
+        if result.inspection and len(result.inspection.tool_calls) == 0:
+            context.state.prepared_to_respond = True
+
+        # Alternatively, we we've reached the max number of iterations,
+        # we should just go ahead and respond anyway, despite possibly
+        # needing more data for a fully accurate response.
+        #
+        # This is a trade-off that can be controlled by adjusting the max.
+        elif context.state.iterations_completed == context.agent.max_engine_iterations:
+            self._logger.warning(
+                f"Reached max tool call iterations ({context.agent.max_engine_iterations})"
+            )
+            context.state.prepared_to_respond = True
+
+        return result
+
+    async def _run_initial_preparation_iteration(
+        self,
+        context: LoadedContext,
+        preamble_task: asyncio.Task[bool],
+    ) -> _PreparationIterationResult:
         # For optimization concerns, it's useful to capture the exact state
         # we were in before matching guidelines.
         tool_preexecution_state = await self._capture_tool_preexecution_state(context)
@@ -427,12 +479,18 @@ class AlphaEngine(Engine):
         # Match relevant guidelines, retrieving them in a
         # structured format such that we can distinguish
         # between ordinary and tool-enabled ones.
-        (
-            guideline_matching_result,
-            context.state.ordinary_guideline_matches,
-            context.state.tool_enabled_guideline_matches,
-            context.state.journeys,
-        ) = await self._load_matched_guidelines_and_journeys(context)
+        guideline_and_journeys_matching_result = await self._load_matched_guidelines_and_journeys(
+            context
+        )
+
+        # Create new iteration state
+        context.state.iterations.append(
+            IterationState(
+                matched_guidelines=guideline_and_journeys_matching_result.matches_guidelines,
+                resolved_guidelines=guideline_and_journeys_matching_result.resolved_guidelines,
+                tool_call_ids=[],
+            )
+        )
 
         if not await preamble_task:
             # Bail out on the rest of the processing, as the preamble
@@ -454,6 +512,15 @@ class AlphaEngine(Engine):
 
             context.state.tool_events += new_tool_events
             context.state.tool_insights = tool_insights
+
+            context.state.iterations[-1].tool_call_ids.extend(
+                [
+                    ToolId.from_string(tool_call["tool_id"])
+                    for tool_event in new_tool_events
+                    for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
+                ]
+            )
+
         else:
             tool_event_generation_result = None
             new_tool_events = []
@@ -462,26 +529,112 @@ class AlphaEngine(Engine):
         # so we need to ground our response again by reevaluating terms.
         context.state.glossary_terms.update(await self._load_glossary_terms(context))
 
-        # Mark that another iteration has been completed
-        # (this is important to avoid running more than K max iterations)
-        context.state.iterations_completed += 1
-
-        # If there's no new information to consider (which would have come from
-        # the tools), then we can consider ourselves prepared to respond.
-        if not new_tool_events:
-            context.state.prepared_to_respond = True
-        # Alternatively, we we've reached the max number of iterations,
-        # we should just go ahead and respond anyway, despite possibly
-        # needing more data for a fully accurate response.
-        #
-        # This is a trade-off that can be controlled by adjusting the max.
-        elif context.state.iterations_completed == context.agent.max_engine_iterations:
-            self._logger.warning(
-                f"Reached max tool call iterations ({context.agent.max_engine_iterations})"
-            )
-            context.state.prepared_to_respond = True
-
         # Return structured inspection information, useful for later troubleshooting.
+        return _PreparationIterationResult(
+            _PreparationIterationResolution.COMPLETED,
+            PreparationIteration(
+                guideline_matches=[
+                    StoredGuidelineMatch(
+                        guideline_id=match.guideline.id,
+                        condition=match.guideline.content.condition,
+                        action=match.guideline.content.action or None,
+                        score=match.score,
+                        rationale=match.rationale,
+                    )
+                    for match in chain(
+                        guideline_and_journeys_matching_result.resolved_guidelines.ordinary_guideline_matches,
+                        guideline_and_journeys_matching_result.resolved_guidelines.tool_enabled_guideline_matches.keys(),
+                    )
+                ],
+                tool_calls=[
+                    tool_call
+                    for tool_event in new_tool_events
+                    for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
+                ],
+                terms=[
+                    StoredTerm(
+                        id=term.id,
+                        name=term.name,
+                        description=term.description,
+                        synonyms=list(term.synonyms),
+                    )
+                    for term in context.state.glossary_terms
+                ],
+                context_variables=[
+                    StoredContextVariable(
+                        id=variable.id,
+                        name=variable.name,
+                        description=variable.description,
+                        key=context.session.customer_id,
+                        value=value.data,
+                    )
+                    for variable, value in context.state.context_variables
+                ],
+                generations=PreparationIterationGenerations(
+                    guideline_matching=GuidelineMatchingInspection(
+                        total_duration=guideline_and_journeys_matching_result.matching_result.total_duration,
+                        batches=guideline_and_journeys_matching_result.matching_result.batch_generations,
+                    ),
+                    tool_calls=tool_event_generation_result.generations
+                    if tool_event_generation_result
+                    else [],
+                ),
+            ),
+        )
+
+    async def _run_additional_preparation_iteration(
+        self,
+        context: LoadedContext,
+    ) -> _PreparationIterationResult:
+        # For optimization concerns, it's useful to capture the exact state
+        # we were in before matching guidelines.
+        tool_preexecution_state = await self._capture_tool_preexecution_state(context)
+
+        # Match and retrieve guidelines based on the results of the previous iteration.
+        # Distinguish between ordinary and tool-enabled guidelines,
+        guideline_matching_result = await self._load_additional_matched_guidelines(context)
+
+        # Create new iteration state
+        context.state.iterations.append(
+            IterationState(
+                matched_guidelines=guideline_matching_result.matches_guidelines,
+                resolved_guidelines=guideline_matching_result.resolved_guidelines,
+                tool_call_ids=[],
+            )
+        )
+
+        # Matched guidelines may use glossary terms, so we need to ground our
+        # response by reevaluating the relevant terms given these new guidelines.
+        context.state.glossary_terms.update(await self._load_glossary_terms(context))
+
+        # Infer any needed tool calls and execute them,
+        # adding the resulting tool events to the session.
+        if tool_calling_result := await self._call_tools(context, tool_preexecution_state):
+            (
+                tool_event_generation_result,
+                new_tool_events,
+                tool_insights,
+            ) = tool_calling_result
+
+            context.state.tool_events += new_tool_events
+            context.state.tool_insights = tool_insights
+
+            context.state.iterations[-1].tool_call_ids.extend(
+                [
+                    ToolId.from_string(tool_call["tool_id"])
+                    for tool_event in new_tool_events
+                    for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
+                ]
+            )
+
+        else:
+            tool_event_generation_result = None
+            new_tool_events = []
+
+        # Tool calls may have returned with data that uses glossary terms,
+        # so we need to ground our response again by reevaluating terms.
+        context.state.glossary_terms.update(await self._load_glossary_terms(context))
+
         return _PreparationIterationResult(
             _PreparationIterationResolution.COMPLETED,
             PreparationIteration(
@@ -524,8 +677,8 @@ class AlphaEngine(Engine):
                 ],
                 generations=PreparationIterationGenerations(
                     guideline_matching=GuidelineMatchingInspection(
-                        total_duration=guideline_matching_result.total_duration,
-                        batches=guideline_matching_result.batch_generations,
+                        total_duration=guideline_matching_result.matching_result.total_duration,
+                        batches=guideline_matching_result.matching_result.batch_generations,
                     ),
                     tool_calls=tool_event_generation_result.generations
                     if tool_event_generation_result
@@ -778,12 +931,7 @@ class AlphaEngine(Engine):
     async def _load_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,
-    ) -> tuple[
-        GuidelineMatchingResult,
-        list[GuidelineMatch],
-        dict[GuidelineMatch, list[ToolId]],
-        list[Journey],
-    ]:
+    ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve the journeys likely to be activated for this agent
         relevant_journeys = await self._load_journeys(context)
 
@@ -808,7 +956,7 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(  # TODO HERE BAR
+        matching_result = await self._guideline_matcher.match_guidelines(
             agent=context.agent,
             session=context.session,
             customer=context.customer,
@@ -868,7 +1016,147 @@ class AlphaEngine(Engine):
             set(all_relevant_guidelines).difference(tool_enabled_guidelines),
         )
 
-        return matching_result, ordinary_guidelines, tool_enabled_guidelines, journeys
+        return _GuidelineAndJourneyMatchingResult(
+            matching_result=matching_result,
+            matches_guidelines=list(matching_result.matches),
+            resolved_guidelines=ContextualGuidelines(
+                ordinary_guideline_matches=ordinary_guidelines,
+                tool_enabled_guideline_matches=tool_enabled_guidelines,
+            ),
+            journeys=journeys,
+        )
+
+    async def _load_additional_matched_guidelines(
+        self,
+        context: LoadedContext,
+    ) -> _GuidelineMatchingResult:
+        # Step 1: Retrieve the journeys likely to be activated for this agent
+        relevant_journeys = await self._load_journeys(context)
+
+        # Step 2:
+        all_stored_guidelines = {
+            g.id: g
+            for g in await self._entity_queries.find_guidelines_for_context(
+                agent_id=context.agent.id,
+                journeys=relevant_journeys,
+            )
+            if g.enabled
+        }
+
+        # Step 3: Retrieve guidelines that need reevaluate based on tool calls made
+        relevant_guidelines = await self._entity_queries.find_reevaluation_guidelines(
+            all_stored_guidelines,
+            tool_call_ids=context.state.iterations[-1].tool_call_ids,
+        )
+
+        # Step 4: Filter the best matches out of those.
+        matching_result = await self._guideline_matcher.match_guidelines(
+            agent=context.agent,
+            session=context.session,
+            customer=context.customer,
+            context_variables=context.state.context_variables,
+            interaction_history=context.interaction.history,
+            terms=list(context.state.glossary_terms),
+            capabilities=context.state.capabilities,
+            staged_events=context.state.tool_events,
+            guidelines=relevant_guidelines,
+        )
+
+        # Step 5: Filter the journeys that are activated by the matched guidelines.
+        match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
+        journeys = [j for j in relevant_journeys if set(j.conditions).intersection(match_ids)]
+
+        # Step 6: If any of the journeys have been activated,
+        # run an additional matching pass for the guidelines
+        # that depend on them so we don’t miss relevant behavior.
+        dependent_guidelines = chain.from_iterable(
+            [
+                await self._entity_queries.find_journey_scoped_guidelines(j)
+                for j in [activated_journey for activated_journey in journeys]
+            ]
+        )
+
+        if dependent_guidelines:
+            self._logger.operation(
+                "Second-pass: matching guidelines dependent on activated journeys"
+            )
+
+            additional_matching_guidelines = [
+                g for id, g in all_stored_guidelines.items() if id in dependent_guidelines
+            ]
+
+            second_match_result = await self._guideline_matcher.match_guidelines(
+                agent=context.agent,
+                session=context.session,
+                customer=context.customer,
+                context_variables=context.state.context_variables,
+                interaction_history=context.interaction.history,
+                terms=list(context.state.glossary_terms),
+                capabilities=context.state.capabilities,
+                staged_events=context.state.tool_events,
+                guidelines=additional_matching_guidelines,
+            )
+
+            batches = list(chain(matching_result.batches, second_match_result.batches))
+            matches = list(chain.from_iterable(batches))
+
+            matching_result = GuidelineMatchingResult(
+                total_duration=matching_result.total_duration + second_match_result.total_duration,
+                batch_count=matching_result.batch_count + second_match_result.batch_count,
+                batch_generations=list(
+                    chain(
+                        matching_result.batch_generations,
+                        second_match_result.batch_generations,
+                    )
+                ),
+                batches=batches,
+                matches=matches,
+            )
+
+        # Step 7: Build the final set of matched guidelines as follows:
+        # 1. Collect all previously matched guidelines (from earlier iterations) — call this set (1).
+        # 2. Collect the newly matched guidelines from the current iteration — call this set (2).
+        #
+        # For each guideline:
+        # - If it was ACTIVE in (1) and is still ACTIVE in (2), include it.
+        # - If it was INACTIVE in (1) and became ACTIVE in (2), include it.
+        # - If it was ACTIVE in (1) but is now INACTIVE in (2), exclude it.
+        #
+        # The goal is to determine the currently relevant guidelines, considering both continuity and change.
+        # After filtering, RESOLVE this updated group of matched guidelines to handle:
+        # 1. Cases where a guideline just became ACTIVE and may have prioritization over other ACTIVE guidelines.
+        # 2. Cases where a previously ACTIVE guideline became INACTIVE — we may need to re-prioritize the ones it previously suppressed.
+        previous_matches = set(context.state.matched_guidelines)
+        current_matches = set(matching_result.matches)
+        combined_matches = previous_matches.intersection(current_matches).union(
+            current_matches.difference(previous_matches)
+        )
+
+        all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
+            usable_guidelines=list(all_stored_guidelines.values()),
+            matches=list(combined_matches),
+            journeys=list(set(context.state.journeys + journeys)),
+        )
+
+        # Step 8: Distinguish between ordinary and tool-enabled guidelines.
+        # We do this here as it creates a better subsequent control flow in the engine.
+        tool_enabled_guidelines = await self._find_tool_enabled_guideline_matches(
+            guideline_matches=all_relevant_guidelines,
+        )
+
+        ordinary_guidelines = list(
+            set(all_relevant_guidelines).difference(tool_enabled_guidelines),
+        )
+
+        return _GuidelineAndJourneyMatchingResult(
+            matching_result=matching_result,
+            matches_guidelines=list(matching_result.matches),
+            resolved_guidelines=ContextualGuidelines(
+                ordinary_guideline_matches=ordinary_guidelines,
+                tool_enabled_guideline_matches=tool_enabled_guidelines,
+            ),
+            journeys=journeys,
+        )
 
     async def _find_tool_enabled_guideline_matches(
         self,

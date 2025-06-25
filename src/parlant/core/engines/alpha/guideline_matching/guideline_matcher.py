@@ -2,7 +2,7 @@ __all__ = [
     "GuidelineMatcher",
     "GuidelineMatchingBatch",
     "GuidelineMatchingBatchResult",
-    "GuidelineMatchingBatchContext",
+    "GuidelineMatchingContext",
     "ResponseAnalysisBatch",
     "ResponseAnalysisBatchResult",
     "ReportAnalysisContext",
@@ -52,19 +52,7 @@ from parlant.core.loggers import Logger
 
 
 @dataclass(frozen=True)
-class GuidelineMatchingStrategyContext:
-    agent: Agent
-    session: Session
-    customer: Customer
-    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
-    interaction_history: Sequence[Event]
-    terms: Sequence[Term]
-    capabilities: Sequence[Capability]
-    staged_events: Sequence[EmittedEvent]
-
-
-@dataclass(frozen=True)
-class GuidelineMatchingBatchContext:
+class GuidelineMatchingContext:
     agent: Agent
     session: Session
     customer: Customer
@@ -135,7 +123,7 @@ class GuidelineMatchingStrategy(ABC):
     async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingStrategyContext,
+        context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]: ...
 
     @abstractmethod
@@ -202,6 +190,7 @@ class GuidelineMatcher:
         terms: Sequence[Term],
         capabilities: Sequence[Capability],
         staged_events: Sequence[EmittedEvent],
+        relevant_journeys: Sequence[Journey],
         guidelines: Sequence[Guideline],
     ) -> GuidelineMatchingResult:
         if not guidelines:
@@ -231,7 +220,7 @@ class GuidelineMatcher:
                     *[
                         strategy.create_matching_batches(
                             guidelines,
-                            context=GuidelineMatchingStrategyContext(
+                            context=GuidelineMatchingContext(
                                 agent,
                                 session,
                                 customer,
@@ -240,6 +229,7 @@ class GuidelineMatcher:
                                 terms,
                                 capabilities,
                                 staged_events,
+                                relevant_journeys,
                             ),
                         )
                         for _, (strategy, guidelines) in guideline_strategies.items()

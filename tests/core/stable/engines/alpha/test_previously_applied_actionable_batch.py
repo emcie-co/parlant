@@ -24,7 +24,7 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatchingBatchContext,
+    GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
     GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
@@ -168,7 +168,7 @@ async def base_test_that_correct_guidelines_are_matched(
 
     session = await context.container[SessionStore].read_session(session_id)
 
-    guideline_matching_context = GuidelineMatchingBatchContext(
+    guideline_matching_context = GuidelineMatchingContext(
         agent=agent,
         session=session,
         customer=customer,

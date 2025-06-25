@@ -35,7 +35,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch 
     GenericDisambiguationGuidelineMatchingBatch,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatchingBatchContext,
+    GuidelineMatchingContext,
 )
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.glossary import Term, TermId
@@ -298,7 +298,7 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
         if (guideline := to_disambiguate_guidelines.get(name)) is not None
     ]
 
-    guideline_matching_context = GuidelineMatchingBatchContext(
+    guideline_matching_context = GuidelineMatchingContext(
         agent,
         session,
         customer,

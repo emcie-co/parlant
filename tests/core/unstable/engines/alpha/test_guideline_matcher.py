@@ -42,6 +42,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.glossary import Term
+from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -279,6 +280,7 @@ async def match_guidelines(
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
     capabilities: Sequence[Capability] = [],
+    journeys: Sequence[Journey] = [],
     staged_events: Sequence[EmittedEvent] = [],
 ) -> Sequence[GuidelineMatch]:
     session = await context.container[SessionStore].read_session(session_id)
@@ -292,6 +294,7 @@ async def match_guidelines(
         terms=terms,
         capabilities=capabilities,
         staged_events=staged_events,
+        relevant_journeys=journeys,
         guidelines=context.guidelines,
     )
 

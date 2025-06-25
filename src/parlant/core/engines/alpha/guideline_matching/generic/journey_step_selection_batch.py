@@ -13,7 +13,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingBatchContext,
+    GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent
@@ -52,13 +52,13 @@ class JourneyStepSelectionShot(Shot):
     expected_result: JourneyStepSelectionSchema
 
 
-class JourneyStepSelectionBatch(GuidelineMatchingBatch):
+class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,
-        context: GuidelineMatchingBatchContext,
+        context: GuidelineMatchingContext,
         guidelines: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger

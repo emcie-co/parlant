@@ -134,6 +134,7 @@ Feature: Supervision
         And a guideline relationship whereby "best_soup" entails "check_soups"
         And the tool "get_available_soups"
         And an association between "check_soups" and "get_available_soups"
+        And a reevaluation relationship between the guideline "open_with_hello" and the "get_available_soups" tool
         And the term "Turpolance" defined as a mix of carrots and sweet potatoes
         And a context variable "customer allergies" set to "tomatoes"
         And a customer message, "Hi there, what is the best dish I could get?"

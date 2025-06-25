@@ -951,24 +951,25 @@ class AlphaEngine(Engine):
         context: LoadedContext,
     ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve the journeys likely to be activated for this agent
-        relevant_journeys = await self._find_journeys_sorted_by_relevance(context)
+        sorted_journeys_by_relevance = await self._find_journeys_sorted_by_relevance(context)
 
         # Step 2:
         all_stored_guidelines = {
             g.id: g
             for g in await self._entity_queries.find_guidelines_for_context(
                 agent_id=context.agent.id,
-                journeys=relevant_journeys,
+                journeys=sorted_journeys_by_relevance,
             )
             if g.enabled
         }
 
         # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
-        # (everything beyond the first journey). Removing these low-probability
-        # dependencies up-front keeps the first matching pass fast and focused.
+        # (everything beyond the first `top_k` journeys), and also remove all journey step guidelines.
+        # Removing these guidelines
+        # matching pass fast and focused on the most likely flows.
         top_k = 3
-        relevant_guidelines = await self._prune_dependent_guidelines_from_unlikely_journeys(
-            relevant_journeys=relevant_journeys,
+        relevant_guidelines = await self._prune_low_prob_guidelines_and_all_steps(
+            relevant_journeys=sorted_journeys_by_relevance,
             all_stored_guidelines=all_stored_guidelines,
             top_k=top_k,
         )
@@ -983,12 +984,17 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
+            relevant_journeys=sorted_journeys_by_relevance[
+                :top_k
+            ],  # Only consider the top K journeys
             guidelines=relevant_guidelines,
         )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [j for j in relevant_journeys if set(j.conditions).intersection(match_ids)]
+        journeys = [
+            j for j in sorted_journeys_by_relevance if set(j.conditions).intersection(match_ids)
+        ]
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
         # have in fact been activated, run an additional matching pass for the guidelines
@@ -996,7 +1002,7 @@ class AlphaEngine(Engine):
         if second_match_result := await self._process_activated_low_probability_journey_guidelines(
             context=context,
             all_stored_guidelines=all_stored_guidelines,
-            relevant_journeys=relevant_journeys,
+            relevant_journeys=sorted_journeys_by_relevance,
             activated_journeys=journeys,
             top_k=top_k,
         ):
@@ -1068,6 +1074,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
+            relevant_journeys=[],
             guidelines=guidelines_to_reevaluate,
         )
 
@@ -1106,6 +1113,7 @@ class AlphaEngine(Engine):
                 terms=list(context.state.glossary_terms),
                 capabilities=context.state.capabilities,
                 staged_events=context.state.tool_events,
+                relevant_journeys=current_journeys,
                 guidelines=additional_matching_guidelines,
             )
 
@@ -1190,14 +1198,15 @@ class AlphaEngine(Engine):
 
         return dict(tools_for_guidelines)
 
-    async def _prune_dependent_guidelines_from_unlikely_journeys(
+    async def _prune_low_prob_guidelines_and_all_steps(
         self,
         relevant_journeys: Sequence[Journey],
         all_stored_guidelines: dict[GuidelineId, Guideline],
         top_k: int,
     ) -> list[Guideline]:
-        # Prune low-probability journey-dependent guidelines
+        # Prune low-probability journey-dependent guidelines or journey step guidelines
         # by only keeping those that are either not dependent on any journey
+        # or does not contain metadata of journey steps
         # or are dependent on the top K most relevant journeys.
         relevant_journeys_dependent_ids = set(
             chain.from_iterable(
@@ -1220,7 +1229,8 @@ class AlphaEngine(Engine):
         return [
             g
             for id, g in all_stored_guidelines.items()
-            if id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids
+            if (id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids)
+            and "journey_step" not in g.metadata
         ]
 
     async def _process_activated_low_probability_journey_guidelines(
@@ -1260,6 +1270,7 @@ class AlphaEngine(Engine):
                 terms=list(context.state.glossary_terms),
                 capabilities=context.state.capabilities,
                 staged_events=context.state.tool_events,
+                relevant_journeys=activated_journeys,
                 guidelines=additional_matching_guidelines,
             )
 

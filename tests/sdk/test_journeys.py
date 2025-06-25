@@ -14,10 +14,13 @@
 
 from textwrap import dedent
 
+from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
+from parlant.core.tools import ToolContext, ToolId, ToolResult
 from tests.sdk.utils import Context, SDKTest, get_message
 from tests.test_utilities import nlp_test
 
@@ -220,3 +223,179 @@ class Test_that_a_created_journey_is_followed(SDKTest):
             context=get_message(agent_messages[0]),
             condition="There is an offering of a Pepsi",
         )
+
+
+class Test_that_journey_steps_can_be_created(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for journey step creation tests",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Step Journey",
+            conditions=[],
+            description="A journey with multiple steps",
+        )
+
+        self.step_w = await self.journey.create_step(description="Do W")
+        self.step_x = await self.journey.create_step(description="Do X")
+
+    async def run(self, ctx: Context) -> None:
+        guideline_store = ctx.container[GuidelineStore]
+
+        assert self.journey.steps[0] == self.step_w
+        assert self.journey.steps[1] == self.step_x
+
+        guidelines = await guideline_store.list_guidelines()
+
+        assert any(self.step_w.guideline.id == g.id for g in guidelines)
+        assert any(self.step_x.guideline.id == g.id for g in guidelines)
+
+
+class Test_that_journey_step_can_connect_to_a_tool(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for journey step creation tests",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Step Journey",
+            conditions=[],
+            description="A journey with multiple steps",
+        )
+
+        @tool
+        def test_tool(context: ToolContext) -> ToolResult:
+            return ToolResult(data={})
+
+        self.step = await self.journey.create_step(description="Do Something", tools=[test_tool])
+
+    async def run(self, ctx: Context) -> None:
+        guideline_tooL_store = ctx.container[GuidelineToolAssociationStore]
+
+        assert len(self.journey.steps) == 1
+
+        assert self.journey.steps[0] == self.step
+
+        associations = await guideline_tooL_store.list_associations()
+        assert associations
+        assert len(associations) == 1
+
+        association = associations[0]
+        assert association.guideline_id == self.step.guideline.id
+        assert association.tool_id == ToolId(
+            service_name=p.INTEGRATED_TOOL_SERVICE_NAME, tool_name="test_tool"
+        )
+
+
+class Test_that_journey_sub_steps_can_be_created(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Sub-steps Agent",
+            description="Agent for journey sub-step creation tests",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Sub-step Journey",
+            conditions=[],
+            description="A journey with a step and sub-step",
+        )
+
+        self.step_x = await self.journey.create_step(description="Do X")
+        self.sub_step_y = await self.step_x.create_sub_step(description="Do Y")
+        self.sub_step_z = await self.step_x.create_sub_step(description="Do Z")
+
+    async def run(self, ctx: Context) -> None:
+        guideline_store = ctx.container[GuidelineStore]
+
+        assert self.step_x
+        assert len(self.step_x.sub_steps) == 2
+        assert self.step_x.sub_steps[0] == self.sub_step_y
+        assert self.step_x.sub_steps[1] == self.sub_step_z
+
+        guidelines = await guideline_store.list_guidelines()
+
+        assert any(self.sub_step_y.guideline.id == g.id for g in guidelines)
+        assert any(self.sub_step_z.guideline.id == g.id for g in guidelines)
+
+
+class Test_that_journey_step_guideline_metadata_includes_sub_steps(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for step metadata test",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Meta Journey",
+            description="Test journey for sub-step metadata",
+            conditions=[],
+        )
+
+        self.step = await self.journey.create_step(description="Parent Step")
+        self.sub_step = await self.step.create_sub_step(description="Child Sub-step")
+
+    async def run(self, ctx: Context) -> None:
+        guideline_store = ctx.container[GuidelineStore]
+
+        parent_guideline = await guideline_store.read_guideline(guideline_id=self.step.guideline.id)
+
+        journey_steps_metadata = parent_guideline.metadata.get("journey_step", {})
+        if isinstance(journey_steps_metadata, dict):
+            sub_steps = journey_steps_metadata.get("sub_steps", [])
+        else:
+            sub_steps = []
+        assert self.sub_step.guideline.id in sub_steps
+
+
+class Test_that_journey_steps_and_sub_steps_are_ordered(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for step metadata test",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Meta Journey",
+            description="Test journey for sub-step metadata",
+            conditions=[],
+        )
+
+        self.step1 = await self.journey.create_step(description="First Step")
+        self.step2 = await self.journey.create_step(description="Second Step")
+        self.step3 = await self.journey.create_step(description="Third Step")
+
+        self.sub_step11 = await self.step1.create_sub_step(description="First Sub-Step for step 1")
+        self.sub_step12 = await self.step1.create_sub_step(description="Second Sub-Step for step 1")
+        self.sub_step13 = await self.step1.create_sub_step(description="Third Sub-Step for step 1")
+
+        self.sub_step21 = await self.step2.create_sub_step(description="First Sub-Step for step 2")
+        self.sub_step22 = await self.step2.create_sub_step(description="Second Sub-Step for step 2")
+
+        self.sub_step31 = await self.step3.create_sub_step(description="First Sub-Step for step 3")
+
+    async def run(self, ctx: Context) -> None:
+        journey_store = ctx.container[JourneyStore]
+
+        assert len(self.journey.steps) == 3
+        assert len(self.journey.steps[0].sub_steps) == 3
+        assert len(self.journey.steps[1].sub_steps) == 2
+        assert len(self.journey.steps[2].sub_steps) == 1
+
+        journey = await journey_store.read_journey(journey_id=self.journey.id)
+
+        assert len(journey.steps) == 9
+        assert journey.steps[0] == self.step1.guideline.id
+        assert journey.steps[1] == self.sub_step11.guideline.id
+        assert journey.steps[2] == self.sub_step12.guideline.id
+        assert journey.steps[3] == self.sub_step13.guideline.id
+        assert journey.steps[4] == self.step2.guideline.id
+        assert journey.steps[5] == self.sub_step21.guideline.id
+        assert journey.steps[6] == self.sub_step22.guideline.id
+        assert journey.steps[7] == self.step3.guideline.id
+        assert journey.steps[8] == self.sub_step31.guideline.id

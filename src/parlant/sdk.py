@@ -35,6 +35,7 @@ from parlant.core.agents import (
     AgentUpdateParams,
     CompositionMode,
 )
+from parlant.core.application import Application
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.context_variables import (
@@ -117,7 +118,7 @@ from parlant.core.tools import (
 )
 from parlant.core.version import VERSION
 
-_INTEGRATED_TOOL_SERVICE_NAME = "built-in"
+INTEGRATED_TOOL_SERVICE_NAME = "built-in"
 
 
 class SDKError(Exception):
@@ -386,7 +387,7 @@ class Guideline:
     async def reevaluate_after(self, tool: ToolEntry) -> Relationship:
         relationship = await self._container[RelationshipStore].create_relationship(
             source=RelationshipEntity(
-                id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+                id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
                 kind=RelationshipEntityKind.TOOL,
             ),
             target=RelationshipEntity(
@@ -431,15 +432,95 @@ class Guideline:
 
 
 @dataclass
+class JourneyStep:
+    guideline: Guideline
+    sub_steps: list[JourneyStep]
+
+    _parlant: Server
+    _container: Container
+    _journey_id: JourneyId
+
+    async def create_sub_step(
+        self,
+        description: str,
+        tools: Iterable[ToolEntry] = [],
+    ) -> JourneyStep:
+        tool_ids = [
+            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
+        ]
+
+        guideline = await self._container[Application].create_journey_sub_step(
+            parent_id=self.guideline.id,
+            journey_id=self._journey_id,
+            description=description,
+            tools=tool_ids,
+        )
+
+        sub_step = JourneyStep(
+            guideline=Guideline(
+                id=guideline.id,
+                condition=guideline.content.condition,
+                action=guideline.content.action,
+                tags=guideline.tags,
+                _parlant=self._parlant,
+                _container=self._container,
+            ),
+            sub_steps=[],
+            _parlant=self._parlant,
+            _container=self._container,
+            _journey_id=self._journey_id,
+        )
+
+        self.sub_steps.append(sub_step)
+
+        return sub_step
+
+
+@dataclass
 class Journey:
     id: JourneyId
     title: str
     description: str
     conditions: list[Guideline]
     tags: Sequence[TagId]
+    steps: list[JourneyStep]
 
     _parlant: Server
     _container: Container
+
+    async def create_step(
+        self,
+        description: str,
+        tools: Iterable[ToolEntry] = [],
+    ) -> JourneyStep:
+        tool_ids = [
+            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
+        ]
+
+        guideline = await self._container[Application].create_journey_step(
+            journey_id=self.id,
+            description=description,
+            tools=tool_ids,
+        )
+
+        step = JourneyStep(
+            guideline=Guideline(
+                id=guideline.id,
+                condition=guideline.content.condition,
+                action=guideline.content.action,
+                tags=guideline.tags,
+                _parlant=self._parlant,
+                _container=self._container,
+            ),
+            sub_steps=[],
+            _parlant=self._parlant,
+            _container=self._container,
+            _journey_id=self.id,
+        )
+
+        self.steps.append(step)
+
+        return step
 
     async def create_guideline(
         self,
@@ -475,7 +556,7 @@ class Journey:
 
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
-                tool_id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
             )
 
         return Guideline(
@@ -514,7 +595,7 @@ class Journey:
 
         await self._container[GuidelineToolAssociationStore].create_association(
             guideline_id=guideline.id,
-            tool_id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+            tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
         )
 
         return guideline.id
@@ -572,6 +653,7 @@ class Agent:
             description=description,
             conditions=journey.conditions,
             tags=journey.tags,
+            steps=[],
             _parlant=self._parlant,
             _container=self._container,
         )
@@ -605,7 +687,7 @@ class Agent:
 
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
-                tool_id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
             )
 
         return Guideline(
@@ -638,7 +720,7 @@ class Agent:
 
         await self._container[GuidelineToolAssociationStore].create_association(
             guideline_id=guideline.id,
-            tool_id=ToolId(service_name=_INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+            tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
         )
 
         return guideline.id
@@ -800,6 +882,7 @@ class Server:
             description=description,
             conditions=condition_guidelines,
             tags=tags,
+            steps=[],
             _container=self._container,
             _parlant=self,
         )
@@ -904,6 +987,8 @@ class Server:
                 )
             )
 
+            c[Application] = lambda rc: Application(rc)
+
         async def configure(c: Container) -> Container:
             await override_stores_with_transient_versions(c)
 
@@ -931,7 +1016,7 @@ class Server:
             )
 
             await c[ServiceRegistry].update_tool_service(
-                name=_INTEGRATED_TOOL_SERVICE_NAME,
+                name=INTEGRATED_TOOL_SERVICE_NAME,
                 kind="sdk",
                 url=f"http://{host}:{port}",
                 transient=True,
@@ -983,6 +1068,7 @@ __all__ = [
     "GuidelineId",
     "Journey",
     "JourneyId",
+    "JourneyStep",
     "LoadedContext",
     "LogLevel",
     "Logger",

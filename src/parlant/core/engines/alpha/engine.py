@@ -1109,36 +1109,16 @@ class AlphaEngine(Engine):
                 matches=matches,
             )
 
-        # Step 7: Build the final set of matched guidelines as follows:
-        # 1. Collect all previously matched guidelines (from earlier iterations) — call this set (1).
-        # 2. Collect the newly matched guidelines from the current iteration — call this set (2).
-        #
-        # For each guideline:
-        # - If it was ACTIVE in (1) and is still ACTIVE in (2), include it.
-        # - If it was INACTIVE in (1) and became ACTIVE in (2), include it.
-        # - If it was ACTIVE in (1) but is now INACTIVE in (2), exclude it.
-        #
-        # The goal is to determine the currently relevant guidelines, considering both continuity and change.
-        # After filtering, RESOLVE this updated group of matched guidelines to handle:
-        # 1. Cases where a guideline just became ACTIVE and may have prioritization over other ACTIVE guidelines.
-        # 2. Cases where a previously ACTIVE guideline became INACTIVE — we may need to re-prioritize the ones it previously suppressed.
-        previous_matches = set(
-            list(
-                set(
-                    chain.from_iterable(
-                        iteration.matched_guidelines for iteration in context.state.iterations
-                    )
-                )
-            )
-        )
-        current_matches = set(matching_result.matches)
-        combined_matches = previous_matches.intersection(current_matches).union(
-            current_matches.difference(previous_matches)
+        # Step 7: Build the final set of matched guidelines:
+        matched_guidelines = await self._build_matched_guidelines(
+            context=context,
+            reevaluated_guidelines=guidelines_to_reevaluate,
+            current_matched=set(matching_result.matches),
         )
 
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
-            matches=list(combined_matches),
+            matches=list(matched_guidelines),
             journeys=list(context.state.journeys + activated_journeys),
         )
 
@@ -1148,6 +1128,45 @@ class AlphaEngine(Engine):
             resolved_guidelines=list(all_relevant_guidelines),
             journeys=activated_journeys,
         )
+
+    async def _build_matched_guidelines(
+        self,
+        context: LoadedContext,
+        reevaluated_guidelines: Sequence[Guideline],
+        current_matched: set[GuidelineMatch],
+    ) -> Sequence[GuidelineMatch]:
+        # Build the set of matched guidelines as follows:
+        # 1. Collect all previously matched guidelines (from earlier iterations) — call this set (1).
+        # 2. Collect the newly matched guidelines from the current iteration — call this set (2).
+        #
+        # For each guideline:
+        # - If it was ACTIVE in (1) and is still ACTIVE in (2), include it.
+        # - If it was INACTIVE in (1) and became ACTIVE in (2), include it.
+        # - If it was ACTIVE in (1), was re-evaluated, and is now INACTIVE in (2), exclude it.
+        #
+        # The goal is to determine the currently relevant guidelines, considering for both continuity and change.
+        # After filtering, RESOLVE this updated group of matched guidelines to handle:
+        # 1. Cases where a guideline just became ACTIVE and may take priority over other ACTIVE guidelines.
+        # 2. Cases where a previously ACTIVE guideline became INACTIVE — we may need to re-prioritize those it previously suppressed.
+        previous_matches = set(
+            list(
+                set(
+                    chain.from_iterable(
+                        iteration.matched_guidelines for iteration in context.state.iterations
+                    )
+                )
+            )
+        )
+
+        reevaluated_guideline_ids = {g.id for g in reevaluated_guidelines}
+
+        combined_matches = (
+            previous_matches.intersection(current_matched)
+            .union(current_matched.difference(previous_matches))
+            .union([m for m in previous_matches if m.guideline.id not in reevaluated_guideline_ids])
+        )
+
+        return list(combined_matches)
 
     async def _find_tool_enabled_guideline_matches(
         self,

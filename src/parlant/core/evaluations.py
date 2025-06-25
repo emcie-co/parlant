@@ -91,6 +91,7 @@ class GuidelinePayload:
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
     properties_proposition: bool
+    journey_step_propositions: bool = False  # TODO talk to Dor about having no default value
     updated_id: Optional[GuidelineId] = None
 
     def __repr__(self) -> str:

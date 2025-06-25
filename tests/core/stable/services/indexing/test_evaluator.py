@@ -658,3 +658,5 @@ async def test_legacy_that_an_evaluation_completes_and_contains_connection_propo
     assert (
         invoice_data.entailment_propositions[0].target.condition == "providing the weather update"
     )
+
+    # TODO add test for tool running action proposition

@@ -16,9 +16,8 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingBatchContext,
+    GuidelineMatchingContext,
     GuidelineMatchingStrategy,
-    GuidelineMatchingStrategyContext,
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.entity_cq import EntityQueries
@@ -55,7 +54,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema],
         guidelines: Sequence[Guideline],
         journeys: Sequence[Journey],
-        context: GuidelineMatchingBatchContext,
+        context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
@@ -295,7 +294,7 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
     async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingStrategyContext,
+        context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = (
             self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
@@ -320,7 +319,7 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
                 self._create_batch(
                     guidelines=list(batch.values()),
                     journeys=journeys,
-                    context=GuidelineMatchingBatchContext(
+                    context=GuidelineMatchingContext(
                         agent=context.agent,
                         session=context.session,
                         customer=context.customer,
@@ -352,7 +351,7 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
         self,
         guidelines: Sequence[Guideline],
         journeys: Sequence[Journey],
-        context: GuidelineMatchingBatchContext,
+        context: GuidelineMatchingContext,
     ) -> GenericActionableGuidelineMatchingBatch:
         return GenericActionableGuidelineMatchingBatch(
             logger=self._logger,

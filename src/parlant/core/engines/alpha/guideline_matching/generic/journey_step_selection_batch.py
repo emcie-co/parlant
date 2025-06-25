@@ -29,6 +29,8 @@ class _JourneyStepWrapper(DefaultBaseModel):
     guideline_content: GuidelineContent
     parent_ids: list[str]
     follow_up_ids: list[str]
+    customer_dependent_action: bool
+    requires_tool_calls: bool
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
@@ -49,6 +51,7 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_steps: dict[str, _JourneyStepWrapper]
+    previous_path = Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
 
 
@@ -92,7 +95,24 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         self._guideline_ids[step_guideline_id].metadata.get("sub_steps", []),
                     )
                 ],
-            )
+                customer_dependent_action=cast(
+                    dict[str, bool],
+                    self._guideline_ids[step_guideline_id].metadata[
+                        "customer_dependent_action_data"
+                    ],
+                )["is_customer_dependent"]
+                if "is_customer_dependent"
+                in cast(
+                    dict[str, bool],
+                    self._guideline_ids[step_guideline_id].metadata.get(
+                        "customer_dependent_action_data", dict()
+                    ),
+                )
+                else False,
+                requires_tool_calls=cast(
+                    bool, self._guideline_ids[step_guideline_id].metadata["tool_running_only"]
+                ),
+            )  # TODO make less ugly
             for step_guideline_id in journey_steps
         }
 
@@ -195,9 +215,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        formatted_shot += self._get_journey_steps_section(
-            shot.journey_steps
-        )  # TODO add journey steps to shot
+        formatted_shot += self._get_journey_steps_section(shot.journey_steps)
 
         formatted_shot += f"""
 - **Expected Result**:
@@ -228,7 +246,7 @@ Your task is to determine which journey step should apply next, based on the las
 """,
             props={"agent_name": self._context.agent.name},
         )
-        builder.add_section(  # TODO add note about customer dependent actions
+        builder.add_section(
             name="journey-step-selection-task_description",
             template="""
 TASK DESCRIPTION
@@ -251,9 +269,9 @@ Apply the following process to determine which journey step should apply next. D
  If it is not complete, it must be repeated - return the id of the current step.
  If it is complete, keep advancing in the journey, step by step, until you encounter either:
   i. A transition which you do not have enough information to perform. The step just before that transition should be the next step to be taken.  
-  ii. You encounter a step that has the REQUIRES_TOOOL_CALLS flag. If this occurs, stop and return the id of that step.
+  ii. You encounter a step that has the REQUIRES_TOOL_CALLS flag. If this occurs, stop and return the id of that step.
  You must document each step that you advance through, one step id at a time, under the "step_advance" key.  
-
+ Note that some steps, which have the "CUSTOMER_DEPENDENT" flag, require the customer to also perform an action for the step for be considered completed. For example, the action "ask the customer for their ID number" requires both the agent to ask this question, and the customer to answer it.
 
 
 """,
@@ -275,9 +293,10 @@ Examples of Journey Step Selections:
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
-        builder.add_staged_events(
-            self._context.staged_events
-        )  # TODO add section about previous path
+        builder.add_staged_events(self._context.staged_events)
+        builder.add_section(
+            name="journey-step-selection-previous_path", template=self._get_previous_path_section()
+        )
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=self._get_journey_steps_section(self._journey_steps),
@@ -315,9 +334,7 @@ OUTPUT FORMAT
 ```
 """
 
-    def _get_journey_steps_section(
-        self, steps: dict[str, _JourneyStepWrapper]
-    ) -> str:  # TODO add REQUIRES_TOOOL_CALLS, REQUIRES_CUSTOMER_ANSWER flagss
+    def _get_journey_steps_section(self, steps: dict[str, _JourneyStepWrapper]) -> str:
         def step_sort_key(step_id):
             try:
                 return int(step_id)
@@ -332,7 +349,19 @@ OUTPUT FORMAT
         for step_id in sorted(steps.keys(), key=step_sort_key):
             step = steps[step_id]
             action = step.guideline_content.action
+            flags_str = ""
             if action:
+                if step.customer_dependent_action or step.requires_tool_calls:
+                    flags_str += "Step Flags:\n"
+                    if step.customer_dependent_action:
+                        flags_str += (
+                            "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
+                        )
+                    if (
+                        step.requires_tool_calls
+                        and (not self._previous_path or step.id != self._previous_path[-1])
+                    ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
+                        flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
                 if step.follow_up_ids:
                     follow_ups_str = "\n".join(
                         [
@@ -344,6 +373,8 @@ OUTPUT FORMAT
                     follow_ups_str = ["↳ IF this step is completed, RETURN 'NONE'"]
                 steps_str += f"""
 STEP {step_id}: {action}
+{flags_str}
+TRANSITIONS:
 {follow_ups_str}
 """
 
@@ -353,6 +384,14 @@ Trigger: {trigger_str}
 
 Steps:
 {steps_str} 
+"""
+
+    def _get_previous_path_section(self) -> str:
+        if not self._previous_path or all([p is None for p in self._previous_path]):
+            return "The journey has just began. No previous steps have been performed. Begin at step 1."
+        return f"""
+The steps that were visited in past messages of these conversation, in chronological order, are: {self._previous_path}. 
+You may only backtrack to one of these steps.
 """
 
 
@@ -402,6 +441,8 @@ example_1_journey_steps = {
         ),
         parent_ids=[],
         follow_up_ids=["2"],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
     ),
     "2": _JourneyStepWrapper(
         id="2",
@@ -411,6 +452,8 @@ example_1_journey_steps = {
         ),
         parent_ids=["1"],
         follow_up_ids=["3"],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
     ),
 }
 
@@ -432,7 +475,7 @@ example_1_expected = JourneyStepSelectionSchema(
 # Step needs to be repeated
 # Multiple steps advancement - stopped by lacking info
 # journey no longer applies
-# Multiple steps advancement - stopped by requires toool calls
+# Multiple steps advancement - stopped by requires tool calls
 # journey completed
 
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [

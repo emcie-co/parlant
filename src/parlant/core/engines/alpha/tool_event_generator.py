@@ -123,17 +123,33 @@ class ToolEventGenerator:
             customer_id=customer.id,
         )
 
-        inference_result = await self._tool_caller.infer_tool_calls(
-            agent=agent,
-            context_variables=context_variables,
-            interaction_history=interaction_history,
-            terms=terms,
-            ordinary_guideline_matches=ordinary_guideline_matches,
-            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-            journeys=journeys,
-            staged_events=staged_events,
-            tool_context=tool_context,
-        )
+        inference_attempt_temperatures = [
+            0.05,
+            0.1,
+            0.2,
+        ]
+
+        inference_result = None
+        for temperature in inference_attempt_temperatures:
+            try:
+                inference_result = await self._tool_caller.infer_tool_calls(
+                    agent=agent,
+                    context_variables=context_variables,
+                    interaction_history=interaction_history,
+                    terms=terms,
+                    ordinary_guideline_matches=ordinary_guideline_matches,
+                    tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+                    journeys=journeys,
+                    staged_events=staged_events,
+                    tool_context=tool_context,
+                    temperature=temperature,
+                )
+                break
+            except Exception as e:
+                self._logger.error(f"Error calling tool inference (temperature={temperature}): {e}")
+                if temperature == inference_attempt_temperatures[-1]:
+                    self._logger.error("Inference attempts exhausted, raising exception")
+                    raise e
 
         tool_calls = list(chain.from_iterable(inference_result.batches))
 

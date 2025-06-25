@@ -120,7 +120,7 @@ class ToolCallBatchResult:
 
 class ToolCallBatch(ABC):
     @abstractmethod
-    async def process(self) -> ToolCallBatchResult: ...
+    async def process(self, temperature: Optional[float] = None) -> ToolCallBatchResult: ...
 
 
 class ToolCallBatcher(ABC):
@@ -154,6 +154,7 @@ class ToolCaller:
         journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_context: ToolContext,
+        temperature: Optional[float] = None,
     ) -> ToolCallInferenceResult:
         with self._logger.scope("ToolCaller"):
             if not tool_enabled_guideline_matches:
@@ -200,7 +201,7 @@ class ToolCaller:
                 )
 
             with self._logger.operation("Processing batches"):
-                batch_tasks = [batch.process() for batch in batches]
+                batch_tasks = [batch.process(temperature) for batch in batches]
                 batch_results = await async_utils.safe_gather(*batch_tasks)
 
             t_end = time.time()

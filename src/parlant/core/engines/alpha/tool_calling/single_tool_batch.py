@@ -114,7 +114,7 @@ class SingleToolBatch(ToolCallBatch):
         self._candidate_tool = candidate_tool
 
     @override
-    async def process(self) -> ToolCallBatchResult:
+    async def process(self, temperature: Optional[float] = None) -> ToolCallBatchResult:
         (
             generation_info,
             inference_output,
@@ -130,6 +130,7 @@ class SingleToolBatch(ToolCallBatch):
             candidate_descriptor=self._candidate_tool,
             reference_tools=[],
             staged_events=self._context.staged_events,
+            temperature=temperature,
         )
 
         return ToolCallBatchResult(
@@ -163,6 +164,7 @@ class SingleToolBatch(ToolCallBatch):
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         reference_tools: Sequence[tuple[ToolId, Tool]],
         staged_events: Sequence[EmittedEvent],
+        temperature: Optional[float] = None,
     ) -> tuple[GenerationInfo, list[ToolCall], list[MissingToolData], list[InvalidToolData]]:
         inference_prompt = self._build_tool_call_inference_prompt(
             agent,
@@ -181,7 +183,10 @@ class SingleToolBatch(ToolCallBatch):
 
         # Send the tool call inference prompt to the LLM
         with self._logger.operation(f"Evaluation: {tool_id}"):
-            generation_info, inference_output = await self._run_inference(inference_prompt)
+            generation_info, inference_output = await self._run_inference(
+                inference_prompt,
+                temperature,
+            )
 
         # Evaluate the tool calls
         tool_calls, missing_data, invalid_data = await self._evaluate_tool_calls(
@@ -733,10 +738,11 @@ Guidelines:
     async def _run_inference(
         self,
         prompt: PromptBuilder,
+        temperature: Optional[float] = None,
     ) -> tuple[GenerationInfo, Sequence[SingleToolBatchToolCallEvaluation]]:
         inference = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.05},
+            hints={"temperature": temperature or 0.05},
         )
         self._logger.debug(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
 

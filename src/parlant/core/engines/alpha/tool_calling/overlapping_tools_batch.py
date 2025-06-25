@@ -96,7 +96,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         self._context = context
         self._overlapping_tools_batch = overlapping_tools_batch
 
-    async def process(self) -> ToolCallBatchResult:
+    async def process(self, temperature: Optional[float] = None) -> ToolCallBatchResult:
         with self._logger.operation("OverlappingToolsBatch"):
             (
                 generation_info,
@@ -111,6 +111,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                 journeys=self._context.journeys,
                 overlapping_tools_batch=self._overlapping_tools_batch,
                 staged_events=self._context.staged_events,
+                temperature=temperature,
             )
             return ToolCallBatchResult(
                 generation_info=generation_info,
@@ -609,10 +610,11 @@ Guidelines:
     async def _run_inference(
         self,
         prompt: PromptBuilder,
+        temperature: Optional[float] = None,
     ) -> tuple[GenerationInfo, Sequence[OverlappingToolsBatchToolEvaluation]]:
         inference = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.05},
+            hints={"temperature": temperature or 0.05},
         )
 
         self._logger.debug(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")

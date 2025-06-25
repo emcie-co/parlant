@@ -85,6 +85,7 @@ class JourneyStore(ABC):
         self,
         tags: Optional[Sequence[TagId]] = None,
         condition: Optional[GuidelineId] = None,
+        step: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -536,6 +537,7 @@ class JourneyVectorStore(JourneyStore):
         self,
         tags: Optional[Sequence[TagId]] = None,
         condition: Optional[GuidelineId] = None,
+        step: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
         journey_ids: set[JourneyId] = set()
@@ -582,19 +584,26 @@ class JourneyVectorStore(JourneyStore):
                     )
                 }
 
-            if journey_ids and condition_journey_ids:
-                filters = {
-                    "$or": [
-                        {"id": {"$eq": id}}
-                        for id in journey_ids.intersection(condition_journey_ids)
-                    ]
+                if not journey_ids:
+                    journey_ids = condition_journey_ids
+                else:
+                    journey_ids.intersection_update(condition_journey_ids)
+
+            if step is not None:
+                step_journey_ids = {
+                    s_doc["journey_id"]
+                    for s_doc in await self._step_association_collection.find(
+                        filters={"step": {"$eq": step}}
+                    )
                 }
 
-            elif journey_ids:
-                filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
+                if not journey_ids:
+                    journey_ids = step_journey_ids
+                else:
+                    journey_ids.intersection_update(step_journey_ids)
 
-            elif condition_journey_ids:
-                filters = {"$or": [{"id": {"$eq": id}} for id in condition_journey_ids]}
+            if journey_ids:
+                filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
 
             return [
                 await self._deserialize_journey(d)

@@ -76,7 +76,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         }
 
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
-        self._last_step_id: str = "0"  # TODO change to initial step
+        self._previous_path: Sequence[str | None] = journey_path
 
     def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
         journey_steps = self._examined_journey.steps
@@ -115,22 +115,39 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         if inference.content.requires_backtracking:
-            journey_path = [inference.content.next_step]
+            journey_path: list[str | None] = [inference.content.next_step]
         else:
-            journey_path = inference.content.step_advance
-            if journey_path[0] not in self._journey_steps[self._last_step_id].follow_up_ids:
+            journey_path: list[str | None] = list(inference.content.step_advance)
+            if (
+                len(self._previous_path) == 0
+                or not self._previous_path[-1]
+                or journey_path[0] not in self._journey_steps[self._previous_path[-1]].follow_up_ids
+            ):
                 self._logger.debug(
-                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from a child of {self._last_step_id} to {journey_path}"
+                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from a child of {self._previous_path} to {journey_path}"
                 )
                 journey_path = [
                     inference.content.next_step
                 ]  # If path is illegal, return only the next step
             for i in range(1, len(journey_path)):
-                if journey_path[i] not in self._journey_steps[journey_path[i - 1]].follow_up_ids:
+                if journey_path[i - 1] not in self._journey_steps.keys():
+                    self._logger.debug(
+                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i]}. Full path: : {journey_path}"
+                    )
+                elif (
+                    journey_path[i]
+                    not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                ):
                     self._logger.debug(
                         f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
                     )
                     journey_path = [inference.content.next_step]
+
+            if (
+                journey_path[-1] not in self._journey_steps.keys()
+            ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
+                journey_path[-1] = None
+
         return GuidelineMatchingBatchResult(
             matches=[
                 GuidelineMatch(

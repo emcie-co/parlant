@@ -255,7 +255,9 @@ def when_detection_and_processing_are_triggered(
         context.container[EntityCommands].update_session(
             session_id=session.id,
             params=SessionUpdateParams(
-                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
+                agent_state=AgentState(
+                    applied_guideline_ids=applied_guideline_ids, journey_paths={}
+                )
             ),
         )
     )

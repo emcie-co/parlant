@@ -1079,45 +1079,20 @@ class AlphaEngine(Engine):
             guidelines=guidelines_to_reevaluate,
         )
 
-        # Step 5: Filter the journeys that got activated by the matched guidelines.
-        # TODO: test(s) need to be written for the case of new journey being activated from
-        # reevaluated guideline that is a journey condition.
+        # Step 5: Filter the journeys that are activated by the matched guidelines.
+        # If a journey was already active in a previous iteration, we still retrieve its steps
+        # to support cases where multiple steps should be processed in a single engine run.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        current_journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
-        current_journeys = list(set(current_journeys).difference(context.state.journeys))
+        activated_journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
 
         # Step 6: If any of the journeys have been activated,
         # run an additional matching pass for the guidelines
         # that depend on them so we don’t miss relevant behavior.
-        dependent_guidelines = chain.from_iterable(
-            [
-                await self._entity_queries.find_journey_dependent_guidelines(j)
-                for j in [activated_journey for activated_journey in current_journeys]
-            ]
-        )
-
-        if dependent_guidelines:
-            self._logger.operation(
-                "Second-pass: matching guidelines dependent on activated journeys"
-            )
-
-            additional_matching_guidelines = [
-                g for id, g in all_stored_guidelines.items() if id in dependent_guidelines
-            ]
-
-            second_match_result = await self._guideline_matcher.match_guidelines(
-                agent=context.agent,
-                session=context.session,
-                customer=context.customer,
-                context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
-                terms=list(context.state.glossary_terms),
-                capabilities=context.state.capabilities,
-                staged_events=context.state.tool_events,
-                relevant_journeys=current_journeys,
-                guidelines=additional_matching_guidelines,
-            )
-
+        if second_match_result := await self._match_dependent_guidelines_and_active_journeys(
+            context=context,
+            all_stored_guidelines=all_stored_guidelines,
+            activated_journeys=activated_journeys,
+        ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
             matches = list(chain.from_iterable(batches))
 
@@ -1164,14 +1139,14 @@ class AlphaEngine(Engine):
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=list(combined_matches),
-            journeys=list(context.state.journeys + current_journeys),
+            journeys=list(context.state.journeys + activated_journeys),
         )
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
             matches_guidelines=list(matching_result.matches),
             resolved_guidelines=list(all_relevant_guidelines),
-            journeys=current_journeys,
+            journeys=activated_journeys,
         )
 
     async def _find_tool_enabled_guideline_matches(
@@ -1262,6 +1237,43 @@ class AlphaEngine(Engine):
             additional_matching_guidelines = [
                 g for id, g in all_stored_guidelines.items() if id in activated_low_priority_dep_ids
             ]
+            return await self._guideline_matcher.match_guidelines(
+                agent=context.agent,
+                session=context.session,
+                customer=context.customer,
+                context_variables=context.state.context_variables,
+                interaction_history=context.interaction.history,
+                terms=list(context.state.glossary_terms),
+                capabilities=context.state.capabilities,
+                staged_events=context.state.tool_events,
+                relevant_journeys=activated_journeys,
+                guidelines=additional_matching_guidelines,
+            )
+
+        return None
+
+    async def _match_dependent_guidelines_and_active_journeys(
+        self,
+        context: LoadedContext,
+        all_stored_guidelines: dict[GuidelineId, Guideline],
+        activated_journeys: Sequence[Journey],
+    ) -> Optional[GuidelineMatchingResult]:
+        dependent_guidelines = chain.from_iterable(
+            [
+                await self._entity_queries.find_journey_dependent_guidelines(j)
+                for j in [activated_journey for activated_journey in activated_journeys]
+            ]
+        )
+
+        if dependent_guidelines:
+            self._logger.operation(
+                "Second-pass: matching guidelines dependent on activated journeys"
+            )
+
+            additional_matching_guidelines = [
+                g for id, g in all_stored_guidelines.items() if id in dependent_guidelines
+            ]
+
             return await self._guideline_matcher.match_guidelines(
                 agent=context.agent,
                 session=context.session,

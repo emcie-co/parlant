@@ -57,9 +57,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
-        examined_journey: Journey,
+        examined_journey: Journey,  # NOTE THAT JOURNEY STEPS MUST NOT CHANGE MID-SESSION
         context: GuidelineMatchingContext,
         guidelines: Sequence[Guideline] = [],
+        journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
@@ -75,7 +76,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         }
 
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
-        self._last_step_id = 0  # TODO change to initial step
+        self._last_step_id: str = "0"  # TODO change to initial step
 
     def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
         journey_steps = self._examined_journey.steps
@@ -113,6 +114,23 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
+        if inference.content.requires_backtracking:
+            journey_path = [inference.content.next_step]
+        else:
+            journey_path = inference.content.step_advance
+            if journey_path[0] not in self._journey_steps[self._last_step_id].follow_up_ids:
+                self._logger.debug(
+                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from a child of {self._last_step_id} to {journey_path}"
+                )
+                journey_path = [
+                    inference.content.next_step
+                ]  # If path is illegal, return only the next step
+            for i in range(1, len(journey_path)):
+                if journey_path[i] not in self._journey_steps[journey_path[i - 1]].follow_up_ids:
+                    self._logger.debug(
+                        f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
+                    )
+                    journey_path = [inference.content.next_step]
         return GuidelineMatchingBatchResult(
             matches=[
                 GuidelineMatch(
@@ -120,6 +138,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     score=10,
                     rationale=inference.content.rationale,
                     guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                    metadata={"journey_path": journey_path},
                 )
             ]
             if inference.content.next_step
@@ -159,7 +178,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        # TODO add journey steps to shot
+        formatted_shot += self._get_journey_steps_section(
+            shot.journey_steps
+        )  # TODO add journey steps to shot
 
         formatted_shot += f"""
 - **Expected Result**:
@@ -279,7 +300,7 @@ OUTPUT FORMAT
 
     def _get_journey_steps_section(
         self, steps: dict[str, _JourneyStepWrapper]
-    ) -> str:  # TODO add REQUIRES_TOOOL_CALLS flag
+    ) -> str:  # TODO add REQUIRES_TOOOL_CALLS, REQUIRES_CUSTOMER_ANSWER flagss
         def step_sort_key(step_id):
             try:
                 return int(step_id)

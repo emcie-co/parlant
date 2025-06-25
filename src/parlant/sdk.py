@@ -686,7 +686,8 @@ class Server:
                             coherence_check=False,  # Legacy and will be removed in the future
                             connection_proposition=False,  # Legacy and will be removed in the future
                             action_proposition=False,
-                            properties_proposition=True,
+                            properties_proposition=False,
+                            journey_step_propositions=True,
                         ),
                     )
                     for c in str_conditions

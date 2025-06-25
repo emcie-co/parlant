@@ -61,6 +61,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.services.indexing.tool_running_action_detector import (
+    ToolRunningActionDetector,
+    ToolRunningActionProposition,
+)
 from parlant.core.tags import Tag
 
 
@@ -524,6 +528,7 @@ class GuidelineEvaluator:
         guideline_continuous_proposer: GuidelineContinuousProposer,
         customer_dependent_action_detector: CustomerDependentActionDetector,
         agent_intention_proposer: AgentIntentionProposer,
+        tool_running_action_detector: ToolRunningActionDetector,
     ) -> None:
         self._logger = logger
         self._entity_queries = entity_queries
@@ -531,6 +536,7 @@ class GuidelineEvaluator:
         self._guideline_continuous_proposer = guideline_continuous_proposer
         self._customer_dependent_action_detector = customer_dependent_action_detector
         self._agent_intention_proposer = agent_intention_proposer
+        self._tool_running_action_detector = tool_running_action_detector
 
     def _build_invoice_data(
         self,
@@ -540,13 +546,21 @@ class GuidelineEvaluator:
             Optional[CustomerDependentActionProposition]
         ],
         agent_intention_propositions: Sequence[Optional[AgentIntentionProposition]],
+        tool_running_action_propositions: Sequence[Optional[ToolRunningActionProposition]],
     ) -> Sequence[InvoiceGuidelineData]:
         results = []
-        for payload_action, payload_continuous, payload_customer_dependent, agent_intention in zip(
+        for (
+            payload_action,
+            payload_continuous,
+            payload_customer_dependent,
+            agent_intention,
+            tool_running_action,
+        ) in zip(
             action_propositions,
             continuous_propositions,
             customer_dependant_action_detections,
             agent_intention_propositions,
+            tool_running_action_propositions,
         ):
             action_prop = payload_action.content.action if payload_action else None
 
@@ -559,6 +573,9 @@ class GuidelineEvaluator:
                 if agent_intention
                 and agent_intention.rewritten_condition
                 and agent_intention.is_agent_intention
+                else None,
+                "tool_running_only": tool_running_action.is_tool_running_only
+                if tool_running_action
                 else None,
             }
 
@@ -597,11 +614,16 @@ class GuidelineEvaluator:
             payloads, progress_report
         )
 
+        tool_running_action_propositions = await self._detect_tool_running_actions(
+            payloads, progress_report
+        )
+
         return self._build_invoice_data(
             action_propositions,
             continuous_propositions,
             customer_dependant_action_detections,
             agent_intention_propositions,
+            tool_running_action_propositions,
         )
 
     async def _propose_actions(
@@ -641,7 +663,7 @@ class GuidelineEvaluator:
         tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
         indices: list[int] = []
         for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
-            if not p.properties_proposition:
+            if not p.properties_proposition and not p.journey_step_propositions:
                 continue
             action_to_use = (
                 action_prop.content.action if action_prop is not None else p.content.action
@@ -735,6 +757,34 @@ class GuidelineEvaluator:
             results[i] = res
         return results
 
+    async def _detect_tool_running_actions(
+        self,
+        payloads: Sequence[Payload],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[Optional[ToolRunningActionProposition]]:
+        tasks: list[asyncio.Task[ToolRunningActionProposition]] = []
+        indices: list[int] = []
+        for i, p in enumerate(payloads):
+            if (
+                not p.tool_ids or not p.journey_step_propositions
+            ):  # TODO Ask Dor - what happens if they attach a tool after creating the guideline? How do we run evaluations then?
+                continue
+            tasks.append(
+                asyncio.create_task(
+                    self._tool_running_action_detector.detect_if_tool_running(
+                        guideline=p.content,
+                        tool_ids=p.tool_ids,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+            indices.append(i)
+        sparse_results = await async_utils.safe_gather(*tasks)
+        results: list[Optional[ToolRunningActionProposition]] = [None] * len(payloads)
+        for i, res in zip(indices, sparse_results):
+            results[i] = res
+        return results
+
 
 class BehavioralChangeEvaluator:
     def __init__(
@@ -748,6 +798,7 @@ class BehavioralChangeEvaluator:
         guideline_continuous_proposer: GuidelineContinuousProposer,
         customer_dependent_action_detector: CustomerDependentActionDetector,
         agent_intention_proposer: AgentIntentionProposer,
+        tool_running_action_detector: ToolRunningActionDetector,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -761,6 +812,7 @@ class BehavioralChangeEvaluator:
             guideline_continuous_proposer=guideline_continuous_proposer,
             customer_dependent_action_detector=customer_dependent_action_detector,
             agent_intention_proposer=agent_intention_proposer,
+            tool_running_action_detector=tool_running_action_detector,
         )
 
     async def validate_payloads(

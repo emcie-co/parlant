@@ -42,6 +42,7 @@ from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
 from parlant.core.guidelines import GuidelineId
+from parlant.core.journeys import JourneyId
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.persistence.common import (
     ObjectId,
@@ -223,6 +224,7 @@ LifeSpan: TypeAlias = Literal["response", "session"]
 
 class AgentState(TypedDict):
     applied_guideline_ids: list[GuidelineId]
+    journey_paths: dict[JourneyId, Sequence[Optional[GuidelineId]]]
 
 
 @dataclass(frozen=True)
@@ -506,7 +508,7 @@ class SessionDocumentStore(SessionStore):
                 mode=doc["mode"],
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
-                agent_state=AgentState(applied_guideline_ids=[]),
+                agent_state=AgentState(applied_guideline_ids=[], journey_paths={}),
             )
 
         return await DocumentMigrationHelper[_SessionDocument](
@@ -888,7 +890,7 @@ class SessionDocumentStore(SessionStore):
                 mode=mode or "auto",
                 consumption_offsets=consumption_offsets,
                 title=title,
-                agent_state=AgentState(applied_guideline_ids=[]),
+                agent_state=AgentState(applied_guideline_ids=[], journey_paths={}),
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))

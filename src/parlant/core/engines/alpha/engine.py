@@ -28,7 +28,7 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, CompositionMode
 from parlant.core.capabilities import Capability
-from parlant.core.common import CancellationSuppressionLatch
+from parlant.core.common import CancellationSuppressionLatch, JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,
@@ -57,7 +57,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
-from parlant.core.journeys import Journey
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.sessions import (
     AgentState,
     ContextVariable as StoredContextVariable,
@@ -1057,6 +1057,7 @@ class AlphaEngine(Engine):
         }
 
         # Step 3: Retrieve guidelines that need reevaluation based on tool calls made
+        # in case no guidelines need reevaluation, we can skip the rest of the steps.
         guidelines_to_reevaluate = (
             await self._entity_queries.find_guidelines_that_need_reevaluation(
                 all_stored_guidelines,
@@ -1500,12 +1501,52 @@ class AlphaEngine(Engine):
 
         applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
 
+        journey_paths = self._list_journey_paths_from_guideline_matches(
+            guideline_matches=guideline_matches,
+            active_journeys=context.state.journeys,
+        )
+
+        for journey_id, path in journey_paths.items():
+            if journey_id in session.agent_state["journey_paths"]:
+                session.agent_state["journey_paths"][journey_id] = (
+                    list(session.agent_state["journey_paths"][journey_id]) + path
+                )
+
         await self._entity_commands.update_session(
             session_id=session.id,
             params=SessionUpdateParams(
-                agent_state=AgentState(applied_guideline_ids=applied_guideline_ids)
+                agent_state=AgentState(
+                    applied_guideline_ids=applied_guideline_ids,
+                    journey_paths=session.agent_state["journey_paths"],
+                )
             ),
         )
+
+    def _list_journey_paths_from_guideline_matches(
+        self,
+        guideline_matches: Sequence[GuidelineMatch],
+        active_journeys: Sequence[Journey],
+    ) -> dict[JourneyId, list[Optional[GuidelineId]]]:
+        journeys = {j.id for j in active_journeys}
+
+        journey_paths: dict[JourneyId, list[Optional[GuidelineId]]] = {}
+
+        for match in guideline_matches:
+            if journey_id := cast(
+                dict[str, JSONSerializable], match.guideline.metadata.get("journey_step", {})
+            ).get("journey_id"):
+                journey_id = cast(JourneyId, journey_id)
+                journeys.remove(journey_id)
+
+                assert "journey_path" in match.guideline.metadata
+                journey_paths[journey_id] = cast(
+                    list[Optional[GuidelineId]], match.guideline.metadata.get("journey_path")
+                )
+
+        for j in journeys:
+            journey_paths[j] = [None]
+
+        return journey_paths
 
 
 # This is module-level and public for isolated testability purposes.

@@ -2,14 +2,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-import math
-from typing import Mapping, Optional
+from typing import Optional
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.core.engines.alpha.guideline_matching.generic.common import (
-    GuidelineInternalRepresentation,
-    internal_representation,
-)
+
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
@@ -18,12 +14,9 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
     GuidelineMatchingBatchContext,
-    GuidelineMatchingStrategy,
-    GuidelineMatchingStrategyContext,
 )
-from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
-from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.guidelines import Guideline, GuidelineContent
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -31,34 +24,31 @@ from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
 
-class _JourneyStep(DefaultBaseModel):
+class _JourneyStepWrapper(DefaultBaseModel):
     id: str
-    guideline_id: GuidelineId
-    condition: str | None
-    action: str | None
-    metadata: Mapping[str, JSONSerializable] | None
-    parent_ids: Sequence[str]
-    follow_up_ids: Sequence[str]
+    guideline_content: GuidelineContent
+    parent_ids: list[str]
+    follow_up_ids: list[str]
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
     last_customer_message: str
+    journey_applies: bool
     last_current_step: str
     rationale: str
     requires_backtracking: bool
     backtracking_target_step: Optional[str] | None = (
         ""  # TODO consider adding extra arq for its parent
     )
-    requires_fast_forwarding: bool
-    fast_forward_path: Optional[Sequence[str]] | None = None
     last_current_step_completed: Optional[bool] | None = None
+    step_advance: Sequence[str]
     next_step: str
 
 
 @dataclass
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
-    journey_steps: dict[str, _JourneyStep]
+    journey_steps: dict[str, _JourneyStepWrapper]
     expected_result: JourneyStepSelectionSchema
 
 
@@ -67,89 +57,77 @@ class JourneyStepSelectionBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
-        journey_steps: Sequence[Guideline],
+        examined_journey: Journey,
         context: GuidelineMatchingBatchContext,
-        journeys: Sequence[Journey] = [],
         guidelines: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
-        self._journeys = journeys
         self._context = context
-        self._journey_steps: dict[str, _JourneyStep] = self._build_journey_steps(journey_steps)
+        self._examined_journey = examined_journey
+        self._guideline_id_to_journey_step_id = {
+            js.guideline.id: str(i) for i, js in enumerate(examined_journey.steps, start=1)
+        }
+        self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
+        self._last_step_id = 0  # TODO change to initial step
 
-    @staticmethod
-    def _build_journey_steps(
-        journey_steps: Sequence[Guideline],
-    ) -> dict[str, _JourneyStep]:
-        guideline_id_to_journey_step_id = {
-            g.id: str(i) for i, g in enumerate(journey_steps, start=1)
-        }
-        journey_steps_dict: dict[str, _JourneyStep] = {
-            guideline_id_to_journey_step_id[g.id]: _JourneyStep(
-                id=guideline_id_to_journey_step_id[g.id],
-                guideline_id=g.id,
-                condition=g.content.condition or None,
-                action=g.content.action or None,
-                metadata=g.metadata or None,
+    def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
+        journey_steps = self._examined_journey.steps
+        journey_steps_dict: dict[str, _JourneyStepWrapper] = {
+            self._guideline_id_to_journey_step_id[js.guideline.id]: _JourneyStepWrapper(
+                id=self._guideline_id_to_journey_step_id[js.guideline.id],
+                guideline_content=js.guideline.content,
                 parent_ids=[],
-                follow_up_ids=[guideline_id_to_journey_step_id[g.id] for g in g.follow_ups],
+                follow_up_ids=[
+                    self._guideline_id_to_journey_step_id[guideline_id]
+                    for guideline_id in js.sub_steps
+                ],
             )
-            for g in journey_steps
+            for js in journey_steps
         }
+
+        for id, js in journey_steps_dict.items():
+            for followup_id in js.follow_up_ids:
+                journey_steps_dict[followup_id].parent_ids.append(id)
+
         return journey_steps_dict
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
-        with self._logger.operation(
-            f"ActionableGuidelineMatchingBatch: {len(self._guidelines)} guidelines"
-        ):
+        with self._logger.operation(f"JourneyStepSelectionBacth: {self._examined_journey.title}"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
 
-        if not inference.content.checks:
-            self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-        else:
-            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-        matches = []
-
-        for match in inference.content.checks:
-            if match.applies:
-                self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
-
-                matches.append(
-                    GuidelineMatch(
-                        guideline=self._guidelines[match.guideline_id],
-                        score=10 if match.applies else 1,
-                        rationale=f'''Not previously applied matcher rationale: "{match.rationale}"''',
-                        guideline_previously_applied=PreviouslyAppliedType.NO,
-                    )
-                )
-            else:
-                self._logger.debug(f"Completion::Skipped:\n{match.model_dump_json(indent=2)}")
+        self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         return GuidelineMatchingBatchResult(
-            matches=matches,
+            matches=[
+                GuidelineMatch(
+                    guideline=self._guidelines[inference.content.next_step],
+                    score=10,
+                    rationale=inference.content.rationale,
+                    guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                )
+            ]
+            if inference.content.next_step
+            else [],
             generation_info=inference.info,
         )
 
-    async def shots(self) -> Sequence[GenericActionableGuidelineGuidelineMatchingShot]:
+    async def shots(self) -> Sequence[JourneyStepSelectionShot]:
         return await shot_collection.list()
 
-    def _format_shots(
-        self, shots: Sequence[GenericActionableGuidelineGuidelineMatchingShot]
-    ) -> str:
+    def _format_shots(self, shots: Sequence[JourneyStepSelectionShot]) -> str:
         return "\n".join(
             f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, shot: GenericActionableGuidelineGuidelineMatchingShot) -> str:
+    def _format_shot(self, shot: JourneyStepSelectionShot) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 EventSource.CUSTOMER: "user",
@@ -173,16 +151,7 @@ class JourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        if shot.guidelines:
-            formatted_guidelines = "\n".join(
-                f"{i}) Condition {g.condition}. Action: {g.action}"
-                for i, g in enumerate(shot.guidelines, start=1)
-            )
-            formatted_shot += f"""
-- **Guidelines**:
-{formatted_guidelines}
-
-"""
+        # TODO add journey steps to shot
 
         formatted_shot += f"""
 - **Expected Result**:
@@ -195,61 +164,58 @@ class JourneyStepSelectionBatch(GuidelineMatchingBatch):
 
     def _build_prompt(
         self,
-        shots: Sequence[GenericActionableGuidelineGuidelineMatchingShot],
+        shots: Sequence[JourneyStepSelectionShot],
     ) -> PromptBuilder:
-        guideline_representations = {
-            g.id: internal_representation(g) for g in self._guidelines.values()
-        }
-
-        guidelines_text = "\n".join(
-            f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
-            for i, g in self._guidelines.items()
-        )
-
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-not-previously-applied-general-instructions",
+            name="journey-step-selection-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
------------------
-In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
-Each guideline is composed of two parts:
-- "condition": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at any particular state, and we test against this
-          condition to understand if we should have this guideline participate in generating
-          the next reply to the user.
-- "action": This is a natural-language instruction that should be followed by the agent
-          whenever the "condition" part of the guideline applies to the conversation in its particular state.
-          Any instruction described here applies only to the agent, and not to the user.
+-------------------
+You are an AI agent named {agent_name}. Your role is to chat with customers in a multi-turn conversation on behalf of the business you represent.
+Your behavior is guided by "journeys" - predefined processes from the business you represent that guide user interactions.  
+Journeys are defined as a collection of steps, each dictating an action that the agent should take.
+After the performance of each step, the journey advances to the next step according to pre-defined rules, that will be provided to you later in this prompt.
+
+Your task is to determine which journey step should apply next, based on the last step that was performed and the current state of the conversation. 
+""",
+            props={"agent_name": self._context.agent.name},
+        )
+        builder.add_section(  # TODO add note about customer dependent actions
+            name="journey-step-selection-task_description",
+            template="""
+TASK DESCRIPTION
+-------------------
+Apply the following process to determine which journey step should apply next. Document your decisions in the output, according to a format that will be provided to you later in this prompt.
+
+1. Context check: Determine if we're still within the journey context and document your decision under the "journey_applies" key.
+ Unless the customer explicitly requests to leave the subject of the journey, journey_applies should be true.
+
+2. Backtrack check: Check if we need to return to an earlier step (e.g., customer changes a decision they took in a previous step). 
+ Backtracking is required if the customer changes a decision that was made in a previous step. 
+ If backtracking is required, document your decision under the "requires_backtracking" key. 
+ If it is required, apply the following process to determine which step to return to:
+    a. Identify the step transition in which the customer made a decision that requires backtracking.
+    b. Within that transition, identify which step should be taken next according to the customer's latest decision.
+ If backtracking is required, you may skip the rest of the process and return to the step that requires backtracking.
+
+ 3. Last Step Completion check: Determine if the current step is complete, meaning that the agent already took the action it ascribes.
+ Document your decision under the "last_current_step_completed" key.
+ If it is not complete, it must be repeated - return the id of the current step.
+ If it is complete, keep advancing in the journey, step by step, until you encounter either:
+  i. A transition which you do not have enough information to perform. The step just before that transition should be the next step to be taken.  
+  ii. You encounter a step that has the REQUIRES_TOOOL_CALLS flag. If this occurs, stop and return the id of that step.
+ You must document each step that you advance through, one step id at a time, under the "step_advance" key.  
 
 
-Task Description
-----------------
-Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
-You examine the applicability of each guideline under the assumption that the action was not taken yet during the interaction. 
-
-A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as 
-applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
-
-If the conversation moves from a broader issue to a related sub-issue (a related detail or follow-up within the same overall issue), you should still consider the guideline as applicable
-if it is relevant to the sub-issue, as it is part of the ongoing discussion.
-In contrast, if the conversation has clearly moved on to an entirely new topic, previous guidelines should not be marked as applicable.
-This ensures that applicability is tied to the current context, but still respects the continuity of a discussion when diving deeper into subtopics.
-
-When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition. 
-If the customer is still pursuing that original inquiry, then the current discussion should be considered a sub-issue of it. Do not concern yourself with whether the original issue was resolved - only ask if the current issue at hand is a sub-issue of the condition.
-
-
-The exact format of your response will be provided later in this prompt.
 
 """,
-            props={},
         )
         builder.add_section(
-            name="guideline-matcher-examples-of-not-previously-applied-evaluations",
+            name="journey-step-selection-examples",
             template="""
-Examples of Guideline Match Evaluations:
+Examples of Journey Step Selections:
 -------------------
 {formatted_shots}
 """,
@@ -263,148 +229,85 @@ Examples of Guideline Match Evaluations:
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
-        builder.add_journeys(self._journeys)
-        builder.add_staged_events(self._context.staged_events)
+        builder.add_staged_events(
+            self._context.staged_events
+        )  # TODO add section about previous path
         builder.add_section(
-            name=BuiltInSection.GUIDELINES,
-            template="""
-- Guidelines List: ###
-{guidelines_text}
-###
-""",
-            props={"guidelines_text": guidelines_text},
-            status=SectionStatus.ACTIVE,
+            name="journey-step-selection-journey-steps",
+            template=self._get_journey_steps_section(self._journey_steps),
+        )
+        builder.add_section(
+            name="journey-step-selection-output-format",
+            template=self._get_output_format_section(),
         )
 
-        builder.add_section(
-            name="guideline-not-previously-applied-output-format",
-            template="""
-IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
+        with open("journey step selection prompt.txt", "w") as f:
+            f.write(builder.build())
+        return builder
+
+    def _get_output_format_section(self) -> str:
+        return """
+IMPORTANT: Please provide your answer in the following JSON format.
 
 OUTPUT FORMAT
 -----------------
-- Specify the applicability of each guideline by filling in the details in the following list as instructed:
+- Fill in the following fields as instructed. Each field is required unless otherwise specified.
+
 ```json
-{{
-    {result_structure_text}
-}}
+{
+  "last_customer_message": "<str, the most recent message from the customer>",
+  "journey_applies: <bool, whether the journey should be continued>,
+  "last_current_step": "<str, the id of the last current step>",
+  "rationale": "<str, explanation for why the next step was selected>",
+  "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
+  "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>", ↓ 
+  "requires_fast_forwarding": <bool, does the agent need to fast-forward to a future step?>,
+  "fast_forward_path": <list of step ids to fast-forward through. Should be omitted if requires_fast_forwarding is false> 
+  "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
+  "next_step": "<str, id of the next step to take>"
+}
 ```
-""",
-            props={
-                "result_structure_text": self._format_of_guideline_check_json_description(
-                    guideline_representations=guideline_representations
-                ),
-                "guidelines_len": len(self._guidelines),
-            },
-        )
+"""
 
-        return builder
+    def _get_journey_steps_section(
+        self, steps: dict[str, _JourneyStepWrapper]
+    ) -> str:  # TODO add REQUIRES_TOOOL_CALLS flag
+        def step_sort_key(step_id):
+            try:
+                return int(step_id)
+            except Exception:
+                return step_id
 
-    def _format_of_guideline_check_json_description(
-        self,
-        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
-    ) -> str:
-        result_structure = [
-            {
-                "guideline_id": i,
-                "condition": guideline_representations[g.id].condition,
-                "rationale": "<Explanation for why the condition is or isn't met when focusing on the most recent interaction>",
-                "applies": "<BOOL>",
-            }
-            for i, g in self._guidelines.items()
-        ]
-        result = {"checks": result_structure}
-        return json.dumps(result, indent=4)
+        journey = self._examined_journey
+        trigger_str = " OR ".join(journey.conditions)
 
+        # Sort steps by step id as integer if possible, else as string
+        steps_str = ""
+        for step_id in sorted(steps.keys(), key=step_sort_key):
+            step = steps[step_id]
+            action = step.guideline_content.action
+            if action:
+                if step.follow_up_ids:
+                    follow_ups_str = "\n".join(
+                        [
+                            f"""↳ If "{steps[follow_up_id].guideline_content.condition}" → STEP {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+                            for follow_up_id in step.follow_up_ids
+                        ]
+                    )
+                else:
+                    follow_ups_str = ["↳ IF this step is completed, RETURN 'NONE'"]
+                steps_str += f"""
+STEP {step_id}: {action}
+{follow_ups_str}
+"""
 
-class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
-    def __init__(
-        self,
-        logger: Logger,
-        entity_queries: EntityQueries,
-        schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema],
-    ) -> None:
-        self._logger = logger
-        self._entity_queries = entity_queries
-        self._schematic_generator = schematic_generator
+        return f"""
+Journey: {journey.title}
+Trigger: {trigger_str}
 
-    @override
-    async def create_matching_batches(
-        self,
-        guidelines: Sequence[Guideline],
-        context: GuidelineMatchingStrategyContext,
-    ) -> Sequence[GuidelineMatchingBatch]:
-        journeys = (
-            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
-                guidelines[0].id, []
-            )
-            if guidelines
-            else []
-        )
-
-        batches = []
-
-        guidelines_dict = {g.id: g for g in guidelines}
-        batch_size = self._get_optimal_batch_size(guidelines_dict)
-        guidelines_list = list(guidelines_dict.items())
-        batch_count = math.ceil(len(guidelines_dict) / batch_size)
-
-        for batch_number in range(batch_count):
-            start_offset = batch_number * batch_size
-            end_offset = start_offset + batch_size
-            batch = dict(guidelines_list[start_offset:end_offset])
-            batches.append(
-                self._create_batch(
-                    guidelines=list(batch.values()),
-                    journeys=journeys,
-                    context=GuidelineMatchingBatchContext(
-                        agent=context.agent,
-                        session=context.session,
-                        customer=context.customer,
-                        context_variables=context.context_variables,
-                        interaction_history=context.interaction_history,
-                        terms=context.terms,
-                        capabilities=context.capabilities,
-                        staged_events=context.staged_events,
-                        relevant_journeys=journeys,
-                    ),
-                )
-            )
-
-        return batches
-
-    def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
-        guideline_n = len(guidelines)
-
-        if guideline_n <= 10:
-            return 1
-        elif guideline_n <= 20:
-            return 2
-        elif guideline_n <= 30:
-            return 3
-        else:
-            return 5
-
-    def _create_batch(
-        self,
-        guidelines: Sequence[Guideline],
-        journeys: Sequence[Journey],
-        context: GuidelineMatchingBatchContext,
-    ) -> GenericActionableGuidelineMatchingBatch:
-        return GenericActionableGuidelineMatchingBatch(
-            logger=self._logger,
-            schematic_generator=self._schematic_generator,
-            guidelines=guidelines,
-            journeys=journeys,
-            context=context,
-        )
-
-    @override
-    async def transform_matches(
-        self,
-        matches: Sequence[GuidelineMatch],
-    ) -> Sequence[GuidelineMatch]:
-        return matches
+Steps:
+{steps_str} 
+"""
 
 
 def _make_event(e_id: str, source: EventSource, message: str) -> Event:
@@ -443,221 +346,47 @@ example_1_events = [
     ),
 ]
 
-example_1_guidelines = [
-    GuidelineContent(
-        condition="The customer is looking for flight or accommodation booking assistance",
-        action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
-    ),
-    GuidelineContent(
-        condition="The customer ask for activities recommendations",
-        action="Guide them in refining their preferences and suggest options that match what they're looking for",
-    ),
-    GuidelineContent(
-        condition="The customer asks for logistical or legal requirements.",
-        action="Provide a clear answer or direct them to a trusted official source if uncertain.",
-    ),
-]
 
-example_1_expected = GenericActionableGuidelineMatchesSchema(
-    checks=[
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+example_1_journey_steps = {
+    "1": _JourneyStepWrapper(
+        id="1",
+        guideline_content=GuidelineContent(
             condition="The customer is looking for flight or accommodation booking assistance",
-            rationale="There’s no mention of booking logistics like flights or hotels",
-            applies=False,
+            action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
         ),
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+        parent_ids=[],
+        follow_up_ids=["2"],
+    ),
+    "2": _JourneyStepWrapper(
+        id="2",
+        guideline_content=GuidelineContent(
             condition="The customer ask for activities recommendations",
-            rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
-            applies=False,
+            action="Guide them in refining their preferences and suggest options that match what they're looking for",
         ),
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer asks for logistical or legal requirements.",
-            rationale="The customer now asked about visas and documents which are legal requirements",
-            applies=True,
-        ),
-    ]
+        parent_ids=["1"],
+        follow_up_ids=["3"],
+    ),
+}
+
+example_1_expected = JourneyStepSelectionSchema(
+    last_current_step="1",
+    last_customer_message="I'm looking for a flight to New York",
+    journey_applies=True,
+    rationale="The customer is looking for flight or accommodation booking assistance",
+    requires_backtracking=False,
+    backtracking_target_step=None,
+    last_current_step_completed=False,
+    step_advance=["1", "2"],
+    next_step="2",
 )
 
-example_2_events = [
-    _make_event(
-        "21",
-        EventSource.CUSTOMER,
-        "Hi, I’m interested in your Python programming course, but I’m not sure if I’m ready for it.",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "Happy to help! Could you share a bit about your background or experience with programming so far?",
-    ),
-    _make_event(
-        "32",
-        EventSource.CUSTOMER,
-        "I’ve done some HTML and CSS, but never written real code before.",
-    ),
-    _make_event(
-        "48",
-        EventSource.AI_AGENT,
-        "Thanks for sharing! That gives me a good idea. Our Python course is beginner-friendly, but it does assume you're comfortable with logic and problem solving. Would you like me "
-        "to recommend a short prep course first?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "That sounds useful. But I’m also wondering — is the course self-paced? I work full time.",
-    ),
-]
-
-example_2_guidelines = [
-    GuidelineContent(
-        condition="The customer mentions a constraint that related to commitment to the course",
-        action="Emphasize flexible learning options",
-    ),
-    GuidelineContent(
-        condition="The user expresses hesitation or self-doubt.",
-        action="Affirm that it’s okay to be uncertain and provide confidence-building context",
-    ),
-    GuidelineContent(
-        condition="The user asks about certification or course completion benefits.",
-        action="Clearly explain what the user receives",
-    ),
-]
-
-example_2_expected = GenericActionableGuidelineMatchesSchema(
-    checks=[
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer mentions a constraint that related to commitment to the course",
-            rationale="In the most recent message the customer mentions that they work full time which is a constraint",
-            applies=True,
-        ),
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The user expresses hesitation or self-doubt.",
-            rationale="In the most recent message the user still sounds hesitating about their fit to the course",
-            applies=True,
-        ),
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The user asks about certification or course completion benefits.",
-            rationale="The user didn't ask about certification or course completion benefits",
-            applies=False,
-        ),
-    ]
-)
-
-
-example_3_events = [
-    _make_event(
-        "21",
-        EventSource.CUSTOMER,
-        "I'm having trouble logging into my account.",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "I'm sorry to hear that. Can you tell me what happens when you try to log in?",
-    ),
-    _make_event(
-        "27",
-        EventSource.CUSTOMER,
-        "It says my password is incorrect.",
-    ),
-    _make_event(
-        "48",
-        EventSource.AI_AGENT,
-        "Have you tried resetting your password?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "Yes, I did, but I can't access my mail to complete the reset.",
-    ),
-]
-
-example_3_guidelines = [
-    GuidelineContent(
-        condition="When the user is having a problem with login.",
-        action="Help then identify the problem and solve it",
-    ),
-]
-
-example_3_expected = GenericActionableGuidelineMatchesSchema(
-    checks=[
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="When the user is having a problem with login.",
-            rationale="In the most recent message the customer is still pursuing their login problem, making the mail access problem a sub-issue rather than a new topic",
-            applies=True,
-        ),
-    ]
-)
-
-
-example_4_events = [
-    _make_event(
-        "21",
-        EventSource.CUSTOMER,
-        "Hi, I'm thinking about ordering this coat, but I need to know — what's your return policy?",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "You can return items within 30 days either in-store or using our prepaid return label.",
-    ),
-    _make_event(
-        "27",
-        EventSource.CUSTOMER,
-        "And what happens if I already wore it once?",
-    ),
-]
-
-example_4_guidelines = [
-    GuidelineContent(
-        condition="When the customer asks about how to return an item.",
-        action="Mention both in-store and delivery service return options.",
-    ),
-]
-
-example_4_expected = GenericActionableGuidelineMatchesSchema(
-    checks=[
-        GenericActionableBatch(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="When the customer asks about how to return an item.",
-            rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
-            applies=True,
-        ),
-    ]
-)
-
-
-_baseline_shots: Sequence[GenericActionableGuidelineGuidelineMatchingShot] = [
-    GenericActionableGuidelineGuidelineMatchingShot(
-        description="",
+_baseline_shots: Sequence[JourneyStepSelectionShot] = [
+    JourneyStepSelectionShot(
+        description="Example 1",
         interaction_events=example_1_events,
-        guidelines=example_1_guidelines,
+        journey_steps=example_1_journey_steps,
         expected_result=example_1_expected,
     ),
-    GenericActionableGuidelineGuidelineMatchingShot(
-        description="",
-        interaction_events=example_2_events,
-        guidelines=example_2_guidelines,
-        expected_result=example_2_expected,
-    ),
-    GenericActionableGuidelineGuidelineMatchingShot(
-        description="",
-        interaction_events=example_3_events,
-        guidelines=example_3_guidelines,
-        expected_result=example_3_expected,
-    ),
-    GenericActionableGuidelineGuidelineMatchingShot(
-        description="",
-        interaction_events=example_4_events,
-        guidelines=example_4_guidelines,
-        expected_result=example_4_expected,
-    ),
 ]
 
-shot_collection = ShotCollection[GenericActionableGuidelineGuidelineMatchingShot](_baseline_shots)
+shot_collection = ShotCollection[JourneyStepSelectionShot](_baseline_shots)

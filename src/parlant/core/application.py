@@ -21,7 +21,7 @@ from lagom import Container
 
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import generate_id
+from parlant.core.common import JSONSerializable, generate_id
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
@@ -32,13 +32,15 @@ from parlant.core.evaluations import (
     GuidelinePayloadOperation,
     Invoice,
 )
+from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
+from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import GuidelineId, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -50,6 +52,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.loggers import Logger
+from parlant.core.tools import ToolId
 
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
@@ -62,7 +65,9 @@ class Application:
         self._session_store = container[SessionStore]
         self._session_listener = container[SessionListener]
         self._guideline_store = container[GuidelineStore]
+        self._guideline_tool_association = container[GuidelineToolAssociationStore]
         self._relationship_store = container[RelationshipStore]
+        self._journey_store = container[JourneyStore]
         self._engine = container[Engine]
         self._event_emitter_factory = container[EventEmitterFactory]
         self._background_task_service = container[BackgroundTaskService]
@@ -287,3 +292,101 @@ class Application:
                     entailment_propositions.add(proposition)
 
         return content_guidelines.values()
+
+    async def create_journey_step(
+        self,
+        journey_id: JourneyId,
+        description: str,
+        tools: Sequence[ToolId] = [],
+    ) -> Guideline:
+        journey = await self._journey_store.read_journey(journey_id=journey_id)
+
+        guideline = await self._guideline_store.create_guideline(
+            condition="",
+            action=description,
+            metadata={
+                "journey_step": {
+                    "journey_id": journey_id,
+                    "sub_steps": [],
+                }
+            },
+        )
+
+        await self._journey_store.update_journey(
+            journey_id=journey_id,
+            params={
+                "steps": list(journey.steps) + [guideline.id],
+            },
+        )
+
+        if tools:
+            for id in tools:
+                await self._guideline_tool_association.create_association(
+                    guideline_id=guideline.id,
+                    tool_id=id,
+                )
+
+        return guideline
+
+    async def create_journey_sub_step(
+        self,
+        parent_id: GuidelineId,
+        journey_id: JourneyId,
+        description: str,
+        tools: Sequence[ToolId] = [],
+    ) -> Guideline:
+        journey = await self._journey_store.read_journey(journey_id=journey_id)
+
+        step = await self.create_journey_step(
+            journey_id=journey_id,
+            description=description,
+        )
+
+        # Update parent metadata to include the new step as sub-step
+
+        parent = await self._guideline_store.read_guideline(guideline_id=parent_id)
+
+        assert "journey_step" in parent.metadata
+        assert "sub_steps" in cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])
+
+        sub_steps = cast(
+            list[GuidelineId],
+            cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])["sub_steps"],
+        )
+
+        journey_step_metadata = {
+            "journey_id": journey_id,
+            "sub_steps": sub_steps + [step.id],
+        }
+
+        await self._guideline_store.set_metadata(
+            guideline_id=parent_id, key="journey_step", value=journey_step_metadata
+        )
+
+        perv_step = sub_steps[-1] if sub_steps else parent.id
+
+        # Sorting the journey steps for readability
+        updated_journey_steps: list[GuidelineId] = []
+
+        for s in journey.steps:
+            updated_journey_steps.append(s)
+            if s == perv_step:
+                updated_journey_steps.append(step.id)
+
+        await self._journey_store.update_journey(
+            journey_id=journey_id,
+            params={
+                "steps": updated_journey_steps,
+            },
+        )
+
+        # Associate the sub-step with the provided tools
+
+        if tools:
+            for id in tools:
+                await self._guideline_tool_association.create_association(
+                    guideline_id=step.id,
+                    tool_id=id,
+                )
+
+        return step

@@ -23,7 +23,7 @@ from typing_extensions import override, TypedDict, Self, Required
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import md5_checksum
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
-from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.guidelines import GuidelineId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import (
     ObjectId,
@@ -48,22 +48,15 @@ from parlant.core.tags import TagId
 JourneyId = NewType("JourneyId", str)
 
 
-class JourneyStep:
-    guideline: Guideline
-    sub_steps: Sequence[
-        GuidelineId
-    ]  # TODO note to Dor - do we want this as guideline ID or as the steps themselves?
-
-
 @dataclass(frozen=True)
 class Journey:
     id: JourneyId
     creation_utc: datetime
+    description: str
     conditions: Sequence[GuidelineId]
     steps: Sequence[GuidelineId]
     title: str
     tags: Sequence[TagId]
-    steps: Sequence[JourneyStep]
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -362,9 +355,10 @@ class JourneyVectorStore(JourneyStore):
         conditions: Sequence[GuidelineId],
         steps: Sequence[GuidelineId],
     ) -> str:
-        step_string = f"\nSteps: {', '.join(steps)}" if steps else ""
+        # TODO: use steps as well as part of the content. currently we can't step is GuidelineId and not contain
+        # the content of the step.
 
-        return f"{title}\n{description}\nConditions: {', '.join(conditions)}" + step_string
+        return f"{title}\n{description}"
 
     async def _deserialize_journey(self, doc: JourneyDocument) -> Journey:
         tags = [
@@ -493,7 +487,7 @@ class JourneyVectorStore(JourneyStore):
                 )
             ]
 
-            if "step" in params:
+            if "steps" in params:
                 steps_to_add = set(params["steps"]).difference(stored_steps)
                 steps_to_delete = set(stored_steps).difference(set(params["steps"]))
 
@@ -515,6 +509,8 @@ class JourneyVectorStore(JourneyStore):
                             "step": step,
                         }
                     )
+
+                updated["steps"] = json.dumps(params["steps"])
 
             content = self.assemble_content(
                 title=cast(str, updated["title"]),

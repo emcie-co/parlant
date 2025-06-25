@@ -386,6 +386,15 @@ example_1_expected = JourneyStepSelectionSchema(
     next_step="2",
 )
 
+# TODO add few-shots
+# One step simple advancement
+# Backtracking
+# Step needs to be repeated
+# Multiple steps advancement - stopped by lacking info
+# journey no longer applies
+# Multiple steps advancement - stopped by requires toool calls
+# journey completed
+
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1",

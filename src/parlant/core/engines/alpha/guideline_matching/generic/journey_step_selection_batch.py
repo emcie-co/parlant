@@ -63,28 +63,34 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
+
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
+        self._guideline_ids = {g.id: g for g in guidelines}
+
         self._context = context
+
         self._examined_journey = examined_journey
         self._guideline_id_to_journey_step_id = {
-            js.guideline.id: str(i) for i, js in enumerate(examined_journey.steps, start=1)
+            id: str(i) for i, id in enumerate(examined_journey.steps, start=1)
         }
+
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
         self._last_step_id = 0  # TODO change to initial step
 
     def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
         journey_steps = self._examined_journey.steps
+
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            self._guideline_id_to_journey_step_id[js.guideline.id]: _JourneyStepWrapper(
-                id=self._guideline_id_to_journey_step_id[js.guideline.id],
-                guideline_content=js.guideline.content,
+            self._guideline_id_to_journey_step_id[step_guideline_id]: _JourneyStepWrapper(
+                id=self._guideline_id_to_journey_step_id[step_guideline_id],
+                guideline_content=self._guideline_ids[step_guideline_id].content,
                 parent_ids=[],
                 follow_up_ids=[
                     self._guideline_id_to_journey_step_id[guideline_id]
-                    for guideline_id in js.sub_steps
+                    for guideline_id in self._guideline_ids[step_guideline_id].sub_steps
                 ],
             )
-            for js in journey_steps
+            for step_guideline_id in journey_steps
         }
 
         for id, js in journey_steps_dict.items():

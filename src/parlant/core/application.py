@@ -335,8 +335,6 @@ class Application:
         description: str,
         tools: Sequence[ToolId] = [],
     ) -> Guideline:
-        journey = await self._journey_store.read_journey(journey_id=journey_id)
-
         step = await self.create_journey_step(
             journey_id=journey_id,
             description=description,
@@ -361,23 +359,6 @@ class Application:
 
         await self._guideline_store.set_metadata(
             guideline_id=parent_id, key="journey_step", value=journey_step_metadata
-        )
-
-        perv_step = sub_steps[-1] if sub_steps else parent.id
-
-        # Sorting the journey steps for readability
-        updated_journey_steps: list[GuidelineId] = []
-
-        for s in journey.steps:
-            updated_journey_steps.append(s)
-            if s == perv_step:
-                updated_journey_steps.append(step.id)
-
-        await self._journey_store.update_journey(
-            journey_id=journey_id,
-            params={
-                "steps": updated_journey_steps,
-            },
         )
 
         # Associate the sub-step with the provided tools

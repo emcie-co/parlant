@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-from typing import Optional
+from typing import Optional, cast
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
@@ -16,7 +16,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -79,7 +79,6 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
     def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
         journey_steps = self._examined_journey.steps
-
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
             self._guideline_id_to_journey_step_id[step_guideline_id]: _JourneyStepWrapper(
                 id=self._guideline_id_to_journey_step_id[step_guideline_id],
@@ -87,7 +86,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 parent_ids=[],
                 follow_up_ids=[
                     self._guideline_id_to_journey_step_id[guideline_id]
-                    for guideline_id in self._guideline_ids[step_guideline_id].sub_steps
+                    for guideline_id in cast(
+                        Sequence[GuidelineId],
+                        self._guideline_ids[step_guideline_id].metadata.get("sub_steps", []),
+                    )
                 ],
             )
             for step_guideline_id in journey_steps

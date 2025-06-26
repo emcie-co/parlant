@@ -52,8 +52,6 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.loggers import Logger
-from parlant.core.tools import ToolId
-
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
 
@@ -297,7 +295,6 @@ class Application:
         self,
         journey_id: JourneyId,
         step: GuidelineId,
-        tools: Sequence[ToolId] = [],
     ) -> Guideline:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
@@ -317,13 +314,6 @@ class Application:
             },
         )
 
-        if tools:
-            for id in tools:
-                await self._guideline_tool_association.create_association(
-                    guideline_id=guideline.id,
-                    tool_id=id,
-                )
-
         return guideline
 
     async def create_journey_sub_step(
@@ -331,18 +321,12 @@ class Application:
         parent_id: GuidelineId,
         journey_id: JourneyId,
         sub_step: GuidelineId,
-        tools: Sequence[ToolId] = [],
     ) -> Guideline:
+        sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
+
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
-        guideline = await self.create_journey_step(
-            journey_id=journey_id,
-            step=sub_step,
-            tools=tools,
-        )
-
         # Update parent metadata to include the new step as sub-step
-
         parent = await self._guideline_store.read_guideline(guideline_id=parent_id)
 
         assert "journey_step" in parent.metadata
@@ -379,4 +363,4 @@ class Application:
             },
         )
 
-        return guideline
+        return sub_step_guideline

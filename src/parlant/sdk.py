@@ -174,9 +174,16 @@ class _CachedEvaluator:
         await self._exit_stack.aclose()
         return False
 
-    def _hash_guideline(self, g: GuidelineContent) -> str:
-        """Generate a hash for the guideline content."""
-        return md5(f"{g.condition or ''}:{g.action or ''}".encode()).hexdigest()
+    def _hash_request(
+        self,
+        g: GuidelineContent,
+        tool_ids: Sequence[ToolId],
+        journey_step_propositions: bool,
+    ) -> str:
+        """Generate a hash for the evaluation request."""
+        return md5(
+            f"{g.condition or ''}:{g.action or ''}:{':'.join(t.to_string() for t in tool_ids)}:{journey_step_propositions}".encode()
+        ).hexdigest()
 
     async def evaluate_guideline(
         self,
@@ -185,9 +192,13 @@ class _CachedEvaluator:
         journey_step_propositions: bool = False,
     ) -> _CachedEvaluator.GuidelineEvaluation:
         # First check if we have a cached evaluation for this guideline
-        if cached_evaluation := await self._collection.find_one(
-            {"id": {"$eq": self._hash_guideline(g)}}
-        ):
+        _hash = self._hash_request(
+            g=g,
+            tool_ids=tool_ids,
+            journey_step_propositions=journey_step_propositions,
+        )
+
+        if cached_evaluation := await self._collection.find_one({"id": {"$eq": _hash}}):
             # Check if the cached evaluation is based on our current runtime version.
             # This is important as the required evaluation data can change between versions.
             if cached_evaluation["version"] == VERSION:
@@ -259,7 +270,7 @@ class _CachedEvaluator:
             # Cache the evaluation result
             await self._collection.insert_one(
                 {
-                    "id": ObjectId(self._hash_guideline(g)),
+                    "id": ObjectId(_hash),
                     "version": Version.String(VERSION),
                     "properties": invoice.data.properties_proposition or {},
                     "action_proposition": invoice.data.action_proposition or None,
@@ -446,40 +457,65 @@ class JourneyStep:
     _container: Container
     _journey_id: JourneyId
 
-    async def create_sub_step(
-        self,
+    @staticmethod
+    async def _create_step(
+        parlant: Server,
+        container: Container,
+        journey_id: JourneyId,
         description: str,
         tools: Iterable[ToolEntry] = [],
     ) -> JourneyStep:
+        for t in list(tools):
+            await parlant._plugin_server.enable_tool(t)
+
         tool_ids = [
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await parlant._evaluator.evaluate_guideline(
             GuidelineContent(condition="", action=description),
             tool_ids=tool_ids,
             journey_step_propositions=True,
         )
 
-        guideline = await self._container[GuidelineStore].create_guideline(
+        guideline = await container[GuidelineStore].create_guideline(
             condition="",
             action=evaluation.action_proposition,
             metadata=evaluation.properties,
         )
 
-        sub_step = JourneyStep(
+        for t in list(tools):
+            await container[GuidelineToolAssociationStore].create_association(
+                guideline_id=guideline.id,
+                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+            )
+
+        return JourneyStep(
             guideline=Guideline(
                 id=guideline.id,
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 tags=guideline.tags,
-                _parlant=self._parlant,
-                _container=self._container,
+                _parlant=parlant,
+                _container=container,
             ),
             sub_steps=[],
-            _parlant=self._parlant,
-            _container=self._container,
-            _journey_id=self._journey_id,
+            _parlant=parlant,
+            _container=container,
+            _journey_id=journey_id,
+        )
+
+    async def create_sub_step(
+        self,
+        description: str,
+        tools: Iterable[ToolEntry] = [],
+    ) -> JourneyStep:
+        sub_step = await self._create_step(
+            self._parlant, self._container, self._journey_id, description, tools
+        )
+
+        _ = await self._container[Application].create_journey_sub_step(
+            self.guideline.id, self._journey_id, sub_step.guideline.id
         )
 
         self.sub_steps.append(sub_step)
@@ -504,41 +540,13 @@ class Journey:
         description: str,
         tools: Iterable[ToolEntry] = [],
     ) -> JourneyStep:
-        tool_ids = [
-            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
-        ]
-
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
-            GuidelineContent(condition="", action=description),
-            tool_ids=tool_ids,
-            journey_step_propositions=True,
+        step = await JourneyStep._create_step(
+            self._parlant, self._container, self.id, description, tools
         )
 
-        guideline = await self._container[GuidelineStore].create_guideline(
-            condition="",
-            action=evaluation.action_proposition,
-            metadata=evaluation.properties,
-        )
-
-        guideline = await self._container[Application].create_journey_step(
+        _ = await self._container[Application].create_journey_step(
             journey_id=self.id,
-            step=guideline.id,
-            tools=tool_ids,
-        )
-
-        step = JourneyStep(
-            guideline=Guideline(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                tags=guideline.tags,
-                _parlant=self._parlant,
-                _container=self._container,
-            ),
-            sub_steps=[],
-            _parlant=self._parlant,
-            _container=self._container,
-            _journey_id=self.id,
+            step=step.guideline.id,
         )
 
         self.steps.append(step)

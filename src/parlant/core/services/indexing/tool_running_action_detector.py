@@ -56,6 +56,7 @@ class ToolRunningActionDetector:
         tools = {}
         for tid in tool_ids:
             service = await self._service_registry.read_tool_service(tid.service_name)
+            _tools = await service.list_tools()
             tool = await service.read_tool(tid.tool_name)
             tools[tid] = tool
 

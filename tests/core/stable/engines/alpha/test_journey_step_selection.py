@@ -29,7 +29,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
+from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -224,7 +224,7 @@ async def base_test_that_correct_step_is_selected(
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     journey_name: str,
-    expected_next_step_id: str,
+    expected_next_step_id: str | None,
     expected_path: list[str] | None = None,
     journey_previous_path: Sequence[str | None] = [],
     capabilities: Sequence[Capability] = [],
@@ -275,6 +275,9 @@ async def base_test_that_correct_step_is_selected(
                 assert result_step == expected_step
         elif expected_next_step_id:  # Only test that the next step is correct
             assert result_path[-1] == expected_next_step_id
+
+
+# 1 step advancement tests
 
 
 async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
@@ -338,3 +341,175 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_2(
         journey_previous_path=["1"],
         expected_next_step_id="2",
     )
+
+
+async def test_that_journey_selector_correctly_exits_journey_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Okay, thanks.",
+        ),
+    ]
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3"],
+        expected_next_step_id=None,
+    )
+
+
+async def test_that_journey_selector_correctly_advances_to_follow_up_step_3(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thank you, have a good day too!",
+        ),
+    ]
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3"],
+        expected_next_step_id="5",
+    )
+
+
+async def test_that_journey_selector_correctly_advances_based_on_tool_result(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thank you, have a good day too!",
+        ),
+    ]
+
+    tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:reset_password",
+                    "arguments": {"account_number": "199877", "email": "john.doe@email.com"},
+                    "result": {
+                        "data": "Password reset successfully",
+                        "metadata": {},
+                        "control": {},
+                    },
+                }
+            ]
+        },
+    )
+
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3", "5"],
+        expected_next_step_id="6",
+        staged_events=staged_events,
+    )
+
+
+# Multistep advancement tests

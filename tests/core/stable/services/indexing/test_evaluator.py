@@ -112,7 +112,7 @@ async def test_legacy_that_an_evaluation_completes_when_all_invoices_have_data(
     assert evaluation.invoices[0].approved
 
     assert evaluation.invoices[0].data
-    assert evaluation.invoices[0].data.coherence_checks == []
+    assert evaluation.invoices[0].data.coherence_checks is None
     assert evaluation.invoices[0].data.entailment_propositions is None
 
 
@@ -167,7 +167,7 @@ async def test_legacy_that_an_evaluation_of_a_coherent_guideline_completes_with_
     assert evaluation.invoices[0].approved
 
     assert evaluation.invoices[0].data
-    assert evaluation.invoices[0].data.coherence_checks == []
+    assert evaluation.invoices[0].data.coherence_checks is None
     assert evaluation.invoices[0].data.entailment_propositions is None
 
 
@@ -347,7 +347,7 @@ async def test_legacy_that_an_evaluation_of_multiple_payloads_completes_with_an_
         assert invoice.approved
 
         assert invoice.data
-        assert invoice.data.coherence_checks == []
+        assert invoice.data.coherence_checks is None
         assert invoice.data.entailment_propositions is None
 
 

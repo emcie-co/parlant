@@ -178,7 +178,12 @@ class _CachedEvaluator:
         """Generate a hash for the guideline content."""
         return md5(f"{g.condition or ''}:{g.action or ''}".encode()).hexdigest()
 
-    async def evaluate_guideline(self, g: GuidelineContent) -> _CachedEvaluator.GuidelineEvaluation:
+    async def evaluate_guideline(
+        self,
+        g: GuidelineContent,
+        tool_ids: Sequence[ToolId] = [],
+        journey_step_propositions: bool = False,
+    ) -> _CachedEvaluator.GuidelineEvaluation:
         # First check if we have a cached evaluation for this guideline
         if cached_evaluation := await self._collection.find_one(
             {"id": {"$eq": self._hash_guideline(g)}}
@@ -214,12 +219,13 @@ class _CachedEvaluator:
                             condition=g.condition,
                             action=g.action,
                         ),
-                        tool_ids=[],
+                        tool_ids=tool_ids,
                         operation=GuidelinePayloadOperation.ADD,
                         coherence_check=False,  # Legacy and will be removed in the future
                         connection_proposition=False,  # Legacy and will be removed in the future
-                        action_proposition=g.action is not None,
+                        action_proposition=True,
                         properties_proposition=True,
+                        journey_step_proposition=journey_step_propositions,
                     ),
                 )
             ]
@@ -449,11 +455,16 @@ class JourneyStep:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
-        guideline = await self._container[Application].create_journey_sub_step(
-            parent_id=self.guideline.id,
-            journey_id=self._journey_id,
-            description=description,
-            tools=tool_ids,
+        evaluation = await self._parlant._evaluator.evaluate_guideline(
+            GuidelineContent(condition="", action=description),
+            tool_ids=tool_ids,
+            journey_step_propositions=True,
+        )
+
+        guideline = await self._container[GuidelineStore].create_guideline(
+            condition="",
+            action=evaluation.action_proposition,
+            metadata=evaluation.properties,
         )
 
         sub_step = JourneyStep(
@@ -497,9 +508,21 @@ class Journey:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
+        evaluation = await self._parlant._evaluator.evaluate_guideline(
+            GuidelineContent(condition="", action=description),
+            tool_ids=tool_ids,
+            journey_step_propositions=True,
+        )
+
+        guideline = await self._container[GuidelineStore].create_guideline(
+            condition="",
+            action=evaluation.action_proposition,
+            metadata=evaluation.properties,
+        )
+
         guideline = await self._container[Application].create_journey_step(
             journey_id=self.id,
-            description=description,
+            step=guideline.id,
             tools=tool_ids,
         )
 
@@ -529,8 +552,13 @@ class Journey:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
     ) -> Guideline:
+        tool_ids = [
+            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
+        ]
+
         evaluation = await self._parlant._evaluator.evaluate_guideline(
-            GuidelineContent(condition=condition, action=action)
+            GuidelineContent(condition=condition, action=action),
+            tool_ids,
         )
 
         guideline = await self._container[GuidelineStore].create_guideline(
@@ -575,10 +603,15 @@ class Journey:
     ) -> GuidelineId:
         await self._parlant._plugin_server.enable_tool(tool)
 
+        evaluation = await self._parlant._evaluator.evaluate_guideline(
+            GuidelineContent(condition=condition, action=None),
+            [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
+        )
+
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=f"Consider using the tool {tool.tool.name}",
-            tags=[],
+            action=evaluation.action_proposition,
+            metadata=evaluation.properties,
         )
 
         await self._container[RelationshipStore].create_relationship(
@@ -671,8 +704,13 @@ class Agent:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
     ) -> Guideline:
+        tool_ids = [
+            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
+        ]
+
         evaluation = await self._parlant._evaluator.evaluate_guideline(
-            GuidelineContent(condition=condition, action=action)
+            GuidelineContent(condition=condition, action=action),
+            tool_ids,
         )
 
         guideline = await self._container[GuidelineStore].create_guideline(
@@ -712,10 +750,15 @@ class Agent:
     ) -> GuidelineId:
         await self._parlant._plugin_server.enable_tool(tool)
 
+        evaluation = await self._parlant._evaluator.evaluate_guideline(
+            GuidelineContent(condition=condition, action=None),
+            [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
+        )
+
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=f"Consider using the tool {tool.tool.name}",
-            tags=[Tag.for_agent_id(self.id)],
+            action=evaluation.action_proposition,
+            metadata=evaluation.properties,
         )
 
         await self._container[GuidelineToolAssociationStore].create_association(

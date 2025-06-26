@@ -296,19 +296,17 @@ class Application:
     async def create_journey_step(
         self,
         journey_id: JourneyId,
-        description: str,
+        step: GuidelineId,
         tools: Sequence[ToolId] = [],
     ) -> Guideline:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
-        guideline = await self._guideline_store.create_guideline(
-            condition="",
-            action=description,
-            metadata={
-                "journey_step": {
-                    "journey_id": journey_id,
-                    "sub_steps": [],
-                }
+        guideline = await self._guideline_store.set_metadata(
+            guideline_id=step,
+            key="journey_step",
+            value={
+                "journey_id": journey_id,
+                "sub_steps": [],
             },
         )
 
@@ -332,14 +330,15 @@ class Application:
         self,
         parent_id: GuidelineId,
         journey_id: JourneyId,
-        description: str,
+        sub_step: GuidelineId,
         tools: Sequence[ToolId] = [],
     ) -> Guideline:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
-        step = await self.create_journey_step(
+        guideline = await self.create_journey_step(
             journey_id=journey_id,
-            description=description,
+            step=sub_step,
+            tools=tools,
         )
 
         # Update parent metadata to include the new step as sub-step
@@ -356,7 +355,7 @@ class Application:
 
         journey_step_metadata = {
             "journey_id": journey_id,
-            "sub_steps": sub_steps + [step.id],
+            "sub_steps": sub_steps + [sub_step],
         }
 
         await self._guideline_store.set_metadata(
@@ -371,7 +370,7 @@ class Application:
         for s in journey.steps:
             updated_journey_steps.append(s)
             if s == perv_step:
-                updated_journey_steps.append(step.id)
+                updated_journey_steps.append(sub_step)
 
         await self._journey_store.update_journey(
             journey_id=journey_id,
@@ -380,13 +379,4 @@ class Application:
             },
         )
 
-        # Associate the sub-step with the provided tools
-
-        if tools:
-            for id in tools:
-                await self._guideline_tool_association.create_association(
-                    guideline_id=step.id,
-                    tool_id=id,
-                )
-
-        return step
+        return guideline

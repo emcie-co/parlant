@@ -15,9 +15,13 @@
 from dataclasses import dataclass
 from itertools import chain
 import ast
+import re
 import json
+from uuid import UUID
+from pathlib import Path
 from typing import Any, Literal, Optional, Sequence, TypeAlias
 from typing_extensions import override
+from datetime import datetime, date, timedelta
 
 from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, generate_id
@@ -144,7 +148,7 @@ class SingleToolBatch(ToolCallBatch):
         parameter: tuple[ToolParameterDescriptor, ToolParameterOptions],
         value: str,
     ) -> bool:
-        """Currently validate only parameters with enum values"""
+        """Currently validate only parameters with enum values for invalid user input"""
         descriptor = parameter[0]
         if "enum" in descriptor:
             if descriptor["type"] == "string":
@@ -152,6 +156,62 @@ class SingleToolBatch(ToolCallBatch):
             if descriptor["type"] == "array":
                 return all(v in descriptor["enum"] for v in ast.literal_eval(value))
         return True
+
+    def _validate_list_pattern(self, value_as_string: str) -> bool:
+        # Lists are not nested, do not contain other generics, may not use capitalization
+        pattern = r"""
+^\s*\[                            # opening bracket, optional leading space
+\s*
+(
+    (
+        [nN]one | [tT]rue | [fF]alse |              # literals
+        -?\d+(?:\.\d+)? |                  # integers and floats
+        '(?:[^'\\]|\\.)*' |                # single-quoted string
+        "(?:[^"\\]|\\.)*"                  # double-quoted string
+    )
+    (\s*,\s*
+        (
+            [nN]one | [tT]rue | [fF]alse |
+            -?\d+(?:\.\d+)? |
+            '(?:[^'\\]|\\.)*' |
+            "(?:[^"\\]|\\.)*"
+        )
+    )*
+)?                              # optional group of elements
+\s*\]\s*$                        # closing bracket, optional trailing space
+"""
+        compiled = re.compile(pattern, re.VERBOSE)
+        return compiled.match(value_as_string) is not None
+
+    def _validate_argument_format(
+        self,
+        value_as_string: str,
+        descriptor: ToolParameterDescriptor,
+    ) -> None:
+        """Validate the format of the argument value - to catch LLM errors. This function throws exceptions that are caught on higher level and restart the inference"""
+        if descriptor["type"] == "string":
+            pass
+        elif descriptor["type"] == "boolean":
+            bool(value_as_string)
+        elif descriptor["type"] == "integer":
+            int(value_as_string)
+        elif descriptor["type"] == "number":
+            float(value_as_string)
+        elif descriptor["type"] == "datetime":
+            datetime.fromisoformat(value_as_string)
+        elif descriptor["type"] == "date":
+            date.fromisoformat(value_as_string)
+        elif descriptor["type"] == "timedelta":
+            t = datetime.strptime(value_as_string, "%H:%M:%S")
+            timedelta(hours=t.hour, minutes=t.minute, seconds=t.second)
+        elif descriptor["type"] == "path":
+            Path(value_as_string)
+        elif descriptor["type"] == "uuid":
+            UUID(value_as_string)
+        elif descriptor["type"] == "array":
+            assert self._validate_list_pattern(value_as_string)
+        else:
+            raise ValueError(f"Unsupported type {descriptor['type']}")
 
     async def _infer_calls_for_single_tool(
         self,
@@ -254,6 +314,11 @@ class SingleToolBatch(ToolCallBatch):
 
                             # Note that if LLM provided 'None' for a required parameter with a default - it will get 'None' as value
                             arguments[evaluation.parameter_name] = evaluation.value_as_string
+
+                            self._validate_argument_format(
+                                evaluation.value_as_string,
+                                tool.parameters[evaluation.parameter_name][0],
+                            )
 
                     if all_values_valid:
                         tool_calls.append(

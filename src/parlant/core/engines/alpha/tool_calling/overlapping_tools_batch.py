@@ -129,6 +129,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         journeys: Sequence[Journey],
         overlapping_tools_batch: Sequence[tuple[ToolId, Tool, Sequence[GuidelineMatch]]],
         staged_events: Sequence[EmittedEvent],
+        temperature: Optional[float] = None,
     ) -> tuple[GenerationInfo, list[ToolCall], list[MissingToolData]]:
         inference_prompt = self._build_tool_call_inference_prompt(
             agent,
@@ -143,7 +144,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         )
 
         # Send the tool call inference prompt to the LLM
-        generation_info, inference_output = await self._run_inference(inference_prompt)
+        generation_info, inference_output = await self._run_inference(inference_prompt, temperature)
 
         # Evaluate the tool calls
         tool_calls, missing_data = await self._evaluate_tool_calls_parameters(

@@ -26,6 +26,8 @@ from ast import literal_eval
 from parlant.core.agents import Agent
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer, CustomerStore, CustomerId
+from parlant.core.emission.event_buffer import EventBuffer
+from parlant.core.emissions import EventEmitterFactory
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCall,
@@ -47,7 +49,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, EventSource, SessionStore
+from parlant.core.sessions import Event, EventKind, EventSource, SessionStore
 from parlant.core.tags import TagId, Tag
 from parlant.core.tools import (
     LocalToolService,
@@ -62,6 +64,9 @@ from parlant.core.tools import (
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import run_service_server, get_random_port
 from parlant.core.services.tools.mcp_service import MCPToolServer
+from parlant.core.engines.alpha.tool_event_generator import (
+    ToolEventGenerator,
+)
 
 
 @fixture
@@ -1057,7 +1062,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
             self.tools = tools
 
         @override
-        async def process(self) -> ToolCallBatchResult:
+        async def process(self, temperature: Optional[float] = None) -> ToolCallBatchResult:
             return ToolCallBatchResult(
                 tool_calls=[
                     ToolCall(
@@ -1087,7 +1092,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
             self.tools = tools
 
         @override
-        async def process(self) -> ToolCallBatchResult:
+        async def process(self, temperature: Optional[float] = None) -> ToolCallBatchResult:
             return ToolCallBatchResult(
                 tool_calls=[],
                 generation_info=GenerationInfo(
@@ -1369,3 +1374,205 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
     )
 
     assert len(batches) == 2
+
+
+async def test_that_high_level_retries_on_inference_work_for_a_single_failure(
+    container: Container,
+    agent: Agent,
+) -> None:
+    class FailOnceBatcher(ToolCallBatcher):
+        """Batcher that wraps an existing batcher but always fails on the first call to create_batches"""
+
+        counter: int = 0
+
+        def __init__(self, inner_batcher: ToolCallBatcher):
+            self.batcher = inner_batcher
+            self.raised = False
+
+        @override
+        async def create_batches(
+            self,
+            tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]],
+            context: ToolCallContext,
+        ) -> Sequence[ToolCallBatch]:
+            if not self.raised:
+                self.raised = True
+                raise Exception
+
+            FailOnceBatcher.counter += 1
+            return await self.batcher.create_batches(tools, context)
+
+    container[ToolCaller].batcher = FailOnceBatcher(container[ToolCaller].batcher)
+
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="check_current_time_emit",
+        module_path="tests.tool_utilities",
+        description="dummy",
+        parameters={},
+        required=[],
+    )
+
+    tool_id = ToolId(service_name="local", tool_name="check_current_time_emit")
+
+    interaction_history = [
+        create_event_message(
+            offset=0,
+            source=EventSource.CUSTOMER,
+            message="greeting !",
+        )
+    ]
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer greets you",
+            action="Greet customer and mention current time",
+            score=9,
+            rationale="customer wants to be greeted and needs the current time",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [tool_id],
+    }
+
+    session = await container[SessionStore].create_session(CustomerStore.GUEST_ID, agent.id)
+    customer_guest = await container[CustomerStore].read_customer(CustomerStore.GUEST_ID)
+    event_emitter = await container[EventEmitterFactory].create_event_emitter(
+        emitting_agent_id=session.agent_id,
+        session_id=session.id,
+    )
+    preexec_state = await container[ToolEventGenerator].create_preexecution_state(
+        event_emitter,
+        session.id,
+        agent,
+        customer_guest,
+        [],
+        interaction_history,
+        [],
+        [],
+        tool_enabled_guideline_matches,
+        [],
+    )
+
+    results = await container[ToolEventGenerator].generate_events(
+        preexecution_state=preexec_state,
+        session_event_emitter=event_emitter,
+        response_event_emitter=EventBuffer(agent),
+        session_id=session.id,
+        agent=agent,
+        customer=customer_guest,
+        context_variables=[],
+        interaction_history=interaction_history,
+        terms=[],
+        ordinary_guideline_matches=[],
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        journeys=[],
+        staged_events=[],
+    )
+
+    assert FailOnceBatcher.counter == 1
+    assert results.events is not None and len(results.events) == 1
+    assert results.events[0].kind == EventKind.TOOL
+    assert "9:59" in results.events[0].data["tool_calls"][0]["result"]["data"]
+
+
+async def test_that_high_level_retries_on_inference_exhaust_all_retries(
+    container: Container,
+    agent: Agent,
+) -> None:
+    class SabotageException(Exception):
+        def __init__(self, count: int):
+            self.count = count
+
+    class FailingBatcher(ToolCallBatcher):
+        """Batcher that wraps an existing batcher but always fails on the first call to create_batches"""
+
+        counter: int = 0
+
+        def __init__(self, inner_batcher: ToolCallBatcher):
+            self.batcher = inner_batcher
+
+        @override
+        async def create_batches(
+            self,
+            tools: Mapping[tuple[ToolId, Tool], Sequence[GuidelineMatch]],
+            context: ToolCallContext,
+        ) -> Sequence[ToolCallBatch]:
+            FailingBatcher.counter += 1
+            raise SabotageException(FailingBatcher.counter)
+
+    container[ToolCaller].batcher = FailingBatcher(container[ToolCaller].batcher)
+
+    local_tool_service = container[LocalToolService]
+
+    await local_tool_service.create_tool(
+        name="check_current_time_emit",
+        module_path="tests.tool_utilities",
+        description="dummy",
+        parameters={},
+        required=[],
+    )
+
+    tool_id = ToolId(service_name="local", tool_name="check_current_time_emit")
+
+    interaction_history = [
+        create_event_message(
+            offset=0,
+            source=EventSource.CUSTOMER,
+            message="greeting !",
+        )
+    ]
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer greets you",
+            action="Greet customer and mention current time",
+            score=9,
+            rationale="customer wants to be greeted and needs the current time",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [tool_id],
+    }
+
+    session = await container[SessionStore].create_session(CustomerStore.GUEST_ID, agent.id)
+    customer_guest = await container[CustomerStore].read_customer(CustomerStore.GUEST_ID)
+    event_emitter = await container[EventEmitterFactory].create_event_emitter(
+        emitting_agent_id=session.agent_id,
+        session_id=session.id,
+    )
+    preexec_state = await container[ToolEventGenerator].create_preexecution_state(
+        event_emitter,
+        session.id,
+        agent,
+        customer_guest,
+        [],
+        interaction_history,
+        [],
+        [],
+        tool_enabled_guideline_matches,
+        [],
+    )
+
+    try:
+        results = None
+        results = await container[ToolEventGenerator].generate_events(
+            preexecution_state=preexec_state,
+            session_event_emitter=event_emitter,
+            response_event_emitter=EventBuffer(agent),
+            session_id=session.id,
+            agent=agent,
+            customer=customer_guest,
+            context_variables=[],
+            interaction_history=interaction_history,
+            terms=[],
+            ordinary_guideline_matches=[],
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=[],
+            staged_events=[],
+        )
+        # Not expected to reach this line
+        assert False, "Should have raised an exception"
+    except SabotageException as e:
+        assert e.count == 3
+    except Exception as e:
+        assert False, f"Unexpected exception: {e}"
+
+    assert results is None

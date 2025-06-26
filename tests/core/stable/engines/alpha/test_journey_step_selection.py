@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Sequence, Tuple, cast
 
@@ -50,7 +50,7 @@ class _StepData:
     action: str | None
     customer_dependent_action: bool = False
     requires_tool_calls: bool = False
-    follow_up_ids: list[str] = []
+    follow_up_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -191,12 +191,11 @@ async def base_test_that_correct_step_is_selected(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    journey, journey_step_guidelines = context.sync_await(
-        create_journey(
-            title=JOURNEYS_DICT[journey_name].title,
-            steps=JOURNEYS_DICT[journey_name].steps,
-        )
+    journey, journey_step_guidelines = await create_journey(
+        title=JOURNEYS_DICT[journey_name].title,
+        steps=JOURNEYS_DICT[journey_name].steps,
     )
+
     journey_step_selector = GenericJourneyStepSelectionBatch(
         logger=context.logger,
         schematic_generator=context.schematic_generator,
@@ -248,14 +247,12 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
             "My name is Bartholomew",
         ),
     ]
-    context.sync_await(
-        base_test_that_correct_step_is_selected(
-            context=context,
-            agent=agent,
-            session_id=new_session.id,
-            customer=customer,
-            conversation_context=conversation_context,
-            journey_name="Reset Password Journey",
-            expected_next_step_id="2",
-        )
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        expected_next_step_id="2",
     )

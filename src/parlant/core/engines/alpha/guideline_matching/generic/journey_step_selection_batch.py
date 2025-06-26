@@ -169,8 +169,13 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     journey_path = [inference.content.next_step]
 
             if (
-                journey_path[-1] not in self._journey_steps.keys()
+                journey_path
+                and journey_path[-1] not in self._journey_steps.keys()
+                and inference.content.next_step is not None
             ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
+                self._logger.debug(
+                    f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+                )
                 journey_path[-1] = None
 
         return GuidelineMatchingBatchResult(
@@ -184,6 +189,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 )
             ]
             if inference.content.next_step
+            not in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
             else [],
             generation_info=inference.info,
         )

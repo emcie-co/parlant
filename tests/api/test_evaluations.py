@@ -224,3 +224,73 @@ async def test_that_action_proposition_is_evaluated(
 
         assert invoice["data"]
         assert isinstance(invoice["data"]["guideline"]["action_proposition"], str)
+
+
+async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_payload(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "guideline",
+                    "guideline": {
+                        "content": {
+                            "condition": "the customer greets you",
+                            "action": "greet them back with 'Hello'",
+                        },
+                        "tool_ids": [
+                            {"service_name": "google_calendar", "tool_name": "get_events"}
+                        ],
+                        "operation": "add",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    data = response.json()
+
+    assert "detail" in data
+    assert (
+        data["detail"]
+        == "At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled"
+    )
+
+
+async def test_that_error_is_returned_when_all_propositions_are_disabled_in_a_payload(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "guideline",
+                    "guideline": {
+                        "content": {
+                            "condition": "the customer greets you",
+                            "action": "greet them back with 'Hello'",
+                        },
+                        "tool_ids": [
+                            {"service_name": "google_calendar", "tool_name": "get_events"}
+                        ],
+                        "operation": "add",
+                        "action_proposition": False,
+                        "properties_proposition": False,
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    data = response.json()
+
+    assert "detail" in data
+    assert (
+        data["detail"]
+        == "At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled"
+    )

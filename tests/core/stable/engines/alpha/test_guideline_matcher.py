@@ -387,6 +387,7 @@ async def create_guideline(
                     connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
+                    journey_step_proposition=False,
                 )
             ],
         )

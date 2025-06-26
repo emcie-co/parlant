@@ -338,7 +338,7 @@ OUTPUT FORMAT
   "last_customer_message": "<str, the most recent message from the customer>",
   "journey_applies: <bool, whether the journey should be continued>,
   "last_current_step": "<str, the id of the last current step>",
-  "rationale": "<str, explanation for why the next step was selected>",
+  "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
   "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>", ↓ 
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,

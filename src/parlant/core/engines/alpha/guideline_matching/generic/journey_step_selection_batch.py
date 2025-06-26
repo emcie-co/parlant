@@ -319,7 +319,7 @@ OUTPUT FORMAT
 - Fill in the following fields as instructed. Each field is required unless otherwise specified.
 
 ```json
-{
+{{
   "last_customer_message": "<str, the most recent message from the customer>",
   "journey_applies: <bool, whether the journey should be continued>,
   "last_current_step": "<str, the id of the last current step>",
@@ -330,7 +330,7 @@ OUTPUT FORMAT
   "fast_forward_path": <list of step ids to fast-forward through. Should be omitted if requires_fast_forwarding is false> 
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "next_step": "<str, id of the next step to take>"
-}
+}}
 ```
 """
 
@@ -451,7 +451,7 @@ example_1_journey_steps = {
             action="Guide them in refining their preferences and suggest options that match what they're looking for",
         ),
         parent_ids=["1"],
-        follow_up_ids=["3"],
+        follow_up_ids=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),

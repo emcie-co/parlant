@@ -50,8 +50,9 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
 @dataclass
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
+    journey_title: str
     journey_steps: dict[str, _JourneyStepWrapper]
-    previous_path = Sequence[str | None]
+    previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
 
 
@@ -81,7 +82,11 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
 
-    def _build_journey_steps(self) -> dict[str, _JourneyStepWrapper]:
+    def _build_journey_steps(
+        self,
+    ) -> dict[
+        str, _JourneyStepWrapper
+    ]:  # TODO add comment with what should happen in the path validation, Dor / Kfir will validate
         journey_steps = self._examined_journey.steps
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
             self._guideline_id_to_journey_step_id[step_guideline_id]: _JourneyStepWrapper(
@@ -139,12 +144,12 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         else:
             journey_path = list(inference.content.step_advance)
             if (
-                len(self._previous_path) == 0
-                or not self._previous_path[-1]
-                or journey_path[0] not in self._journey_steps[self._previous_path[-1]].follow_up_ids
+                self._previous_path
+                and not self._previous_path[-1]
+                and journey_path[0] != self._previous_path[-1]
             ):
                 self._logger.debug(
-                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from a child of {self._previous_path} to {journey_path}"
+                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
                 )
                 journey_path = [
                     inference.content.next_step
@@ -188,7 +193,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
     def _format_shots(self, shots: Sequence[JourneyStepSelectionShot]) -> str:
         return "\n".join(
-            f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
+            f"Example #{i}: {shot.journey_title}\n{self._format_shot(shot)}"
+            for i, shot in enumerate(shots, start=1)
         )
 
     def _format_shot(self, shot: JourneyStepSelectionShot) -> str:
@@ -215,6 +221,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
+        formatted_shot += self._get_previous_path_section(shot.previous_path)
         formatted_shot += self._get_journey_steps_section(shot.journey_steps)
 
         formatted_shot += f"""
@@ -295,7 +302,8 @@ Examples of Journey Step Selections:
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(
-            name="journey-step-selection-previous_path", template=self._get_previous_path_section()
+            name="journey-step-selection-previous_path",
+            template=self._get_previous_path_section(self._previous_path),
         )
         builder.add_section(
             name="journey-step-selection-journey-steps",
@@ -326,9 +334,8 @@ OUTPUT FORMAT
   "rationale": "<str, explanation for why the next step was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
   "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>", ↓ 
-  "requires_fast_forwarding": <bool, does the agent need to fast-forward to a future step?>,
-  "fast_forward_path": <list of step ids to fast-forward through. Should be omitted if requires_fast_forwarding is false> 
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
+  "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step>, 
   "next_step": "<str, id of the next step to take>"
 }}
 ```
@@ -366,12 +373,12 @@ OUTPUT FORMAT
                 if step.follow_up_ids:
                     follow_ups_str = "\n".join(
                         [
-                            f"""↳ If "{steps[follow_up_id].guideline_content.condition}" → STEP {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+                            f"""↳ If "{steps[follow_up_id].guideline_content.condition}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
                             for follow_up_id in step.follow_up_ids
                         ]
                     )
                 else:
-                    follow_ups_str = "↳ IF this step is completed, RETURN 'NONE'"
+                    follow_ups_str = "↳ IF this step is completed,  → RETURN 'NONE'"
                 steps_str += f"""
 STEP {step_id}: {action}
 {flags_str}
@@ -386,11 +393,11 @@ Steps:
 {steps_str} 
 """
 
-    def _get_previous_path_section(self) -> str:
-        if not self._previous_path or all([p is None for p in self._previous_path]):
+    def _get_previous_path_section(self, previous_path: Sequence[str | None]) -> str:
+        if not previous_path or all([p is None for p in previous_path]):
             return "The journey has just began. No previous steps have been performed. Begin at step 1."
         return f"""
-The steps that were visited in past messages of these conversation, in chronological order, are: {self._previous_path}. 
+The steps that were visited in past messages of these conversation, in chronological order, are: {previous_path}. 
 You may only backtrack to one of these steps.
 """
 
@@ -420,11 +427,6 @@ example_1_events = [
         "That sounds exciting! I can help you with that. Do you prefer exploring cities or enjoying scenic landscapes?",
     ),
     _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "Can you help me figure out the best time to visit Rome and what to pack?",
-    ),
-    _make_event(
         "78",
         EventSource.CUSTOMER,
         "Actually I’m also wondering — do I need any special visas or documents as an American citizen?",
@@ -436,19 +438,41 @@ example_1_journey_steps = {
     "1": _JourneyStepWrapper(
         id="1",
         guideline_content=GuidelineContent(
-            condition="The customer is looking for flight or accommodation booking assistance",
-            action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
+            condition="",
+            action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
         ),
         parent_ids=[],
-        follow_up_ids=["2"],
+        follow_up_ids=["2", "3", "4"],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "2": _JourneyStepWrapper(
         id="2",
         guideline_content=GuidelineContent(
-            condition="The customer ask for activities recommendations",
-            action="Guide them in refining their preferences and suggest options that match what they're looking for",
+            condition="The customer prefers exploring cities",
+            action="Recommend the capital city of their desired nation",
+        ),
+        parent_ids=["1"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+    "3": _JourneyStepWrapper(
+        id="3",
+        guideline_content=GuidelineContent(
+            condition="The customer prefers scenic landscapes",
+            action="Recommend the top hiking route of their desired nation",
+        ),
+        parent_ids=["1"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+    "4": _JourneyStepWrapper(
+        id="4",
+        guideline_content=GuidelineContent(
+            condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
+            action="Refer them to our travel information page",
         ),
         parent_ids=["1"],
         follow_up_ids=[],
@@ -482,9 +506,11 @@ example_1_expected = JourneyStepSelectionSchema(
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1",
+        journey_title="Recommend Vacation Journey",
         interaction_events=example_1_events,
         journey_steps=example_1_journey_steps,
         expected_result=example_1_expected,
+        previous_path=[],
     ),
 ]
 

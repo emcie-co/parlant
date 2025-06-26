@@ -233,7 +233,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
     agent: Agent,
     new_session: Session,
     customer: Customer,
-):
+) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,

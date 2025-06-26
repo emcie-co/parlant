@@ -189,7 +189,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 )
             ]
             if inference.content.next_step
-            not in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
+            in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
             else [],
             generation_info=inference.info,
         )
@@ -268,6 +268,7 @@ Apply the following process to determine which journey step should apply next. D
 
 1. Context check: Determine if we're still within the journey context and document your decision under the "journey_applies" key.
  Unless the customer explicitly requests to leave the subject of the journey, journey_applies should be true.
+ If you output journey_applies as false, you must return 'None' under the 'next_step' key.
 
 2. Backtrack check: Check if we need to return to an earlier step (e.g., customer changes a decision they took in a previous step). 
  Backtracking is required if the customer changes a decision that was made in a previous step. 
@@ -275,7 +276,7 @@ Apply the following process to determine which journey step should apply next. D
  If it is required, apply the following process to determine which step to return to:
     a. Identify the step transition in which the customer made a decision that requires backtracking.
     b. Within that transition, identify which step should be taken next according to the customer's latest decision.
- If backtracking is required, you may skip the rest of the process and return to the step that requires backtracking.
+ If backtracking is required, you may skip the rest of the process and return to the step that requires backtracking under the 'next_step' key.
 
  3. Last Step Completion check: Determine if the current step is complete, meaning that the agent already took the action it ascribes.
  Document your decision under the "last_current_step_completed" key.
@@ -342,7 +343,7 @@ OUTPUT FORMAT
   "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>", ↓ 
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step>, 
-  "next_step": "<str, id of the next step to take>"
+  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```
 """

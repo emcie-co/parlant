@@ -268,9 +268,7 @@ async def base_test_that_correct_step_is_selected(
     if len(result.matches) == 0:
         assert expected_next_step_id is None
     else:
-        result_path: Sequence[str] = cast(
-            list[str], result.matches[0].metadata["simple_chronological_journey"]
-        )
+        result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
         if expected_path:
             assert len(result_path) == len(expected_path)
             for result_step, expected_step in zip(result_path, expected_path):
@@ -288,7 +286,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
-            "Hi there, can you help me?",
+            "Hi there, I need to reset my password",
         ),
         (
             EventSource.AI_AGENT,

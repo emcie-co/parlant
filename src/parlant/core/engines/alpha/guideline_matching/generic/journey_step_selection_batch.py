@@ -342,7 +342,6 @@ OUTPUT FORMAT
                 return step_id
 
         journey = self._examined_journey
-        trigger_str = " OR ".join(journey.conditions)
 
         # Sort steps by step id as integer if possible, else as string
         steps_str = ""
@@ -362,6 +361,8 @@ OUTPUT FORMAT
                         and (not self._previous_path or step.id != self._previous_path[-1])
                     ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
                         flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
+                    if self._previous_path and step.id == self._previous_path[-1]:
+                        flags_str += "- This is the last step that was executed. Begin advancing on from this step\n"
                 if step.follow_up_ids:
                     follow_ups_str = "\n".join(
                         [
@@ -377,10 +378,9 @@ STEP {step_id}: {action}
 TRANSITIONS:
 {follow_ups_str}
 """
-
+        # TODO consider adding the trigger string here
         return f"""
 Journey: {journey.title}
-Trigger: {trigger_str}
 
 Steps:
 {steps_str} 
@@ -474,10 +474,11 @@ example_1_expected = JourneyStepSelectionSchema(
 # Backtracking
 # Step needs to be repeated
 # Multiple steps advancement - stopped by lacking info
-# journey no longer applies
 # Multiple steps advancement - stopped by requires tool calls
+# journey no longer applies
 # journey completed
-
+# Stop at customer dependent
+# Go to Journey start
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1",

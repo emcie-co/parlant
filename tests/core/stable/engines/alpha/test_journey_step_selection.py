@@ -512,4 +512,48 @@ async def test_that_journey_selector_correctly_advances_based_on_tool_result(
     )
 
 
-# Multistep advancement tests
+async def test_that_journey_selector_correctly_exits_journey_that_no_longer_applies(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Oh actually nevermind, can you help me with an existing order first?",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2"],
+        expected_next_step_id=None,
+    )
+
+
+# TODO Multistep advancement tests
+
+
+# TODO backtracking tests

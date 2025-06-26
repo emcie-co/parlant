@@ -94,6 +94,7 @@ def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
             connection_proposition=dto.guideline.connection_proposition,
             action_proposition=False,
             properties_proposition=False,
+            journey_step_proposition=False,
         )
 
     raise HTTPException(

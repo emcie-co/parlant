@@ -91,7 +91,7 @@ class GuidelinePayload:
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
     properties_proposition: bool
-    journey_step_propositions: bool = False  # TODO talk to Dor about having no default value
+    journey_step_proposition: bool
     updated_id: Optional[GuidelineId] = None
 
     def __repr__(self) -> str:
@@ -128,7 +128,7 @@ class InvoiceGuidelineData:
     entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
     action_proposition: Optional[str]
     properties_proposition: Optional[dict[str, JSONSerializable]]
-    _type: Literal["guideline"] = "guideline"  # Union discrimator for Pydantic
+    _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
 
 
 InvoiceData: TypeAlias = Union[InvoiceGuidelineData]
@@ -220,6 +220,17 @@ class GuidelinePayloadDocument_v0_1_0(TypedDict):
     connection_proposition: bool
 
 
+class GuidelinePayloadDocument_v0_2_0(TypedDict):
+    content: GuidelineContentDocument
+    tool_ids: Sequence[ToolId]
+    action: Literal["add", "update"]
+    updated_id: Optional[GuidelineId]
+    coherence_check: bool
+    connection_proposition: bool
+    action_proposition: bool
+    properties_proposition: bool
+
+
 class GuidelinePayloadDocument(TypedDict):
     content: GuidelineContentDocument
     tool_ids: Sequence[ToolId]
@@ -229,6 +240,7 @@ class GuidelinePayloadDocument(TypedDict):
     connection_proposition: bool
     action_proposition: bool
     properties_proposition: bool
+    journey_step_propositions: bool
 
 
 _PayloadDocument = Union[GuidelinePayloadDocument]
@@ -273,6 +285,16 @@ class InvoiceDocument_v0_1_0(TypedDict, total=False):
     error: Optional[str]
 
 
+class InvoiceDocument_v0_2_0(TypedDict, total=False):
+    kind: str
+    payload: GuidelinePayloadDocument_v0_2_0
+    checksum: str
+    state_version: str
+    approved: bool
+    data: Optional[_InvoiceDataDocument]
+    error: Optional[str]
+
+
 class InvoiceDocument(TypedDict, total=False):
     kind: str
     payload: _PayloadDocument
@@ -291,6 +313,17 @@ class EvaluationDocument_v0_1_0(TypedDict, total=False):
     status: str
     error: Optional[str]
     invoices: Sequence[InvoiceDocument_v0_1_0]
+    progress: float
+
+
+class EvaluationDocument_v0_2_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    agent_id: AgentId
+    creation_utc: str
+    status: str
+    error: Optional[str]
+    invoices: Sequence[InvoiceDocument_v0_2_0]
     progress: float
 
 
@@ -313,7 +346,7 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
 
 
 class EvaluationDocumentStore(EvaluationStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
@@ -330,7 +363,19 @@ class EvaluationDocumentStore(EvaluationStore):
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
+
         elif doc["version"] == "0.2.0":
+            doc = cast(EvaluationTagAssociationDocument, doc)
+
+            return EvaluationTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.3.0"),
+                creation_utc=doc["creation_utc"],
+                evaluation_id=EvaluationId(doc["evaluation_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        elif doc["version"] == "0.3.0":
             return cast(EvaluationTagAssociationDocument, doc)
 
         return None
@@ -342,7 +387,40 @@ class EvaluationDocumentStore(EvaluationStore):
             )
 
         if doc["version"] == "0.2.0":
-            return cast(EvaluationDocument, doc)
+            doc = cast(EvaluationDocument, doc)
+
+            return EvaluationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.3.0"),
+                creation_utc=doc["creation_utc"],
+                status=doc["status"],
+                error=doc.get("error"),
+                invoices=[
+                    InvoiceDocument(
+                        kind=inv["kind"],
+                        payload=GuidelinePayloadDocument(
+                            content=GuidelineContentDocument(
+                                condition=inv["payload"]["content"]["condition"],
+                                action=inv["payload"]["content"].get("action"),
+                            ),
+                            tool_ids=inv["payload"]["tool_ids"],
+                            action=inv["payload"]["action"],
+                            updated_id=inv["payload"].get("updated_id"),
+                            coherence_check=inv["payload"]["coherence_check"],
+                            connection_proposition=inv["payload"]["connection_proposition"],
+                            action_proposition=inv["payload"]["action_proposition"],
+                            properties_proposition=inv["payload"]["properties_proposition"],
+                            journey_step_propositions=False,
+                        ),
+                        checksum=inv["checksum"],
+                        state_version=inv["state_version"],
+                        approved=inv["approved"],
+                        data=inv["data"],
+                    )
+                    for inv in doc["invoices"]
+                ],
+                progress=doc["progress"],
+            )
 
         return None
 
@@ -441,6 +519,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     connection_proposition=payload.connection_proposition,
                     action_proposition=payload.action_proposition,
                     properties_proposition=payload.properties_proposition,
+                    journey_step_propositions=payload.journey_step_proposition,
                 )
             else:
                 raise TypeError(f"Unknown payload type: {type(payload)}")
@@ -546,6 +625,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     connection_proposition=payload_doc["connection_proposition"],
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
+                    journey_step_proposition=payload_doc["journey_step_propositions"],
                 )
             else:
                 raise ValueError(f"Unsupported payload kind: {kind}")

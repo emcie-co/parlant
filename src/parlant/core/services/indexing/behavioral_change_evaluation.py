@@ -663,7 +663,7 @@ class GuidelineEvaluator:
         tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
         indices: list[int] = []
         for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
-            if not p.properties_proposition and not p.journey_step_propositions:
+            if not p.properties_proposition and not p.journey_step_proposition:
                 continue
             action_to_use = (
                 action_prop.content.action if action_prop is not None else p.content.action
@@ -765,9 +765,7 @@ class GuidelineEvaluator:
         tasks: list[asyncio.Task[ToolRunningActionProposition]] = []
         indices: list[int] = []
         for i, p in enumerate(payloads):
-            if (
-                not p.tool_ids or not p.journey_step_propositions
-            ):  # TODO Ask Dor - what happens if they attach a tool after creating the guideline? How do we run evaluations then?
+            if not p.tool_ids or not p.journey_step_proposition:
                 continue
             tasks.append(
                 asyncio.create_task(

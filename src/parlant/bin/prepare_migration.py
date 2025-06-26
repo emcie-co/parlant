@@ -39,13 +39,13 @@ from parlant.core.context_variables import (
 )
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.evaluations import (
-    EvaluationDocument,
     EvaluationDocument_v0_1_0,
+    EvaluationDocument_v0_2_0,
     EvaluationId,
     EvaluationTagAssociationDocument,
     GuidelineContentDocument,
-    GuidelinePayloadDocument,
-    InvoiceDocument,
+    GuidelinePayloadDocument_v0_2_0,
+    InvoiceDocument_v0_2_0,
     InvoiceGuidelineDataDocument,
 )
 from parlant.core.glossary import (
@@ -1007,16 +1007,16 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
         if doc["version"] == "0.1.0":
             evaluation_doc = cast(EvaluationDocument_v0_1_0, doc)
 
-            new_evaluation = EvaluationDocument(
+            new_evaluation = EvaluationDocument_v0_2_0(
                 id=evaluation_doc["id"],
                 version=Version.String("0.2.0"),
                 creation_utc=evaluation_doc["creation_utc"],
                 status=evaluation_doc["status"],
                 error=evaluation_doc["error"],
                 invoices=[
-                    InvoiceDocument(
+                    InvoiceDocument_v0_2_0(
                         kind=i["kind"],
-                        payload=GuidelinePayloadDocument(
+                        payload=GuidelinePayloadDocument_v0_2_0(
                             content=GuidelineContentDocument(
                                 condition=i["payload"]["content"]["condition"],
                                 action=i["payload"]["content"]["action"],

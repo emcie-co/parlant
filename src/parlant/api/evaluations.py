@@ -85,6 +85,14 @@ GuidelinePayloadPropertiesPropositionField: TypeAlias = Annotated[
     ),
 ]
 
+GuidelinePayloadJourneyStepPropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Journey step proposition",
+        examples=[{"action_proposition": True}],
+    ),
+]
+
 guideline_payload_example: ExampleJson = {
     "content": {
         "condition": "User asks about product pricing",
@@ -108,8 +116,9 @@ class GuidelinePayloadDTO(
     tool_ids: Sequence[ToolIdDTO]
     operation: GuidelinePayloadOperationDTO
     updated_id: Optional[GuidelineIdField] = None
-    action_proposition: GuidelinePayloadActionPropositionField
-    properties_proposition: GuidelinePayloadPropertiesPropositionField
+    action_proposition: GuidelinePayloadActionPropositionField = False
+    properties_proposition: GuidelinePayloadPropertiesPropositionField = False
+    journey_step_proposition: GuidelinePayloadJourneyStepPropositionField = False
 
 
 payload_example: ExampleJson = {
@@ -277,6 +286,16 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
                 detail="Missing Guideline payload",
             )
 
+        if (
+            not dto.guideline.action_proposition
+            and not dto.guideline.properties_proposition
+            and not dto.guideline.journey_step_proposition
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled",
+            )
+
         return GuidelinePayload(
             content=GuidelineContent(
                 condition=dto.guideline.content.condition,
@@ -292,6 +311,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
             connection_proposition=False,  # Legacy and will be removed in the future
             action_proposition=dto.guideline.action_proposition,
             properties_proposition=dto.guideline.properties_proposition,
+            journey_step_proposition=dto.guideline.journey_step_proposition,
         )
 
     raise HTTPException(
@@ -329,6 +349,7 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
                 updated_id=descriptor.payload.updated_id,
                 action_proposition=descriptor.payload.properties_proposition,
                 properties_proposition=descriptor.payload.properties_proposition,
+                journey_step_proposition=descriptor.payload.journey_step_proposition,
             ),
         )
 

@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
@@ -137,7 +137,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         if inference.content.requires_backtracking:
             journey_path: list[str | None] = [inference.content.next_step]
         else:
-            journey_path: list[str | None] = list(inference.content.step_advance)
+            journey_path = list(inference.content.step_advance)
             if (
                 len(self._previous_path) == 0
                 or not self._previous_path[-1]
@@ -335,7 +335,7 @@ OUTPUT FORMAT
 """
 
     def _get_journey_steps_section(self, steps: dict[str, _JourneyStepWrapper]) -> str:
-        def step_sort_key(step_id):
+        def step_sort_key(step_id: str) -> Any:
             try:
                 return int(step_id)
             except Exception:
@@ -346,8 +346,8 @@ OUTPUT FORMAT
         # Sort steps by step id as integer if possible, else as string
         steps_str = ""
         for step_id in sorted(steps.keys(), key=step_sort_key):
-            step = steps[step_id]
-            action = step.guideline_content.action
+            step: _JourneyStepWrapper = steps[step_id]
+            action: str | None = step.guideline_content.action
             flags_str = ""
             if action:
                 if step.customer_dependent_action or step.requires_tool_calls:
@@ -371,7 +371,7 @@ OUTPUT FORMAT
                         ]
                     )
                 else:
-                    follow_ups_str = ["↳ IF this step is completed, RETURN 'NONE'"]
+                    follow_ups_str = "↳ IF this step is completed, RETURN 'NONE'"
                 steps_str += f"""
 STEP {step_id}: {action}
 {flags_str}

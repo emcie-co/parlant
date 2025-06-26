@@ -764,6 +764,7 @@ class GuidelineEvaluator:
     ) -> Sequence[Optional[ToolRunningActionProposition]]:
         tasks: list[asyncio.Task[ToolRunningActionProposition]] = []
         indices: list[int] = []
+
         for i, p in enumerate(payloads):
             if not p.tool_ids or not p.journey_step_proposition:
                 continue

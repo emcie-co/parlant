@@ -73,8 +73,8 @@ def context(
 
 
 JOURNEYS_DICT: dict[str, _JourneyData] = {
-    "reset_password_journey": _JourneyData(
-        title="Reset Password Journey",
+    "compliment_customer_journey": _JourneyData(
+        title="Compliment Customer Journey",
         steps=[
             _StepData(
                 id="1",
@@ -96,7 +96,57 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=[],
             ),
         ],
-    )
+    ),
+    "reset_password_journey": _JourneyData(
+        title="Reset Password Journey",
+        steps=[
+            _StepData(
+                id="1",
+                condition="The customer has not provided their account number",
+                action="Ask for their account number",
+                follow_up_ids=["2", "1"],
+                customer_dependent_action=True,
+            ),
+            _StepData(
+                id="2",
+                condition="The customer provided their account number",
+                action="Ask for their email address or phone number",
+                follow_up_ids=["3"],
+                customer_dependent_action=True,
+            ),
+            _StepData(
+                id="3",
+                condition="The customer provided either their email address or phone number",
+                action="Wish them a good day",
+                follow_up_ids=["4", "5"],
+            ),
+            _StepData(
+                id="4",
+                condition="The customer did not wish you a good day in return",
+                action=None,
+                follow_up_ids=[],
+            ),
+            _StepData(
+                id="5",
+                condition="The customer wished you a good day in return",
+                action="Use the reset_password tool with the provided information",
+                follow_up_ids=["6", "7"],
+                requires_tool_calls=True,
+            ),
+            _StepData(
+                id="6",
+                condition="reset_password tool returned that the password was successfully reset",
+                action="Report the result to the customer",
+                follow_up_ids=[],
+            ),
+            _StepData(
+                id="7",
+                condition="reset_password tool returned that the password was not successfully reset, or otherwise failed",
+                action="Apologize to the customer and report that the password cannot be reset at this time",
+                follow_up_ids=[],
+            ),
+        ],
+    ),
 }
 
 
@@ -218,7 +268,9 @@ async def base_test_that_correct_step_is_selected(
     if len(result.matches) == 0:
         assert expected_next_step_id is None
     else:
-        result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
+        result_path: Sequence[str] = cast(
+            list[str], result.matches[0].metadata["simple_chronological_journey"]
+        )
         if expected_path:
             assert len(result_path) == len(expected_path)
             for result_step, expected_step in zip(result_path, expected_path):
@@ -236,7 +288,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
-            "Hi there, I need to reset my password",
+            "Hi there, can you help me?",
         ),
         (
             EventSource.AI_AGENT,
@@ -253,6 +305,38 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
+        journey_name="compliment_customer_journey",
+        expected_next_step_id="2",
+    )
+
+
+async def test_that_journey_selector_correctly_advances_to_follow_up_step_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+    ]
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        journey_previous_path=["1"],
         expected_next_step_id="2",
     )

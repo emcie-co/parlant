@@ -2069,7 +2069,7 @@ async def test_that_guideline_with_relationships_can_be_deleted(
             id=connected_guideline.id,
             kind=RelationshipEntityKind.GUIDELINE,
         ),
-        kind=GuidelineRelationshipKind.ENTAILMENT,
+        kind=RelationshipKind.ENTAILMENT,
     )
 
     (await async_client.delete(f"/guidelines/{guideline.id}")).raise_for_status()

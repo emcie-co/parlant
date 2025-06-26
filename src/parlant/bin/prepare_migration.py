@@ -58,6 +58,7 @@ from parlant.core.persistence.vector_database_helper import VectorDocumentStoreM
 from parlant.core.journeys import (
     JourneyConditionAssociationDocument,
     JourneyDocument_v0_1_0,
+    JourneyStepAssociationDocument,
     JourneyTagAssociationDocument,
     JourneyVectorStore,
 )
@@ -86,7 +87,8 @@ from parlant.core.persistence.document_database_helper import MetadataDocument
 from parlant.core.tags import Tag
 from parlant.core.utterances import (
     UtteranceTagAssociationDocument,
-    UtteranceDocument_v0_1_0,
+    UtteranceDocument_v_0_1_0,
+    UtteranceField,
     UtteranceVectorStore,
 )
 
@@ -771,9 +773,12 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
     migrated_count = 0
     for doc in await utterances_collection.find(filters={}):
         if doc["version"] == "0.1.0":
-            doc = cast(UtteranceDocument_v0_1_0, doc)
+            doc = cast(UtteranceDocument_v_0_1_0, doc)
 
-            content = doc["value"]
+            content = UtteranceVectorStore.assemble_content(
+                value=doc["value"],
+                fields=[UtteranceField(**f) for f in doc["fields"]],
+            )
 
             new_doc = {
                 "id": doc["id"],

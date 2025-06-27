@@ -129,7 +129,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         # TODO VALIDATION NOTE: the following should be validated in a safe way:
-        # 1. The returned inference.content.step_advance, if it exists (is not None), begins with the last index of is either None, or a list whose first index is self._previous_path and ends with next_step.
+        # 1. The returned inference.content.step_advance, if it exists (is not None),
+        #  begins with the last index of is either None,
+        # or a list whose first index is self._previous_path and ends with next_step.
         # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
         # 3. If last_current_step == next_step, then the path should be a list with only that value
         # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.

@@ -399,3 +399,46 @@ class Test_that_journey_steps_and_sub_steps_are_ordered(SDKTest):
         assert journey.steps[6] == self.sub_step22.guideline.id
         assert journey.steps[7] == self.step3.guideline.id
         assert journey.steps[8] == self.sub_step31.guideline.id
+
+
+class Test_that_journey_sub_step_reevaluate_after_journey_step_that_only_running_tools(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for journey step creation tests",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Step Journey",
+            conditions=[],
+            description="A journey with multiple steps",
+        )
+
+        @tool
+        def check_balance(context: ToolContext) -> ToolResult:
+            return ToolResult(data={})
+
+        self.step = await self.journey.create_step(
+            description="Check customer balance", tools=[check_balance]
+        )
+
+        self.sub_step = await self.step.create_sub_step(
+            description="If balance is low, offer a discount",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+
+        relationships = await relationship_store.list_relationships(
+            kind=RelationshipKind.REEVALUATION,
+            target_id=self.sub_step.guideline.id,
+        )
+
+        assert relationships
+        assert len(relationships) == 1
+        assert relationships[0].kind == RelationshipKind.REEVALUATION
+        assert relationships[0].source.id == ToolId(
+            service_name=p.INTEGRATED_TOOL_SERVICE_NAME, tool_name="check_balance"
+        )
+        assert relationships[0].target.id == self.sub_step.guideline.id

@@ -49,7 +49,7 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_title: str
-    journey_steps: dict[str, _JourneyStepWrapper]
+    journey_steps: dict[str, _JourneyStepWrapper] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
 
@@ -225,8 +225,11 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        formatted_shot += self._get_previous_path_section(shot.previous_path)
-        formatted_shot += self._get_journey_steps_section(shot.journey_steps)
+        formatted_shot += f"The steps that were visited in past messages in this example are {shot.previous_path}."
+        if shot.journey_steps:
+            formatted_shot += self._get_journey_steps_section(
+                shot.journey_steps, shot.journey_title
+            )
 
         formatted_shot += f"""
 - **Expected Result**:
@@ -312,7 +315,9 @@ Examples of Journey Step Selections:
         )
         builder.add_section(
             name="journey-step-selection-journey-steps",
-            template=self._get_journey_steps_section(self._journey_steps),
+            template=self._get_journey_steps_section(
+                self._journey_steps, self._examined_journey.title
+            ),
         )
         builder.add_section(
             name="journey-step-selection-output-format",
@@ -334,7 +339,7 @@ OUTPUT FORMAT
 ```json
 {{
   "last_customer_message": "<str, the most recent message from the customer>",
-  "journey_applies: <bool, whether the journey should be continued>,
+  "journey_applies": <bool, whether the journey should be continued>,
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
@@ -346,14 +351,14 @@ OUTPUT FORMAT
 ```
 """
 
-    def _get_journey_steps_section(self, steps: dict[str, _JourneyStepWrapper]) -> str:
+    def _get_journey_steps_section(
+        self, steps: dict[str, _JourneyStepWrapper], journey_title: str
+    ) -> str:
         def step_sort_key(step_id: str) -> Any:
             try:
                 return int(step_id)
             except Exception:
                 return step_id
-
-        journey = self._examined_journey
 
         # Sort steps by step id as integer if possible, else as string
         steps_str = ""
@@ -392,7 +397,7 @@ TRANSITIONS:
 """
         # TODO consider adding the trigger string here
         return f"""
-Journey: {journey.title}
+Journey: {journey_title}
 
 Steps:
 {steps_str} 
@@ -497,24 +502,197 @@ example_1_expected = JourneyStepSelectionSchema(
     next_step="4",
 )
 
+example_2_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "From where would you like to request a taxi?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "I'd like to book a taxi from 20 W 34th St., NYC to JFK Airport at 5 PM, please. I'll pay by cash.",
+    ),
+]
 
+book_taxi_shot_journey_steps = {
+    "1": _JourneyStepWrapper(
+        id="1",
+        guideline_content=GuidelineContent(
+            condition="",
+            action="Welcome the customer to the taxi service",
+        ),
+        parent_ids=[],
+        follow_up_ids=["3"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "2": _JourneyStepWrapper(
+        id="2",
+        guideline_content=GuidelineContent(
+            condition="You welcomed the customer",
+            action="Ask the customer where their desired pick up location",
+        ),
+        parent_ids=[],
+        follow_up_ids=["3"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "3": _JourneyStepWrapper(
+        id="3",
+        guideline_content=GuidelineContent(
+            condition="The desired pick up location is in of NYC",
+            action="Ask where their destination is",
+        ),
+        parent_ids=["2"],
+        follow_up_ids=["5"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "4": _JourneyStepWrapper(
+        id="4",
+        guideline_content=GuidelineContent(
+            condition="The desired pick up location is outside of NYC",
+            action="Inform the customer that we do not operate outside of NYC",
+        ),
+        parent_ids=["2"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+    "5": _JourneyStepWrapper(
+        id="5",
+        guideline_content=GuidelineContent(
+            condition="the customer provided their destination",
+            action="ask for the customer's desired pick up time",
+        ),
+        parent_ids=["3"],
+        follow_up_ids=["6"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "6": _JourneyStepWrapper(
+        id="6",
+        guideline_content=GuidelineContent(
+            condition="the customer provided their desired pick up time",
+            action="Book the taxi ride as the customer requested",
+        ),
+        parent_ids=["5"],
+        follow_up_ids=["7"],
+        customer_dependent_action=False,
+        requires_tool_calls=True,
+    ),
+    "7": _JourneyStepWrapper(
+        id="7",
+        guideline_content=GuidelineContent(
+            condition="the taxi ride was successfully booked",
+            action="Ask the customer if they want to pay in cash or credit",
+        ),
+        parent_ids=["6"],
+        follow_up_ids=["8", "9"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "8": _JourneyStepWrapper(
+        id="8",
+        guideline_content=GuidelineContent(
+            condition="the customer wants to pay in credit",
+            action="Send the customer a credit card payment link",
+        ),
+        parent_ids=["7"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+    "9": _JourneyStepWrapper(
+        id="9",
+        guideline_content=GuidelineContent(
+            condition="the customer wants to pay in cash",
+            action=None,
+        ),
+        parent_ids=["7"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+}
+
+example_2_expected = JourneyStepSelectionSchema(
+    last_current_step="2",
+    last_customer_message="I'd like a taxi from 20 W 34th St., NYC to JFK Airport, at 5 PM please. I'll pay by cash.",
+    journey_applies=True,
+    rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
+    requires_backtracking=False,
+    last_current_step_completed=True,
+    step_advance=["2", "3", "5", "6"],
+    next_step="6",
+)
+
+example_3_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
+    ),
+]
+
+example_3_expected = JourneyStepSelectionSchema(
+    last_current_step="1",
+    last_customer_message="I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
+    journey_applies=True,
+    rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
+    requires_backtracking=False,
+    last_current_step_completed=True,
+    step_advance=["1", "2", "3", "5"],
+    next_step="5",
+)
+
+# TODO add flag for previously visited steps
 # TODO add few-shots
-# Backtracking
-# Step needs to be repeated
-# Multiple steps advancement - stopped by lacking info
-# Multiple steps advancement - stopped by requires tool calls
-# journey no longer applies
-# journey completed
-# Stop at customer dependent
-# Go to Journey start
+# 3. Multiple steps advancement - stopped by lacking info
+# 4. Backtracking
+# 5. Step needs to be repeated
+# 6. journey completed
+
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
-        description="Example 1",
+        description="Example 1 - Simple Single-Step Advancement",
         journey_title="Recommend Vacation Journey",
         interaction_events=example_1_events,
         journey_steps=example_1_journey_steps,
         expected_result=example_1_expected,
-        previous_path=[],
+        previous_path=["1"],
+    ),
+    JourneyStepSelectionShot(
+        description="Example 2 - Multiple Step Advancement Stopped by Tool Calling Step",
+        journey_title="Book Taxi Journey",
+        interaction_events=example_2_events,
+        journey_steps=book_taxi_shot_journey_steps,
+        expected_result=example_2_expected,
+        previous_path=["1", "2"],
+    ),
+    JourneyStepSelectionShot(
+        description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
+        journey_title="Book Taxi Journey - Same Journey as Previous Example",
+        interaction_events=example_3_events,
+        journey_steps=None,
+        expected_result=example_3_expected,
+        previous_path=["1"],
     ),
 ]
 

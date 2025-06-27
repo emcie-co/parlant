@@ -85,7 +85,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self,
     ) -> dict[
         str, _JourneyStepWrapper
-    ]:  # TODO add comment with what should happen in the path validation, Dor / Kfir will validate
+    ]:  # TODO VALIDATION NOTE about validation: The validations that should happen here are:
+        # Should ensure proper checks here, like using get for dictionaries
+        #
+
         journey_steps = self._examined_journey.steps
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
             self._guideline_id_to_journey_step_id[step_guideline_id]: _JourneyStepWrapper(
@@ -116,7 +119,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 requires_tool_calls=cast(
                     bool, self._guideline_ids[step_guideline_id].metadata["tool_running_only"]
                 ),
-            )  # TODO make less ugly
+            )
             for step_guideline_id in journey_steps
         }
 
@@ -135,10 +138,16 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
-        with open("journey step selection output.txt", "w") as f:  # TODO delete
-            f.write(inference.content.model_dump_json(indent=2))
 
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+
+        # TODO VALIDATION NOTE: the following should be validated in a safe way:
+        # 1. The returned inference.content.step_advance, if it exists (is not None), begins with the last index of is either None, or a list whose first index is self._previous_path and ends with next_step.
+        # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
+        # 3. If last_current_step == next_step, then the path should be a list with only that value
+        # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
+        # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
+        # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
 
         if inference.content.requires_backtracking:
             journey_path: list[str | None] = [inference.content.next_step]

@@ -87,7 +87,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 id="2",
                 condition="the customer provided their name",
                 action="tell them their name is pretty",
-                follow_up_ids=[],
+                follow_up_ids=["3"],
             ),
             _StepData(
                 id="3",
@@ -100,7 +100,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 id="4",
                 condition="the customer provided their surname",
                 action="ask for their phone number",
-                follow_up_ids=[""],
+                follow_up_ids=["5"],
                 customer_dependent_action=True,
             ),
             _StepData(

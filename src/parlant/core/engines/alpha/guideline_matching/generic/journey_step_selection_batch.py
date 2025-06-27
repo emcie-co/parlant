@@ -39,11 +39,9 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
     last_current_step: str
     rationale: str
     requires_backtracking: bool
-    backtracking_target_step: Optional[str] | None = (
-        ""  # TODO consider adding extra arq for its parent
-    )
+    backtracking_target_step: Optional[str] | None = ""
     last_current_step_completed: Optional[bool] | None = None
-    step_advance: Sequence[str]
+    step_advance: Optional[Sequence[str | None]] = []
     next_step: str
 
 
@@ -131,7 +129,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
-        with self._logger.operation(f"JourneyStepSelectionBacth: {self._examined_journey.title}"):
+        with self._logger.operation(f"JourneyStepSelectionBatch: {self._examined_journey.title}"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
@@ -142,7 +140,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         if inference.content.requires_backtracking:
             journey_path: list[str | None] = [inference.content.next_step]
         else:
-            journey_path = list(inference.content.step_advance)
+            journey_path = cast(list[str | None], inference.content.step_advance)
             if (
                 self._previous_path
                 and not self._previous_path[-1]
@@ -490,18 +488,17 @@ example_1_journey_steps = {
 
 example_1_expected = JourneyStepSelectionSchema(
     last_current_step="1",
-    last_customer_message="I'm looking for a flight to New York",
+    last_customer_message="Actually I’m also wondering — do I need any special visas or documents as an American citizen?",
     journey_applies=True,
-    rationale="The customer is looking for flight or accommodation booking assistance",
+    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     requires_backtracking=False,
-    backtracking_target_step=None,
-    last_current_step_completed=False,
-    step_advance=["1", "2"],
-    next_step="2",
+    last_current_step_completed=True,
+    step_advance=["1", "4"],
+    next_step="4",
 )
 
+
 # TODO add few-shots
-# One step simple advancement
 # Backtracking
 # Step needs to be repeated
 # Multiple steps advancement - stopped by lacking info

@@ -290,7 +290,7 @@ Check if the customer has changed a previous decision that requires returning to
 Evaluate whether the last executed step is complete.
 - Set `last_current_step_completed` to `true` if the agent performed the required action
 - For steps with `CUSTOMER_DEPENDENT` flag: step is complete only if both agent acted AND customer responded appropriately. These are usually questions that the customer must answer for the step to be considered completed.
-- If incomplete, set `next_step` to the current step ID (repeat the step)
+- If incomplete, set `next_step` to the current step ID (repeat the step) and return the current step ID as the sole member of 'step_advance'.
 
 ## 4: Journey Advancement
 If the current step is complete, advance through subsequent steps until you encounter:
@@ -675,8 +675,8 @@ example_3_expected = JourneyStepSelectionSchema(
 # TODO add flag for previously visited steps
 # TODO add few-shots
 # 4. Backtracking
-# 5. Step needs to be repeated
-# 6. journey completed
+# 5. Step needs to be repeated?
+# 6. journey completed?
 
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(

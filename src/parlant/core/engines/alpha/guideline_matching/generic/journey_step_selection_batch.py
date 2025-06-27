@@ -345,8 +345,6 @@ Examples of Journey Step Selections:
             template=self._get_output_format_section(),
         )
 
-        with open("journey step selection prompt.txt", "w") as f:  # TODO delete
-            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:
@@ -417,7 +415,7 @@ STEP {step_id}: {action}
 TRANSITIONS:
 {follow_ups_str}
 """
-        # TODO consider adding the trigger string here
+        # consider adding the trigger string here
         return f"""
 Journey: {journey_title}
 

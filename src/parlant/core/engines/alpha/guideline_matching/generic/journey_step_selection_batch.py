@@ -39,6 +39,7 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
     last_current_step: str
     rationale: str
     requires_backtracking: bool
+    backtracking_rationale: Optional[str] | None = ""
     backtracking_target_step: Optional[str] | None = ""
     last_current_step_completed: Optional[bool] | None = None
     step_advance: Optional[Sequence[str | None]] = []
@@ -285,7 +286,7 @@ Check if the customer has changed a previous decision that requires returning to
 - If backtracking is needed:
   - Set `backtracking_target_step` to the step where the decision changed
   - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
-  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your rationale should revolve around which decision was changed, and which follow up of its step should currently apply.
+  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your backtracking_rationale should revolve around which decision was changed, and which follow up of its step should currently apply. 
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
@@ -354,6 +355,7 @@ OUTPUT FORMAT
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
+  "backtracking_rationale" <str, explanation as to which step to backtrack to, and which follow up of that step should be next. Omit this field if requires_backtracking is false>,
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
@@ -719,9 +721,10 @@ example_4_events = [
 example_4_expected = JourneyStepSelectionSchema(
     last_current_step="5",
     last_customer_message="Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    rationale="The customer still wants to order a taxi, but has changed their earlier decision regarding the pickup location, which requires journey backtracking",
     journey_applies=True,
-    rationale="The customer is changing their pickup location decision that was made in step 2. Since LaGuardia Airport is within NYC, we need to backtrack to step 2 where the pickup location decision was made, and then follow its transition to step 3 since the new location is within NYC.",
     requires_backtracking=True,
+    backtracking_rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
     backtracking_target_step="2",
     step_advance=["5", "2", "3"],
     next_step="3",

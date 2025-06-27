@@ -1145,7 +1145,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
     )
 
 
-async def test_that_journey_selector_backtracks_when_customer_changes_much_earlier_choice(
+async def test_that_journey_selector_backtracks_when_customer_changes_much_earlier_choice(  # TODO Occasionally backtracks by one step too much
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

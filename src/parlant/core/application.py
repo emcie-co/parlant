@@ -291,7 +291,7 @@ class Application:
 
         return content_guidelines.values()
 
-    async def create_journey_step(
+    async def append_journey_step(
         self,
         journey_id: JourneyId,
         step: GuidelineId,
@@ -316,7 +316,7 @@ class Application:
 
         return guideline
 
-    async def create_journey_sub_step(
+    async def append_journey_sub_step(
         self,
         parent_id: GuidelineId,
         journey_id: JourneyId,

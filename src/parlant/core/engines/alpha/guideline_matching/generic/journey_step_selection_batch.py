@@ -134,6 +134,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
+        with open("journey step selection output.txt", "w") as f:  # TODO delete
+            f.write(inference.content.model_dump_json(indent=2))
 
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
@@ -261,7 +263,7 @@ Each journey consists of:
 - **Flags**: Special properties that modify how steps behave
 
 ## Your Core Task
-Analyze the current conversation state and determine the next appropriate journey step, , based on the last step that was performed and the current state of the conversation.  
+Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.  
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -281,9 +283,8 @@ Determine if the conversation remains within the journey scope.
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
-  - Identify which previous step's decision changed
-  - Set `backtracking_target_step` to the appropriate earlier step ID
-  - Set `next_step` to a follow up of backtracking_target_step according to its transitions and the customer's new choice
+  - Set `backtracking_target_step` to the step where the decision changed
+  - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
@@ -297,7 +298,7 @@ If the current step is complete, advance through subsequent steps until you enco
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
 
-Document your advancement path in `step_advance` as a list of step IDs, starting with the last current step and ending with the next step to execute.
+Document your advancement path in `step_advance` as a list of step IDs, starting with last_current_step and ending with the next step to execute.
 """,
         )
         builder.add_section(
@@ -333,7 +334,7 @@ Examples of Journey Step Selections:
             template=self._get_output_format_section(),
         )
 
-        with open("journey step selection prompt.txt", "w") as f:
+        with open("journey step selection prompt.txt", "w") as f:  # TODO delete
             f.write(builder.build())
         return builder
 
@@ -352,7 +353,7 @@ OUTPUT FORMAT
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>",
+  "backtracking_target_step": "<str, id of the step to backtrack to. Omit this field if requires_backtracking is false>",
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"

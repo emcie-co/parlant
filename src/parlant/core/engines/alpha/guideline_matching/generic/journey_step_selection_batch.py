@@ -251,12 +251,17 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             template="""
 GENERAL INSTRUCTIONS
 -------------------
-You are an AI agent named {agent_name}. Your role is to chat with customers in a multi-turn conversation on behalf of the business you represent.
-Your behavior is guided by "journeys" - predefined processes from the business you represent that guide user interactions.  
-Journeys are defined as a collection of steps, each dictating an action that the agent should take.
-After the performance of each step, the journey advances to the next step according to pre-defined rules, that will be provided to you later in this prompt.
+You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business. 
+Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes. 
 
-Your task is to determine which journey step should apply next, based on the last step that was performed and the current state of the conversation. 
+## Journey Structure
+Each journey consists of:
+- **Steps**: Individual actions you must take (e.g., ask a question, provide information, perform a task)
+- **Transitions**: Rules that determine which step comes next based on customer responses or completion status
+- **Flags**: Special properties that modify how steps behave
+
+## Your Core Task
+Analyze the current conversation state and determine the next appropriate journey step, , based on the last step that was performed and the current state of the conversation.  
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -265,31 +270,34 @@ Your task is to determine which journey step should apply next, based on the las
             template="""
 TASK DESCRIPTION
 -------------------
-Apply the following process to determine which journey step should apply next. Document your decisions in the output, according to a format that will be provided to you later in this prompt.
+Follow this process to determine the next journey step. Document each decision in the specified output format.
 
-1. Context check: Determine if we're still within the journey context and document your decision under the "journey_applies" key.
- Unless the customer explicitly requests to leave the subject of the journey, journey_applies should be true.
- If you output journey_applies as false, you must return 'None' under the 'next_step' key.
+## 1: Journey Context Check
+Determine if the conversation remains within the journey scope.
+- Set `journey_applies` to `true` unless the customer explicitly requests to leave the topic or changes the subject completely
+- If `journey_applies` is `false`, set `next_step` to `'None'` and skip remaining steps
 
-2. Backtrack check: Check if we need to return to an earlier step (e.g., customer changes a decision they took in a previous step). 
- Backtracking is required if the customer changes a decision that was made in a previous step. 
- If backtracking is required, document your decision under the "requires_backtracking" key. 
- If it is required, apply the following process to determine which step to return to:
-    a. Identify the step transition in which the customer made a decision that requires backtracking.
-    b. Within that transition, identify which step should be taken next according to the customer's latest decision.
- If backtracking is required, you may skip the rest of the process and return to the step that requires backtracking under the 'next_step' key.
+## 2: Backtracking Check  
+Check if the customer has changed a previous decision that requires returning to an earlier step.
+- Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
+- If backtracking is needed:
+  - Identify which previous step's decision changed
+  - Set `backtracking_target_step` to the appropriate earlier step ID
+  - Set `next_step` to a follow up of backtracking_target_step according to its transitions and the customer's new choice
 
- 3. Last Step Completion check: Determine if the current step is complete, meaning that the agent already took the action it ascribes.
- Document your decision under the "last_current_step_completed" key.
- If it is not complete, it must be repeated - return the id of the current step.
- If it is complete, keep advancing in the journey, fast-forwarding through steps, until you encounter either:
-  i. A transition which requires you to say something to the customer beyond common curtsey or asking them for information. If must not advance further since that statement must be said before advancing further.   
-  ii. A transition which you do not have enough information to perform (like "ask for the customer's age" when it has yet to be provided yet). The step just before that transition should be the next step to be taken.    
-  iii. You encounter a step that has the REQUIRES_TOOL_CALLS flag. If this occurs, stop and return the id of that step. The tool must run before you advance further.
- You must document each step that you advance through, one step id at a time, under the "step_advance" key. The path should begin with the last current step and end with   
- Note that some steps, which have the "CUSTOMER_DEPENDENT" flag, require the customer to also perform an action for the step for be considered completed. For example, the action "ask the customer for their ID number" requires both the agent to ask this question, and the customer to answer it.
+## 3: Current Step Completion
+Evaluate whether the last executed step is complete.
+- Set `last_current_step_completed` to `true` if the agent performed the required action
+- For steps with `CUSTOMER_DEPENDENT` flag: step is complete only if both agent acted AND customer responded appropriately. These are usually questions that the customer must answer for the step to be considered completed.
+- If incomplete, set `next_step` to the current step ID (repeat the step)
 
+## 4: Journey Advancement
+If the current step is complete, advance through subsequent steps until you encounter:
+- A step requiring a tool call (`REQUIRES_TOOL_CALLS` flag)
+- A step where you lack necessary information to proceed
+- A step requiring you to communicate something new to the customer, beyond asking them for information
 
+Document your advancement path in `step_advance` as a list of step IDs, starting with the last current step and ending with the next step to execute.
 """,
         )
         builder.add_section(

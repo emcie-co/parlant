@@ -29,7 +29,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
+from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter

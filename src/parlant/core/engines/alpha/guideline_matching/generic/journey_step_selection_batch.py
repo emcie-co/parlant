@@ -62,65 +62,52 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,  # NOTE THAT JOURNEY STEPS MUST NOT CHANGE MID-SESSION
         context: GuidelineMatchingContext,
-        guidelines: Sequence[Guideline] = [],
+        step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
 
-        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
-        self._guideline_ids = {g.id: g for g in guidelines}
+        self._step_guideline_mapping = {str(i): g for i, g in enumerate(step_guidelines, start=1)}
+        self._guideline_to_step_id_mapping = {
+            g.id: str(i) for i, g in enumerate(step_guidelines, start=1)
+        }
+        self._guideline_ids = {g.id: g for g in step_guidelines}
 
         self._context = context
-
         self._examined_journey = examined_journey
-        self._guideline_id_to_journey_step_id = {
-            id: str(i) for i, id in enumerate(examined_journey.steps, start=1)
-        }
 
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
 
     def _build_journey_steps(
         self,
-    ) -> dict[
-        str, _JourneyStepWrapper
-    ]:  # TODO VALIDATION NOTE about validation: The validations that should happen here are:
-        # Should ensure proper checks here, like using get for dictionaries
-        #
-
-        journey_steps = self._examined_journey.steps
+    ) -> dict[str, _JourneyStepWrapper]:
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            self._guideline_id_to_journey_step_id[step_guideline_id]: _JourneyStepWrapper(
-                id=self._guideline_id_to_journey_step_id[step_guideline_id],
-                guideline_content=self._guideline_ids[step_guideline_id].content,
+            guideline.id: _JourneyStepWrapper(
+                id=step_id,
+                guideline_content=guideline.content,
                 parent_ids=[],
                 follow_up_ids=[
-                    self._guideline_id_to_journey_step_id[guideline_id]
+                    self._guideline_to_step_id_mapping[guideline_id]
                     for guideline_id in cast(
                         Sequence[GuidelineId],
-                        self._guideline_ids[step_guideline_id].metadata.get("sub_steps", []),
+                        guideline.metadata.get("sub_steps", []),
                     )
                 ],
                 customer_dependent_action=cast(
                     dict[str, bool],
-                    self._guideline_ids[step_guideline_id].metadata[
-                        "customer_dependent_action_data"
-                    ],
+                    guideline.metadata["customer_dependent_action_data"],
                 )["is_customer_dependent"]
                 if "is_customer_dependent"
                 in cast(
                     dict[str, bool],
-                    self._guideline_ids[step_guideline_id].metadata.get(
-                        "customer_dependent_action_data", dict()
-                    ),
+                    guideline.metadata.get("customer_dependent_action_data", {}),
                 )
                 else False,
-                requires_tool_calls=cast(
-                    bool, self._guideline_ids[step_guideline_id].metadata["tool_running_only"]
-                ),
+                requires_tool_calls=cast(bool, guideline.metadata["tool_running_only"]),
             )
-            for step_guideline_id in journey_steps
+            for step_id, guideline in self._step_guideline_mapping.items()
         }
 
         for id, js in journey_steps_dict.items():
@@ -191,7 +178,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         return GuidelineMatchingBatchResult(
             matches=[
                 GuidelineMatch(
-                    guideline=self._guidelines[inference.content.next_step],
+                    guideline=self._step_guideline_mapping[inference.content.next_step],
                     score=10,
                     rationale=inference.content.rationale,
                     guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,

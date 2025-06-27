@@ -410,7 +410,7 @@ async def base_test_that_correct_step_is_selected(
         logger=context.logger,
         schematic_generator=context.schematic_generator,
         examined_journey=journey,
-        guidelines=journey_step_guidelines,
+        step_guidelines=journey_step_guidelines,
         journey_path=journey_previous_path,
         context=GuidelineMatchingContext(
             agent=agent,

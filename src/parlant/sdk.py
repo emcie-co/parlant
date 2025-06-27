@@ -514,7 +514,7 @@ class JourneyStep:
             self._parlant, self._container, self._journey_id, description, tools
         )
 
-        _ = await self._container[Application].create_journey_sub_step(
+        _ = await self._container[Application].append_journey_sub_step(
             self.guideline.id, self._journey_id, sub_step.guideline.id
         )
 
@@ -544,7 +544,7 @@ class Journey:
             self._parlant, self._container, self.id, description, tools
         )
 
-        _ = await self._container[Application].create_journey_step(
+        _ = await self._container[Application].append_journey_step(
             journey_id=self.id,
             step=step.guideline.id,
         )

@@ -437,6 +437,86 @@ async def base_test_that_correct_step_is_selected(
             assert result_path[-1] == expected_next_step_id
 
 
+async def test_that_journey_selector_repeats_step_if_incomplete_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your name?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "How is that relevant?",
+        ),
+    ]
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="compliment_customer_journey",
+        expected_next_step_id="1",
+    )
+
+
+async def test_that_journey_selector_repeats_step_if_incomplete_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I'd like to order some calzones",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'll take 3 calzones",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'll go with Classic Italian",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Perfect! What size would you like - small, medium, or large?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Let me check for a sec",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="calzone_journey",
+        journey_previous_path=["1", "2", "7", "8"],
+        expected_next_step_id="8",
+    )
+
+
 # 1 step advancement tests
 
 

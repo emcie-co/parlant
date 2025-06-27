@@ -285,6 +285,7 @@ Check if the customer has changed a previous decision that requires returning to
 - If backtracking is needed:
   - Set `backtracking_target_step` to the step where the decision changed
   - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
+  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your rationale should revolve around which decision was changed, and which follow up of its step should currently apply.
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
@@ -353,9 +354,9 @@ OUTPUT FORMAT
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "backtracking_target_step": "<str, id of the step to backtrack to. Omit this field if requires_backtracking is false>",
+  "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step>, 
+  "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```
@@ -672,11 +673,59 @@ example_3_expected = JourneyStepSelectionSchema(
     next_step="5",
 )
 
-# TODO add flag for previously visited steps
-# TODO add few-shots
-# 4. Backtracking
-# 5. Step needs to be repeated?
-# 6. journey completed?
+example_4_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi from Newark Airport to Manhattan",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'm sorry, we do not operate outside of NYC.",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+    ),
+    _make_event(
+        "45",
+        EventSource.AI_AGENT,
+        "Great! Where would you like to go?",
+    ),
+    _make_event(
+        "56",
+        EventSource.CUSTOMER,
+        "Times Square please",
+    ),
+    _make_event(
+        "67",
+        EventSource.AI_AGENT,
+        "Perfect! What time would you like to be picked up?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    ),
+]
+
+example_4_expected = JourneyStepSelectionSchema(
+    last_current_step="5",
+    last_customer_message="Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    journey_applies=True,
+    rationale="The customer is changing their pickup location decision that was made in step 2. Since LaGuardia Airport is within NYC, we need to backtrack to step 2 where the pickup location decision was made, and then follow its transition to step 3 since the new location is within NYC.",
+    requires_backtracking=True,
+    backtracking_target_step="2",
+    step_advance=["5", "2", "3"],
+    next_step="3",
+)
 
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
@@ -697,11 +746,19 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     ),
     JourneyStepSelectionShot(
         description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
-        journey_title="Book Taxi Journey - Same Journey as Previous Example",
+        journey_title="Book Taxi Journey - Same Journey as in Example 2",
         interaction_events=example_3_events,
         journey_steps=None,
         expected_result=example_3_expected,
         previous_path=["1"],
+    ),
+    JourneyStepSelectionShot(
+        description="Example 4 - Backtracking Due to Changed Customer Decision",
+        journey_title="Book Taxi Journey - Same as in Example 2",
+        interaction_events=example_4_events,
+        journey_steps=None,
+        expected_result=example_4_expected,
+        previous_path=["1", "2", "4", "2", "3", "5"],
     ),
 ]
 

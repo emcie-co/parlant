@@ -796,7 +796,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
 # TODO Multistep advancement tests
 
 
-async def test_that_journey_selector_correctly_advances_by_multiple_steps(  # Occasionally fast-forwards by too little
+async def test_that_journey_selector_correctly_advances_by_multiple_steps(  # Occasionally fast-forwards by too little, to step 7 instead of 9
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -897,7 +897,7 @@ async def test_that_multistep_advancement_completes_and_exits_journey(
     )
 
 
-async def test_that_multistep_advancement_is_stopped_at_step_that_requires_saying_something(
+async def test_that_multistep_advancement_is_stopped_at_step_that_requires_saying_something(  # Final decision is good, subpath it takes isn't
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

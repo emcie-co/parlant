@@ -796,7 +796,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
 # TODO Multistep advancement tests
 
 
-async def test_that_journey_selector_correctly_advances_by_multiple_steps(
+async def test_that_journey_selector_correctly_advances_by_multiple_steps(  # Occasionally fast-forwards by too little
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -857,9 +857,9 @@ async def test_that_multistep_advancement_is_stopped_at_tool_requiring_steps(
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
-        journey_name="compliment_customer_journey",
+        journey_name="calzone_journey",
         journey_previous_path=["1", "2"],
-        expected_path=["1", "2", "7", "8", "9", "10"],
+        expected_path=["2", "7", "8", "9", "10"],
         expected_next_step_id="10",
     )
 

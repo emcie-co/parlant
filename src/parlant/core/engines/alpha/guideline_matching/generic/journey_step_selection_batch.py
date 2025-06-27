@@ -282,10 +282,11 @@ Apply the following process to determine which journey step should apply next. D
  3. Last Step Completion check: Determine if the current step is complete, meaning that the agent already took the action it ascribes.
  Document your decision under the "last_current_step_completed" key.
  If it is not complete, it must be repeated - return the id of the current step.
- If it is complete, keep advancing in the journey, step by step, until you encounter either:
-  i. A transition which you do not have enough information to perform. The step just before that transition should be the next step to be taken.  
-  ii. You encounter a step that has the REQUIRES_TOOL_CALLS flag. If this occurs, stop and return the id of that step.
- You must document each step that you advance through, one step id at a time, under the "step_advance" key.  
+ If it is complete, keep advancing in the journey, fast-forwarding through steps, until you encounter either:
+  i. A transition which requires you to say something to the customer beyond common curtsey or asking them for information. If must not advance further since that statement must be said before advancing further.   
+  ii. A transition which you do not have enough information to perform (like "ask for the customer's age" when it has yet to be provided yet). The step just before that transition should be the next step to be taken.    
+  iii. You encounter a step that has the REQUIRES_TOOL_CALLS flag. If this occurs, stop and return the id of that step. The tool must run before you advance further.
+ You must document each step that you advance through, one step id at a time, under the "step_advance" key. The path should begin with the last current step and end with   
  Note that some steps, which have the "CUSTOMER_DEPENDENT" flag, require the customer to also perform an action for the step for be considered completed. For example, the action "ask the customer for their ID number" requires both the agent to ask this question, and the customer to answer it.
 
 
@@ -343,7 +344,7 @@ OUTPUT FORMAT
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>", ↓ 
+  "backtracking_target_step": "<str, id of the step to backtrack to. Should be omitted if requires_backtracking is false>",
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"

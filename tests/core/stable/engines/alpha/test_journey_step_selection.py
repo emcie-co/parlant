@@ -124,7 +124,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             _StepData(
                 id="1",
                 condition=None,
-                action="Ask the customer where they last left their keys",
+                action="Ask the customer what type of keys they lost",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
             ),
@@ -144,17 +144,17 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             ),
             _StepData(
                 id="4",
-                condition="The customer indicates that they found their keys",
-                action=None,
-                follow_up_ids=[],
-                customer_dependent_action=False,
-            ),
-            _StepData(
-                id="5",
                 condition="The customer hasn't found their keys",
                 action="Tell them that they better get a new house",
                 follow_up_ids=[],
                 customer_dependent_action=True,
+            ),
+            _StepData(
+                id="5",
+                condition="The customer indicates that they found their keys",
+                action=None,
+                follow_up_ids=[],
+                customer_dependent_action=False,
             ),
         ],
     ),

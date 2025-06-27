@@ -673,7 +673,6 @@ example_3_expected = JourneyStepSelectionSchema(
 
 # TODO add flag for previously visited steps
 # TODO add few-shots
-# 3. Multiple steps advancement - stopped by lacking info
 # 4. Backtracking
 # 5. Step needs to be repeated
 # 6. journey completed

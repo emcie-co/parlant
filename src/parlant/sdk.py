@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from hashlib import md5
 from pathlib import Path
 from types import TracebackType
-from typing import Awaitable, Callable, Iterable, Literal, Sequence, TypedDict, cast
+from typing import Awaitable, Callable, Iterable, Literal, Mapping, Sequence, TypedDict, cast
 from lagom import Container
 
 from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
@@ -181,8 +181,10 @@ class _CachedEvaluator:
         journey_step_propositions: bool,
     ) -> str:
         """Generate a hash for the evaluation request."""
+        tool_ids_str = ",".join(str(tool_id) for tool_id in tool_ids) if tool_ids else ""
+
         return md5(
-            f"{g.condition or ''}:{g.action or ''}:{':'.join(t.to_string() for t in tool_ids)}:{journey_step_propositions}".encode()
+            f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_step_propositions}".encode()
         ).hexdigest()
 
     async def evaluate_guideline(
@@ -361,6 +363,7 @@ class Guideline:
     condition: str
     action: str | None
     tags: Sequence[TagId]
+    metadata: Mapping[str, JSONSerializable]
 
     _parlant: Server
     _container: Container
@@ -496,6 +499,7 @@ class JourneyStep:
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 tags=guideline.tags,
+                metadata=guideline.metadata,
                 _parlant=parlant,
                 _container=container,
             ),
@@ -513,6 +517,28 @@ class JourneyStep:
         sub_step = await self._create_step(
             self._parlant, self._container, self._journey_id, description, tools
         )
+
+        if self.guideline.metadata.get("tool_running_only"):
+            parent_tools = [
+                association.tool_id
+                for association in await self._container[
+                    GuidelineToolAssociationStore
+                ].list_associations()
+                if association.guideline_id == self.guideline.id
+            ]
+
+            for tool_id in parent_tools:
+                await self._container[RelationshipStore].create_relationship(
+                    source=RelationshipEntity(
+                        id=tool_id,
+                        kind=RelationshipEntityKind.TOOL,
+                    ),
+                    target=RelationshipEntity(
+                        id=sub_step.guideline.id,
+                        kind=RelationshipEntityKind.GUIDELINE,
+                    ),
+                    kind=RelationshipKind.REEVALUATION,
+                )
 
         _ = await self._container[Application].append_journey_sub_step(
             self.guideline.id, self._journey_id, sub_step.guideline.id
@@ -600,6 +626,7 @@ class Journey:
             condition=condition,
             action=action,
             tags=guideline.tags,
+            metadata=guideline.metadata,
             _parlant=self._parlant,
             _container=self._container,
         )
@@ -741,6 +768,7 @@ class Agent:
             condition=condition,
             action=action,
             tags=guideline.tags,
+            metadata=guideline.metadata,
             _parlant=self._parlant,
             _container=self._container,
         )
@@ -912,6 +940,7 @@ class Server:
                     condition=guideline.content.condition,
                     action=guideline.content.action,
                     tags=guideline.tags,
+                    metadata=guideline.metadata,
                     _parlant=self,
                     _container=self._container,
                 )

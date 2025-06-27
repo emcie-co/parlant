@@ -778,10 +778,13 @@ class GuidelineEvaluator:
                 )
             )
             indices.append(i)
+
         sparse_results = await async_utils.safe_gather(*tasks)
         results: list[Optional[ToolRunningActionProposition]] = [None] * len(payloads)
+
         for i, res in zip(indices, sparse_results):
             results[i] = res
+
         return results
 
 

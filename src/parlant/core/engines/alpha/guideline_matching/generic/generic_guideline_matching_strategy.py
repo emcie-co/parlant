@@ -122,7 +122,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         previously_applied_actionable_customer_dependent_guidelines: list[Guideline] = []
         actionable_guidelines: list[Guideline] = []
         disambiguation_groups: list[tuple[Guideline, list[Guideline]]] = []
-        journey_step_selection_groups: list[tuple[Journey, Sequence[GuidelineId]]] = []
+        journey_step_selection_journeys: list[Journey] = []
 
         for g in guidelines:
             if not g.content.action:
@@ -145,7 +145,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
 
         for journey in context.relevant_journeys:
             if journey.steps:
-                journey_step_selection_groups.append((journey, journey.steps))
+                journey_step_selection_journeys.append(journey)
 
         guideline_batches: list[GuidelineMatchingBatch] = []
         if observational_guidelines:
@@ -175,14 +175,12 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                     for source, targets in disambiguation_groups
                 ]
             )
-        if journey_step_selection_groups:
+        if journey_step_selection_journeys:
             guideline_batches.extend(
                 await async_utils.safe_gather(
                     *[
-                        self._create_batch_journey_step_selection(
-                            examined_journey, step_ids, context
-                        )
-                        for examined_journey, step_ids in journey_step_selection_groups
+                        self._create_batch_journey_step_selection(examined_journey, context)
+                        for examined_journey in journey_step_selection_journeys
                     ]
                 )
             )
@@ -536,18 +534,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     async def _create_batch_journey_step_selection(
         self,
         examined_journey: Journey,
-        step_ids: Sequence[GuidelineId],
         context: GuidelineMatchingContext,
     ) -> GenericJourneyStepSelectionBatch:
-        guidelines = await async_utils.safe_gather(
-            *map(self._guideline_store.read_guideline, step_ids)
+        step_guidelines = await async_utils.safe_gather(
+            *map(self._guideline_store.read_guideline, examined_journey.steps)
         )
 
         return GenericJourneyStepSelectionBatch(
             logger=self._logger,
             schematic_generator=self._journey_step_selection_schematic_generator,
             examined_journey=examined_journey,
-            guidelines=guidelines,
+            step_guidelines=step_guidelines,
             context=GuidelineMatchingContext(
                 agent=context.agent,
                 session=context.session,

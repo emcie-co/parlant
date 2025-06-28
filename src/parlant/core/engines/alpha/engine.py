@@ -1581,9 +1581,9 @@ class AlphaEngine(Engine):
                 journey_id = cast(JourneyId, journey_id)
                 journeys.remove(journey_id)
 
-                assert "journey_path" in match.guideline.metadata
+                assert "journey_path" in match.metadata
                 journey_paths[journey_id] = cast(
-                    list[Optional[GuidelineId]], match.guideline.metadata.get("journey_path")
+                    list[Optional[GuidelineId]], match.metadata.get("journey_path")
                 )
 
         for j in journeys:

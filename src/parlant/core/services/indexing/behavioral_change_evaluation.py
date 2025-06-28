@@ -576,7 +576,7 @@ class GuidelineEvaluator:
                 else None,
                 "tool_running_only": tool_running_action.is_tool_running_only
                 if tool_running_action
-                else None,
+                else False,
             }
 
             invoice_data = InvoiceGuidelineData(
@@ -768,6 +768,7 @@ class GuidelineEvaluator:
         for i, p in enumerate(payloads):
             if not p.tool_ids or not p.journey_step_proposition:
                 continue
+
             tasks.append(
                 asyncio.create_task(
                     self._tool_running_action_detector.detect_if_tool_running(

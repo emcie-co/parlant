@@ -474,3 +474,55 @@ class Test_that_journey_sub_step_reevaluate_after_journey_step_that_only_running
             service_name=p.INTEGRATED_TOOL_SERVICE_NAME, tool_name="check_balance"
         )
         assert relationships[0].target.id == self.sub_step.guideline.id
+
+
+class Test_that_journey_sub_sub_step_reevaluate_after_journey_sub_step_that_only_running_tools(
+    SDKTest
+):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for journey step creation tests",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Step Journey",
+            conditions=[],
+            description="A journey with multiple steps",
+        )
+
+        @tool
+        def check_season(context: ToolContext) -> ToolResult:
+            return ToolResult(data={})
+
+        travel_dates_step = await self.journey.create_step(
+            description="Inquire about their travel dates."
+        )
+        season_sub_step = await travel_dates_step.create_sub_step(
+            description="Check if there's discount for the specified dates.",
+            tools=[check_season],
+        )
+        self.joke_sub_sub_step = await season_sub_step.create_sub_step(
+            description="If there's a discount, inform the customer about it alongside with a joke."
+        )
+        self.no_discount_sub_step = await season_sub_step.create_sub_step(
+            description="Else, curse god and tell the customer that there is no discount available."
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+
+        relationships = await relationship_store.list_relationships(
+            kind=RelationshipKind.REEVALUATION,
+        )
+
+        assert relationships
+        assert len(relationships) == 2
+        assert all(
+            r.source.id
+            == ToolId(service_name=p.INTEGRATED_TOOL_SERVICE_NAME, tool_name="check_season")
+            for r in relationships
+        )
+        assert any(r.target.id == self.joke_sub_sub_step.guideline.id for r in relationships)
+        assert any(r.target.id == self.no_discount_sub_step.guideline.id for r in relationships)

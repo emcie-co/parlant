@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from itertools import chain
-from typing import Optional, Sequence, cast
+from typing import Mapping, Optional, Sequence, cast
 
 from cachetools import TTLCache
 
@@ -33,7 +33,7 @@ from parlant.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import Journey, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.relationships import (
     RelationshipKind,
     RelationshipEntityKind,
@@ -340,11 +340,24 @@ class EntityQueries:
 
         return list(all_utterances)
 
-    async def find_guidelines_that_need_reevaluation(
+    async def find_guidelines_and_journeys_that_need_reevaluation(
         self,
         available_guidelines: dict[GuidelineId, Guideline],
+        active_journeys: Sequence[Journey],
         tool_call_ids: Sequence[ToolId],
-    ) -> Sequence[Guideline]:
+    ) -> tuple[Sequence[Journey], Sequence[Guideline]]:
+        # Find journeys and guidelines that need reevaluation based on the tool calls made.
+        #
+        # TODO:
+        # - If a guideline associated with a journey requires reevaluation,
+        #   we return the journey, but not the guideline itself.
+        # - In the future, we may want to return both the journey and its associated guideline
+        #   for clarity and completeness.
+        # - We also in the future may want to support multiple journeys for the same guideline.
+        active_journeys_mapping = {journey.id: journey for journey in active_journeys}
+        journeys = []
+        guidelines = []
+
         tasks = [
             self._relationship_store.list_relationships(
                 kind=RelationshipKind.REEVALUATION,
@@ -356,13 +369,25 @@ class EntityQueries:
 
         relationships = list(chain.from_iterable(await async_utils.safe_gather(*tasks)))
 
-        return list(
-            set(
-                available_guidelines[cast(GuidelineId, relationship.target.id)]
-                for relationship in relationships
-                if relationship.target.id in available_guidelines
-            )
-        )
+        for relationship in relationships:
+            if relationship.target.id in available_guidelines:
+                guideline = available_guidelines[cast(GuidelineId, relationship.target.id)]
+
+                if guideline.metadata.get("journey_step") is not None:
+                    # If the guideline is associated with a journey step, we add the journey
+                    # to the list of journeys that need reevaluation.
+                    if journey_id := cast(
+                        Mapping[str, JSONSerializable], guideline.metadata["journey_step"]
+                    ).get("journey_id"):
+                        journey_id = cast(JourneyId, journey_id)
+                        if journey_id in active_journeys_mapping:
+                            journeys.append(active_journeys_mapping[journey_id])
+                else:
+                    # If the guideline is not associated with a journey step, we add it to the list of guidelines
+                    # that need reevaluation.
+                    guidelines.append(guideline)
+
+        return list(set(journeys)), list(set(guidelines))
 
 
 class EntityCommands:

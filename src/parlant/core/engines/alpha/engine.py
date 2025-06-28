@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 import asyncio
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -1070,11 +1070,13 @@ class AlphaEngine(Engine):
 
         # Step 3: Retrieve guidelines that need reevaluation based on tool calls made
         # in case no guidelines need reevaluation, we can skip the rest of the steps.
-        guidelines_to_reevaluate = (
-            await self._entity_queries.find_guidelines_that_need_reevaluation(
-                all_stored_guidelines,
-                tool_call_ids=context.state.iterations[-1].executed_tools,
-            )
+        (
+            journeys_to_reevaluate,
+            guidelines_to_reevaluate,
+        ) = await self._entity_queries.find_guidelines_and_journeys_that_need_reevaluation(
+            all_stored_guidelines,
+            context.state.journeys,
+            tool_call_ids=context.state.iterations[-1].executed_tools,
         )
 
         # Step 4: Reevaluate those guidelines using the latest context.
@@ -1087,7 +1089,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            relevant_journeys=[],
+            relevant_journeys=journeys_to_reevaluate,
             guidelines=guidelines_to_reevaluate,
         )
 
@@ -1122,16 +1124,19 @@ class AlphaEngine(Engine):
             )
 
         # Step 7: Build the final set of matched guidelines:
+        all_activated_journeys = list(context.state.journeys + activated_journeys)
+
         matched_guidelines = await self._build_matched_guidelines(
             context=context,
             reevaluated_guidelines=guidelines_to_reevaluate,
             current_matched=set(matching_result.matches),
+            active_journeys=all_activated_journeys,
         )
 
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=list(matched_guidelines),
-            journeys=list(context.state.journeys + activated_journeys),
+            journeys=all_activated_journeys,
         )
 
         return _GuidelineAndJourneyMatchingResult(
@@ -1146,6 +1151,7 @@ class AlphaEngine(Engine):
         context: LoadedContext,
         reevaluated_guidelines: Sequence[Guideline],
         current_matched: set[GuidelineMatch],
+        active_journeys: Sequence[Journey],
     ) -> Sequence[GuidelineMatch]:
         # Build the set of matched guidelines as follows:
         # 1. Collect all previously matched guidelines (from earlier iterations) — call this set (1).
@@ -1156,29 +1162,55 @@ class AlphaEngine(Engine):
         # - If it was INACTIVE in (1) and became ACTIVE in (2), include it.
         # - If it was ACTIVE in (1), was re-evaluated, and is now INACTIVE in (2), exclude it.
         #
+        # - For each journey, keep only the last matched guideline associated with that journey.
+        #   (This assumes matches are ordered.)
+        #
         # The goal is to determine the currently relevant guidelines, considering for both continuity and change.
         # After filtering, RESOLVE this updated group of matched guidelines to handle:
         # 1. Cases where a guideline just became ACTIVE and may take priority over other ACTIVE guidelines.
         # 2. Cases where a previously ACTIVE guideline became INACTIVE — we may need to re-prioritize those it previously suppressed.
-        previous_matches = set(
-            list(
-                set(
-                    chain.from_iterable(
-                        iteration.matched_guidelines for iteration in context.state.iterations
-                    )
+        latest_match_per_journey: dict[JourneyId, Optional[GuidelineId]] = {
+            journey.id: None for journey in active_journeys
+        }
+        filtered_out_matches: set[GuidelineId] = set()
+
+        previous_matches = list(
+            OrderedDict.fromkeys(
+                chain.from_iterable(
+                    iteration.matched_guidelines for iteration in context.state.iterations
                 )
             )
         )
 
         reevaluated_guideline_ids = {g.id for g in reevaluated_guidelines}
 
-        combined_matches = (
-            previous_matches.intersection(current_matched)
-            .union(current_matched.difference(previous_matches))
-            .union([m for m in previous_matches if m.guideline.id not in reevaluated_guideline_ids])
-        )
+        combined: OrderedDict[GuidelineMatch, None] = OrderedDict()
 
-        return list(combined_matches)
+        for match in previous_matches:
+            if match in current_matched:
+                combined[match] = None
+            elif match.guideline.id not in reevaluated_guideline_ids:
+                combined[match] = None
+
+        for match in current_matched:
+            combined[match] = None
+
+        for match in combined.keys():
+            if journey_id := match.metadata.get("step_selection_journey_id"):
+                journey_id = cast(JourneyId, journey_id)
+
+                if journey_id not in latest_match_per_journey:
+                    filtered_out_matches.add(match.guideline.id)
+                    continue  # Skip if the journey is not in the active journeys
+
+                if latest_match_per_journey[journey_id] is not None:
+                    filtered_out_matches.add(
+                        cast(GuidelineId, latest_match_per_journey[journey_id])
+                    )
+
+                latest_match_per_journey[journey_id] = match.guideline.id
+
+        return [m for m in combined.keys() if m.guideline.id not in filtered_out_matches]
 
     async def _find_tool_enabled_guideline_matches(
         self,

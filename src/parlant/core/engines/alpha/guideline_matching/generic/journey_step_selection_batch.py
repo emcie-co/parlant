@@ -84,7 +84,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self,
     ) -> dict[str, _JourneyStepWrapper]:
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            guideline.id: _JourneyStepWrapper(
+            self._guideline_to_step_id_mapping[guideline.id]: _JourneyStepWrapper(
                 id=step_id,
                 guideline_content=guideline.content,
                 parent_ids=[],

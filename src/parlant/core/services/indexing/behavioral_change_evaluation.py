@@ -565,18 +565,22 @@ class GuidelineEvaluator:
             action_prop = payload_action.content.action if payload_action else None
 
             properties_prop: dict[str, JSONSerializable] = {
-                "continuous": payload_continuous.is_continuous if payload_continuous else None,
-                "customer_dependent_action_data": payload_customer_dependent.model_dump()
-                if payload_customer_dependent
-                else None,
-                "agent_intention_condition": agent_intention.rewritten_condition
-                if agent_intention
-                and agent_intention.rewritten_condition
-                and agent_intention.is_agent_intention
-                else None,
-                "tool_running_only": tool_running_action.is_tool_running_only
-                if tool_running_action
-                else False,
+                **{
+                    "continuous": payload_continuous.is_continuous if payload_continuous else None,
+                    "customer_dependent_action_data": payload_customer_dependent.model_dump()
+                    if payload_customer_dependent
+                    else None,
+                    "agent_intention_condition": agent_intention.rewritten_condition
+                    if agent_intention
+                    and agent_intention.rewritten_condition
+                    and agent_intention.is_agent_intention
+                    else None,
+                },
+                **(
+                    {"tool_running_only": tool_running_action.is_tool_running_only}
+                    if tool_running_action
+                    else {}
+                ),
             }
 
             invoice_data = InvoiceGuidelineData(
@@ -766,7 +770,7 @@ class GuidelineEvaluator:
         indices: list[int] = []
 
         for i, p in enumerate(payloads):
-            if not p.tool_ids or not p.journey_step_proposition:
+            if not p.journey_step_proposition:
                 continue
 
             tasks.append(

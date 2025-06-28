@@ -184,7 +184,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     score=10,
                     rationale=inference.content.rationale,
                     guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
-                    metadata={"journey_path": journey_path},
+                    metadata={
+                        "journey_path": journey_path,
+                        "step_selection_journey_id": self._examined_journey.id,
+                    },
                 )
             ]
             if inference.content.next_step

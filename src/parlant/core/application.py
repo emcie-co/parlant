@@ -296,6 +296,7 @@ class Application:
         journey_id: JourneyId,
         step: GuidelineId,
     ) -> Guideline:
+        # TODO: Support multiple journeys for the same guideline step.
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
         guideline = await self._guideline_store.set_metadata(
@@ -322,6 +323,7 @@ class Application:
         journey_id: JourneyId,
         sub_step: GuidelineId,
     ) -> Guideline:
+        # TODO: Support multiple journeys for the same guideline sub-step.
         sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
 
         sub_step_guideline = await self._guideline_store.set_metadata(

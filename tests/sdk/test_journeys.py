@@ -353,6 +353,38 @@ class Test_that_journey_step_guideline_metadata_includes_sub_steps(SDKTest):
         assert self.sub_step.guideline.id in sub_steps
 
 
+class Test_that_journey_sub_step_guideline_metadata_includes_sub_steps(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for step metadata test",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Meta Journey",
+            description="Test journey for sub-step metadata",
+            conditions=[],
+        )
+
+        self.step = await self.journey.create_step(description="Parent Step")
+        self.sub_step = await self.step.create_sub_step(description="Child Sub-step")
+        self.sub_sub_step = await self.sub_step.create_sub_step(description="Grandchild Sub-step")
+
+    async def run(self, ctx: Context) -> None:
+        guideline_store = ctx.container[GuidelineStore]
+
+        parent_guideline = await guideline_store.read_guideline(
+            guideline_id=self.sub_step.guideline.id
+        )
+
+        journey_steps_metadata = parent_guideline.metadata.get("journey_step", {})
+        if isinstance(journey_steps_metadata, dict):
+            sub_steps = journey_steps_metadata.get("sub_steps", [])
+        else:
+            sub_steps = []
+        assert self.sub_sub_step.guideline.id in sub_steps
+
+
 class Test_that_journey_steps_and_sub_steps_are_ordered(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

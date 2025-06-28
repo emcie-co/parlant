@@ -1022,11 +1022,23 @@ class AlphaEngine(Engine):
                 matches=matches,
             )
 
-        # Step 7: Resolve guideline matches by loading related guidelines that may not have
+        # Step 7: Build the set of matched guidelines as follows:
+        # 1. Collect all previously matched guidelines.
+        # 2. If a guideline match has `step_selection_journey_id` in its metadata,
+        #    it is considered a journey step guideline. If the corresponding journey is active,
+        #    include it in the matched guidelines; otherwise, exclude it.
+        matched_guidelines = [
+            match
+            for match in matching_result.matches
+            if not match.metadata.get("step_selection_journey_id")
+            or any(j.id == match.metadata["step_selection_journey_id"] for j in journeys)
+        ]
+
+        # Step 8: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
-            matches=matching_result.matches,
+            matches=matched_guidelines,
             journeys=journeys,
         )
 

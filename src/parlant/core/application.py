@@ -324,6 +324,15 @@ class Application:
     ) -> Guideline:
         sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
 
+        sub_step_guideline = await self._guideline_store.set_metadata(
+            guideline_id=sub_step,
+            key="journey_step",
+            value={
+                "journey_id": journey_id,
+                "sub_steps": [],
+            },
+        )
+
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
         # Update parent metadata to include the new step as sub-step

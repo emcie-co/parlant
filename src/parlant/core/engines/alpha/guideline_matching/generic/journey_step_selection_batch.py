@@ -133,7 +133,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         #  begins with the last index of is either None,
         # or a list whose first index is self._previous_path and ends with next_step.
         # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
-        # 3. If last_current_step == next_step, then the path should be a list with only that value
+        # 3. ta
         # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
         # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
         # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.

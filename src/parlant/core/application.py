@@ -355,7 +355,7 @@ class Application:
             },
         )
 
-        for i, step in enumerate(journey.steps, start=1):
+        for i, step in enumerate(updated_journey_steps, start=1):
             if step == sub_step:
                 await self._guideline_store.set_metadata(
                     guideline_id=sub_step,

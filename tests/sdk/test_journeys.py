@@ -438,14 +438,50 @@ class Test_that_journey_steps_and_sub_steps_are_ordered(SDKTest):
             cast(dict[str, JSONSerializable], self.step1.guideline.metadata["journey_step"])["id"]
             == 1
         )
-        assert self.sub_step11.guideline.metadata["journey_step"]["id"] == 2
-        assert self.sub_step12.guideline.metadata["journey_step"]["id"] == 3
-        assert self.sub_step13.guideline.metadata["journey_step"]["id"] == 4
-        assert self.step2.guideline.metadata["journey_step"]["id"] == 5
-        assert self.sub_step21.guideline.metadata["journey_step"]["id"] == 6
-        assert self.sub_step22.guideline.metadata["journey_step"]["id"] == 7
-        assert self.step3.guideline.metadata["journey_step"]["id"] == 8
-        assert self.sub_step31.guideline.metadata["journey_step"]["id"] == 9
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step11.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 2
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step12.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 3
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step13.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 4
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.step2.guideline.metadata["journey_step"])["id"]
+            == 5
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step21.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 6
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step22.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 7
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.step3.guideline.metadata["journey_step"])["id"]
+            == 8
+        )
+        assert (
+            cast(dict[str, JSONSerializable], self.sub_step31.guideline.metadata["journey_step"])[
+                "id"
+            ]
+            == 9
+        )
 
 
 class Test_that_journey_sub_step_reevaluate_after_journey_step_that_only_running_tools(SDKTest):

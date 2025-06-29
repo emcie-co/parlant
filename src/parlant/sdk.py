@@ -28,6 +28,7 @@ from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDo
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.core import async_utils
 from parlant.core.agents import (
     Agent as _Agent,
     AgentId,
@@ -460,6 +461,21 @@ class JourneyStep:
     _container: Container
     _journey_id: JourneyId
 
+    async def _update_guideline_step(self) -> None:
+        updated_guideline = await self._container[GuidelineStore].read_guideline(
+            guideline_id=self.guideline.id
+        )
+
+        self.guideline = Guideline(
+            id=updated_guideline.id,
+            condition=updated_guideline.content.condition,
+            action=updated_guideline.content.action,
+            tags=updated_guideline.tags,
+            metadata=updated_guideline.metadata,
+            _parlant=self._parlant,
+            _container=self._container,
+        )
+
     @staticmethod
     async def _create_step(
         parlant: Server,
@@ -546,6 +562,9 @@ class JourneyStep:
 
         self.sub_steps.append(sub_step)
 
+        await async_utils.safe_gather(*(s._update_guideline_step() for s in self.sub_steps))
+        await self._update_guideline_step()
+
         return sub_step
 
 
@@ -560,6 +579,9 @@ class Journey:
 
     _parlant: Server
     _container: Container
+
+    async def _update_guideline_steps(self) -> None:
+        await async_utils.safe_gather(*(s._update_guideline_step() for s in self.steps))
 
     async def create_step(
         self,

@@ -24,6 +24,10 @@ from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
 
+ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
+SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
+
+
 class _JourneyStepWrapper(DefaultBaseModel):
     id: str
     guideline_content: GuidelineContent
@@ -337,6 +341,8 @@ Examples of Journey Step Selections:
             template=self._get_output_format_section(),
         )
 
+        with open("journey step selection prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:
@@ -392,15 +398,17 @@ OUTPUT FORMAT
                         flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
                     if self._previous_path and step.id == self._previous_path[-1]:
                         flags_str += "- This is the last step that was executed. Begin advancing on from this step\n"
-                if step.follow_up_ids:
+                if len(step.follow_up_ids) == 0:
+                    follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
+                elif len(step.follow_up_ids) == 1:
+                    follow_ups_str = f"""↳ If "{steps[step.follow_up_ids[0]].guideline_content.condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → Go to step {step.follow_up_ids[0] if steps[step.follow_up_ids[0]].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+                else:
                     follow_ups_str = "\n".join(
                         [
-                            f"""↳ If "{steps[follow_up_id].guideline_content.condition}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+                            f"""↳ If "{steps[follow_up_id].guideline_content.condition or ELSE_CONDITION_STR}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
                             for follow_up_id in step.follow_up_ids
                         ]
                     )
-                else:
-                    follow_ups_str = "↳ IF this step is completed,  → RETURN 'NONE'"
                 steps_str += f"""
 STEP {step_id}: {action}
 {flags_str}
@@ -556,14 +564,14 @@ book_taxi_shot_journey_steps = {
             action="Ask the customer where their desired pick up location",
         ),
         parent_ids=[],
-        follow_up_ids=["3"],
+        follow_up_ids=["3", "4"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "3": _JourneyStepWrapper(
         id="3",
         guideline_content=GuidelineContent(
-            condition="The desired pick up location is in of NYC",
+            condition="The desired pick up location is in NYC",
             action="Ask where their destination is",
         ),
         parent_ids=["2"],

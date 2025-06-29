@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from datetime import datetime
 from itertools import chain
 import math
@@ -57,7 +58,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
-from parlant.core.journeys import Journey
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
@@ -122,10 +123,24 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         previously_applied_actionable_customer_dependent_guidelines: list[Guideline] = []
         actionable_guidelines: list[Guideline] = []
         disambiguation_groups: list[tuple[Guideline, list[Guideline]]] = []
-        journey_step_selection_journeys: list[Journey] = []
+        journey_step_selection_journeys: dict[Journey, list[Guideline]] = defaultdict(list)
+
+        active_journeys_mapping = {journey.id: journey for journey in context.relevant_journeys}
 
         for g in guidelines:
-            if not g.content.action:
+            if g.metadata.get("journey_step") is not None:
+                # If the guideline is associated with a journey step, we add the journey steps
+                # to the list of journeys that need reevaluation.
+                if journey_id := cast(
+                    Mapping[str, JSONSerializable], g.metadata["journey_step"]
+                ).get("journey_id"):
+                    journey_id = cast(JourneyId, journey_id)
+
+                    if journey_id in active_journeys_mapping:
+                        journey_step_selection_journeys[active_journeys_mapping[journey_id]].append(
+                            g
+                        )
+            elif not g.content.action:
                 if targets := await self._try_get_disambiguation_group_targets(g, guidelines):
                     disambiguation_groups.append((g, targets))
                 else:
@@ -142,10 +157,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                             previously_applied_actionable_guidelines.append(g)
                     else:
                         actionable_guidelines.append(g)
-
-        for journey in context.relevant_journeys:
-            if journey.steps:
-                journey_step_selection_journeys.append(journey)
 
         guideline_batches: list[GuidelineMatchingBatch] = []
         if observational_guidelines:
@@ -179,8 +190,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             guideline_batches.extend(
                 await async_utils.safe_gather(
                     *[
-                        self._create_batch_journey_step_selection(examined_journey, context)
-                        for examined_journey in journey_step_selection_journeys
+                        self._create_batch_journey_step_selection(examined_journey, steps, context)
+                        for examined_journey, steps in journey_step_selection_journeys.items()
                     ]
                 )
             )
@@ -534,12 +545,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     async def _create_batch_journey_step_selection(
         self,
         examined_journey: Journey,
+        step_guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> GenericJourneyStepSelectionBatch:
-        step_guidelines = await async_utils.safe_gather(
-            *map(self._guideline_store.read_guideline, examined_journey.steps)
-        )
-
         return GenericJourneyStepSelectionBatch(
             logger=self._logger,
             schematic_generator=self._journey_step_selection_schematic_generator,

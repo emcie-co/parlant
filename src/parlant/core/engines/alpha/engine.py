@@ -1070,13 +1070,12 @@ class AlphaEngine(Engine):
 
         # Step 3: Retrieve guidelines that need reevaluation based on tool calls made
         # in case no guidelines need reevaluation, we can skip the rest of the steps.
-        (
-            journeys_to_reevaluate,
-            guidelines_to_reevaluate,
-        ) = await self._entity_queries.find_guidelines_and_journeys_that_need_reevaluation(
-            all_stored_guidelines,
-            context.state.journeys,
-            tool_call_ids=context.state.iterations[-1].executed_tools,
+        guidelines_to_reevaluate = (
+            await self._entity_queries.find_guidelines_that_need_reevaluation(
+                all_stored_guidelines,
+                context.state.journeys,
+                tool_call_ids=context.state.iterations[-1].executed_tools,
+            )
         )
 
         # Step 4: Reevaluate those guidelines using the latest context.
@@ -1089,7 +1088,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            relevant_journeys=journeys_to_reevaluate,
+            relevant_journeys=context.state.journeys,
             guidelines=guidelines_to_reevaluate,
         )
 
@@ -1124,9 +1123,7 @@ class AlphaEngine(Engine):
             )
 
         # Step 7: Build the final set of matched guidelines:
-        all_activated_journeys = list(
-            context.state.journeys + activated_journeys + list(journeys_to_reevaluate)
-        )
+        all_activated_journeys = list(context.state.journeys + activated_journeys)
 
         matched_guidelines = await self._build_matched_guidelines(
             context=context,
@@ -1245,9 +1242,8 @@ class AlphaEngine(Engine):
         all_stored_guidelines: dict[GuidelineId, Guideline],
         top_k: int,
     ) -> list[Guideline]:
-        # Prune low-probability journey-dependent guidelines or journey step guidelines
+        # Prune low-probability journey-dependent guidelines.
         # by only keeping those that are either not dependent on any journey
-        # or does not contain metadata of journey steps
         # or are dependent on the top K most relevant journeys.
         relevant_journeys_dependent_ids = set(
             chain.from_iterable(
@@ -1271,7 +1267,6 @@ class AlphaEngine(Engine):
             g
             for id, g in all_stored_guidelines.items()
             if (id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids)
-            and "journey_step" not in g.metadata
         ]
 
     async def _process_activated_low_probability_journey_guidelines(

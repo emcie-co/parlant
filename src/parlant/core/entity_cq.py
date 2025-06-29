@@ -340,22 +340,19 @@ class EntityQueries:
 
         return list(all_utterances)
 
-    async def find_guidelines_and_journeys_that_need_reevaluation(
+    async def find_guidelines_that_need_reevaluation(
         self,
         available_guidelines: dict[GuidelineId, Guideline],
         active_journeys: Sequence[Journey],
         tool_call_ids: Sequence[ToolId],
-    ) -> tuple[Sequence[Journey], Sequence[Guideline]]:
-        # Find journeys and guidelines that need reevaluation based on the tool calls made.
+    ) -> Sequence[Guideline]:
+        # Find guidelines that need reevaluation based on the tool calls made.
         #
         # TODO:
         # - If a guideline associated with a journey requires reevaluation,
-        #   we return the journey, but not the guideline itself.
-        # - In the future, we may want to return both the journey and its associated guideline
-        #   for clarity and completeness.
-        # - We also in the future may want to support multiple journeys for the same guideline.
+        #   we return the journey steps, but not the guideline itself.
+        # - In the future, we may want to support multiple journeys for the same guideline.
         active_journeys_mapping = {journey.id: journey for journey in active_journeys}
-        journeys = []
         guidelines = []
 
         tasks = [
@@ -374,20 +371,24 @@ class EntityQueries:
                 guideline = available_guidelines[cast(GuidelineId, relationship.target.id)]
 
                 if guideline.metadata.get("journey_step") is not None:
-                    # If the guideline is associated with a journey step, we add the journey
-                    # to the list of journeys that need reevaluation.
+                    # If the guideline is associated with a journey step, we add the journey steps
                     if journey_id := cast(
                         Mapping[str, JSONSerializable], guideline.metadata["journey_step"]
                     ).get("journey_id"):
                         journey_id = cast(JourneyId, journey_id)
-                        if journey_id in active_journeys_mapping:
-                            journeys.append(active_journeys_mapping[journey_id])
+
+                        guidelines.extend(
+                            [
+                                available_guidelines[step]
+                                for step in active_journeys_mapping[journey_id].steps
+                            ]
+                        )
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.
                     guidelines.append(guideline)
 
-        return list(set(journeys)), list(set(guidelines))
+        return list(set(guidelines))
 
 
 class EntityCommands:

@@ -304,6 +304,7 @@ class Application:
             key="journey_step",
             value={
                 "journey_id": journey_id,
+                "id": len(journey.steps) + 1,
                 "sub_steps": [],
             },
         )
@@ -324,17 +325,6 @@ class Application:
         sub_step: GuidelineId,
     ) -> Guideline:
         # TODO: Support multiple journeys for the same guideline sub-step.
-        sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
-
-        sub_step_guideline = await self._guideline_store.set_metadata(
-            guideline_id=sub_step,
-            key="journey_step",
-            value={
-                "journey_id": journey_id,
-                "sub_steps": [],
-            },
-        )
-
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
         # Update parent metadata to include the new step as sub-step
@@ -346,15 +336,6 @@ class Application:
         sub_steps = cast(
             list[GuidelineId],
             cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])["sub_steps"],
-        )
-
-        journey_step_metadata = {
-            "journey_id": journey_id,
-            "sub_steps": sub_steps + [sub_step],
-        }
-
-        await self._guideline_store.set_metadata(
-            guideline_id=parent_id, key="journey_step", value=journey_step_metadata
         )
 
         perv_step = sub_steps[-1] if sub_steps else parent.id
@@ -373,5 +354,44 @@ class Application:
                 "steps": updated_journey_steps,
             },
         )
+
+        for i, step in enumerate(journey.steps, start=1):
+            if step == sub_step:
+                await self._guideline_store.set_metadata(
+                    guideline_id=sub_step,
+                    key="journey_step",
+                    value={
+                        "journey_id": journey_id,
+                        "id": i,
+                        "sub_steps": [],
+                    },
+                )
+
+            elif step == parent_id:
+                await self._guideline_store.set_metadata(
+                    guideline_id=parent_id,
+                    key="journey_step",
+                    value={
+                        "journey_id": journey_id,
+                        "id": i,
+                        "sub_steps": sub_steps + [sub_step],
+                    },
+                )
+
+            else:
+                guideline_step = await self._guideline_store.read_guideline(guideline_id=step)
+
+                await self._guideline_store.set_metadata(
+                    guideline_id=step,
+                    key="journey_step",
+                    value={
+                        **cast(
+                            Mapping[str, JSONSerializable], guideline_step.metadata["journey_step"]
+                        ),
+                        "id": i,
+                    },
+                )
+
+        sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
 
         return sub_step_guideline

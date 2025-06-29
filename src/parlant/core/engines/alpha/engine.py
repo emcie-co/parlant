@@ -1124,7 +1124,9 @@ class AlphaEngine(Engine):
             )
 
         # Step 7: Build the final set of matched guidelines:
-        all_activated_journeys = list(context.state.journeys + activated_journeys)
+        all_activated_journeys = list(
+            context.state.journeys + activated_journeys + list(journeys_to_reevaluate)
+        )
 
         matched_guidelines = await self._build_matched_guidelines(
             context=context,

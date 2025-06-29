@@ -28,7 +28,6 @@ from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDo
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
-from parlant.core import async_utils
 from parlant.core.agents import (
     Agent as _Agent,
     AgentId,
@@ -99,7 +98,7 @@ from parlant.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import JourneyId, JourneyStore, JourneyVectorStore
+from parlant.core.journeys import JourneyId, JourneyStepId, JourneyStore, JourneyVectorStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
@@ -452,38 +451,31 @@ class Guideline:
         )
 
 
-@dataclass
-class JourneyStep:
-    guideline: Guideline
-    sub_steps: list[JourneyStep]
+@dataclass(frozen=True)
+class JourneyNode:
+    id: JourneyStepId
+    condition: str | None
+    action: str | None
+    tools: Sequence[ToolEntry]
+    forward_links: list[JourneyNode]
 
     _parlant: Server
     _container: Container
     _journey_id: JourneyId
 
-    async def _update_guideline_step(self) -> None:
-        updated_guideline = await self._container[GuidelineStore].read_guideline(
-            guideline_id=self.guideline.id
-        )
-
-        self.guideline = Guideline(
-            id=updated_guideline.id,
-            condition=updated_guideline.content.condition,
-            action=updated_guideline.content.action,
-            tags=updated_guideline.tags,
-            metadata=updated_guideline.metadata,
-            _parlant=self._parlant,
-            _container=self._container,
-        )
+    ROOT: str = "ROOT"
+    END: str | None = None
 
     @staticmethod
-    async def _create_step(
+    async def _create_node(
         parlant: Server,
         container: Container,
         journey_id: JourneyId,
-        description: str,
-        tools: Iterable[ToolEntry] = [],
-    ) -> JourneyStep:
+        condition: str | None,
+        action: str | None,
+        tools: Sequence[ToolEntry],
+    ) -> JourneyNode:
+        condition = condition or ""
         for t in list(tools):
             await parlant._plugin_server.enable_tool(t)
 
@@ -492,14 +484,14 @@ class JourneyStep:
         ]
 
         evaluation = await parlant._evaluator.evaluate_guideline(
-            GuidelineContent(condition="", action=description),
+            GuidelineContent(condition=condition, action=action),
             tool_ids=tool_ids,
             journey_step_propositions=True,
         )
 
         guideline = await container[GuidelineStore].create_guideline(
             condition="",
-            action=evaluation.action_proposition,
+            action=action or evaluation.action_proposition,
             metadata=evaluation.properties,
         )
 
@@ -509,63 +501,78 @@ class JourneyStep:
                 tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
             )
 
-        return JourneyStep(
-            guideline=Guideline(
-                id=guideline.id,
-                condition=guideline.content.condition,
-                action=guideline.content.action,
-                tags=guideline.tags,
-                metadata=guideline.metadata,
-                _parlant=parlant,
-                _container=container,
-            ),
-            sub_steps=[],
+        return JourneyNode(
+            id=cast(JourneyStepId, guideline.id),
+            condition=condition,
+            action=action or evaluation.action_proposition,
+            tools=tools,
+            forward_links=[],
             _parlant=parlant,
             _container=container,
             _journey_id=journey_id,
         )
 
-    async def create_sub_step(
+    async def link(
         self,
-        description: str,
-        tools: Iterable[ToolEntry] = [],
-    ) -> JourneyStep:
-        sub_step = await self._create_step(
-            self._parlant, self._container, self._journey_id, description, tools
+        node: JourneyNode | None = None,
+        condition: str | None = None,
+        action: str | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyNode:
+        if node is not None:
+            self.forward_links.append(node)
+            return node
+
+        if len(self.forward_links) > 0 and (
+            not condition or any(not n.condition for n in self.forward_links)
+        ):
+            raise SDKError(
+                "Cannot link a new node without a condition if there are already linked nodes without conditions."
+            )
+
+        sub_node = await self._create_node(
+            self._parlant, self._container, self._journey_id, condition, action, tools
         )
 
-        if self.guideline.metadata.get("tool_running_only"):
-            parent_tools = [
-                association.tool_id
-                for association in await self._container[
-                    GuidelineToolAssociationStore
-                ].list_associations()
-                if association.guideline_id == self.guideline.id
-            ]
+        if self.id == self.ROOT:
+            _ = await self._container[Application].append_journey_step(
+                self._journey_id, sub_node.id
+            )
 
-            for tool_id in parent_tools:
-                await self._container[RelationshipStore].create_relationship(
-                    source=RelationshipEntity(
-                        id=tool_id,
-                        kind=RelationshipEntityKind.TOOL,
-                    ),
-                    target=RelationshipEntity(
-                        id=sub_step.guideline.id,
-                        kind=RelationshipEntityKind.GUIDELINE,
-                    ),
-                    kind=RelationshipKind.REEVALUATION,
-                )
+        else:
+            parent_guideline = await self._container[GuidelineStore].read_guideline(
+                cast(GuidelineId, self.id)
+            )
 
-        _ = await self._container[Application].append_journey_sub_step(
-            self.guideline.id, self._journey_id, sub_step.guideline.id
-        )
+            if parent_guideline.metadata.get("tool_running_only"):
+                parent_tools = [
+                    association.tool_id
+                    for association in await self._container[
+                        GuidelineToolAssociationStore
+                    ].list_associations()
+                    if association.guideline_id == cast(GuidelineId, self.id)
+                ]
 
-        self.sub_steps.append(sub_step)
+                for tool_id in parent_tools:
+                    await self._container[RelationshipStore].create_relationship(
+                        source=RelationshipEntity(
+                            id=tool_id,
+                            kind=RelationshipEntityKind.TOOL,
+                        ),
+                        target=RelationshipEntity(
+                            id=cast(GuidelineId, sub_node.id),
+                            kind=RelationshipEntityKind.GUIDELINE,
+                        ),
+                        kind=RelationshipKind.REEVALUATION,
+                    )
 
-        await async_utils.safe_gather(*(s._update_guideline_step() for s in self.sub_steps))
-        await self._update_guideline_step()
+            _ = await self._container[Application].append_journey_sub_step(
+                self.id, self._journey_id, sub_node.id
+            )
 
-        return sub_step
+        self.forward_links.append(sub_node)
+
+        return sub_node
 
 
 @dataclass
@@ -575,31 +582,20 @@ class Journey:
     description: str
     conditions: list[Guideline]
     tags: Sequence[TagId]
-    steps: list[JourneyStep]
+    root: JourneyNode
 
     _parlant: Server
     _container: Container
 
-    async def _update_guideline_steps(self) -> None:
-        await async_utils.safe_gather(*(s._update_guideline_step() for s in self.steps))
-
-    async def create_step(
+    async def create_node(
         self,
-        description: str,
-        tools: Iterable[ToolEntry] = [],
-    ) -> JourneyStep:
-        step = await JourneyStep._create_step(
-            self._parlant, self._container, self.id, description, tools
+        condition: str | None,
+        action: str | None,
+        tools: Sequence[ToolEntry],
+    ) -> JourneyNode:
+        return await JourneyNode._create_node(
+            self._parlant, self._container, self.id, condition, action, tools
         )
-
-        _ = await self._container[Application].append_journey_step(
-            journey_id=self.id,
-            step=step.guideline.id,
-        )
-
-        self.steps.append(step)
-
-        return step
 
     async def create_guideline(
         self,
@@ -743,7 +739,16 @@ class Agent:
             description=description,
             conditions=journey.conditions,
             tags=journey.tags,
-            steps=[],
+            root=JourneyNode(
+                id=JourneyStepId(JourneyNode.ROOT),
+                condition=None,
+                action=None,
+                tools=[],
+                forward_links=[],
+                _parlant=self._parlant,
+                _container=self._container,
+                _journey_id=journey.id,
+            ),
             _parlant=self._parlant,
             _container=self._container,
         )
@@ -984,9 +989,18 @@ class Server:
             description=description,
             conditions=condition_guidelines,
             tags=tags,
-            steps=[],
-            _container=self._container,
+            root=JourneyNode(
+                id=JourneyStepId("ROOT"),
+                condition=None,
+                action=None,
+                tools=[],
+                forward_links=[],
+                _parlant=self,
+                _container=self._container,
+                _journey_id=journey.id,
+            ),
             _parlant=self,
+            _container=self._container,
         )
 
     def _get_startup_params(self) -> StartupParameters:
@@ -1170,7 +1184,7 @@ __all__ = [
     "GuidelineId",
     "Journey",
     "JourneyId",
-    "JourneyStep",
+    "JourneyNode",
     "LoadedContext",
     "LogLevel",
     "Logger",

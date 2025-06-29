@@ -33,7 +33,7 @@ from parlant.core.evaluations import (
     Invoice,
 )
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.journeys import JourneyId, JourneyStore
+from parlant.core.journeys import JourneyId, JourneyStepId, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
@@ -294,13 +294,13 @@ class Application:
     async def append_journey_step(
         self,
         journey_id: JourneyId,
-        step: GuidelineId,
+        step: JourneyStepId,
     ) -> Guideline:
         # TODO: Support multiple journeys for the same guideline step.
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
         guideline = await self._guideline_store.set_metadata(
-            guideline_id=step,
+            guideline_id=cast(GuidelineId, step),
             key="journey_step",
             value={
                 "journey_id": journey_id,
@@ -312,7 +312,7 @@ class Application:
         await self._journey_store.update_journey(
             journey_id=journey_id,
             params={
-                "steps": list(journey.steps) + [guideline.id],
+                "steps": list(journey.steps) + [cast(JourneyStepId, guideline.id)],
             },
         )
 
@@ -320,28 +320,30 @@ class Application:
 
     async def append_journey_sub_step(
         self,
-        parent_id: GuidelineId,
+        parent_id: JourneyStepId,
         journey_id: JourneyId,
-        sub_step: GuidelineId,
+        sub_step: JourneyStepId,
     ) -> Guideline:
         # TODO: Support multiple journeys for the same guideline sub-step.
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
         # Update parent metadata to include the new step as sub-step
-        parent = await self._guideline_store.read_guideline(guideline_id=parent_id)
+        parent = await self._guideline_store.read_guideline(
+            guideline_id=cast(GuidelineId, parent_id)
+        )
 
         assert "journey_step" in parent.metadata
         assert "sub_steps" in cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])
 
         sub_steps = cast(
-            list[GuidelineId],
+            list[JourneyStepId],
             cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])["sub_steps"],
         )
 
         perv_step = sub_steps[-1] if sub_steps else parent.id
 
         # Sorting the journey steps for readability
-        updated_journey_steps: list[GuidelineId] = []
+        updated_journey_steps: list[JourneyStepId] = []
 
         for s in journey.steps:
             updated_journey_steps.append(s)
@@ -358,7 +360,7 @@ class Application:
         for i, step in enumerate(updated_journey_steps, start=1):
             if step == sub_step:
                 await self._guideline_store.set_metadata(
-                    guideline_id=sub_step,
+                    guideline_id=cast(GuidelineId, sub_step),
                     key="journey_step",
                     value={
                         "journey_id": journey_id,
@@ -369,7 +371,7 @@ class Application:
 
             elif step == parent_id:
                 await self._guideline_store.set_metadata(
-                    guideline_id=parent_id,
+                    guideline_id=cast(GuidelineId, parent_id),
                     key="journey_step",
                     value={
                         "journey_id": journey_id,
@@ -379,10 +381,12 @@ class Application:
                 )
 
             else:
-                guideline_step = await self._guideline_store.read_guideline(guideline_id=step)
+                guideline_step = await self._guideline_store.read_guideline(
+                    guideline_id=cast(GuidelineId, step)
+                )
 
                 await self._guideline_store.set_metadata(
-                    guideline_id=step,
+                    guideline_id=cast(GuidelineId, step),
                     key="journey_step",
                     value={
                         **cast(
@@ -392,6 +396,8 @@ class Application:
                     },
                 )
 
-        sub_step_guideline = await self._guideline_store.read_guideline(guideline_id=sub_step)
+        sub_step_guideline = await self._guideline_store.read_guideline(
+            guideline_id=cast(GuidelineId, sub_step)
+        )
 
         return sub_step_guideline

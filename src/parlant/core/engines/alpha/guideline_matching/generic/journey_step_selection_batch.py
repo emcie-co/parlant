@@ -72,10 +72,15 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._logger = logger
         self._schematic_generator = schematic_generator
 
-        self._step_guideline_mapping = {str(i): g for i, g in enumerate(step_guidelines, start=1)}
-        self._guideline_to_step_id_mapping = {
-            g.id: str(i) for i, g in enumerate(step_guidelines, start=1)
+        self._step_guideline_mapping = {
+            str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]): g
+            for g in step_guidelines
         }
+        self._guideline_to_step_id_mapping = {
+            g.id: str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"])
+            for g in step_guidelines
+        }
+
         self._guideline_ids = {g.id: g for g in step_guidelines}
 
         self._context = context

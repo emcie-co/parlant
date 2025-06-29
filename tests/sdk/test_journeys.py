@@ -13,7 +13,9 @@
 # limitations under the License.
 
 from textwrap import dedent
+from typing import cast
 
+from parlant.core.common import JSONSerializable
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
@@ -431,6 +433,19 @@ class Test_that_journey_steps_and_sub_steps_are_ordered(SDKTest):
         assert journey.steps[6] == self.sub_step22.guideline.id
         assert journey.steps[7] == self.step3.guideline.id
         assert journey.steps[8] == self.sub_step31.guideline.id
+
+        assert (
+            cast(dict[str, JSONSerializable], self.step1.guideline.metadata["journey_step"])["id"]
+            == 1
+        )
+        assert self.sub_step11.guideline.metadata["journey_step"]["id"] == 2
+        assert self.sub_step12.guideline.metadata["journey_step"]["id"] == 3
+        assert self.sub_step13.guideline.metadata["journey_step"]["id"] == 4
+        assert self.step2.guideline.metadata["journey_step"]["id"] == 5
+        assert self.sub_step21.guideline.metadata["journey_step"]["id"] == 6
+        assert self.sub_step22.guideline.metadata["journey_step"]["id"] == 7
+        assert self.step3.guideline.metadata["journey_step"]["id"] == 8
+        assert self.sub_step31.guideline.metadata["journey_step"]["id"] == 9
 
 
 class Test_that_journey_sub_step_reevaluate_after_journey_step_that_only_running_tools(SDKTest):

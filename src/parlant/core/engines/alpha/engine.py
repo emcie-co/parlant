@@ -953,7 +953,7 @@ class AlphaEngine(Engine):
         # Step 1: Retrieve the journeys likely to be activated for this agent
         sorted_journeys_by_relevance = await self._find_journeys_sorted_by_relevance(context)
 
-        # Step 2:
+        # Step 2 : Retrieve all the guidelines for the context.
         all_stored_guidelines = {
             g.id: g
             for g in await self._entity_queries.find_guidelines_for_context(

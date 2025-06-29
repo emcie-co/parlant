@@ -160,7 +160,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             for i in range(1, len(journey_path)):
                 if journey_path[i - 1] not in self._journey_steps.keys():
                     self._logger.debug(
-                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i]}. Full path: : {journey_path}"
+                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
                     )
                 elif (
                     journey_path[i]

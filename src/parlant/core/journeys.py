@@ -46,6 +46,7 @@ from parlant.core.persistence.vector_database_helper import (
 from parlant.core.tags import TagId
 
 JourneyId = NewType("JourneyId", str)
+JourneyStepId = NewType("JourneyStepId", str)
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ class Journey:
     creation_utc: datetime
     description: str
     conditions: Sequence[GuidelineId]
-    steps: Sequence[GuidelineId]
+    steps: Sequence[JourneyStepId]
     title: str
     tags: Sequence[TagId]
 
@@ -65,7 +66,7 @@ class Journey:
 class JourneyUpdateParams(TypedDict, total=False):
     title: str
     description: str
-    steps: Sequence[GuidelineId]
+    steps: Sequence[JourneyStepId]
 
 
 class JourneyStore(ABC):
@@ -75,7 +76,7 @@ class JourneyStore(ABC):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
-        steps: Sequence[GuidelineId],
+        steps: Sequence[JourneyStepId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Journey: ...
@@ -85,7 +86,7 @@ class JourneyStore(ABC):
         self,
         tags: Optional[Sequence[TagId]] = None,
         condition: Optional[GuidelineId] = None,
-        step: Optional[GuidelineId] = None,
+        step: Optional[JourneyStepId] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -187,7 +188,7 @@ class JourneyStepAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
-    step: GuidelineId
+    step: JourneyStepId
 
 
 class JourneyTagAssociationDocument(TypedDict, total=False):
@@ -354,7 +355,7 @@ class JourneyVectorStore(JourneyStore):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
-        steps: Sequence[GuidelineId],
+        steps: Sequence[JourneyStepId],
     ) -> str:
         # TODO: use steps as well as part of the content. currently we can't step is GuidelineId and not contain
         # the content of the step.
@@ -390,7 +391,7 @@ class JourneyVectorStore(JourneyStore):
         title: str,
         description: str,
         conditions: Sequence[GuidelineId],
-        steps: Sequence[GuidelineId],
+        steps: Sequence[JourneyStepId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Journey:
@@ -537,7 +538,7 @@ class JourneyVectorStore(JourneyStore):
         self,
         tags: Optional[Sequence[TagId]] = None,
         condition: Optional[GuidelineId] = None,
-        step: Optional[GuidelineId] = None,
+        step: Optional[JourneyStepId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
         journey_ids: set[JourneyId] = set()

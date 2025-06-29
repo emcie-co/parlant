@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Sequence, Tuple, cast
+from typing import Sequence, cast
 
 from lagom import Container
 from pytest import fixture
@@ -26,7 +26,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import Journey, JourneyId
+from parlant.core.journeys import Journey, JourneyId, JourneyStepId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
@@ -343,7 +343,7 @@ def create_context_variable(
 async def create_journey(
     title: str,
     steps: list[_StepData],
-) -> Tuple[Journey, Sequence[Guideline]]:
+) -> tuple[Journey, Sequence[Guideline]]:
     journey_step_guidelines: Sequence[Guideline] = [
         Guideline(
             id=GuidelineId(step.id),
@@ -369,7 +369,7 @@ async def create_journey(
         id=JourneyId("-"),
         creation_utc=datetime.now(timezone.utc),
         conditions=[],
-        steps=[g.id for g in journey_step_guidelines],
+        steps=[cast(JourneyStepId, g.id) for g in journey_step_guidelines],
         title=title,
         description="",
         tags=[],
@@ -780,7 +780,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
         ),
         (
             EventSource.CUSTOMER,
-            "Oh actually nevermind, can you help me with an existing order first?",
+            "Oh actually never mind, can you help me with an existing order first?",
         ),
     ]
 

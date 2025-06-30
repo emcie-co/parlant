@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from typing import Any, Mapping, cast
 from typing_extensions import override
 from lagom import Container
@@ -206,6 +207,55 @@ async def test_that_retry_succeeds_after_failures(
     assert mock_generator.generate.await_count == 3
     mock_generator.generate.assert_awaited_with(prompt="test prompt", hints={"a": 1})
     assert result.content.result == "Success"
+
+
+async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
+    container: Container,
+) -> None:
+    concurrency = 10
+
+    success_result = SchematicGenerationResult(
+        content=DummySchema(result="Success"),
+        info=GenerationInfo(
+            schema_name="DummySchema",
+            model="not-real-model",
+            duration=1,
+            usage=UsageInfo(input_tokens=1, output_tokens=1),
+        ),
+    )
+
+    private_side_effects = [
+        FirstException("First failure"),
+        FirstException("Second failure"),
+        success_result,
+    ]
+
+    @policy([retry(exceptions=(FirstException))])
+    async def generate(
+        mock_object: AsyncMock,
+        prompt: str,
+        hints: Mapping[str, Any],
+    ) -> SchematicGenerationResult[DummySchema]:
+        return cast(
+            SchematicGenerationResult[DummySchema],
+            await mock_object.generate(prompt=prompt, hints=hints),
+        )
+
+    # Create 5 tasks, each with a different mock object
+    tasks = []
+    mock_gens = []
+    for i in range(concurrency):
+        mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
+        mock_generator.generate.side_effect = private_side_effects
+        mock_gens.append(mock_generator)
+        tasks.append(generate(mock_object=mock_generator, prompt="test prompt", hints={"a": i}))
+
+    results = await asyncio.gather(*tasks)
+
+    for i in range(concurrency):
+        assert mock_gens[i].generate.await_count == 3
+        mock_gens[i].generate.assert_awaited_with(prompt="test prompt", hints={"a": i})
+        assert results[i].content.result == "Success"
 
 
 async def test_that_retry_handles_multiple_exception_types(container: Container) -> None:

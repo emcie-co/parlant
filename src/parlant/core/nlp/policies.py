@@ -44,19 +44,18 @@ class RetryPolicy(Policy):
         self.max_attempts = max_attempts
         self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
 
-        self._attempts = 0
-
     async def apply(
         self, func: Callable[P, Coroutine[Any, Any, R]], *args: P.args, **kwargs: P.kwargs
     ) -> R:
+        attempts = 0
         while True:
             try:
                 return await func(*args, **kwargs)
             except self.exceptions as e:
-                self._attempts += 1
-                if self._attempts >= self.max_attempts:
+                attempts += 1
+                if attempts >= self.max_attempts:
                     raise e
-                wait_time = self.wait_times[min(self._attempts - 1, len(self.wait_times) - 1)]
+                wait_time = self.wait_times[min(attempts - 1, len(self.wait_times) - 1)]
                 await asyncio.sleep(wait_time)
 
 

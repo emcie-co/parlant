@@ -1738,7 +1738,6 @@ def create_router(
         )
 
         if event_at_min_offset.id != first_event_of_correlation_id.id:
-            # TODO: Test this behavior
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Cannot delete events with offset < min_offset unless they are the first event of their correlation ID",

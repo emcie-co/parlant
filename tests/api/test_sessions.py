@@ -33,6 +33,7 @@ from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, Composit
 from parlant.core.async_utils import Timeout
 from parlant.core.customers import CustomerId
 from parlant.core.sessions import (
+    AgentState,
     EventKind,
     EventSource,
     MessageEventData,
@@ -1162,3 +1163,88 @@ async def test_that_an_event_with_utterances_can_be_generated(
     assert event["data"].get("utterances")
 
     assert any(utterance.id == id for id, _ in event["data"]["utterances"])
+
+
+async def test_that_agent_state_is_deleted_when_deleting_events(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    session_store = container[SessionStore]
+
+    first_event_correlation_id = generate_id()
+    second_event_correlation_id = generate_id()
+    third_event_correlation_id = generate_id()
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "Hello"},
+            correlation_id=first_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "Hi, how can I assist you?"},
+            correlation_id=first_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "What's the weather today?"},
+            correlation_id=second_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "It's sunny and warm."},
+            correlation_id=second_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "Thank you!"},
+            correlation_id=third_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "You're welcome!"},
+            correlation_id=third_event_correlation_id,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+    await session_store.update_session(
+        session_id=session_id,
+        params={
+            "agent_states": [
+                AgentState(
+                    correlation_id=first_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+                AgentState(
+                    correlation_id=second_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+                AgentState(
+                    correlation_id=third_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+            ]
+        },
+    )
+
+    initial_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
+
+    event_to_delete = initial_events[2]
+
+    (
+        await async_client.delete(
+            f"/sessions/{session_id}/events?min_offset={event_to_delete['offset']}"
+        )
+    ).raise_for_status()
+
+    session = await session_store.read_session(session_id)
+
+    assert len(session.agent_states) == 1

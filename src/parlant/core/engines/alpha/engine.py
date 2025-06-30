@@ -945,26 +945,6 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
-    def _format_journey_step_guidelines(self, guidelines: list[Guideline]) -> list[Guideline]:
-        result = []
-
-        for g in guidelines:
-            if g.metadata.get("journey_step"):
-                result.append(
-                    Guideline(
-                        id=GuidelineId(f"journey_step:{g.id}"),
-                        creation_utc=g.creation_utc,
-                        content=g.content,
-                        metadata=g.metadata,
-                        enabled=g.enabled,
-                        tags=g.tags,
-                    )
-                )
-            else:
-                result.append(g)
-
-        return result
-
     async def _load_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,

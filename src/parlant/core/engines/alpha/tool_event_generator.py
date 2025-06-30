@@ -151,6 +151,7 @@ class ToolEventGenerator:
                     self._logger.error("Inference attempts exhausted, raising exception")
                     raise e
 
+        assert inference_result is not None
         tool_calls = list(chain.from_iterable(inference_result.batches))
 
         if not tool_calls:

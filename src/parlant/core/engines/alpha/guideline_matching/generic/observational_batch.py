@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+from typing import Optional
 from typing_extensions import override
 
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -81,13 +82,16 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         self._context = context
 
     @override
-    async def process(self) -> GuidelineMatchingBatchResult:
+    async def process(
+        self,
+        temperature_delta: Optional[float] = None,
+    ) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
         with self._logger.operation(f"GuidelineMatchingBatch: {len(self._guidelines)} guidelines"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
-                hints={"temperature": 0.15},
+                hints={"temperature": 0.15 + (temperature_delta or 0.0)},
             )
 
         if not inference.content.checks:

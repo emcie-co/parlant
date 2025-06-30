@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
-from typing import Sequence, cast
+from typing import Sequence, cast, Optional
 from typing_extensions import override
 
 from lagom import Container
@@ -1418,7 +1418,10 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
         self.guidelines = guidelines
 
     @override
-    async def process(self) -> GuidelineMatchingBatchResult:
+    async def process(
+        self,
+        temperature_delta: Optional[float] = None,
+    ) -> GuidelineMatchingBatchResult:
         return GuidelineMatchingBatchResult(
             matches=[
                 GuidelineMatch(
@@ -1453,7 +1456,10 @@ async def test_that_guideline_matching_strategies_can_be_overridden(
             self.guidelines = guidelines
 
         @override
-        async def process(self) -> GuidelineMatchingBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> GuidelineMatchingBatchResult:
             return GuidelineMatchingBatchResult(
                 matches=[],
                 generation_info=GenerationInfo(
@@ -2384,7 +2390,10 @@ async def test_that_response_analysis_strategy_can_be_overridden(
             self.guideline_matches = guideline_matches
 
         @override
-        async def process(self) -> ResponseAnalysisBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> ResponseAnalysisBatchResult:
             return ResponseAnalysisBatchResult(
                 analyzed_guidelines=[
                     AnalyzedGuideline(
@@ -2478,7 +2487,10 @@ async def test_that_batch_processing_retries_on_key_error(
             self.attempt_count = 0
 
         @override
-        async def process(self) -> GuidelineMatchingBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
             if self.attempt_count <= self.fail_count:
                 raise KeyError(f"Simulated failure on attempt {self.attempt_count}")
@@ -2512,7 +2524,10 @@ async def test_that_batch_processing_retries_on_key_error(
             self.attempt_count = 0
 
         @override
-        async def process(self) -> ResponseAnalysisBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> ResponseAnalysisBatchResult:
             self.attempt_count += 1
             if self.attempt_count <= self.fail_count:
                 raise KeyError(f"Simulated failure on attempt {self.attempt_count}")
@@ -2614,7 +2629,10 @@ async def test_that_batch_processing_fails_after_max_retries(
             self.attempt_count = 0
 
         @override
-        async def process(self) -> GuidelineMatchingBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
             raise KeyError(f"Always fails - attempt {self.attempt_count}")
 
@@ -2624,7 +2642,10 @@ async def test_that_batch_processing_fails_after_max_retries(
             self.attempt_count = 0
 
         @override
-        async def process(self) -> ResponseAnalysisBatchResult:
+        async def process(
+            self,
+            temperature_delta: Optional[float] = None,
+        ) -> ResponseAnalysisBatchResult:
             self.attempt_count += 1
             raise KeyError(f"Always fails - attempt {self.attempt_count}")
 

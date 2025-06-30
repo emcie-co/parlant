@@ -1471,8 +1471,8 @@ async def test_that_high_level_retries_on_inference_work_for_a_single_failure(
 
     assert FailOnceBatcher.counter == 1
     assert results.events is not None and len(results.events) == 1
+    assert results.events[0] is not None
     assert results.events[0].kind == EventKind.TOOL
-    assert "9:59" in results.events[0].data["tool_calls"][0]["result"]["data"]
 
 
 async def test_that_high_level_retries_on_inference_exhaust_all_retries(

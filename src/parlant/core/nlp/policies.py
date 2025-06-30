@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 import asyncio
-from typing import Any, Coroutine, Callable, Optional, ParamSpec, TypeVar, Union
+from typing import Any, Coroutine, Callable, Optional, ParamSpec, TypeVar, Union, cast
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -59,12 +59,61 @@ class RetryPolicy(Policy):
                 await asyncio.sleep(wait_time)
 
 
+class RetryPolicyWithTemperatureIncrease(Policy):
+    def __init__(
+        self,
+        exceptions: Union[type[Exception], tuple[type[Exception], ...]],
+        max_attempts: int = 3,
+        wait_times: Optional[tuple[float, ...]] = None,
+        temperature_delta: float = 0.05,
+    ):
+        if not isinstance(exceptions, tuple):
+            exceptions = (exceptions,)
+        self.exceptions = exceptions
+        self.max_attempts = max_attempts
+        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+        self.temperature_delta = temperature_delta
+
+    async def apply(
+        self, func: Callable[P, Coroutine[Any, Any, R]], *args: P.args, **kwargs: P.kwargs
+    ) -> R:
+        attempts = 0
+        base_temp = dict(kwargs).get("temperature_delta", 0.0)
+        if isinstance(base_temp, (int, float)):
+            base_temp = float(base_temp)
+        else:
+            base_temp = 0.0
+
+        while True:
+            try:
+                new_kw = dict(kwargs)
+                new_kw["temperature_delta"] = base_temp + attempts * self.temperature_delta
+                return await func(*args, **new_kw)  # type: ignore[arg-type]
+            except self.exceptions as e:
+                attempts += 1
+                if attempts >= self.max_attempts:
+                    raise e
+                wait_time = self.wait_times[min(attempts - 1, len(self.wait_times) - 1)]
+                await asyncio.sleep(wait_time)
+
+
 def retry(
     exceptions: Union[type[Exception], tuple[type[Exception], ...]],
     max_attempts: int = 3,
     wait_times: Optional[tuple[float, ...]] = None,
 ) -> RetryPolicy:
     return RetryPolicy(exceptions, max_attempts, wait_times)
+
+
+def retry_with_temperature_increase(
+    exceptions: Union[type[Exception], tuple[type[Exception], ...]],
+    max_attempts: int = 3,
+    wait_times: Optional[tuple[float, ...]] = None,
+    temperature_delta: float = 0.05,
+) -> RetryPolicyWithTemperatureIncrease:
+    return RetryPolicyWithTemperatureIncrease(
+        exceptions, max_attempts, wait_times, temperature_delta
+    )
 
 
 def policy(

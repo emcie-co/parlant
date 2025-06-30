@@ -91,6 +91,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     @override
     async def process(
         self,
+        temperature_delta: Optional[float] = None,
     ) -> ResponseAnalysisBatchResult:
         all_guidelines = [m.guideline for m in self._guideline_matches]
 
@@ -103,6 +104,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             batch_tasks = [
                 self._process_batch(
                     batch,
+                    temperature_delta,
                 )
                 for batch in guideline_batches
             ]
@@ -134,8 +136,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             )
 
     async def _process_batch(
-        self,
-        batch: Sequence[Guideline],
+        self, batch: Sequence[Guideline], temperature_delta: Optional[float] = None
     ) -> ResponseAnalysisBatchResult:
         batch_guideline_ids = {g.id for g in batch}
 
@@ -153,7 +154,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
         with self._logger.operation(f"GenericGuidelineMatchingBatch: {len(guidelines)} guidelines"):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
-                hints={"temperature": 0.15},
+                hints={"temperature": 0.15 + (temperature_delta or 0.0)},
             )
 
         analyzed_guidelines: list[AnalyzedGuideline] = []

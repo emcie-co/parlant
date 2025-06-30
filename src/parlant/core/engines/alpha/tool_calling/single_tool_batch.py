@@ -20,6 +20,8 @@ import json
 from uuid import UUID
 from pathlib import Path
 from typing import Any, Literal, Optional, Sequence, TypeAlias
+from google.api_core.exceptions import InvalidArgument
+from jsonschema.exceptions import FormatError
 from typing_extensions import override
 from datetime import datetime, date, timedelta
 
@@ -314,6 +316,9 @@ class SingleToolBatch(ToolCallBatch):
 
                             # Note that if LLM provided 'None' for a required parameter with a default - it will get 'None' as value
                             arguments[evaluation.parameter_name] = evaluation.value_as_string
+
+                            if evaluation.value_as_string is None:
+                                raise FormatError("Argument value cannot be None")
 
                             self._validate_argument_format(
                                 evaluation.value_as_string,

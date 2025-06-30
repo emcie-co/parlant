@@ -28,12 +28,14 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 import time
-from typing import Sequence
+from typing import Optional, Sequence
+
+from torch.cuda import temperature
 
 from parlant.core import async_utils
 from parlant.core.capabilities import Capability
 from parlant.core.journeys import Journey
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, retry_with_temperature_increase
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -122,12 +124,18 @@ class ResponseAnalysisBatchResult:
 
 class GuidelineMatchingBatch(ABC):
     @abstractmethod
-    async def process(self) -> GuidelineMatchingBatchResult: ...
+    async def process(
+        self,
+        temperature_delta: Optional[float] = None,
+    ) -> GuidelineMatchingBatchResult: ...
 
 
 class ResponseAnalysisBatch(ABC):
     @abstractmethod
-    async def process(self) -> ResponseAnalysisBatchResult: ...
+    async def process(
+        self,
+        temperature_delta: Optional[float] = None,
+    ) -> ResponseAnalysisBatchResult: ...
 
 
 class GuidelineMatchingStrategy(ABC):
@@ -168,29 +176,35 @@ class GuidelineMatcher:
 
     @policy(
         [
-            retry(
+            retry_with_temperature_increase(
                 exceptions=Exception,
                 max_attempts=3,
+                temperature_delta=0.05,
             )
         ]
     )
-    async def _process_batch_with_retry(
-        self, batch: GuidelineMatchingBatch
+    async def _process_batch_with_retry_and_temperature_increase(
+        self,
+        batch: GuidelineMatchingBatch,
+        temperature_delta: float,
     ) -> GuidelineMatchingBatchResult:
-        return await batch.process()
+        return await batch.process(temperature_delta)
 
     @policy(
         [
-            retry(
+            retry_with_temperature_increase(
                 exceptions=Exception,
                 max_attempts=3,
+                temperature_delta=0.05,
             )
         ]
     )
-    async def _process_report_analysis_batch_with_retry(
-        self, batch: ResponseAnalysisBatch
+    async def _process_report_analysis_batch_with_retry_and_temperature_increase(
+        self,
+        batch: ResponseAnalysisBatch,
+        temperature_delta: float,
     ) -> ResponseAnalysisBatchResult:
-        return await batch.process()
+        return await batch.process(temperature_delta)
 
     async def match_guidelines(
         self,
@@ -248,7 +262,7 @@ class GuidelineMatcher:
 
             with self._logger.operation("Processing guideline matching batches"):
                 batch_tasks = [
-                    self._process_batch_with_retry(batch)
+                    self._process_batch_with_retry_and_temperature_increase(batch)
                     for strategy_batches in batches
                     for batch in strategy_batches
                 ]
@@ -323,7 +337,7 @@ class GuidelineMatcher:
 
             with self._logger.operation("Processing response analysis batches"):
                 batch_tasks = [
-                    self._process_report_analysis_batch_with_retry(batch)
+                    self._process_report_analysis_batch_with_retry_and_temperature_increase(batch)
                     for strategy_batches in batches
                     for batch in strategy_batches
                 ]

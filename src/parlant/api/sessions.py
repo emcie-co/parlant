@@ -1722,11 +1722,29 @@ def create_router(
 
         events = await session_store.list_events(
             session_id=session_id,
-            min_offset=min_offset,
+            min_offset=0,
             exclude_deleted=True,
         )
 
-        for e in events:
+        events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
+
+        if not events_starting_from_min_offset:
+            return
+
+        event_at_min_offset = events_starting_from_min_offset[0]
+
+        first_event_of_correlation_id = next(
+            e for e in events if e.correlation_id == event_at_min_offset.correlation_id
+        )
+
+        if event_at_min_offset.id != first_event_of_correlation_id.id:
+            # TODO: Test this behavior
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Cannot delete events with offset < min_offset unless they are the first event of their correlation ID",
+            )
+
+        for e in events_starting_from_min_offset:
             await session_store.delete_event(e.id)
 
     @router.get(

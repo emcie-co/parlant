@@ -1545,10 +1545,15 @@ class AlphaEngine(Engine):
         session: Session,
         guideline_matches: Sequence[GuidelineMatch],
     ) -> None:
+        applied_guideline_ids = (
+            session.agent_states[-1]["applied_guideline_ids"] if session.agent_states else []
+        )
+        journey_paths = session.agent_states[-1]["journey_paths"] if session.agent_states else {}
+
         matches_to_analyze = [
             match
             for match in guideline_matches
-            if match.guideline.id not in session.agent_state["applied_guideline_ids"]
+            if match.guideline.id not in applied_guideline_ids
             and not match.guideline.metadata.get("continuous", False)
             and match.guideline.content.action
         ]
@@ -1566,30 +1571,32 @@ class AlphaEngine(Engine):
             guideline_matches=matches_to_analyze,
         )
 
-        applied_guideline_ids = [
+        new_applied_guideline_ids = [
             a.guideline.id for a in result.analyzed_guidelines if a.is_previously_applied
         ]
 
-        applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+        applied_guideline_ids.extend(new_applied_guideline_ids)
 
-        journey_paths = self._list_journey_paths_from_guideline_matches(
+        new_journey_paths = self._list_journey_paths_from_guideline_matches(
             guideline_matches=guideline_matches,
             active_journeys=context.state.journeys,
         )
 
-        for journey_id, path in journey_paths.items():
-            if journey_id in session.agent_state["journey_paths"]:
-                session.agent_state["journey_paths"][journey_id] = (
-                    list(session.agent_state["journey_paths"][journey_id]) + path
-                )
+        for journey_id, path in new_journey_paths.items():
+            if journey_id in journey_paths:
+                journey_paths[journey_id].extend(path)
 
         await self._entity_commands.update_session(
             session_id=session.id,
             params=SessionUpdateParams(
-                agent_state=AgentState(
-                    applied_guideline_ids=applied_guideline_ids,
-                    journey_paths=session.agent_state["journey_paths"],
-                )
+                agent_states=list(session.agent_states)
+                + [
+                    AgentState(
+                        correlation_id=self._correlator.correlation_id,
+                        applied_guideline_ids=applied_guideline_ids,
+                        journey_paths=journey_paths,
+                    )
+                ]
             ),
         )
 

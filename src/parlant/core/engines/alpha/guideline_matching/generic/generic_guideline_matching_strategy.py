@@ -147,7 +147,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 if g.metadata.get("continuous", False):
                     actionable_guidelines.append(g)
                 else:
-                    if g.id in context.session.agent_state["applied_guideline_ids"]:
+                    if (
+                        context.session.agent_states
+                        and g.id in context.session.agent_states[-1]["applied_guideline_ids"]
+                    ):
                         data = g.metadata.get("customer_dependent_action_data", False)
                         if isinstance(data, Mapping) and data.get("is_customer_dependent", False):
                             previously_applied_actionable_customer_dependent_guidelines.append(g)

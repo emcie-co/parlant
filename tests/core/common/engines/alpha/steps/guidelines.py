@@ -95,15 +95,22 @@ def given_a_previously_applied_guideline(
     session = context.sync_await(context.container[SessionStore].read_session(session_id))
 
     applied_guideline_ids = [context.guidelines[guideline_name].id]
-    applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+    applied_guideline_ids.extend(
+        session.agent_states[-1]["applied_guideline_ids"] if session.agent_states else []
+    )
 
     context.sync_await(
         context.container[EntityCommands].update_session(
             session_id=session_id,
             params=SessionUpdateParams(
-                agent_state=AgentState(
-                    applied_guideline_ids=applied_guideline_ids, journey_paths={}
-                )
+                agent_states=list(session.agent_states)
+                + [
+                    AgentState(
+                        correlation_id="<main>",
+                        applied_guideline_ids=applied_guideline_ids,
+                        journey_paths={},
+                    )
+                ]
             ),
         )
     )

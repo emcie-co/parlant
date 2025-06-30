@@ -57,7 +57,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ReportAnalysisContext,
 )
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -68,7 +68,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
         relationship_store: RelationshipStore,
         entity_queries: EntityQueries,
         observational_guideline_schematic_generator: SchematicGenerator[
@@ -90,7 +89,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         report_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
-        self._guideline_store = guideline_store
         self._relationship_store = relationship_store
         self._entity_queries = entity_queries
 

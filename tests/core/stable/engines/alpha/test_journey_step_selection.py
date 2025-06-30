@@ -355,12 +355,14 @@ async def create_journey(
             enabled=False,
             tags=[],
             metadata={
-                "journey_step": step.id,
+                "journey_step": {
+                    "id": step.id,
+                    "sub_steps": [GuidelineId(follow_up_id) for follow_up_id in step.follow_up_ids],
+                },
                 "customer_dependent_action_data": {
                     "is_customer_dependent": step.customer_dependent_action
                 },
                 "tool_running_only": step.requires_tool_calls,
-                "sub_steps": [GuidelineId(follow_up_id) for follow_up_id in step.follow_up_ids],
             },
         )
         for step in steps

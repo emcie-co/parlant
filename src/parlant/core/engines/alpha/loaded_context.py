@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Sequence, cast
+from typing import Any, Optional, Sequence, cast
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
@@ -47,7 +47,15 @@ class Interaction:
     @staticmethod
     def empty() -> Interaction:
         """Returns an empty interaction state"""
-        return Interaction([], -1)
+        return Interaction(history=[], last_known_event_offset=-1)
+
+    @property
+    def last_customer_message(self) -> Optional[str]:
+        """Returns the last customer message in the interaction session, if it exists"""
+        for event in reversed(self.history):
+            if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
+                return cast(str, cast(dict[str, Any], event.data).get("message"))
+        return None
 
     history: Sequence[Event]
     """An sequenced event-by-event representation of the interaction"""

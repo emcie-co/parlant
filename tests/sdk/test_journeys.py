@@ -304,6 +304,19 @@ class Test_that_journey_node_can_be_linked_with_condition(SDKTest):
         assert any(cast(GuidelineId, self.sub_node_y.id) == g.id for g in guidelines)
         assert any(cast(GuidelineId, self.sub_node_z.id) == g.id for g in guidelines)
 
+        guideline_y = await guideline_store.read_guideline(
+            guideline_id=cast(GuidelineId, self.sub_node_y.id)
+        )
+        guideline_z = await guideline_store.read_guideline(
+            guideline_id=cast(GuidelineId, self.sub_node_z.id)
+        )
+
+        assert guideline_y.content.condition == "if the customer says yes"
+        assert guideline_y.content.action == "add breakfast to booking"
+
+        assert guideline_z.content.condition == "if the customer says no"
+        assert guideline_z.content.action == "proceed without breakfast"
+
 
 class Test_that_if_node_has_more_than_one_link_they_all_need_to_have_conditions(SDKTest):
     async def setup(self, server: p.Server) -> None:

@@ -490,7 +490,7 @@ class JourneyNode:
         )
 
         guideline = await container[GuidelineStore].create_guideline(
-            condition="",
+            condition=condition,
             action=action or evaluation.action_proposition,
             metadata=evaluation.properties,
         )

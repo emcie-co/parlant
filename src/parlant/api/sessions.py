@@ -1719,6 +1719,7 @@ def create_router(
         """Deletes events from a session with offset >= the specified value.
 
         This operation is permanent and cannot be undone."""
+        session = await session_store.read_session(session_id)
 
         events = await session_store.list_events(
             session_id=session_id,
@@ -1745,6 +1746,22 @@ def create_router(
 
         for e in events_starting_from_min_offset:
             await session_store.delete_event(e.id)
+
+        if not session.agent_states:
+            return
+
+        state_index_offset = next(
+            i
+            for i, s in enumerate(session.agent_states, start=0)
+            if s["correlation_id"].startswith(event_at_min_offset.correlation_id)
+        )
+
+        agent_states = session.agent_states[:state_index_offset]
+
+        await session_store.update_session(
+            session_id=session_id,
+            params={"agent_states": agent_states},
+        )
 
     @router.get(
         "/{session_id}/events/{event_id}",

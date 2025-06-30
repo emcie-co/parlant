@@ -565,6 +565,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 staged_events=context.staged_events,
                 relevant_journeys=context.relevant_journeys,
             ),
+            journey_path=context.session.agent_states[-1]["journey_paths"].get(
+                examined_journey.id, []
+            )
+            if context.session.agent_states
+            else [],
         )
 
     def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:

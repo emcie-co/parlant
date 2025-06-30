@@ -69,7 +69,6 @@ class ResponseState:
     journeys: list[Journey]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights
-    iterations_completed: int
     prepared_to_respond: bool
     message_events: list[EmittedEvent]
 

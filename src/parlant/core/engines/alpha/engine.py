@@ -407,7 +407,6 @@ class AlphaEngine(Engine):
                 journeys=[],
                 tool_events=[],
                 tool_insights=ToolInsights(),
-                iterations_completed=0,
                 prepared_to_respond=False,
                 message_events=[],
             ),
@@ -736,7 +735,7 @@ class AlphaEngine(Engine):
         async def preamble_task() -> bool:
             if (
                 # Only consider a preamble in the first iteration
-                context.state.iterations_completed == 0
+                len(context.state.iterations) == 0
                 and await self._perceived_performance_policy.is_preamble_required(context)
             ):
                 if not await self._hooks.call_on_generating_preamble(context):
@@ -945,6 +944,26 @@ class AlphaEngine(Engine):
             context.state.tool_enabled_guideline_matches,
             context.state.tool_events,
         )
+
+    def _format_journey_step_guidelines(self, guidelines: list[Guideline]) -> list[Guideline]:
+        result = []
+
+        for g in guidelines:
+            if g.metadata.get("journey_step"):
+                result.append(
+                    Guideline(
+                        id=GuidelineId(f"journey_step:{g.id}"),
+                        creation_utc=g.creation_utc,
+                        content=g.content,
+                        metadata=g.metadata,
+                        enabled=g.enabled,
+                        tags=g.tags,
+                    )
+                )
+            else:
+                result.append(g)
+
+        return result
 
     async def _load_matched_guidelines_and_journeys(
         self,

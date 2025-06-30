@@ -223,8 +223,9 @@ LifeSpan: TypeAlias = Literal["response", "session"]
 
 
 class AgentState(TypedDict):
+    correlation_id: str
     applied_guideline_ids: list[GuidelineId]
-    journey_paths: dict[JourneyId, Sequence[Optional[GuidelineId]]]
+    journey_paths: dict[JourneyId, list[Optional[GuidelineId]]]
 
 
 @dataclass(frozen=True)
@@ -236,7 +237,7 @@ class Session:
     mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
-    agent_state: AgentState
+    agent_states: Sequence[AgentState]
 
 
 class SessionUpdateParams(TypedDict, total=False):
@@ -245,7 +246,7 @@ class SessionUpdateParams(TypedDict, total=False):
     mode: SessionMode
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
-    agent_state: AgentState
+    agent_states: Sequence[AgentState]
 
 
 class SessionStore(ABC):
@@ -347,7 +348,7 @@ class _SessionDocument_v0_4_0(TypedDict, total=False):
     consumption_offsets: Mapping[ConsumerId, int]
 
 
-class _SessionDocument(TypedDict, total=False):
+class _SessionDocument_v0_5_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -357,6 +358,18 @@ class _SessionDocument(TypedDict, total=False):
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
     agent_state: AgentState
+
+
+class _SessionDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    customer_id: CustomerId
+    agent_id: AgentId
+    mode: SessionMode
+    title: Optional[str]
+    consumption_offsets: Mapping[ConsumerId, int]
+    agent_states: Sequence[AgentState]
 
 
 class _EventDocument(TypedDict, total=False):
@@ -472,7 +485,7 @@ class _InspectionDocument(TypedDict, total=False):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.5.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -486,6 +499,7 @@ class SessionDocumentStore(SessionStore):
     async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
         async def v0_1_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_SessionDocument_v0_4_0, doc)
+
             return _SessionDocument_v0_4_0(
                 id=doc["id"],
                 version=Version.String("0.4.0"),
@@ -499,6 +513,26 @@ class SessionDocumentStore(SessionStore):
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_SessionDocument_v0_4_0, doc)
+
+            return _SessionDocument_v0_5_0(
+                id=doc["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_state=AgentState(
+                    applied_guideline_ids=[],
+                    journey_paths={},
+                    correlation_id="N/A",
+                ),
+            )
+
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_SessionDocument_v0_5_0, doc)
+
             return _SessionDocument(
                 id=doc["id"],
                 version=Version.String("0.5.0"),
@@ -508,7 +542,7 @@ class SessionDocumentStore(SessionStore):
                 mode=doc["mode"],
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
-                agent_state=AgentState(applied_guideline_ids=[], journey_paths={}),
+                agent_states=[],
             )
 
         return await DocumentMigrationHelper[_SessionDocument](
@@ -518,6 +552,7 @@ class SessionDocumentStore(SessionStore):
                 "0.2.0": v0_1_0_to_v0_4_0,
                 "0.3.0": v0_1_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -710,7 +745,7 @@ class SessionDocumentStore(SessionStore):
             mode=session.mode,
             title=session.title if session.title else None,
             consumption_offsets=session.consumption_offsets,
-            agent_state=session.agent_state,
+            agent_states=session.agent_states,
         )
 
     def _deserialize_session(
@@ -725,7 +760,7 @@ class SessionDocumentStore(SessionStore):
             mode=session_document["mode"],
             title=session_document["title"],
             consumption_offsets=session_document["consumption_offsets"],
-            agent_state=session_document["agent_state"],
+            agent_states=session_document["agent_states"],
         )
 
     def _serialize_event(
@@ -890,7 +925,7 @@ class SessionDocumentStore(SessionStore):
                 mode=mode or "auto",
                 consumption_offsets=consumption_offsets,
                 title=title,
-                agent_state=AgentState(applied_guideline_ids=[], journey_paths={}),
+                agent_states=[],
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))

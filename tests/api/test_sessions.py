@@ -23,6 +23,7 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
+from parlant.core.common import generate_id
 from parlant.core.engines.alpha.message_generator import MessageSchema
 from parlant.core.utterances import UtteranceStore
 from parlant.core.nlp.service import NLPService
@@ -96,7 +97,7 @@ def make_event_params(
         "source": source,
         "kind": kind,
         "creation_utc": str(datetime.now(timezone.utc)),
-        "correlation_id": "dummy_correlation_id",
+        "correlation_id": generate_id(),
         "data": data,
         "deleted": False,
     }

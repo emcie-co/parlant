@@ -92,12 +92,13 @@ def make_event_params(
     source: EventSource,
     data: dict[str, Any] = {},
     kind: EventKind = EventKind.CUSTOM,
+    correlation_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "source": source,
         "kind": kind,
         "creation_utc": str(datetime.now(timezone.utc)),
-        "correlation_id": generate_id(),
+        "correlation_id": correlation_id or generate_id(),
         "data": data,
         "deleted": False,
     }
@@ -812,6 +813,43 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     assert len(remaining_events) == 1
     assert event_is_according_to_params(remaining_events[0], session_events[0])
     assert all(e["offset"] > event_to_delete["offset"] for e in remaining_events) is False
+
+
+async def test_that_delete_events_raises_if_not_first_of_correlation_id(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    correlation_id = generate_id()
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "first"},
+            correlation_id=correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "second"},
+            correlation_id=correlation_id,
+        ),
+    ]
+    await populate_session_id(container, session_id, session_events)
+
+    events = (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    assert len(events) == 2
+    first_event = events[0]
+    second_event = events[1]
+    assert first_event["correlation_id"] == correlation_id
+    assert second_event["correlation_id"] == correlation_id
+
+    response = await async_client.delete(
+        f"/sessions/{session_id}/events?min_offset={second_event['offset']}"
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert (
+        response.json()["detail"]
+        == "Cannot delete events with offset < min_offset unless they are the first event of their correlation ID"
+    )
 
 
 async def test_that_a_message_can_be_inspected(

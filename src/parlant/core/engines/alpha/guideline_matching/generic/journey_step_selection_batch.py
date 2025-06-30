@@ -64,7 +64,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
-        examined_journey: Journey,  # NOTE THAT JOURNEY STEPS MUST NOT CHANGE MID-SESSION
+        examined_journey: Journey,
         context: GuidelineMatchingContext,
         step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
@@ -76,6 +76,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]): g
             for g in step_guidelines
         }
+
         self._guideline_to_step_id_mapping = {
             g.id: str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"])
             for g in step_guidelines
@@ -101,7 +102,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     self._guideline_to_step_id_mapping[guideline_id]
                     for guideline_id in cast(
                         Sequence[GuidelineId],
-                        guideline.metadata.get("sub_steps", []),
+                        cast(dict[str, JSONSerializable], guideline.metadata["journey_step"]).get(
+                            "sub_steps", []
+                        ),
                     )
                 ],
                 customer_dependent_action=cast(

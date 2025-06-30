@@ -154,6 +154,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             journey_path: list[str | None] = [inference.content.next_step]
         else:
             journey_path = cast(list[str | None], inference.content.step_advance)
+
             if (
                 self._previous_path
                 and not self._previous_path[-1]

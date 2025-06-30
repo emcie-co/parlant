@@ -1556,6 +1556,7 @@ class AlphaEngine(Engine):
             if match.guideline.id not in applied_guideline_ids
             and not match.guideline.metadata.get("continuous", False)
             and match.guideline.content.action
+            and "journey_step" not in match.guideline.metadata  # Exclude journey step guidelines
         ]
 
         self._todo_add_associated_guidelines(matches_to_analyze)
@@ -1585,6 +1586,8 @@ class AlphaEngine(Engine):
         for journey_id, path in new_journey_paths.items():
             if journey_id in journey_paths:
                 journey_paths[journey_id].extend(path)
+            else:
+                journey_paths[journey_id] = path
 
         await self._entity_commands.update_session(
             session_id=session.id,

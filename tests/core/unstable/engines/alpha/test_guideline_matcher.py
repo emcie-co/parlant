@@ -403,12 +403,21 @@ async def update_previously_applied_guidelines(
     applied_guideline_ids: list[GuidelineId],
 ) -> None:
     session = await context.container[SessionStore].read_session(session_id)
-    applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+    applied_guideline_ids.extend(
+        session.agent_states[-1]["applied_guideline_ids"] if session.agent_states else []
+    )
 
     await context.container[EntityCommands].update_session(
         session_id=session.id,
         params=SessionUpdateParams(
-            agent_state=AgentState(applied_guideline_ids=applied_guideline_ids, journey_paths={})
+            agent_states=list(session.agent_states)
+            + [
+                AgentState(
+                    correlation_id="<main>",
+                    applied_guideline_ids=applied_guideline_ids,
+                    journey_paths={},
+                )
+            ]
         ),
     )
 
@@ -433,7 +442,10 @@ async def analyze_response_and_update_session(
             score=10,
         )
         for g in previously_matched_guidelines
-        if g.id not in session.agent_state["applied_guideline_ids"]
+        if (
+            not session.agent_states
+            or g.id not in session.agent_states[-1]["applied_guideline_ids"]
+        )
         and not g.metadata.get("continuous", False)
     ]
 

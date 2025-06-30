@@ -220,7 +220,10 @@ def when_detection_and_processing_are_triggered(
     matches_to_prepare = [
         g
         for g in context.guideline_matches.values()
-        if g.guideline.id not in session.agent_state["applied_guideline_ids"]
+        if (
+            not session.agent_states
+            or g.guideline.id not in session.agent_states[-1]["applied_guideline_ids"]
+        )
         and not g.guideline.metadata.get("continuous", False)
     ]
 
@@ -249,15 +252,22 @@ def when_detection_and_processing_are_triggered(
         if a.is_previously_applied
     ]
 
-    applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
+    applied_guideline_ids.extend(
+        session.agent_states[-1]["applied_guideline_ids"] if session.agent_states else []
+    )
 
     context.sync_await(
         context.container[EntityCommands].update_session(
             session_id=session.id,
             params=SessionUpdateParams(
-                agent_state=AgentState(
-                    applied_guideline_ids=applied_guideline_ids, journey_paths={}
-                )
+                agent_states=list(session.agent_states)
+                + [
+                    AgentState(
+                        correlation_id="<main>",
+                        applied_guideline_ids=applied_guideline_ids,
+                        journey_paths={},
+                    )
+                ]
             ),
         )
     )

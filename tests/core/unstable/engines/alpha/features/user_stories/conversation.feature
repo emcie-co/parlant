@@ -78,7 +78,7 @@ Feature: Conversation
         And a customer message, "How many times do I have to tell? The recipient is Vishal Ahuja and their account number is 123456, what part do you not understand?"
         And an agent message, "I understand this has been frustrating, and I’m here to help. The recipient details you provided—Vishal Ahuja and account number 123456—have been noted. However, the system still cannot locate the recipient. Could you confirm if the account is at another bank or if there are additional details, such as the bank's name or branch code, that could help us complete the transfer?"
         And a customer message, "No, Vishal Ahuja has a Chase account with account number 123456"
-        And a previously applied guideline "transfer_money" 
+        And a previously applied guideline "transfer_money"
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no mention of getting back to the customer with a further response
@@ -97,7 +97,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains no direct offer of a 20% discount
 
-Scenario: The agent adheres to the clarification guideline when disambiguation is needed
+    Scenario: The agent adheres to the clarification guideline when disambiguation is needed
         Given an agent
         And an empty session
         And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster
@@ -113,7 +113,7 @@ Scenario: The agent adheres to the clarification guideline when disambiguation i
         And the message contains a suggestion to book the SNAKE roller coaster
         And the message contains a suggestion to book the TURTLE roller coaster
 
-Scenario: The agent re-asks for clarification when disambiguation is needed and the customer hasn't responded
+    Scenario: The agent re-asks for clarification when disambiguation is needed and the customer hasn't responded
         Given an agent
         And an empty session
         And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster

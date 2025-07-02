@@ -387,7 +387,7 @@ If the current step is complete, advance through subsequent steps until you enco
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
 
-Document your advancement path in `step_advance` as a list of step IDs, starting with last_step and ending with the next step to execute.
+Document your advancement path in `step_advance` as a list of step IDs, starting with last_step and ending with the next step to execute. Each step in this list must be a legal follow up of the last.
 """,
         )
         builder.add_section(
@@ -445,7 +445,7 @@ OUTPUT FORMAT
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
-  "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
+  "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}

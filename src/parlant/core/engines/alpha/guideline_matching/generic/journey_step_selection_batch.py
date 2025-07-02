@@ -35,14 +35,15 @@ class _JourneyStepWrapper(DefaultBaseModel):
     follow_up_ids: list[str]
     customer_dependent_action: bool
     requires_tool_calls: bool
+    conditions: Optional[Sequence[str]] = None
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
     journey_applies: bool
     last_current_step: str
-    rationale: str
     requires_backtracking: bool
-    backtracking_rationale: Optional[str] | None = ""
+    rationale: str
+    #    backtracking_rationale: Optional[str] | None = ""
     backtracking_target_step: Optional[str] | None = ""
     last_current_step_completed: Optional[bool] | None = None
     step_advance: Optional[Sequence[str | None]] = []
@@ -56,6 +57,65 @@ class JourneyStepSelectionShot(Shot):
     journey_steps: dict[str, _JourneyStepWrapper] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
+
+
+def get_journey_transition_map_text(
+    steps: dict[str, _JourneyStepWrapper],
+    journey_title: str,
+    previous_path: Sequence[str | None] = [],
+) -> str:
+    def step_sort_key(step_id: str) -> Any:
+        try:
+            return int(step_id)
+        except Exception:
+            return step_id
+
+    # Sort steps by step id as integer if possible, else as string
+    steps_str = ""
+    for step_id in sorted(steps.keys(), key=step_sort_key):
+        step: _JourneyStepWrapper = steps[step_id]
+        action: str | None = step.guideline_content.action
+        if action:
+            flags_str = "Step Flags:\n"
+            if step.customer_dependent_action:
+                flags_str += "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
+            if (
+                step.requires_tool_calls and (not previous_path or step.id != previous_path[-1])
+            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
+                flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
+
+            if previous_path and step.id == previous_path[-1]:
+                flags_str += (
+                    "- This is the last step that was executed. Begin advancing on from this step\n"
+                )
+            elif step.id in previous_path:
+                flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
+            else:
+                flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
+
+            if len(step.follow_up_ids) == 0:
+                follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
+            elif len(step.follow_up_ids) == 1:
+                follow_ups_str = f"""↳ If "{steps[step.follow_up_ids[0]].guideline_content.condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → Go to step {step.follow_up_ids[0] if steps[step.follow_up_ids[0]].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+            else:
+                follow_ups_str = "\n".join(
+                    [
+                        f"""↳ If "{steps[follow_up_id].guideline_content.condition or ELSE_CONDITION_STR}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+                        for follow_up_id in step.follow_up_ids
+                    ]
+                )
+            steps_str += f"""
+STEP {step_id}: {action}
+{flags_str}
+TRANSITIONS:
+{follow_ups_str}
+"""
+    return f"""
+Journey: {journey_title}
+
+Steps:
+{steps_str} 
+"""
 
 
 class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
@@ -246,7 +306,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
 """
         if shot.journey_steps:
-            formatted_shot += self._get_journey_steps_section(
+            formatted_shot += get_journey_transition_map_text(
                 shot.journey_steps, shot.journey_title, previous_path=shot.previous_path
             )
 
@@ -343,8 +403,8 @@ Examples of Journey Step Selections:
         #        ) TODO delete if it works
         builder.add_section(
             name="journey-step-selection-journey-steps",
-            template=self._get_journey_steps_section(
-                self._journey_steps, self._examined_journey.title
+            template=get_journey_transition_map_text(
+                self._journey_steps, self._examined_journey.title, self._previous_path
             ),
         )
         builder.add_section(
@@ -368,82 +428,14 @@ OUTPUT FORMAT
 {{
   "journey_applies": <bool, whether the journey should be continued>,
   "last_current_step": "<str, the id of the last current step>",
-  "rationale": "<str, explanation for what is the next step and why it was selected>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "backtracking_rationale" <str, explanation as to which step to backtrack to, and which follow up of that step should be next. Omit this field if requires_backtracking is false>,
+  "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
   "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```
-"""
-
-    def _get_journey_steps_section(
-        self,
-        steps: dict[str, _JourneyStepWrapper],
-        journey_title: str,
-        previous_path: Sequence[str | None] = [],
-    ) -> str:
-        def step_sort_key(step_id: str) -> Any:
-            try:
-                return int(step_id)
-            except Exception:
-                return step_id
-
-        # Sort steps by step id as integer if possible, else as string
-        steps_str = ""
-        for step_id in sorted(steps.keys(), key=step_sort_key):
-            step: _JourneyStepWrapper = steps[step_id]
-            action: str | None = step.guideline_content.action
-            if action:
-                flags_str = "Step Flags:\n"
-                if step.customer_dependent_action:
-                    flags_str += "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
-                if (
-                    step.requires_tool_calls
-                    and (not self._previous_path or step.id != self._previous_path[-1])
-                ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
-                    flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
-
-                if self._previous_path and step.id == self._previous_path[-1]:
-                    flags_str += "- This is the last step that was executed. Begin advancing on from this step\n"
-                elif step.id in previous_path:
-                    flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
-                else:
-                    flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
-
-                if len(step.follow_up_ids) == 0:
-                    follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
-                elif len(step.follow_up_ids) == 1:
-                    follow_ups_str = f"""↳ If "{steps[step.follow_up_ids[0]].guideline_content.condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → Go to step {step.follow_up_ids[0] if steps[step.follow_up_ids[0]].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
-                else:
-                    follow_ups_str = "\n".join(
-                        [
-                            f"""↳ If "{steps[follow_up_id].guideline_content.condition or ELSE_CONDITION_STR}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
-                            for follow_up_id in step.follow_up_ids
-                        ]
-                    )
-                steps_str += f"""
-STEP {step_id}: {action}
-{flags_str}
-TRANSITIONS:
-{follow_ups_str}
-"""
-        # consider adding the trigger string here
-        return f"""
-Journey: {journey_title}
-
-Steps:
-{steps_str} 
-"""
-
-    def _get_previous_path_section(self, previous_path: Sequence[str | None]) -> str:
-        if not previous_path or all([p is None for p in previous_path]):
-            return "The journey has just began. No previous steps have been performed. Begin at step 1."
-        return f"""
-The steps that were visited in past messages of these conversation, in chronological order, are: {previous_path}. 
-You may only backtrack to one of these steps.
 """
 
 
@@ -739,10 +731,9 @@ example_4_events = [
 
 example_4_expected = JourneyStepSelectionSchema(
     last_current_step="5",
-    rationale="The customer still wants to order a taxi, but has changed their earlier decision regarding the pickup location, which requires journey backtracking",
-    journey_applies=True,
     requires_backtracking=True,
-    backtracking_rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
+    rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
+    journey_applies=True,
     backtracking_target_step="2",
     step_advance=["5", "2", "3"],
     next_step="3",

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Sequence, cast
+from typing import Optional, Sequence, cast
 
 from lagom import Container
 from pytest import fixture
@@ -57,6 +57,7 @@ class _StepData:
 class _JourneyData:
     title: str
     steps: list[_StepData]
+    conditions: Optional[Sequence[str]] = None
 
 
 @fixture
@@ -74,6 +75,7 @@ def context(
 
 JOURNEYS_DICT: dict[str, _JourneyData] = {
     "compliment_customer_journey": _JourneyData(
+        conditions=["the customer wishes to reset their password"],
         title="Compliment Customer Journey",
         steps=[
             _StepData(
@@ -119,6 +121,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         ],
     ),
     "forgot_keys_journey": _JourneyData(
+        conditions=["the customer doesn't know where their keys are"],
         title="Help Customer Find Their Keys",
         steps=[
             _StepData(
@@ -159,6 +162,10 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         ],
     ),
     "reset_password_journey": _JourneyData(
+        conditions=[
+            "the customer wants to reset their password",
+            "the customer can't remember their password",
+        ],
         title="Reset Password Journey",
         steps=[
             _StepData(
@@ -209,6 +216,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         ],
     ),
     "calzone_journey": _JourneyData(
+        conditions=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         steps=[
             _StepData(

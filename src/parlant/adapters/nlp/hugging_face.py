@@ -28,7 +28,7 @@ from huggingface_hub.errors import (  # type: ignore
 
 from tempfile import gettempdir
 
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 
@@ -126,17 +126,16 @@ class HuggingFaceEmbedder(Embedder):
         return self._tokenizer
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     InferenceTimeoutError,
                     InferenceEndpointError,
                     InferenceEndpointTimeoutError,
-                ),
-                max_attempts=2,
-            ),
-            retry(exceptions=(TextGenerationError), max_attempts=3),
-        ]
+                ): RetryParameters(max_attempts=2),
+                (TextGenerationError,): RetryParameters(max_attempts=3),
+            }
+        )
     )
     @override
     async def embed(

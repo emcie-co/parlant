@@ -39,7 +39,7 @@ from parlant.core.nlp.generation import (
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -68,16 +68,16 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         self._client = AsyncCerebras(api_key=os.environ.get("CEREBRAS_API_KEY"))
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     APIConnectionError,
                     APITimeoutError,
                     RateLimitError,
-                ),
-            ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (InternalServerError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def generate(

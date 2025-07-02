@@ -40,7 +40,7 @@ from parlant.core.nlp.generation import (
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -80,17 +80,17 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     RateLimitError,
                     Timeout,
                     APIConnectionError,
                     APIError,
-                )
-            ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (ServiceUnavailableError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def generate(
@@ -258,17 +258,17 @@ class TogetherAIEmbedder(Embedder):
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     RateLimitError,
                     Timeout,
                     APIConnectionError,
                     APIError,
-                )
-            ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (ServiceUnavailableError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def embed(

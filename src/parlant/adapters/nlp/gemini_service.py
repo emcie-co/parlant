@@ -24,7 +24,7 @@ from pydantic import ValidationError
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.service import NLPService
@@ -84,16 +84,16 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         return self._tokenizer
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     NotFound,
                     TooManyRequests,
                     ResourceExhausted,
-                )
-            ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (ServerError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def generate(
@@ -259,16 +259,16 @@ class GoogleEmbedder(Embedder):
         return self._tokenizer
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     NotFound,
                     TooManyRequests,
                     ResourceExhausted,
-                )
-            ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (ServerError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def embed(

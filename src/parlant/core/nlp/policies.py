@@ -13,8 +13,10 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+import inspect
 import asyncio
-from typing import Any, Coroutine, Callable, Optional, ParamSpec, TypeVar, Union, cast
+from typing import Any, Coroutine, Callable, Optional, ParamSpec, TypeVar, cast, overload
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -31,100 +33,184 @@ class Policy(ABC):
         pass
 
 
+@dataclass(frozen=True)
+class RetryParameters:
+    max_attempts: int = 3
+    wait_times: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+
+
+def _create_param_to_args_mapping(
+    func: Callable[..., Any], args: tuple[Any, ...]
+) -> dict[str, int]:
+    """Create a mapping from parameter names to their positions in args."""
+    sig = inspect.signature(func)
+    param_names = list(sig.parameters.keys())
+
+    mapping = {}
+    for i, arg_value in enumerate(args):
+        if i < len(param_names):
+            mapping[param_names[i]] = i
+
+    return mapping
+
+
 class RetryPolicy(Policy):
     def __init__(
         self,
-        exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-        max_attempts: int = 3,
-        wait_times: Optional[tuple[float, ...]] = None,
-    ):
-        if not isinstance(exceptions, tuple):
-            exceptions = (exceptions,)
-        self.exceptions = exceptions
-        self.max_attempts = max_attempts
-        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+        sub_policies: dict[tuple[type[Exception], ...], RetryParameters] = {
+            (Exception,): RetryParameters()
+        },
+        max_total_attempts: int = 3,
+        injected_parameters: dict[str, list[Any]] = {},
+        increased_parameters: dict[str, float] = {},
+    ) -> None:
+        self.sub_policies = sub_policies
+        self.max_total_attempts = max_total_attempts
+        self.injected_parameters = injected_parameters
+        self.injected_deltas = increased_parameters
 
     async def apply(
         self, func: Callable[P, Coroutine[Any, Any, R]], *args: P.args, **kwargs: P.kwargs
     ) -> R:
-        attempts = 0
+        # Counters initializations
+        total_attempts = 0
+        attempt_counters = {exc: 0 for exc in self.sub_policies}
+
+        # Mapping of parameter names to their positions in args
+        param_to_args_mapping = _create_param_to_args_mapping(func, args)
+        args_list = list(args)
+
         while True:
             try:
+                # Inject parameters if required - according to the total attempt number (only when retrying)
+                if total_attempts > 0:
+                    for param_name, param_values in self.injected_parameters.items():
+                        if len(param_values) >= total_attempts:
+                            if param_name in kwargs:
+                                kwargs[param_name] = param_values[total_attempts - 1]
+                            elif param_name in param_to_args_mapping:
+                                args_list[param_to_args_mapping[param_name]] = param_values[
+                                    total_attempts - 1
+                                ]
+
+                    for param_name in self.injected_deltas:
+                        if param_name in kwargs and type(kwargs[param_name]) in (int, float):
+                            kwargs[param_name] = (
+                                cast(float, kwargs[param_name]) + self.injected_deltas[param_name]
+                            )
+                        elif param_name in param_to_args_mapping:
+                            arg_index = param_to_args_mapping[param_name]
+                            if type(args_list[arg_index]) in (int, float):
+                                args_list[arg_index] = (
+                                    cast(float, args_list[arg_index])
+                                    + self.injected_deltas[param_name]
+                                )
+
                 return await func(*args, **kwargs)
-            except self.exceptions as e:
-                attempts += 1
-                if attempts >= self.max_attempts:
+            except Exception as e:
+                # Handle max total attempts
+                total_attempts += 1
+                if total_attempts >= self.max_total_attempts:
                     raise e
-                wait_time = self.wait_times[min(attempts - 1, len(self.wait_times) - 1)]
-                await asyncio.sleep(wait_time)
 
-
-class RetryPolicyWithTemperatureIncrease(Policy):
-    def __init__(
-        self,
-        exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-        max_attempts: int = 3,
-        wait_times: Optional[tuple[float, ...]] = None,
-        temperature_delta: float = 0.05,
-    ):
-        if not isinstance(exceptions, tuple):
-            exceptions = (exceptions,)
-        self.exceptions = exceptions
-        self.max_attempts = max_attempts
-        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
-        self.temperature_delta = temperature_delta
-
-    async def apply(
-        self, func: Callable[P, Coroutine[Any, Any, R]], *args: P.args, **kwargs: P.kwargs
-    ) -> R:
-        attempts = 0
-        base_temp = dict(kwargs).get("temperature_delta", 0.0)
-        if isinstance(base_temp, (int, float)):
-            base_temp = float(base_temp)
-        else:
-            base_temp = 0.0
-
-        while True:
-            try:
-                new_kw = dict(kwargs)
-                new_kw["temperature_delta"] = base_temp + attempts * self.temperature_delta
-                return await func(*args, **new_kw)  # type: ignore[arg-type]
-            except self.exceptions as e:
-                attempts += 1
-                if attempts >= self.max_attempts:
+                # Handle sub-policies max attempts
+                for exc_types, params in self.sub_policies.items():
+                    if isinstance(e, exc_types):
+                        attempt_counters[exc_types] += 1
+                        if attempt_counters[exc_types] >= params.max_attempts:
+                            raise e
+                        wait_time = params.wait_times[
+                            min(attempt_counters[exc_types] - 1, len(params.wait_times) - 1)
+                        ]
+                        await asyncio.sleep(wait_time)
+                        break
+                else:
+                    # Unspecified exception - no retry
                     raise e
-                wait_time = self.wait_times[min(attempts - 1, len(self.wait_times) - 1)]
-                await asyncio.sleep(wait_time)
+
+
+@overload
+def retry(
+    *,
+    sub_policies: dict[tuple[type[Exception], ...], RetryParameters],
+    max_attempts: int = 3,
+    injected_parameters: Optional[dict[str, list[Any]]] = None,
+    increased_parameters: Optional[dict[str, float]] = None,
+) -> RetryPolicy: ...
+
+
+@overload
+def retry(
+    *,
+    exceptions: tuple[type[Exception], ...],
+    max_attempts: int = 3,
+    wait_times: Optional[tuple[float, ...]] = None,
+    injected_parameters: Optional[dict[str, list[Any]]] = None,
+    increased_parameters: Optional[dict[str, float]] = None,
+) -> RetryPolicy: ...
 
 
 def retry(
-    exceptions: Union[type[Exception], tuple[type[Exception], ...]],
+    *,
+    sub_policies: Optional[dict[tuple[type[Exception], ...], RetryParameters]] = None,
+    exceptions: Optional[tuple[type[Exception], ...]] = None,
     max_attempts: int = 3,
     wait_times: Optional[tuple[float, ...]] = None,
+    injected_parameters: Optional[dict[str, list[Any]]] = None,
+    increased_parameters: Optional[dict[str, float]] = None,
 ) -> RetryPolicy:
-    return RetryPolicy(exceptions, max_attempts, wait_times)
+    if injected_parameters is None:
+        injected_parameters = {}
 
+    if increased_parameters is None:
+        increased_parameters = {}
 
-def retry_with_temperature_increase(
-    exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-    max_attempts: int = 3,
-    wait_times: Optional[tuple[float, ...]] = None,
-    temperature_delta: float = 0.05,
-) -> RetryPolicyWithTemperatureIncrease:
-    return RetryPolicyWithTemperatureIncrease(
-        exceptions, max_attempts, wait_times, temperature_delta
+    # Validate that there are no overlapping keys - to keep the behavior well-defined
+    if set(injected_parameters.keys()).intersection(increased_parameters.keys()):
+        raise ValueError(
+            "You cannot specify a parameter in both injected_parameters and increased_parameters"
+        )
+
+    # Validate that sub_policies and exceptions are not both specified - to keep the behavior well-defined
+    if sub_policies is not None and exceptions is not None:
+        raise ValueError(
+            "You cannot specify both sub_policies and exceptions. Please use only one of them."
+        )
+
+    if sub_policies is not None:
+        return RetryPolicy(sub_policies, max_attempts, injected_parameters, increased_parameters)
+
+    if exceptions is not None:
+        if wait_times is None:
+            return RetryPolicy(
+                {exceptions: RetryParameters(max_attempts)},
+                max_attempts,
+                injected_parameters,
+                increased_parameters,
+            )
+        return RetryPolicy(
+            {exceptions: RetryParameters(max_attempts, wait_times)},
+            max_attempts,
+            injected_parameters,
+            increased_parameters,
+        )
+
+    # Default behavior if neither is provided
+    return RetryPolicy(
+        {(Exception,): RetryParameters(max_attempts)},
+        max_attempts,
+        injected_parameters,
+        increased_parameters,
     )
 
 
 def policy(
-    policies: Union[Policy, list[Policy]],
+    policy: Policy,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, R]]], Callable[..., Coroutine[Any, Any, R]]]:
     def decorator(
         func: Callable[..., Coroutine[Any, Any, R]],
     ) -> Callable[..., Coroutine[Any, Any, R]]:
-        applied_policies = policies if isinstance(policies, list) else [policies]
-        for policy in reversed(applied_policies):
-            func = make_wrapped_func(policy, func)
+        func = make_wrapped_func(policy, func)
         return func
 
     return decorator

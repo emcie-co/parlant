@@ -35,7 +35,7 @@ from parlant.core.nlp.generation import (
     SchematicGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 
 
@@ -158,7 +158,7 @@ async def test_that_retry_succeeds_on_first_attempt(
         ),
     )
 
-    @policy([retry(exceptions=(FirstException))])
+    @policy(retry(exceptions=(FirstException,)))
     async def generate(
         prompt: str, hints: Mapping[str, Any]
     ) -> SchematicGenerationResult[DummySchema]:
@@ -193,7 +193,7 @@ async def test_that_retry_succeeds_after_failures(
         success_result,
     ]
 
-    @policy([retry(exceptions=(FirstException))])
+    @policy(retry(exceptions=(FirstException,)))
     async def generate(
         prompt: str, hints: Mapping[str, Any]
     ) -> SchematicGenerationResult[DummySchema]:
@@ -230,7 +230,7 @@ async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
         success_result,
     ]
 
-    @policy([retry(exceptions=(FirstException))])
+    @policy(retry(exceptions=(FirstException,)))
     async def generate(
         mock_object: AsyncMock,
         prompt: str,
@@ -279,7 +279,7 @@ async def test_that_retry_handles_multiple_exception_types(container: Container)
         success_result,
     ]
 
-    @policy([retry(exceptions=(FirstException, AnotherException), max_attempts=3)])
+    @policy(retry(exceptions=(FirstException, AnotherException), max_attempts=3))
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
@@ -300,7 +300,7 @@ async def test_that_retry_doesnt_catch_unspecified_exceptions(container: Contain
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_generator.generate.side_effect = UnexpectedException("Unexpected error")
 
-    @policy([retry(exceptions=(FirstException), max_attempts=3)])
+    @policy(retry(exceptions=(FirstException,), max_attempts=3))
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
@@ -314,7 +314,9 @@ async def test_that_retry_doesnt_catch_unspecified_exceptions(container: Contain
     mock_generator.generate.assert_awaited_once()
 
 
-async def test_that_stacked_retry_decorators_exceed_max_attempts(container: Container) -> None:
+async def test_that_retry_with_multiple_sub_policies_exceed_max_attempts(
+    container: Container,
+) -> None:
     mock_embedder = AsyncMock(spec=EmbeddingResult)
     success_result = EmbeddingResult(vectors=[[0.1, 0.2, 0.3]])
 
@@ -327,7 +329,15 @@ async def test_that_stacked_retry_decorators_exceed_max_attempts(container: Cont
         success_result,
     ]
 
-    @policy([retry(SecondException, max_attempts=3), retry(FirstException, max_attempts=3)])
+    @policy(
+        retry(
+            sub_policies={
+                (SecondException,): RetryParameters(max_attempts=3),
+                (FirstException,): RetryParameters(max_attempts=3),
+            },
+            max_attempts=6,
+        )
+    )
     async def embed(text: str) -> EmbeddingResult:
         return cast(EmbeddingResult, await mock_embedder(text=text))
 
@@ -403,3 +413,97 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
 
     result = await mock_service.generate(builder.build())
     assert result.content.result == "You are Bob"
+
+
+async def test_that_retry_with_values_injection_succeeds_after_failures(
+    container: Container,
+) -> None:
+    my_global = 0
+    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
+    success_result = SchematicGenerationResult(
+        content=DummySchema(result="Success"),
+        info=GenerationInfo(
+            schema_name="DummySchema",
+            model="not-real-model",
+            duration=1,
+            usage=UsageInfo(input_tokens=1, output_tokens=1),
+        ),
+    )
+
+    mock_generator.generate.side_effect = [
+        FirstException("First failure"),
+        FirstException("Second failure"),
+        success_result,
+    ]
+
+    @policy(
+        retry(
+            exceptions=(FirstException,),
+            max_attempts=3,
+            injected_parameters={"injected": [1, 2]},
+        )
+    )
+    async def generate(
+        prompt: str,
+        hints: Mapping[str, Any],
+        injected: int,
+    ) -> SchematicGenerationResult[DummySchema]:
+        nonlocal my_global
+        my_global = injected
+        return cast(
+            SchematicGenerationResult[DummySchema],
+            await mock_generator.generate(prompt=prompt, hints=hints),
+        )
+
+    result = await generate(prompt="test prompt", hints={"a": 1}, injected=10)
+
+    assert mock_generator.generate.await_count == 3
+    assert result.content.result == "Success"
+    assert my_global == 2
+
+
+async def test_that_retry_with_delta_injection_succeeds_after_failures(
+    container: Container,
+) -> None:
+    my_global = 0.0
+    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
+    success_result = SchematicGenerationResult(
+        content=DummySchema(result="Success"),
+        info=GenerationInfo(
+            schema_name="DummySchema",
+            model="not-real-model",
+            duration=1,
+            usage=UsageInfo(input_tokens=1, output_tokens=1),
+        ),
+    )
+
+    mock_generator.generate.side_effect = [
+        FirstException("First failure"),
+        FirstException("Second failure"),
+        success_result,
+    ]
+
+    @policy(
+        retry(
+            exceptions=(FirstException,),
+            max_attempts=3,
+            increased_parameters={"delta": 0.1},
+        )
+    )
+    async def generate(
+        prompt: str,
+        hints: Mapping[str, Any],
+        delta: float = 0.0,
+    ) -> SchematicGenerationResult[DummySchema]:
+        nonlocal my_global
+        my_global = delta
+        return cast(
+            SchematicGenerationResult[DummySchema],
+            await mock_generator.generate(prompt=prompt, hints=hints),
+        )
+
+    result = await generate(prompt="test prompt", hints={"a": 1}, delta=0.15)
+
+    assert mock_generator.generate.await_count == 3
+    assert result.content.result == "Success"
+    assert my_global == 0.15 + 0.1 + 0.1

@@ -36,7 +36,7 @@ from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
-from parlant.core.nlp.policies import policy, retry
+from parlant.core.nlp.policies import policy, retry, RetryParameters
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
@@ -93,18 +93,18 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         return self._tokenizer
 
     @policy(
-        [
-            retry(
-                exceptions=(
+        retry(
+            sub_policies={
+                (
                     APIConnectionError,
                     APITimeoutError,
                     ConflictError,
                     RateLimitError,
                     APIResponseValidationError,
-                ),
-            ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
+                ): RetryParameters(),
+                (InternalServerError,): RetryParameters(max_attempts=2, wait_times=(1.0, 5.0)),
+            }
+        )
     )
     @override
     async def generate(

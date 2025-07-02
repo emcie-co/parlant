@@ -121,7 +121,7 @@ from parlant.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import JourneyId, JourneyStepId, JourneyStore, JourneyVectorStore
+from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore, JourneyVectorStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
@@ -486,7 +486,7 @@ class Guideline:
 
 @dataclass(frozen=True)
 class JourneyNode:
-    id: JourneyStepId
+    id: JourneyNodeId
     condition: str | None
     action: str | None
     tools: Sequence[ToolEntry]
@@ -535,7 +535,7 @@ class JourneyNode:
             )
 
         return JourneyNode(
-            id=cast(JourneyStepId, guideline.id),
+            id=cast(JourneyNodeId, guideline.id),
             condition=condition,
             action=action or evaluation.action_proposition,
             tools=tools,
@@ -868,7 +868,7 @@ class Agent:
             conditions=journey.conditions,
             tags=journey.tags,
             root=JourneyNode(
-                id=JourneyStepId(JourneyNode.ROOT),
+                id=JourneyNodeId(JourneyNode.ROOT),
                 condition=None,
                 action=None,
                 tools=[],
@@ -1371,7 +1371,7 @@ class Server:
             conditions=condition_guidelines,
             tags=tags,
             root=JourneyNode(
-                id=JourneyStepId("ROOT"),
+                id=JourneyNodeId("ROOT"),
                 condition=None,
                 action=None,
                 tools=[],

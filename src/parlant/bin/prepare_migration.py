@@ -57,9 +57,14 @@ from parlant.core.glossary import (
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.journeys import (
     JourneyConditionAssociationDocument,
+    JourneyDocument,
     JourneyDocument_v0_1_0,
-    JourneyStepAssociationDocument,
+    JourneyDocument_v0_2_0,
+    JourneyEdgeAssociationDocument,
+    JourneyId,
+    JourneyNodeAssociationDocument,
     JourneyTagAssociationDocument,
+    JourneyVectorDocument,
     JourneyVectorStore,
 )
 from parlant.core.relationships import (
@@ -939,29 +944,22 @@ async def migrate_journeys_0_1_0_to_0_2_0() -> None:
         if doc["version"] == "0.1.0":
             doc = cast(JourneyDocument_v0_1_0, doc)
 
-            conditions = [
-                c["condition"]
-                for c in await journey_conditions_collection.find(
-                    filters={"journey_id": {"$eq": ObjectId(doc["id"])}}
-                )
-            ]
-
             content = JourneyVectorStore.assemble_content(
                 title=doc["title"],
                 description=doc["description"],
-                conditions=conditions,
-                steps=[],
+                nodes=[],
+                edges=[],
             )
 
-            new_doc = {
-                "id": doc["id"],
-                "version": Version.String("0.2.0"),
-                "content": content,
-                "checksum": md5_checksum(content),
-                "creation_utc": doc["creation_utc"],
-                "title": doc["title"],
-                "description": doc["description"],
-            }
+            new_doc = JourneyDocument_v0_2_0(
+                id=doc["id"],
+                version=Version.String("0.2.0"),
+                content=content,
+                checksum=md5_checksum(content),
+                creation_utc=doc["creation_utc"],
+                title=doc["title"],
+                description=doc["description"],
+            )
 
             chroma_unembedded_collection.add(
                 ids=[str(doc["id"])],
@@ -1237,6 +1235,11 @@ async def migrate_relationships_0_2_0_to_0_3_0() -> None:
 async def migrate_journeys_0_2_0_to_0_3_0() -> None:
     rich.print("[green]Starting migration for journeys 0.2.0 -> 0.3.0")
 
+    async def _journey_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyDocument]:
+        return cast(JourneyDocument, doc)
+
     async def _tag_association_document_loader(
         doc: BaseDocument,
     ) -> Optional[JourneyTagAssociationDocument]:
@@ -1247,14 +1250,19 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
     ) -> Optional[JourneyConditionAssociationDocument]:
         return cast(JourneyConditionAssociationDocument, doc)
 
-    async def _step_association_document_loader(
+    async def _node_association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[JourneyStepAssociationDocument]:
-        return cast(JourneyStepAssociationDocument, doc)
+    ) -> Optional[JourneyNodeAssociationDocument]:
+        return cast(JourneyNodeAssociationDocument, doc)
+
+    async def _edge_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyEdgeAssociationDocument]:
+        return cast(JourneyEdgeAssociationDocument, doc)
 
     embedder_factory = EmbedderFactory(Container())
 
-    db = await EXIT_STACK.enter_async_context(
+    chroma_db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
             PARLANT_HOME_DIR,
@@ -1267,14 +1275,24 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "journey_associations.json")
     )
 
+    journeys_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "journeys.json")
+    )
+
+    journeys_collection = await journeys_db.get_or_create_collection(
+        "journeys",
+        JourneyDocument,
+        _journey_loader,
+    )
+
     chroma_unembedded_collection = next(
         (
             collection
-            for collection in db.chroma_client.list_collections()
+            for collection in chroma_db.chroma_client.list_collections()
             if collection.name == "journeys_unembedded"
         ),
         None,
-    ) or db.chroma_client.create_collection(name="journeys_unembedded")
+    ) or chroma_db.chroma_client.create_collection(name="journeys_unembedded")
 
     journey_tags_collection = await journey_associations_db.get_or_create_collection(
         "journey_tags",
@@ -1289,26 +1307,34 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
     )
 
     _ = await journey_associations_db.get_or_create_collection(
-        "journey_steps",
-        JourneyStepAssociationDocument,
-        _step_association_document_loader,
+        "journey_nodes",
+        JourneyNodeAssociationDocument,
+        _node_association_document_loader,
+    )
+
+    _ = await journey_associations_db.get_or_create_collection(
+        "journey_edges",
+        JourneyEdgeAssociationDocument,
+        _edge_association_document_loader,
     )
 
     migrated_count = 0
     if metadatas := chroma_unembedded_collection.get()["metadatas"]:
         for doc in metadatas:
-            new_doc = {
-                "id": doc["id"],
-                "version": Version.String("0.3.0"),
-                "checksum": md5_checksum(
-                    cast(str, doc["content"]) + datetime.now(timezone.utc).isoformat()
-                ),
-                "content": doc["content"],
-                "creation_utc": doc["creation_utc"],
-                "title": doc["title"],
-                "description": doc["description"],
-                "steps": "[]",
-            }
+            content = JourneyVectorStore.assemble_content(
+                title=cast(str, doc["title"]),
+                description=cast(str, doc["description"]),
+                nodes=[],
+                edges=[],
+            )
+
+            new_vector_doc = JourneyVectorDocument(
+                id=ObjectId(cast(str, doc["id"])),
+                journey_id=JourneyId(cast(str, doc["id"])),
+                version=Version.String("0.3.0"),
+                content=content,
+                checksum=md5_checksum(content),
+            )
 
             chroma_unembedded_collection.delete(
                 where=cast(chromadb.Where, {"id": {"$eq": cast(str, doc["id"])}})
@@ -1316,10 +1342,20 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
             chroma_unembedded_collection.add(
                 ids=[cast(str, doc["id"])],
                 documents=[cast(str, doc["content"])],
-                metadatas=[cast(chromadb.Metadata, new_doc)],
+                metadatas=[cast(chromadb.Metadata, new_vector_doc)],
                 embeddings=[0],
             )
             migrated_count += 2
+
+            j_doc = JourneyDocument(
+                id=ObjectId(cast(str, doc["id"])),
+                version=Version.String("0.3.0"),
+                creation_utc=cast(str, doc["creation_utc"]),
+                title=cast(str, doc["title"]),
+                description=cast(str, doc["description"]),
+            )
+
+            await journeys_collection.insert_one(j_doc)
 
     chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
@@ -1347,7 +1383,7 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
             },
         )
 
-    await db.upsert_metadata(
+    await chroma_db.upsert_metadata(
         VectorDocumentStoreMigrationHelper.get_store_version_key(JourneyVectorStore.__name__),
         Version.String("0.3.0"),
     )

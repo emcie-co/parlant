@@ -552,6 +552,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="compliment_customer_journey",
+        journey_previous_path=["1"],
         expected_next_step_id="2",
     )
 

@@ -56,6 +56,7 @@ class JourneyStepSelectionShot(Shot):
     journey_steps: dict[str, _JourneyStepWrapper] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
+    conditions: Sequence[str]
 
 
 def get_journey_transition_map_text(
@@ -72,7 +73,7 @@ def get_journey_transition_map_text(
 
     if journey_conditions:
         journey_conditions_str = " OR ".join(f'"{condition}"' for condition in journey_conditions)
-        journey_conditions_str = f"\nJourney activates at step 1 when: {journey_conditions_str}\n"
+        journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
     else:
         journey_conditions_str = ""
     # Sort steps by step id as integer if possible, else as string
@@ -132,6 +133,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         context: GuidelineMatchingContext,
         step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
+        journey_conditions: Sequence[str] = [],
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
@@ -153,6 +155,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
+        self._journey_conditions: Sequence[str] = journey_conditions
 
     def _build_journey_steps(
         self,
@@ -315,7 +318,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 shot.journey_steps,
                 previous_path=shot.previous_path,
                 journey_title=shot.journey_title,
-                journey_conditions=self._examined_journey.conditions,
+                journey_conditions=shot.conditions,
             )
 
         formatted_shot += f"""
@@ -415,7 +418,7 @@ Examples of Journey Step Selections:
                 steps=self._journey_steps,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
-                journey_conditions=self._examined_journey.conditions,
+                journey_conditions=self._journey_conditions,
             ),
         )
         builder.add_section(
@@ -758,6 +761,7 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         journey_steps=example_1_journey_steps,
         expected_result=example_1_expected,
         previous_path=["1"],
+        conditions=["the customer is interested in a vacation"],
     ),
     JourneyStepSelectionShot(
         description="Example 2 - Multiple Step Advancement Stopped by Tool Calling Step",
@@ -766,6 +770,7 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         journey_steps=book_taxi_shot_journey_steps,
         expected_result=example_2_expected,
         previous_path=["1", "2"],
+        conditions=[],
     ),
     JourneyStepSelectionShot(
         description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
@@ -774,6 +779,7 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         journey_steps=None,
         expected_result=example_3_expected,
         previous_path=["1"],
+        conditions=[],
     ),
     JourneyStepSelectionShot(
         description="Example 4 - Backtracking Due to Changed Customer Decision",
@@ -782,6 +788,7 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         journey_steps=None,
         expected_result=example_4_expected,
         previous_path=["1", "2", "4", "2", "3", "5"],
+        conditions=[],
     ),
 ]
 

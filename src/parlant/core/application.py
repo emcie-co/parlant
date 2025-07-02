@@ -33,7 +33,7 @@ from parlant.core.evaluations import (
     Invoice,
 )
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.journeys import JourneyId, JourneyStepId, JourneyStore
+from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
@@ -294,7 +294,7 @@ class Application:
     async def append_journey_step(
         self,
         journey_id: JourneyId,
-        step: JourneyStepId,
+        step: JourneyNodeId,
     ) -> Guideline:
         # TODO: Support multiple journeys for the same guideline step.
         journey = await self._journey_store.read_journey(journey_id=journey_id)
@@ -304,7 +304,7 @@ class Application:
             key="journey_step",
             value={
                 "journey_id": journey_id,
-                "id": len(journey.steps) + 1,
+                "id": len(journey.nodes) + 1,
                 "sub_steps": [],
             },
         )
@@ -312,7 +312,7 @@ class Application:
         await self._journey_store.update_journey(
             journey_id=journey_id,
             params={
-                "steps": list(journey.steps) + [cast(JourneyStepId, guideline.id)],
+                "steps": list(journey.nodes) + [cast(JourneyNodeId, guideline.id)],
             },
         )
 
@@ -320,9 +320,9 @@ class Application:
 
     async def append_journey_sub_step(
         self,
-        parent_id: JourneyStepId,
+        parent_id: JourneyNodeId,
         journey_id: JourneyId,
-        sub_step: JourneyStepId,
+        sub_step: JourneyNodeId,
     ) -> Guideline:
         # TODO: Support multiple journeys for the same guideline sub-step.
         journey = await self._journey_store.read_journey(journey_id=journey_id)
@@ -336,16 +336,16 @@ class Application:
         assert "sub_steps" in cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])
 
         sub_steps = cast(
-            list[JourneyStepId],
+            list[JourneyNodeId],
             cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])["sub_steps"],
         )
 
         perv_step = sub_steps[-1] if sub_steps else parent.id
 
         # Sorting the journey steps for readability
-        updated_journey_steps: list[JourneyStepId] = []
+        updated_journey_steps: list[JourneyNodeId] = []
 
-        for s in journey.steps:
+        for s in journey.nodes:
             updated_journey_steps.append(s)
             if s == perv_step:
                 updated_journey_steps.append(sub_step)

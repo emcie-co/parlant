@@ -445,13 +445,11 @@ async def test_that_relational_guideline_resolver_filters_dependent_guidelines_b
         title="First Journey",
         description="Description",
         conditions=[],
-        steps=[],
     )
     disabled_journey = await journey_store.create_journey(
         title="Second Journey",
         description="Description",
         conditions=[],
-        steps=[],
     )
 
     enabled_journey_tagged_guideline = await guideline_store.create_guideline(

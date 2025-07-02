@@ -272,7 +272,6 @@ async def test_that_tags_can_be_removed_from_a_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
         tags=[tag2.id, tag3.id],
     )
 
@@ -303,7 +302,6 @@ async def test_that_a_journey_can_be_deleted(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[guideline.id],
-        steps=[],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -329,7 +327,6 @@ async def test_that_a_guideline_is_deleted_when_it_is_removed_from_all_journeys(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[guideline.id],
-        steps=[],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -355,14 +352,12 @@ async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journ
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[guideline.id],
-        steps=[],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
         conditions=[guideline.id],
-        steps=[],
     )
 
     await guideline_store.upsert_tag(
@@ -393,7 +388,6 @@ async def test_that_a_tag_can_be_added_to_a_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
     )
 
     response = await async_client.patch(
@@ -418,7 +412,6 @@ async def test_that_a_tag_can_be_removed_from_a_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
         tags=[tag.id],
     )
 
@@ -447,7 +440,6 @@ async def test_that_conditions_can_be_added_to_a_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
     )
 
     response = await async_client.patch(
@@ -479,14 +471,12 @@ async def test_that_conditions_can_be_removed_from_a_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[guideline.id],
-        steps=[],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
         conditions=[guideline.id],
-        steps=[],
     )
 
     await guideline_store.upsert_tag(
@@ -526,14 +516,12 @@ async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[guideline.id],
-        steps=[],
     )
 
     await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
         conditions=[guideline.id],
-        steps=[],
     )
 
     await guideline_store.upsert_tag(
@@ -562,7 +550,6 @@ async def test_that_journeys_can_be_filtered_by_tag(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
         tags=[tag.id],
     )
 
@@ -570,7 +557,6 @@ async def test_that_journeys_can_be_filtered_by_tag(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[],
-        steps=[],
     )
 
     response = await async_client.get(f"/journeys?tag_id={tag.id}")

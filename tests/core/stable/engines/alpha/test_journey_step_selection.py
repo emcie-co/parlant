@@ -27,7 +27,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import Journey, JourneyId, JourneyStepId
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
@@ -380,7 +380,6 @@ async def create_journey(
         id=JourneyId("-"),
         creation_utc=datetime.now(timezone.utc),
         conditions=[],
-        steps=[cast(JourneyStepId, g.id) for g in journey_step_guidelines],
         title=title,
         description="",
         tags=[],

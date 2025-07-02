@@ -270,7 +270,6 @@ def create_router(
             title=params.title,
             description=params.description,
             conditions=[g.id for g in guidelines],
-            steps=[],
             tags=params.tags,
         )
 

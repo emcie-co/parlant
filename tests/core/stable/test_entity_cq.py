@@ -137,7 +137,6 @@ async def test_that_guideline_matches_are_not_filtered_by_enabled_journeys(
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[journey_guideline.id],
-        steps=[],
     )
 
     guideline = await guideline_store.create_guideline(
@@ -180,7 +179,6 @@ async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_
         title="Customer Onboarding",
         description="Guide new customers",
         conditions=[journey_guideline.id],
-        steps=[],
     )
 
     guideline = await guideline_store.create_guideline(
@@ -257,7 +255,6 @@ async def test_that_find_utterances_for_agent_and_journey_returns_journey_uttera
         title="Test Journey",
         description="A test journey",
         conditions=[],
-        steps=[],
     )
 
     journey_tag = Tag.for_journey_id(journey.id)
@@ -376,14 +373,12 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
         4. use the tool reset_password with the provided information
         5. report the result to the customer""",
         conditions=[condition.id],
-        steps=[],
     )
 
     support_journey = await journey_store.create_journey(
         title="Change Credit Limits",
         description="Remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch",
         conditions=[],
-        steps=[],
     )
 
     results = await entity_queries.sort_journeys_by_contextual_relevance(
@@ -407,7 +402,6 @@ async def test_list_guidelines_dependent_directly_on_journey(
         title="Test Journey",
         description="A journey for testing dependencies",
         conditions=[],
-        steps=[],
     )
 
     guideline1 = await guideline_store.create_guideline(
@@ -446,7 +440,6 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
         title="Test Journey",
         description="A journey for testing dependencies",
         conditions=[],
-        steps=[],
     )
 
     guideline1 = await guideline_store.create_guideline(

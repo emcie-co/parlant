@@ -414,16 +414,16 @@ class Test_that_journey_steps_and_sub_nodes_are_ordered(SDKTest):
 
         journey = await journey_store.read_journey(journey_id=self.journey.id)
 
-        assert len(journey.steps) == 9
-        assert journey.steps[0] == self.node1.id
-        assert journey.steps[1] == self.node2.id
-        assert journey.steps[2] == self.node3.id
-        assert journey.steps[3] == self.sub_node3_1.id
-        assert journey.steps[4] == self.sub_node3_2.id
-        assert journey.steps[5] == self.sub_node3_3.id
-        assert journey.steps[6] == self.sub_node3_3_1.id
-        assert journey.steps[7] == self.sub_node3_3_2.id
-        assert journey.steps[8] == self.sub_node_3_3_2_1.id
+        assert len(journey.nodes) == 9
+        assert journey.nodes[0] == self.node1.id
+        assert journey.nodes[1] == self.node2.id
+        assert journey.nodes[2] == self.node3.id
+        assert journey.nodes[3] == self.sub_node3_1.id
+        assert journey.nodes[4] == self.sub_node3_2.id
+        assert journey.nodes[5] == self.sub_node3_3.id
+        assert journey.nodes[6] == self.sub_node3_3_1.id
+        assert journey.nodes[7] == self.sub_node3_3_2.id
+        assert journey.nodes[8] == self.sub_node_3_3_2_1.id
 
         node1_guideline = await ctx.container[GuidelineStore].read_guideline(
             guideline_id=cast(GuidelineId, self.node1.id)

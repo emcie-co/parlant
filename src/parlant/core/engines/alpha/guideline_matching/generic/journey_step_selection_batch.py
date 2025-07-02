@@ -242,10 +242,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        formatted_shot += f"The steps that were visited in past messages in this example are {shot.previous_path}."
         if shot.journey_steps:
             formatted_shot += self._get_journey_steps_section(
-                shot.journey_steps, shot.journey_title
+                shot.journey_steps, shot.journey_title, previous_path=shot.previous_path
             )
 
         formatted_shot += f"""
@@ -298,7 +297,7 @@ Determine if the conversation remains within the journey scope.
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
-  - Set `backtracking_target_step` to the step where the decision changed
+  - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
   - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
   - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your backtracking_rationale should revolve around which decision was changed, and which follow up of its step should currently apply. 
 
@@ -335,10 +334,10 @@ Examples of Journey Step Selections:
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_events(self._context.staged_events)
-        builder.add_section(
-            name="journey-step-selection-previous_path",
-            template=self._get_previous_path_section(self._previous_path),
-        )
+        #        builder.add_section(
+        #            name="journey-step-selection-previous_path",
+        #            template=self._get_previous_path_section(self._previous_path),
+        #        ) TODO delete if it works
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=self._get_journey_steps_section(
@@ -379,7 +378,10 @@ OUTPUT FORMAT
 """
 
     def _get_journey_steps_section(
-        self, steps: dict[str, _JourneyStepWrapper], journey_title: str
+        self,
+        steps: dict[str, _JourneyStepWrapper],
+        journey_title: str,
+        previous_path: Sequence[str | None] = [],
     ) -> str:
         def step_sort_key(step_id: str) -> Any:
             try:
@@ -392,21 +394,23 @@ OUTPUT FORMAT
         for step_id in sorted(steps.keys(), key=step_sort_key):
             step: _JourneyStepWrapper = steps[step_id]
             action: str | None = step.guideline_content.action
-            flags_str = ""
             if action:
-                if step.customer_dependent_action or step.requires_tool_calls:
-                    flags_str += "Step Flags:\n"
-                    if step.customer_dependent_action:
-                        flags_str += (
-                            "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
-                        )
-                    if (
-                        step.requires_tool_calls
-                        and (not self._previous_path or step.id != self._previous_path[-1])
-                    ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
-                        flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
-                    if self._previous_path and step.id == self._previous_path[-1]:
-                        flags_str += "- This is the last step that was executed. Begin advancing on from this step\n"
+                flags_str = "Step Flags:\n"
+                if step.customer_dependent_action:
+                    flags_str += "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
+                if (
+                    step.requires_tool_calls
+                    and (not self._previous_path or step.id != self._previous_path[-1])
+                ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
+                    flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
+
+                if self._previous_path and step.id == self._previous_path[-1]:
+                    flags_str += "- This is the last step that was executed. Begin advancing on from this step\n"
+                elif step.id in previous_path:
+                    flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
+                else:
+                    flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
+
                 if len(step.follow_up_ids) == 0:
                     follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
                 elif len(step.follow_up_ids) == 1:

@@ -38,7 +38,6 @@ class _JourneyStepWrapper(DefaultBaseModel):
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
-    last_customer_message: str
     journey_applies: bool
     last_current_step: str
     rationale: str
@@ -137,6 +136,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
+
+        with open("journey step selection output.txt", "w") as f:
+            f.write(inference.content.model_dump_json(indent=2))
+            f.write("\nTime: " + str(inference.info.duration))
 
         self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
@@ -299,7 +302,7 @@ Check if the customer has changed a previous decision that requires returning to
 - If backtracking is needed:
   - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
   - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
-  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your backtracking_rationale should revolve around which decision was changed, and which follow up of its step should currently apply. 
+  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.  
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
@@ -363,7 +366,6 @@ OUTPUT FORMAT
 
 ```json
 {{
-  "last_customer_message": "<str, the most recent message from the customer>",
   "journey_applies": <bool, whether the journey should be continued>,
   "last_current_step": "<str, the id of the last current step>",
   "rationale": "<str, explanation for what is the next step and why it was selected>",
@@ -526,7 +528,6 @@ example_1_journey_steps = {
 
 example_1_expected = JourneyStepSelectionSchema(
     last_current_step="1",
-    last_customer_message="Actually I’m also wondering — do I need any special visas or documents as an American citizen?",
     journey_applies=True,
     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     requires_backtracking=False,
@@ -662,7 +663,6 @@ book_taxi_shot_journey_steps = {
 
 example_2_expected = JourneyStepSelectionSchema(
     last_current_step="2",
-    last_customer_message="I'd like a taxi from 20 W 34th St., NYC to JFK Airport, at 5 PM please. I'll pay by cash.",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
@@ -686,7 +686,6 @@ example_3_events = [
 
 example_3_expected = JourneyStepSelectionSchema(
     last_current_step="1",
-    last_customer_message="I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
@@ -740,7 +739,6 @@ example_4_events = [
 
 example_4_expected = JourneyStepSelectionSchema(
     last_current_step="5",
-    last_customer_message="Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
     rationale="The customer still wants to order a taxi, but has changed their earlier decision regarding the pickup location, which requires journey backtracking",
     journey_applies=True,
     requires_backtracking=True,

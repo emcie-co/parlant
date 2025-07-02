@@ -1,10 +1,12 @@
-from typing import Any, Sequence
+import random
+from typing import Any, Mapping, Sequence, cast
 from lagom import Container
 from matplotlib import pyplot as plt
 import numpy as np
 
 from parlant.core.agents import Agent
 from parlant.core.async_utils import safe_gather
+from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.utils import context_variables_to_json
@@ -15,7 +17,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import Event, EventSource
 from tests.core.common.utils import create_event_message
 
-JOURNEY_DICT = {
+JOURNEY_DICT: Mapping[str, Mapping[str, JSONSerializable]] = {
     "Reset Password": {
         "description": """follow these steps to reset a customers password:
         1. ask for their account name
@@ -76,9 +78,91 @@ JOURNEY_DICT = {
 }
 
 
+def shuffle_text(text: str) -> str:
+    words = text.split()
+    random.shuffle(words)
+    return " ".join(words)
+
+
+SHUFFLED: Mapping[str, Mapping[str, JSONSerializable]] = {
+    "Reset Password": {
+        "description": shuffle_text("""follow these steps to reset a customers password:
+        1. ask for their account name
+        2. ask for their email or phone number
+        3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort.
+        4. use the tool reset_password with the provided information
+        5. report the result to the customer"""),
+        "conditions": ["the customer wants to reset their password", "always"],
+    },
+    "Change Credit Limits": {
+        "description": shuffle_text(
+            """remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch"""
+        ),
+        "conditions": ["credit limits are discussed"],
+    },
+    "Email Domain": {
+        "description": shuffle_text(
+            """remember that all gmail addresses with local domains are saved within our systems and tools using gmail.com instead of the local domain"""
+        ),
+        "conditions": ["a gmail address with a domain other than .com is mentioned"],
+    },
+    "Book Flight": {
+        "description": shuffle_text(
+            """ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons."""
+        ),
+        "conditions": ["a customer wants to book a flight"],
+    },
+    "Book Flight (simple)": {
+        "description": shuffle_text(
+            """ask for the source and destination airport. You may skip steps that are inapplicable due to other contextual reasons."""
+        ),
+        "conditions": ["a customer wants to book a flight"],
+    },
+    "Business Adult Only": {
+        "description": shuffle_text(
+            """know that travelers under the age of 21 are illegible for business class, and may only use economy"""
+        ),
+        "conditions": ["a flight is being booked"],
+    },
+    "Business Adult Only (detailed)": {
+        "description": shuffle_text(
+            """ensure that travelers under the age of 21 are ineligible for business class. If a traveler is under 21, they should be informed that only economy class is available. If the traveler is 21 or older, they may choose between economy and business class"""
+        ),
+        "conditions": ["a customer wants to book a flight"],
+    },
+    "Vegetarian Customers": {
+        "description": shuffle_text(
+            """Be aware that the customer is vegetarian. Only discuss vegetarian options with them."""
+        ),
+        "conditions": ["the customer has a name that begins with R"],
+    },
+    "Book Taxi Ride": {
+        "description": shuffle_text("""follow these steps to book a customer a taxi ride:
+        1. Ask for the pickup location.
+        2. Ask for the drop-off location.
+        3. Ask for the desired pickup time.
+        4. Confirm all details with the customer before booking. Each step should be handled in a separate message."""),
+        "conditions": ["the customer wants to book a taxi"],
+    },
+    "Place Food Order": {
+        "description": shuffle_text("""follow these steps to place a customer's order:
+        1. Ask if they'd like a salad or a sandwich.
+        2. If they choose a sandwich, ask what kind of bread they'd like.
+        3. If they choose a sandwich, ask what main filling they'd like from: Peanut butter, jam or pesto.
+        4. If they choose a sandwich, ask if they want any extras.
+        5. If they choose a salad, ask what base greens they want.
+        6. If they choose a salad, ask what toppings they'd like.
+        7. If they choose a salad, ask what kind of dressing they prefer.
+        8. Confirm the full order before placing it. Each step should be handled in a separate message"""),
+        "conditions": ["the customer wants to order food"],
+    },
+}
+
+
 async def get_journeys_by_name(
     container: Container,
     journey_names: Sequence[str],
+    journey_dict: Mapping[str, Mapping[str, JSONSerializable]] = JOURNEY_DICT,
 ) -> Sequence[Journey]:
     journey_store = container[JourneyStore]
     guideline_store = container[GuidelineStore]
@@ -89,12 +173,12 @@ async def get_journeys_by_name(
             await guideline_store.create_guideline(
                 condition=c,
             )
-            for c in JOURNEY_DICT[name]["conditions"]
+            for c in cast(str, journey_dict[name]["conditions"])
         ]
 
         journey = await journey_store.create_journey(
             title=name,
-            description=str(JOURNEY_DICT[name]["description"]),
+            description=cast(str, journey_dict[name]["description"]),
             conditions=[c.id for c in conditions],
         )
         journeys.append(journey)
@@ -171,7 +255,7 @@ def _plot_similairty_vs_prefix(
         loc="upper left",
         borderaxespad=0.0,
     )
-
+    plt.ylim(top=0.65)
     plt.tight_layout()  # Adjust layout to fit the legend
     plt.savefig(f"similarity vs. interaction message {title}.png", bbox_inches="tight")
     plt.show()
@@ -661,7 +745,7 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
         "Book Flight",
         "Book Flight (simple)",
     ]
-    journeys = await get_journeys_by_name(container, journey_names)
+    journeys = await get_journeys_by_name(container, journey_names, journey_dict=SHUFFLED)
 
     # await get_journeys_similarity_for_prefix(
     #     container=container,
@@ -672,10 +756,10 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
 
     await get_journeys_similarity_for_prefix(
         container=container,
-        score_calculator=JumpBoostSimilarityScore(),
+        score_calculator=BasicSimilarityScore(),
         interaction_history=interaction_history,
         journeys=journeys,
-        title="jump boost",
+        title="basic similar shuffled",
     )
 
     # queries = get_basic_query(interaction_history)

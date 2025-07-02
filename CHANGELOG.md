@@ -14,6 +14,8 @@ All notable changes to Parlant will be documented here.
 - Introduce agent capabilities feature
 - Add utterance template queries
 - Improve utterance matching by pre-rendering top K templates
+- Improve policy decorator and RetryPolicy
+- Add high level retry with temperature increase for tool caller inference and for Guideline Matcher batches
 
 ## [2.2.0] - 2025-05-20
 

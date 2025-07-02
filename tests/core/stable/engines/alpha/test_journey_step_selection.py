@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, Sequence, cast
+from typing import Sequence, cast
 
 from lagom import Container
 from pytest import fixture
@@ -57,7 +57,7 @@ class _StepData:
 class _JourneyData:
     title: str
     steps: list[_StepData]
-    conditions: Optional[Sequence[str]] = None
+    conditions: Sequence[str] = field(default_factory=list)
 
 
 @fixture
@@ -351,7 +351,6 @@ def create_context_variable(
 async def create_journey(
     title: str,
     steps: list[_StepData],
-    conditions: Sequence[str] = [],
 ) -> tuple[Journey, Sequence[Guideline]]:
     journey_step_guidelines: Sequence[Guideline] = [
         Guideline(
@@ -379,7 +378,7 @@ async def create_journey(
     journey = Journey(
         id=JourneyId("-"),
         creation_utc=datetime.now(timezone.utc),
-        conditions=conditions,
+        conditions=[],
         steps=[cast(JourneyStepId, g.id) for g in journey_step_guidelines],
         title=title,
         description="",
@@ -415,7 +414,6 @@ async def base_test_that_correct_step_is_selected(
     journey, journey_step_guidelines = await create_journey(
         title=JOURNEYS_DICT[journey_name].title,
         steps=JOURNEYS_DICT[journey_name].steps,
-        conditions=JOURNEYS_DICT[journey_name].conditions,
     )
 
     journey_step_selector = GenericJourneyStepSelectionBatch(
@@ -424,6 +422,7 @@ async def base_test_that_correct_step_is_selected(
         examined_journey=journey,
         step_guidelines=journey_step_guidelines,
         journey_path=journey_previous_path,
+        journey_conditions=JOURNEYS_DICT[journey_name].conditions,
         context=GuidelineMatchingContext(
             agent=agent,
             session=session,

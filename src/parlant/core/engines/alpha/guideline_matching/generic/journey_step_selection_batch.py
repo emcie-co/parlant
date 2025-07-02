@@ -40,12 +40,11 @@ class _JourneyStepWrapper(DefaultBaseModel):
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
     journey_applies: bool
-    last_current_step: str
+    last_step: str
     requires_backtracking: bool
     rationale: str
-    #    backtracking_rationale: Optional[str] | None = ""
     backtracking_target_step: Optional[str] | None = ""
-    last_current_step_completed: Optional[bool] | None = None
+    last_step_completed: Optional[bool] | None = None
     step_advance: Optional[Sequence[str | None]] = []
     next_step: str
 
@@ -62,6 +61,7 @@ class JourneyStepSelectionShot(Shot):
 def get_journey_transition_map_text(
     steps: dict[str, _JourneyStepWrapper],
     journey_title: str,
+    journey_conditions: Sequence[str] = [],
     previous_path: Sequence[str | None] = [],
 ) -> str:
     def step_sort_key(step_id: str) -> Any:
@@ -70,6 +70,11 @@ def get_journey_transition_map_text(
         except Exception:
             return step_id
 
+    if journey_conditions:
+        journey_conditions_str = " OR ".join(f'"{condition}"' for condition in journey_conditions)
+        journey_conditions_str = f"\nJourney activates at step 1 when: {journey_conditions_str}\n"
+    else:
+        journey_conditions_str = ""
     # Sort steps by step id as integer if possible, else as string
     steps_str = ""
     for step_id in sorted(steps.keys(), key=step_sort_key):
@@ -112,7 +117,7 @@ TRANSITIONS:
 """
     return f"""
 Journey: {journey_title}
-
+{journey_conditions_str}
 Steps:
 {steps_str} 
 """
@@ -208,7 +213,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         #  begins with the last index of is either None,
         # or a list whose first index is self._previous_path and ends with next_step.
         # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
-        # 3. If last_current_step == next_step, then the path should be a list with only that value
+        # 3. If last_step == next_step, then the path should be a list with only that value
         # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
         # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
         # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
@@ -307,7 +312,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 """
         if shot.journey_steps:
             formatted_shot += get_journey_transition_map_text(
-                shot.journey_steps, shot.journey_title, previous_path=shot.previous_path
+                shot.journey_steps,
+                previous_path=shot.previous_path,
+                journey_title=shot.journey_title,
+                journey_conditions=self._examined_journey.conditions,
             )
 
         formatted_shot += f"""
@@ -366,7 +374,7 @@ Check if the customer has changed a previous decision that requires returning to
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
-- Set `last_current_step_completed` to `true` if the agent performed the required action
+- Set `last_step_completed` to `true` if the agent performed the required action
 - For steps with `CUSTOMER_DEPENDENT` flag: step is complete only if both agent acted AND customer responded appropriately. These are usually questions that the customer must answer for the step to be considered completed.
 - If incomplete, set `next_step` to the current step ID (repeat the step) and return the current step ID as the sole member of 'step_advance'.
 
@@ -376,7 +384,7 @@ If the current step is complete, advance through subsequent steps until you enco
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
 
-Document your advancement path in `step_advance` as a list of step IDs, starting with last_current_step and ending with the next step to execute.
+Document your advancement path in `step_advance` as a list of step IDs, starting with last_step and ending with the next step to execute.
 """,
         )
         builder.add_section(
@@ -404,7 +412,10 @@ Examples of Journey Step Selections:
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=get_journey_transition_map_text(
-                self._journey_steps, self._examined_journey.title, self._previous_path
+                steps=self._journey_steps,
+                journey_title=self._examined_journey.title,
+                previous_path=self._previous_path,
+                journey_conditions=self._examined_journey.conditions,
             ),
         )
         builder.add_section(
@@ -427,12 +438,12 @@ OUTPUT FORMAT
 ```json
 {{
   "journey_applies": <bool, whether the journey should be continued>,
-  "last_current_step": "<str, the id of the last current step>",
+  "last_step": "<str, the id of the last current step>",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
-  "last_current_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_current_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
+  "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking or requires_fast_forwarding is true>,
+  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```
@@ -519,11 +530,11 @@ example_1_journey_steps = {
 }
 
 example_1_expected = JourneyStepSelectionSchema(
-    last_current_step="1",
+    last_step="1",
     journey_applies=True,
     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     requires_backtracking=False,
-    last_current_step_completed=True,
+    last_step_completed=True,
     step_advance=["1", "4"],
     next_step="4",
 )
@@ -654,11 +665,11 @@ book_taxi_shot_journey_steps = {
 }
 
 example_2_expected = JourneyStepSelectionSchema(
-    last_current_step="2",
+    last_step="2",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
-    last_current_step_completed=True,
+    last_step_completed=True,
     step_advance=["2", "3", "5", "6"],
     next_step="6",
 )
@@ -677,11 +688,11 @@ example_3_events = [
 ]
 
 example_3_expected = JourneyStepSelectionSchema(
-    last_current_step="1",
+    last_step="1",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
-    last_current_step_completed=True,
+    last_step_completed=True,
     step_advance=["1", "2", "3", "5"],
     next_step="5",
 )
@@ -730,7 +741,7 @@ example_4_events = [
 ]
 
 example_4_expected = JourneyStepSelectionSchema(
-    last_current_step="5",
+    last_step="5",
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
     journey_applies=True,

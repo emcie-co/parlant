@@ -380,7 +380,7 @@ class EntityQueries:
                         guidelines.extend(
                             [
                                 available_guidelines[cast(GuidelineId, step)]
-                                for step in active_journeys_mapping[journey_id].steps
+                                for step in active_journeys_mapping[journey_id].nodes
                             ]
                         )
                 else:

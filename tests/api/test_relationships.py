@@ -849,7 +849,6 @@ async def test_that_relationships_of_guideline_and_a_journey_can_be_listed(
         title="Journey 1",
         description="Description of Journey 1",
         conditions=[],
-        steps=[],
     )
 
     r1 = await relationship_store.create_relationship(
@@ -882,7 +881,6 @@ async def test_that_relationships_of_a_journey_can_be_listed(
         title="Journey 1",
         description="Description of Journey 1",
         conditions=[],
-        steps=[],
     )
 
     r1 = await relationship_store.create_relationship(

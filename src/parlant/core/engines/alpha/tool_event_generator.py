@@ -17,6 +17,7 @@ from itertools import chain
 from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
 from parlant.core.journeys import Journey
+from parlant.core.nlp.policies import policy, retry
 from parlant.core.tools import ToolContext
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -28,6 +29,7 @@ from parlant.core.sessions import Event, SessionId, ToolEventData
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    ToolCallInferenceResult,
     ToolCaller,
     ToolInsights,
 )
@@ -95,6 +97,40 @@ class ToolEventGenerator:
             staged_events,
         )
 
+    @policy(
+        retry(
+            exceptions=(Exception,),
+            max_attempts=3,
+            injected_parameters={"temperature": [0.1, 0.2]},
+        )
+    )
+    async def infer_tool_calls_with_retries_and_temperature_increase(
+        self,
+        agent: Agent,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
+        journeys: Sequence[Journey],
+        staged_events: Sequence[EmittedEvent],
+        tool_context: ToolContext,
+        temperature: Optional[float] = None,
+    ) -> ToolCallInferenceResult:
+        """A wrapper around the tool caller that retries on exceptions and increases the temperature on each retry"""
+        return await self._tool_caller.infer_tool_calls(
+            agent,
+            context_variables,
+            interaction_history,
+            terms,
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            journeys,
+            staged_events,
+            tool_context,
+            temperature=temperature,
+        )
+
     async def generate_events(
         self,
         preexecution_state: ToolPreexecutionState,
@@ -123,35 +159,18 @@ class ToolEventGenerator:
             customer_id=customer.id,
         )
 
-        inference_attempt_temperatures = [
-            0.05,
-            0.1,
-            0.2,
-        ]
+        inference_result = await self.infer_tool_calls_with_retries_and_temperature_increase(
+            agent=agent,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            terms=terms,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=journeys,
+            staged_events=staged_events,
+            tool_context=tool_context,
+        )
 
-        inference_result = None
-        for temperature in inference_attempt_temperatures:
-            try:
-                inference_result = await self._tool_caller.infer_tool_calls(
-                    agent=agent,
-                    context_variables=context_variables,
-                    interaction_history=interaction_history,
-                    terms=terms,
-                    ordinary_guideline_matches=ordinary_guideline_matches,
-                    tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-                    journeys=journeys,
-                    staged_events=staged_events,
-                    tool_context=tool_context,
-                    temperature=temperature,
-                )
-                break
-            except Exception as e:
-                self._logger.error(f"Error calling tool inference (temperature={temperature}): {e}")
-                if temperature == inference_attempt_temperatures[-1]:
-                    self._logger.error("Inference attempts exhausted, raising exception")
-                    raise e
-
-        assert inference_result is not None
         tool_calls = list(chain.from_iterable(inference_result.batches))
 
         if not tool_calls:

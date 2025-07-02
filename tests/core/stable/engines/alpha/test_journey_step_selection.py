@@ -351,6 +351,7 @@ def create_context_variable(
 async def create_journey(
     title: str,
     steps: list[_StepData],
+    conditions: Sequence[str] = [],
 ) -> tuple[Journey, Sequence[Guideline]]:
     journey_step_guidelines: Sequence[Guideline] = [
         Guideline(
@@ -378,7 +379,7 @@ async def create_journey(
     journey = Journey(
         id=JourneyId("-"),
         creation_utc=datetime.now(timezone.utc),
-        conditions=[],
+        conditions=conditions,
         steps=[cast(JourneyStepId, g.id) for g in journey_step_guidelines],
         title=title,
         description="",
@@ -414,6 +415,7 @@ async def base_test_that_correct_step_is_selected(
     journey, journey_step_guidelines = await create_journey(
         title=JOURNEYS_DICT[journey_name].title,
         steps=JOURNEYS_DICT[journey_name].steps,
+        conditions=JOURNEYS_DICT[journey_name].conditions,
     )
 
     journey_step_selector = GenericJourneyStepSelectionBatch(
@@ -559,6 +561,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_1(
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
+        journey_previous_path=["1"],
         journey_name="compliment_customer_journey",
         expected_next_step_id="2",
     )

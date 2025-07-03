@@ -80,7 +80,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
         self,
         context: LoadedContext | None = None,
     ) -> float:
-        return random.uniform(1.0, 2.0)
+        return random.uniform(1.5, 2.5)
 
     @override
     async def get_follow_up_delay(
@@ -94,7 +94,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
         self,
         context: LoadedContext | None = None,
     ) -> float:
-        return random.uniform(1.0, 2.0)
+        return random.uniform(2.0, 3.0)
 
     @override
     async def is_preamble_required(

@@ -458,14 +458,14 @@ To generate an optimal response that aligns with all guidelines and the current 
 
 PRIORITIZING INSTRUCTIONS (GUIDELINES VS. INSIGHTS)
 -----------------
-Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization. 
+Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization.
 Consider the following valid reasons for such deviations:
     - The instruction contradicts a customer request.
     - The instruction lacks sufficient context or data to apply reliably.
     - The instruction conflicts with an insight (see below).
     - The instruction depends on an agent intention condition that does not apply in the current situation.
-    - When a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), 
-    follow both by choosing the permitted alternative (i.e., do Y). 
+    - When a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"),
+    follow both by choosing the permitted alternative (i.e., do Y).
 In all other cases, even if you believe that a guideline's condition does not apply, you must follow it.
 If fulfilling a guideline is not possible, explicitly justify why in your response.
 

@@ -357,7 +357,7 @@ Example return value: ###
 
         result = await self._generator.generate(builder)
 
-        self._logger.debug(
+        self._logger.trace(
             f"Utterance GenerativeFieldExtraction Completion:\n{result.content.model_dump_json(indent=2)}"
         )
 
@@ -476,7 +476,7 @@ class UtteranceSelector(MessageEventComposer):
         )
 
         prompt_builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.debug(f"Utterance Preamble Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Utterance Preamble Prompt:\n{prompt}")
         )
 
         prompt_builder.add_agent_identity(agent)
@@ -514,7 +514,7 @@ You will now be given the current state of the interaction to which you must gen
             prompt=prompt_builder, hints={"temperature": 0.1}
         )
 
-        self._logger.debug(
+        self._logger.trace(
             f"Utterance Preamble Completion:\n{response.content.model_dump_json(indent=2)}"
         )
 
@@ -903,7 +903,7 @@ Example {i} - {shot.description}: ###
         }
 
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.debug(f"Utterance Draft Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Utterance Draft Prompt:\n{prompt}")
         )
 
         builder.add_section(
@@ -1183,7 +1183,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         }
 
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.debug(f"Utterance Selection Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Utterance Selection Prompt:\n{prompt}")
         )
 
         if context.guidelines:
@@ -1297,7 +1297,7 @@ Output a JSON object with three properties:
             hints={"temperature": temperature},
         )
 
-        self._logger.debug(
+        self._logger.trace(
             f"Utterance Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
 
@@ -1323,11 +1323,12 @@ Output a JSON object with three properties:
         )
 
         # Step 2: Select the most relevant utterance templates based on the draft message
-        top_relevant_utterances = await self._utterance_store.find_relevant_utterances(
-            query=draft_response.content.response_body,
-            available_utterances=utterances,
-            max_count=10,
-        )
+        with self._logger.operation("Retrieving top relevant utterance templates"):
+            top_relevant_utterances = await self._utterance_store.find_relevant_utterances(
+                query=draft_response.content.response_body,
+                available_utterances=utterances,
+                max_count=10,
+            )
 
         # Step 3: Pre-render these templates so that matching works better
         rendered_utterances = []
@@ -1352,7 +1353,7 @@ Output a JSON object with three properties:
             hints={"temperature": 0.1},
         )
 
-        self._logger.debug(
+        self._logger.trace(
             f"Utterance Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
         )
 
@@ -1474,7 +1475,7 @@ Output a JSON object with three properties:
         reference_message: str,
     ) -> tuple[GenerationInfo, str]:
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.debug(f"Composition Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Composition Prompt:\n{prompt}")
         )
 
         builder.add_agent_identity(context.agent)
@@ -1521,7 +1522,7 @@ Respond with a JSON object {{ "revised_utterance": "<message_with_points_separat
             hints={"temperature": 1},
         )
 
-        self._logger.debug(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")
+        self._logger.trace(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")
 
         return result.info, result.content.revised_utterance
 

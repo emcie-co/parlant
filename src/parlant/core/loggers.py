@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from contextlib import ExitStack, contextmanager
@@ -30,14 +31,41 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 
 
 class LogLevel(Enum):
+    TRACE = auto()
     DEBUG = auto()
     INFO = auto()
     WARNING = auto()
     ERROR = auto()
     CRITICAL = auto()
 
+    def __lt__(self, other: LogLevel) -> bool:
+        return self.to_int() < other.to_int()
+
+    def __le__(self, other: LogLevel) -> bool:
+        return self.to_int() <= other.to_int()
+
+    def __gt__(self, other: LogLevel) -> bool:
+        return self.to_int() > other.to_int()
+
+    def __ge__(self, other: LogLevel) -> bool:
+        return self.to_int() >= other.to_int()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LogLevel):
+            return NotImplemented
+        return self.to_int() == other.to_int()
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, LogLevel):
+            return NotImplemented
+        return self.to_int() != other.to_int()
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
     def to_logging_level(self) -> int:
         return {
+            LogLevel.TRACE: logging.DEBUG,
             LogLevel.DEBUG: logging.DEBUG,
             LogLevel.INFO: logging.INFO,
             LogLevel.WARNING: logging.WARNING,
@@ -45,10 +73,23 @@ class LogLevel(Enum):
             LogLevel.CRITICAL: logging.CRITICAL,
         }[self]
 
+    def to_int(self) -> int:
+        return {
+            LogLevel.TRACE: 0,
+            LogLevel.DEBUG: 1,
+            LogLevel.INFO: 2,
+            LogLevel.WARNING: 3,
+            LogLevel.ERROR: 4,
+            LogLevel.CRITICAL: 5,
+        }[self]
+
 
 class Logger(ABC):
     @abstractmethod
     def set_level(self, log_level: LogLevel) -> None: ...
+
+    @abstractmethod
+    def trace(self, message: str) -> None: ...
 
     @abstractmethod
     def debug(self, message: str) -> None: ...
@@ -89,6 +130,7 @@ class CorrelationalLogger(Logger):
         self._correlator = correlator
         self.raw_logger = logging.getLogger(logger_id or "parlant")
         self.raw_logger.setLevel(log_level.to_logging_level())
+        self.log_level = log_level
 
         # Wrap it with structlog configuration
         self._logger = structlog.wrap_logger(
@@ -102,7 +144,7 @@ class CorrelationalLogger(Logger):
                 structlog.processors.format_exc_info,
                 structlog.dev.ConsoleRenderer(colors=True),
             ],
-            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
+            wrapper_class=structlog.make_filtering_bound_logger(0),
         )
 
         # Scope support using contextvars
@@ -116,6 +158,13 @@ class CorrelationalLogger(Logger):
     @override
     def set_level(self, log_level: LogLevel) -> None:
         self.raw_logger.setLevel(log_level.to_logging_level())
+        self.log_level = log_level
+
+    @override
+    def trace(self, message: str) -> None:
+        self._logger.debug(
+            f"TRACE {self._add_correlation_id_and_scopes(message)}",
+        )
 
     @override
     def debug(self, message: str) -> None:
@@ -162,6 +211,7 @@ class CorrelationalLogger(Logger):
         level: LogLevel = LogLevel.INFO,
     ) -> Iterator[None]:
         log_func = {
+            LogLevel.TRACE: self.trace,
             LogLevel.DEBUG: self.debug,
             LogLevel.INFO: self.info,
             LogLevel.WARNING: self.warning,
@@ -172,9 +222,9 @@ class CorrelationalLogger(Logger):
         t_start = time.time()
         try:
             if props:
-                log_func(f"{name} [{props}] started")
+                self.trace(f"{name} [{props}] started")
             else:
-                log_func(f"{name} started")
+                self.trace(f"{name} started")
 
             yield
 
@@ -250,6 +300,11 @@ class CompositeLogger(Logger):
     def set_level(self, log_level: LogLevel) -> None:
         for logger in self._loggers:
             logger.set_level(log_level)
+
+    @override
+    def trace(self, message: str) -> None:
+        for logger in self._loggers:
+            logger.trace(message)
 
     @override
     def debug(self, message: str) -> None:

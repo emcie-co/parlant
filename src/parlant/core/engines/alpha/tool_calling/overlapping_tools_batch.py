@@ -187,7 +187,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                             if evaluation.parameter_name in tool.required
                         ):
                             self._logger.debug(
-                                f"Inference::Completion::Activated:\n{tc.model_dump_json(indent=2)}"
+                                f"Inference::Completion::Activated: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                             )
 
                             arguments = {}
@@ -238,7 +238,7 @@ class OverlappingToolsBatch(ToolCallBatch):
 
                     else:
                         self._logger.debug(
-                            f"Inference::Completion::Skipped:\n{tc.model_dump_json(indent=2)}"
+                            f"Inference::Completion::Skipped: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                         )
 
         return tool_calls, missing_data
@@ -301,7 +301,7 @@ Example #{i}: ###
     ) -> PromptBuilder:
         staged_calls = self._get_staged_calls(staged_events)
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="tool-caller-general-instructions",
@@ -615,7 +615,7 @@ Guidelines:
             hints={"temperature": 0.05},
         )
 
-        self._logger.debug(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
+        self._logger.trace(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         return inference.info, inference.content.tools_evaluation
 

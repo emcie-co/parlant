@@ -647,7 +647,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
             if not docs["metadatas"]:
                 return []
 
-            self._logger.debug(
+            self._logger.trace(
                 f"Similar documents found\n{json.dumps(docs['metadatas'][0], indent=2)}"
             )
 

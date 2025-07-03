@@ -87,7 +87,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                 prompt=prompt,
                 hints={"temperature": 0.15},
             )
-            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         metadata: dict[str, JSONSerializable] = {}
 
@@ -104,6 +104,10 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             }
 
             metadata["disambiguation"] = disambiguation_data
+
+            self._logger.debug(
+                f"Disambiguation activated: {inference.content.model_dump_json(indent=2)}"
+            )
 
         matches = [
             GuidelineMatch(
@@ -192,7 +196,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             for i, id in self._target_ids.items()
         )
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-disambiguation-evaluator-general-instructions",

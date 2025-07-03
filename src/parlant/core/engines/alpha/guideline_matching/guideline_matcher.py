@@ -205,36 +205,33 @@ class GuidelineMatcher:
         t_start = time.time()
 
         with self._logger.scope("GuidelineMatcher"):
-            with self._logger.operation("Creating guideline matching batches"):
-                guideline_strategies: dict[
-                    str, tuple[GuidelineMatchingStrategy, list[Guideline]]
-                ] = {}
+            guideline_strategies: dict[str, tuple[GuidelineMatchingStrategy, list[Guideline]]] = {}
 
-                for guideline in guidelines:
-                    strategy = await self.strategy_resolver.resolve(guideline)
-                    if strategy.__class__.__name__ not in guideline_strategies:
-                        guideline_strategies[strategy.__class__.__name__] = (strategy, [])
-                    guideline_strategies[strategy.__class__.__name__][1].append(guideline)
+            for guideline in guidelines:
+                strategy = await self.strategy_resolver.resolve(guideline)
+                if strategy.__class__.__name__ not in guideline_strategies:
+                    guideline_strategies[strategy.__class__.__name__] = (strategy, [])
+                guideline_strategies[strategy.__class__.__name__][1].append(guideline)
 
-                batches = await async_utils.safe_gather(
-                    *[
-                        strategy.create_matching_batches(
-                            guidelines,
-                            context=GuidelineMatchingContext(
-                                agent,
-                                session,
-                                customer,
-                                context_variables,
-                                interaction_history,
-                                terms,
-                                capabilities,
-                                staged_events,
-                                relevant_journeys,
-                            ),
-                        )
-                        for _, (strategy, guidelines) in guideline_strategies.items()
-                    ]
-                )
+            batches = await async_utils.safe_gather(
+                *[
+                    strategy.create_matching_batches(
+                        guidelines,
+                        context=GuidelineMatchingContext(
+                            agent,
+                            session,
+                            customer,
+                            context_variables,
+                            interaction_history,
+                            terms,
+                            capabilities,
+                            staged_events,
+                            relevant_journeys,
+                        ),
+                    )
+                    for _, (strategy, guidelines) in guideline_strategies.items()
+                ]
+            )
 
             with self._logger.operation("Processing guideline matching batches"):
                 batch_tasks = [
@@ -282,34 +279,33 @@ class GuidelineMatcher:
         t_start = time.time()
 
         with self._logger.scope("GuidelineMatcher"):
-            with self._logger.operation("Creating report analysis batches"):
-                guideline_strategies: dict[
-                    str, tuple[GuidelineMatchingStrategy, list[GuidelineMatch]]
-                ] = {}
-                for match in guideline_matches:
-                    strategy = await self.strategy_resolver.resolve(match.guideline)
-                    key = strategy.__class__.__name__
-                    if key not in guideline_strategies:
-                        guideline_strategies[key] = (strategy, [])
-                    guideline_strategies[key][1].append(match)
+            guideline_strategies: dict[
+                str, tuple[GuidelineMatchingStrategy, list[GuidelineMatch]]
+            ] = {}
+            for match in guideline_matches:
+                strategy = await self.strategy_resolver.resolve(match.guideline)
+                key = strategy.__class__.__name__
+                if key not in guideline_strategies:
+                    guideline_strategies[key] = (strategy, [])
+                guideline_strategies[key][1].append(match)
 
-                batches = await async_utils.safe_gather(
-                    *[
-                        strategy.create_report_analysis_batches(
-                            guideline_matches,
-                            context=ReportAnalysisContext(
-                                agent,
-                                session,
-                                customer,
-                                context_variables,
-                                interaction_history,
-                                terms,
-                                staged_events,
-                            ),
-                        )
-                        for _, (strategy, guideline_matches) in guideline_strategies.items()
-                    ]
-                )
+            batches = await async_utils.safe_gather(
+                *[
+                    strategy.create_report_analysis_batches(
+                        guideline_matches,
+                        context=ReportAnalysisContext(
+                            agent,
+                            session,
+                            customer,
+                            context_variables,
+                            interaction_history,
+                            terms,
+                            staged_events,
+                        ),
+                    )
+                    for _, (strategy, guideline_matches) in guideline_strategies.items()
+                ]
+            )
 
             with self._logger.operation("Processing response analysis batches"):
                 batch_tasks = [

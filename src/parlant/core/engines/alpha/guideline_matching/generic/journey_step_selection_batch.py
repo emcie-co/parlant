@@ -210,7 +210,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             f.write(inference.content.model_dump_json(indent=2))
             f.write("\nTime: " + str(inference.info.duration))
 
-        self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+        self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         # TODO VALIDATION NOTE: the following should be validated in a safe way:
         # 1. The returned inference.content.step_advance, if it exists (is not None),
@@ -233,7 +233,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     and not self._previous_path[-1]
                     and journey_path[0] != self._previous_path[-1]
                 ):
-                    self._logger.debug(
+                    self._logger.warning(
                         f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
                     )
                     journey_path.insert(0, self._previous_path[-1])  # Try to recover
@@ -241,7 +241,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 indexes_to_delete: list[int] = []
                 for i in range(1, len(journey_path)):
                     if journey_path[i - 1] not in self._journey_steps.keys():
-                        self._logger.debug(
+                        self._logger.warning(
                             f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
                         )
                         indexes_to_delete.append(i)
@@ -249,7 +249,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         journey_path[i]
                         not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
                     ):
-                        self._logger.debug(
+                        self._logger.warning(
                             f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
                         )
                         # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
@@ -264,7 +264,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     and journey_path[-1] not in self._journey_steps.keys()
                     and inference.content.next_step is not None
                 ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
-                    self._logger.debug(
+                    self._logger.warning(
                         f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
                     )
                     journey_path[-1] = None
@@ -272,7 +272,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 for i in reversed(indexes_to_delete):
                     del journey_path[i]
             except Exception:
-                self._logger.debug(
+                self._logger.warning(
                     f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
                 )
                 journey_path = [inference.content.next_step]

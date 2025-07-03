@@ -91,7 +91,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
-            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         matches = []
 
@@ -182,7 +182,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
             for i, g in self._guidelines.items()
         )
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-not-previously-applied-general-instructions",
@@ -203,9 +203,9 @@ Each guideline is composed of two parts:
 Task Description
 ----------------
 Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
-You examine the applicability of each guideline under the assumption that the action was not taken yet during the interaction. 
+You examine the applicability of each guideline under the assumption that the action was not taken yet during the interaction.
 
-A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as 
+A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as
 applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
 
 If the conversation moves from a broader issue to a related sub-issue (a related detail or follow-up within the same overall issue), you should still consider the guideline as applicable
@@ -213,7 +213,7 @@ if it is relevant to the sub-issue, as it is part of the ongoing discussion.
 In contrast, if the conversation has clearly moved on to an entirely new topic, previous guidelines should not be marked as applicable.
 This ensures that applicability is tied to the current context, but still respects the continuity of a discussion when diving deeper into subtopics.
 
-When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition. 
+When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
 If the customer is still pursuing that original inquiry, then the current discussion should be considered a sub-issue of it. Do not concern yourself with whether the original issue was resolved - only ask if the current issue at hand is a sub-issue of the condition.
 
 

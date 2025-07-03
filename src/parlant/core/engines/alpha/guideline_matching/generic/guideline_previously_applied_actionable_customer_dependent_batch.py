@@ -101,7 +101,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
-            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         matches = []
 
@@ -196,7 +196,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
             for i, g in self._guidelines.items()
         )
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-previously-applied-general-instructions",

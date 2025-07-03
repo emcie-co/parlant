@@ -40,14 +40,15 @@ from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityV
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
+    ContextVariableId,
     ContextVariableStore,
 )
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.customers import CustomerDocumentStore, CustomerStore
+from parlant.core.customers import CustomerDocumentStore, CustomerId, CustomerStore
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.loaded_context import LoadedContext
-from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
+from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -464,7 +465,7 @@ class JourneyNode:
     _journey_id: JourneyId
 
     ROOT: str = "ROOT"
-    END: str | None = None
+    END: None = None
 
     @staticmethod
     async def _create_node(
@@ -712,6 +713,42 @@ class Capability:
 
 
 @dataclass
+class Term:
+    id: TermId
+    name: str
+    description: str
+    synonyms: Sequence[str]
+    tags: Sequence[TagId]
+
+
+@dataclass
+class Variable:
+    id: ContextVariableId
+    name: str
+    description: str | None
+    tool: ToolEntry | None
+    freshness_rules: str | None
+    tags: Sequence[TagId]
+    _parlant: Server
+    _container: Container
+
+    async def set_value(self, key: str, value: JSONSerializable) -> None:
+        await self._container[ContextVariableStore].update_value(
+            variable_id=self.id,
+            key=key,
+            data=value,
+        )
+
+
+@dataclass
+class Customer:
+    id: CustomerId
+    name: str
+    extra: Mapping[str, str]
+    tags: Sequence[TagId]
+
+
+@dataclass
 class Agent:
     id: AgentId
     name: str
@@ -867,6 +904,53 @@ class Agent:
             tags=capability.tags,
         )
 
+    async def create_term(
+        self,
+        name: str,
+        description: str,
+        synonyms: Sequence[str] = [],
+    ) -> Term:
+        term = await self._container[GlossaryStore].create_term(
+            name=name,
+            description=description,
+            synonyms=synonyms,
+            tags=[Tag.for_agent_id(self.id)],
+        )
+
+        return Term(
+            id=term.id,
+            name=term.name,
+            description=term.description,
+            synonyms=term.synonyms,
+            tags=term.tags,
+        )
+
+    async def create_variable(
+        self,
+        name: str,
+        description: str | None = None,
+        tool: ToolEntry | None = None,
+        freshness_rules: str | None = None,
+    ) -> Variable:
+        variable = await self._container[ContextVariableStore].create_variable(
+            name=name,
+            description=description,
+            tool_id=ToolId(INTEGRATED_TOOL_SERVICE_NAME, tool.tool.name) if tool else None,
+            freshness_rules=freshness_rules,
+            tags=[Tag.for_agent_id(self.id)],
+        )
+
+        return Variable(
+            id=variable.id,
+            name=variable.name,
+            description=variable.description,
+            tool=tool,
+            freshness_rules=variable.freshness_rules,
+            tags=variable.tags,
+            _parlant=self._parlant,
+            _container=self._container,
+        )
+
 
 class Server:
     def __init__(
@@ -938,6 +1022,61 @@ class Server:
             tags=tags,
             _parlant=self,
             _container=self._container,
+        )
+
+    async def create_customer(
+        self,
+        name: str,
+        extra: Mapping[str, str] = {},
+        tags: Sequence[TagId] = [],
+    ) -> Customer:
+        customer = await self._container[CustomerStore].create_customer(
+            name=name,
+            extra=extra,
+            tags=tags,
+        )
+
+        return Customer(
+            id=customer.id,
+            name=customer.name,
+            extra=customer.extra,
+            tags=customer.tags,
+        )
+
+    async def list_customers(self) -> Sequence[Customer]:
+        customers = await self._container[CustomerStore].list_customers()
+
+        return [
+            Customer(
+                id=c.id,
+                name=c.name,
+                extra=c.extra,
+                tags=c.tags,
+            )
+            for c in customers
+        ]
+
+    async def find_customer_by_name(self, name: str) -> Customer | None:
+        customers = await self._container[CustomerStore].list_customers()
+
+        if customer := next((c for c in customers if c.name == name), None):
+            return Customer(
+                id=customer.id,
+                name=customer.name,
+                extra=customer.extra,
+                tags=customer.tags,
+            )
+
+        return None
+
+    async def read_customer(self, customer_id: CustomerId) -> Customer:
+        customer = await self._container[CustomerStore].read_customer(customer_id)
+
+        return Customer(
+            id=customer.id,
+            name=customer.name,
+            extra=customer.extra,
+            tags=customer.tags,
         )
 
     async def create_journey(
@@ -1168,6 +1307,10 @@ __all__ = [
     "CapabilityId",
     "CompositionMode",
     "Container",
+    "Customer",
+    "CustomerId",
+    "Variable",
+    "ContextVariableId",
     "ControlOptions",
     "Embedder",
     "EmbedderFactory",
@@ -1185,6 +1328,7 @@ __all__ = [
     "Journey",
     "JourneyId",
     "JourneyNode",
+    "JSONSerializable",
     "LoadedContext",
     "LogLevel",
     "Logger",
@@ -1199,12 +1343,14 @@ __all__ = [
     "SchematicGenerationResult",
     "SchematicGenerator",
     "Server",
-    "SessionId",
     "ServiceRegistry",
+    "SessionId",
     "SessionMode",
     "SessionStatus",
     "StatusEventData",
     "TagId",
+    "Term",
+    "TermId",
     "Tool",
     "ToolContext",
     "ToolEntry",

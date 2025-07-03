@@ -237,7 +237,7 @@ class SingleToolBatch(ToolCallBatch):
                     if evaluation.parameter_name in tool.required
                 ):
                     self._logger.debug(
-                        f"Inference::Completion::Activated: {tool.name}:\n{tc.model_dump_json(indent=2)}"
+                        f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
                     )
 
                     arguments = {}
@@ -286,12 +286,12 @@ class SingleToolBatch(ToolCallBatch):
                                 )
 
                     self._logger.debug(
-                        f"Inference::Completion::Skipped: Missing arguments for {tool.name}\n{tc.model_dump_json(indent=2)}"
+                        f"Inference::Completion::Skipped: Missing arguments for {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                     )
 
             else:
                 self._logger.debug(
-                    f"Inference::Completion::Skipped: {tool.name}\n{tc.model_dump_json(indent=2)}"
+                    f"Inference::Completion::Skipped: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                 )
 
         return tool_calls, missing_data, invalid_data
@@ -366,7 +366,7 @@ Example #{i}: ###
     ) -> PromptBuilder:
         staged_calls = self._get_staged_calls(staged_events)
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="tool-caller-general-instructions",
@@ -738,7 +738,7 @@ Guidelines:
             prompt=prompt,
             hints={"temperature": 0.05},
         )
-        self._logger.debug(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
+        self._logger.trace(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         return inference.info, inference.content.tool_calls_for_candidate_tool
 

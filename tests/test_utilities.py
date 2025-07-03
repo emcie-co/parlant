@@ -135,6 +135,7 @@ class _TestLogger(Logger):
     def set_level(self, log_level: LogLevel) -> None:
         self.logger.setLevel(
             {
+                LogLevel.TRACE: logging.DEBUG,
                 LogLevel.DEBUG: logging.DEBUG,
                 LogLevel.INFO: logging.INFO,
                 LogLevel.WARNING: logging.WARNING,
@@ -142,6 +143,9 @@ class _TestLogger(Logger):
                 LogLevel.CRITICAL: logging.CRITICAL,
             }[log_level]
         )
+
+    def trace(self, message: str) -> None:
+        self.logger.debug(message)
 
     def debug(self, message: str) -> None:
         self.logger.debug(message)

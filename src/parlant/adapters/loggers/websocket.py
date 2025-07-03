@@ -65,19 +65,33 @@ class WebSocketLogger(CorrelationalLogger):
         return subscription
 
     @override
+    def trace(self, message: str) -> None:
+        if self.log_level > LogLevel.TRACE:
+            return
+        self._enqueue_message("TRACE", f"{self.current_scope} {message}")
+
+    @override
     def debug(self, message: str) -> None:
+        if self.log_level > LogLevel.DEBUG:
+            return
         self._enqueue_message("DEBUG", f"{self.current_scope} {message}")
 
     @override
     def info(self, message: str) -> None:
+        if self.log_level > LogLevel.INFO:
+            return
         self._enqueue_message("INFO", f"{self.current_scope} {message}")
 
     @override
     def warning(self, message: str) -> None:
+        if self.log_level > LogLevel.WARNING:
+            return
         self._enqueue_message("WARNING", f"{self.current_scope} {message}")
 
     @override
     def error(self, message: str) -> None:
+        if self.log_level > LogLevel.ERROR:
+            return
         self._enqueue_message("ERROR", f"{self.current_scope} {message}")
 
     @override

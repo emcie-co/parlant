@@ -142,8 +142,6 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         name: str,
         schema: type[TDocument],
     ) -> JSONFileDocumentCollection[TDocument]:
-        self._logger.debug(f'Create collection "{name}"')
-
         self._collections[name] = JSONFileDocumentCollection(
             database=self,
             name=name,

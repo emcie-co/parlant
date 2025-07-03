@@ -96,7 +96,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
         if not inference.content.checks:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
         else:
-            self._logger.debug(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
         matches = []
 
@@ -190,7 +190,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
             for i, g in self._guidelines.items()
         )
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-previously-applied-general-instructions",
@@ -218,7 +218,7 @@ In general, a guideline should be reapplied if:
 
 Your task is to determine whether reapplying the action is appropriate, based on whether the guideline’s condition is met again in a way that justifies repeating the action. We will want to repeat the action if the current application refers
  to a new or subtly different context or information
-For example, a guideline with the condition “the customer is asking a question” should be reapplied each time the customer asks a new question. 
+For example, a guideline with the condition “the customer is asking a question” should be reapplied each time the customer asks a new question.
 In contrast, guidelines involving one-time behaviors (e.g., “send the user our address”) should be reapplied more conservatively: only if the condition ceased to be true for a while and is now clearly true again in the current context.
 For instance, if the customer previously complained about an issue and you already offered compensation, then mentions the same issue again, it is usually not necessary to repeat the compensation offer. However, if the customer raises a new
  issue or clearly indicates a different concern, it may warrant reapplying the guideline.
@@ -230,7 +230,7 @@ Context May Shift:
     Sometimes, the user may briefly raise an issue that would normally trigger a guideline, but then shift the topic within the same message or shortly after. In such cases, the condition should NOT be considered active, and the guideline should
     not be reapplied.
 Conditions Can Arise and Resolve Multiple Times:
-    A condition may be met more than once over the course of a conversation and may also be resolved multiple times (the action was taken). If the most recent instance of the condition has already been addressed and resolved, there is no need to 
+    A condition may be met more than once over the course of a conversation and may also be resolved multiple times (the action was taken). If the most recent instance of the condition has already been addressed and resolved, there is no need to
     reapply the guideline. However, if the user is still clearly engaging with the same unresolved issue, or if a new instance of the condition arises, reapplying the guideline may be appropriate.
 
 

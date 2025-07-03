@@ -379,10 +379,14 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation remains within the journey scope. Do so by evaluating if either the journey's condition applies to the customer's latest message, or if their latest message is even loosely related to the next step that should be executed.
-- Set `journey_applies` to `true` unless the customer explicitly requests to leave the topic or changes the subject completely such that it's completely unrelated to both the journey's condition AND to the next relevant journey step.
-- If `journey_applies` is `false`, set `next_step` to `'None'` and skip remaining steps
-- Even if the journey's condition no longer apply - the journey still applies if there's a relevant step that handles the customer's latest message.
+Determine if the conversation should continue within the current journey. 
+Once a journey has begun, continue following it unless the customer explicitly indicates they no longer want to pursue the journey's original goal.
+
+Set journey_applies to true unless the customer explicitly requests to leave the topic or abandon the journey's goal entirely.
+The journey condition is for initial activation - once activated, continue even if individual steps seem unrelated to the original condition.
+The journey still applies when the customer is responding to questions, engaging with the journey flow, or providing information requested by previous steps, even if their responses seem tangential to the original condition
+Only set journey_applies to false if the customer clearly states they want to exit (e.g., "I don't want to reset my password anymore" or "Let's talk about something else")
+If journey_applies is false, set next_step to 'None' and skip remaining steps
 
 ## 2: Backtracking Check  
 Check if the customer has changed a previous decision that requires returning to an earlier step.

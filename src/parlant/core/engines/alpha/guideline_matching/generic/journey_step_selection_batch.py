@@ -388,6 +388,8 @@ The journey still applies when the customer is responding to questions, engaging
 Only set journey_applies to false if the customer clearly states they want to exit (e.g., "I don't want to reset my password anymore" or "Let's talk about something else")
 If journey_applies is false, set next_step to 'None' and skip remaining steps
 
+CRITICAL: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.
+
 ## 2: Backtracking Check  
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice

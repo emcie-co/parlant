@@ -1424,7 +1424,7 @@ Output a JSON object with three properties:
 
         match composition_mode:
             case CompositionMode.COMPOSITED_UTTERANCE if (
-                selection_response.content.match_quality != "high"
+                selection_response.content.match_quality != "high" and False
             ):
                 recomposition_generation_info, recomposed_utterance = await self._recompose(
                     context,

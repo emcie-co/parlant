@@ -34,6 +34,9 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selection_batch import (
+    JourneyStepSelectionSchema,
+)
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
 from parlant.core.loggers import LogLevel, Logger
@@ -412,7 +415,7 @@ class OpenAIService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        if t == SingleToolBatchSchema:
+        if t == SingleToolBatchSchema or t == JourneyStepSelectionSchema:
             return GPT_4o[t](self._logger)  # type: ignore
         return GPT_4o_24_08_06[t](self._logger)  # type: ignore
 

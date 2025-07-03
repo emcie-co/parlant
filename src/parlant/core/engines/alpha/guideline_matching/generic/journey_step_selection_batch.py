@@ -379,7 +379,7 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation remains within the journey scope. 
+Determine if the conversation remains within the journey scope. Do so by evaluating if either the journey's condition applies to the customer's latest message, or if their latest message is even loosely related to the next step that should be executed.
 - Set `journey_applies` to `true` unless the customer explicitly requests to leave the topic or changes the subject completely such that it's completely unrelated to both the journey's condition AND to the next relevant journey step.
 - If `journey_applies` is `false`, set `next_step` to `'None'` and skip remaining steps
 - Even if the journey's condition no longer apply - the journey still applies if there's a relevant step that handles the customer's latest message.
@@ -684,6 +684,41 @@ book_taxi_shot_journey_steps = {
     ),
 }
 
+random_actions_journey_steps = {
+    "1": _JourneyStepWrapper(
+        id="1",
+        guideline_content=GuidelineContent(
+            condition="",
+            action="State a random capital city. Do not say anything else.",
+        ),
+        parent_ids=["1"],
+        follow_up_ids=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+    "2": _JourneyStepWrapper(
+        id="2",
+        guideline_content=GuidelineContent(
+            condition="The previous step was completed",
+            action="Ask the customer for money.",
+        ),
+        follow_up_ids=["3"],
+        parent_ids=["1"],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "3": _JourneyStepWrapper(
+        id="3",
+        guideline_content=GuidelineContent(
+            condition="Wish the customer a good day and disconnect from the conversation",
+            action="State a random capital city. Do not say anything else.",
+        ),
+        follow_up_ids=[],
+        parent_ids=["2"],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+}
 example_2_expected = JourneyStepSelectionSchema(
     last_step="2",
     journey_applies=True,
@@ -760,6 +795,49 @@ example_4_events = [
     ),
 ]
 
+example_4_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "I need help with booking a taxi",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi from Newark Airport to Manhattan",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'm sorry, we do not operate outside of NYC.",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+    ),
+    _make_event(
+        "45",
+        EventSource.AI_AGENT,
+        "Great! Where would you like to go?",
+    ),
+    _make_event(
+        "56",
+        EventSource.CUSTOMER,
+        "Times Square please",
+    ),
+    _make_event(
+        "67",
+        EventSource.AI_AGENT,
+        "Perfect! What time would you like to be picked up?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    ),
+]
+
 example_4_expected = JourneyStepSelectionSchema(
     last_step="5",
     requires_backtracking=True,
@@ -768,6 +846,34 @@ example_4_expected = JourneyStepSelectionSchema(
     backtracking_target_step="2",
     step_advance=["5", "2", "3"],
     next_step="3",
+)
+
+example_5_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Hi, I need to book a taxi",
+    ),
+    _make_event(
+        "12",
+        EventSource.AI_AGENT,
+        "The capital of Australia is Canberra",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Oh really? I always thought it was Sydney",
+    ),
+]
+
+example_5_expected = JourneyStepSelectionSchema(
+    last_step="1",
+    journey_applies=True,
+    rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
+    requires_backtracking=False,
+    last_step_completed=True,
+    step_advance=["1", "2"],
+    next_step="2",
 )
 
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
@@ -806,6 +912,15 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         expected_result=example_4_expected,
         previous_path=["1", "2", "4", "2", "3", "5"],
         conditions=[],
+    ),
+    JourneyStepSelectionShot(
+        description="Example 5 - Remaining in journey unless explicitly told otherwise",
+        journey_title="Book Taxi #2 Journey",
+        interaction_events=example_5_events,
+        journey_steps=random_actions_journey_steps,
+        expected_result=example_5_expected,
+        previous_path=["1"],
+        conditions=["customer wants to book a taxi"],
     ),
 ]
 

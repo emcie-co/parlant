@@ -268,6 +268,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
                     )
                     journey_path[-1] = None
+
+                for i in reversed(indexes_to_delete):
+                    del journey_path[i]
             except Exception:
                 self._logger.debug(
                     f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
@@ -376,9 +379,10 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation remains within the journey scope.
-- Set `journey_applies` to `true` unless the customer explicitly requests to leave the topic or changes the subject completely
+Determine if the conversation remains within the journey scope. 
+- Set `journey_applies` to `true` unless the customer explicitly requests to leave the topic or changes the subject completely such that it's completely unrelated to both the journey's condition AND to the next relevant journey step.
 - If `journey_applies` is `false`, set `next_step` to `'None'` and skip remaining steps
+- Even if the journey's condition no longer apply - the journey still applies if there's a relevant step that handles the customer's latest message.
 
 ## 2: Backtracking Check  
 Check if the customer has changed a previous decision that requires returning to an earlier step.

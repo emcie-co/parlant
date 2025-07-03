@@ -44,6 +44,7 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
     requires_backtracking: bool
     rationale: str
     backtracking_target_step: Optional[str] | None = ""
+    backtracking_followup_step: Optional[str] | None = ""
     last_step_completed: Optional[bool] | None = None
     step_advance: Optional[Sequence[str | None]] = []
     next_step: str
@@ -224,42 +225,54 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         if inference.content.requires_backtracking:
             journey_path: list[str | None] = [inference.content.next_step]
         else:
-            journey_path = cast(list[str | None], inference.content.step_advance)
+            try:
+                journey_path = cast(list[str | None], inference.content.step_advance)
 
-            if (
-                self._previous_path
-                and not self._previous_path[-1]
-                and journey_path[0] != self._previous_path[-1]
-            ):
-                self._logger.debug(
-                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
-                )
-                journey_path = [
-                    inference.content.next_step
-                ]  # If path is illegal, return only the next step
-            for i in range(1, len(journey_path)):
-                if journey_path[i - 1] not in self._journey_steps.keys():
-                    self._logger.debug(
-                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
-                    )
-                elif (
-                    journey_path[i]
-                    not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                if (
+                    self._previous_path
+                    and not self._previous_path[-1]
+                    and journey_path[0] != self._previous_path[-1]
                 ):
                     self._logger.debug(
-                        f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
+                        f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
                     )
-                    journey_path = [inference.content.next_step]
+                    journey_path = [self._previous_path[-1]] + journey_path  # Try to recover
 
-            if (
-                journey_path
-                and journey_path[-1] not in self._journey_steps.keys()
-                and inference.content.next_step is not None
-            ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
+                indexes_to_delete: Sequence[int] = []
+                for i in range(1, len(journey_path)):
+                    if journey_path[i - 1] not in self._journey_steps.keys():
+                        self._logger.debug(
+                            f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
+                        )
+                        indexes_to_delete.append(i)
+                    elif (
+                        journey_path[i]
+                        not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                    ):
+                        self._logger.debug(
+                            f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
+                        )
+                        # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
+                        if (
+                            i + 1 < len(journey_path)
+                            and journey_path[i + 1]
+                            in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                        ):
+                            indexes_to_delete.append(i)
+                if (
+                    journey_path
+                    and journey_path[-1] not in self._journey_steps.keys()
+                    and inference.content.next_step is not None
+                ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
+                    self._logger.debug(
+                        f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+                    )
+                    journey_path[-1] = None
+            except Exception:
                 self._logger.debug(
-                    f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+                    f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
                 )
-                journey_path[-1] = None
+                journey_path = [inference.content.next_step]
 
         return GuidelineMatchingBatchResult(
             matches=[
@@ -372,7 +385,7 @@ Check if the customer has changed a previous decision that requires returning to
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
   - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
-  - Set `next_step` to the appropriate follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address)
+  - Set `next_step` to A follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address). Next Step MUST be a follow up of 'backtracking_target_step'. It should not be backtracking_target_step itself.
   - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.  
 
 ## 3: Current Step Completion

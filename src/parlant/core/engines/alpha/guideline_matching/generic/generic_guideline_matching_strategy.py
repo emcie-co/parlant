@@ -56,6 +56,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingContext,
     ReportAnalysisContext,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
@@ -68,6 +69,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         relationship_store: RelationshipStore,
         entity_queries: EntityQueries,
         observational_guideline_schematic_generator: SchematicGenerator[
@@ -89,6 +91,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         report_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._relationship_store = relationship_store
         self._entity_queries = entity_queries
 
@@ -573,13 +576,4 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         )
 
     def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
-        guideline_n = len(guidelines)
-
-        if guideline_n <= 10:
-            return 1
-        elif guideline_n <= 20:
-            return 2
-        elif guideline_n <= 30:
-            return 3
-        else:
-            return 5
+        return self._optimization_policy.get_guideline_matching_batch_size(len(guidelines))

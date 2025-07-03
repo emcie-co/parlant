@@ -43,6 +43,7 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposition,
 )
 from parlant.core.engines.alpha.message_generator import MessageGenerator
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.entity_cq import EntityQueries
@@ -412,6 +413,7 @@ class UtteranceSelector(MessageEventComposer):
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
+        optimization_policy: OptimizationPolicy,
         utterance_draft_generator: SchematicGenerator[UtteranceDraftSchema],
         utterance_selection_generator: SchematicGenerator[UtteranceSelectionSchema],
         utterance_composition_generator: SchematicGenerator[UtteranceRevisionSchema],
@@ -424,6 +426,7 @@ class UtteranceSelector(MessageEventComposer):
     ) -> None:
         self._logger = logger
         self._correlator = correlator
+        self._optimization_policy = optimization_policy
         self._utterance_draft_generator = utterance_draft_generator
         self._utterance_selection_generator = utterance_selection_generator
         self._utterance_composition_generator = utterance_composition_generator
@@ -694,11 +697,11 @@ You will now be given the current state of the interaction to which you must gen
             self._logger.warning("No utterances found; falling back to fluid generation")
             raise FluidUtteranceFallback()
 
-        generation_attempt_temperatures = {
-            0: 0.1,
-            1: 0.05,
-            2: 0.2,
-        }
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_message_generation_retry_temperatures(
+                hints={"type": "utterance-selection"}
+            )
+        )
 
         last_generation_exception: Exception | None = None
 

@@ -57,6 +57,10 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selectio
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
 )
+from parlant.core.engines.alpha.optimization_policy import (
+    BasicOptimizationPolicy,
+    OptimizationPolicy,
+)
 from parlant.core.engines.alpha.perceived_performance_policy import (
     BasicPerceivedPerformancePolicy,
     PerceivedPerformancePolicy,
@@ -476,6 +480,7 @@ async def container(
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
         container[PerceivedPerformancePolicy] = Singleton(BasicPerceivedPerformancePolicy)
+        container[OptimizationPolicy] = Singleton(BasicOptimizationPolicy)
 
         hooks = JournalingEngineHooks()
         container[JournalingEngineHooks] = hooks

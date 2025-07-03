@@ -839,8 +839,8 @@ async def test_that_multistep_advancement_is_stopped_at_tool_requiring_steps(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
-        journey_previous_path=["1", "2"],
-        expected_path=["2", "7", "8", "9", "10"],
+        journey_previous_path=["1"],
+        expected_path=["1", "2", "7", "8", "9", "10"],
         expected_next_step_id="10",
     )
 
@@ -988,7 +988,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
     )
 
 
-async def test_that_journey_selector_backtracks_when_customer_changes_earlier_choice_3(
+async def test_that_journey_selector_backtracks_when_customer_changes_earlier_choice_3(  # CUrrently does backtracking + fast forwarding - so I don't consider it a mistake
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

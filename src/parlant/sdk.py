@@ -21,7 +21,16 @@ from datetime import datetime, timezone
 from hashlib import md5
 from pathlib import Path
 from types import TracebackType
-from typing import Awaitable, Callable, Iterable, Literal, Mapping, Sequence, TypedDict, cast
+from typing import (
+    Awaitable,
+    Callable,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+    TypedDict,
+    cast,
+)
 from lagom import Container
 
 from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
@@ -104,7 +113,7 @@ from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
-from parlant.core.tags import Tag, TagDocumentStore, TagId, TagStore
+from parlant.core.tags import Tag as _Tag, TagDocumentStore, TagId, TagStore
 from parlant.core.tools import (
     ControlOptions,
     SessionMode,
@@ -348,6 +357,12 @@ class _PicoAgentStore(AgentStore):
 
     async def remove_tag(self, agent_id: AgentId, tag_id: TagId) -> None:
         raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class Tag:
+    id: TagId
+    name: str
 
 
 @dataclass(frozen=True)
@@ -626,7 +641,7 @@ class Journey:
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
-                id=Tag.for_journey_id(self.id),
+                id=_Tag.for_journey_id(self.id),
                 kind=RelationshipEntityKind.TAG,
             ),
             kind=RelationshipKind.DEPENDENCY,
@@ -674,7 +689,7 @@ class Journey:
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
-                id=Tag.for_journey_id(self.id),
+                id=_Tag.for_journey_id(self.id),
                 kind=RelationshipEntityKind.TAG,
             ),
             kind=RelationshipKind.DEPENDENCY,
@@ -695,7 +710,7 @@ class Journey:
     ) -> UtteranceId:
         utterance = await self._container[UtteranceStore].create_utterance(
             value=template,
-            tags=[Tag.for_journey_id(self.id), *tags],
+            tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
             queries=[],
         )
@@ -732,12 +747,50 @@ class Variable:
     _parlant: Server
     _container: Container
 
-    async def set_value(self, key: str, value: JSONSerializable) -> None:
+    async def set_value_for_customer(self, customer: Customer, value: JSONSerializable) -> None:
         await self._container[ContextVariableStore].update_value(
             variable_id=self.id,
-            key=key,
+            key=customer.id,
             data=value,
         )
+
+    async def set_value_for_tag(self, tag: Tag, value: JSONSerializable) -> None:
+        await self._container[ContextVariableStore].update_value(
+            variable_id=self.id,
+            key=f"tag:{tag.id}",
+            data=value,
+        )
+
+    async def set_global_value(self, value: JSONSerializable) -> None:
+        await self._container[ContextVariableStore].update_value(
+            variable_id=self.id,
+            key=ContextVariableStore.GLOBAL_KEY,
+            data=value,
+        )
+
+    async def get_value_for_customer(self, customer: Customer) -> JSONSerializable | None:
+        value = await self._container[ContextVariableStore].read_value(
+            variable_id=self.id,
+            key=customer.id,
+        )
+
+        return value.data if value else None
+
+    async def get_value_for_tag(self, tag: TagId) -> JSONSerializable | None:
+        value = await self._container[ContextVariableStore].read_value(
+            variable_id=self.id,
+            key=f"tag:{tag}",
+        )
+
+        return value.data if value else None
+
+    async def get_global_value(self) -> JSONSerializable | None:
+        value = await self._container[ContextVariableStore].read_value(
+            variable_id=self.id,
+            key=ContextVariableStore.GLOBAL_KEY,
+        )
+
+        return value.data if value else None
 
 
 @dataclass
@@ -793,7 +846,7 @@ class Agent:
     async def attach_journey(self, journey: Journey) -> None:
         await self._container[JourneyStore].upsert_tag(
             journey.id,
-            Tag.for_agent_id(self.id),
+            _Tag.for_agent_id(self.id),
         )
 
     async def create_guideline(
@@ -816,7 +869,7 @@ class Agent:
             condition=condition,
             action=action or evaluation.action_proposition,
             metadata={**evaluation.properties, **metadata},
-            tags=[Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id)],
         )
 
         for t in list(tools):
@@ -893,7 +946,7 @@ class Agent:
             title=title,
             description=description,
             queries=queries,
-            tags=[Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id)],
         )
 
         return Capability(
@@ -914,7 +967,7 @@ class Agent:
             name=name,
             description=description,
             synonyms=synonyms,
-            tags=[Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id)],
         )
 
         return Term(
@@ -937,7 +990,7 @@ class Agent:
             description=description,
             tool_id=ToolId(INTEGRATED_TOOL_SERVICE_NAME, tool.tool.name) if tool else None,
             freshness_rules=freshness_rules,
-            tags=[Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id)],
         )
 
         return Variable(
@@ -997,6 +1050,14 @@ class Server:
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
         await self._exit_stack.aclose()
         return False
+
+    async def create_tag(self, name: str) -> Tag:
+        tag = await self._container[TagStore].create_tag(name=name)
+
+        return Tag(
+            id=tag.id,
+            name=tag.name,
+        )
 
     async def create_agent(
         self,
@@ -1119,7 +1180,7 @@ class Server:
         for c in condition_guidelines:
             await self._container[GuidelineStore].upsert_tag(
                 guideline_id=c.id,
-                tag_id=Tag.for_journey_id(journey_id=journey.id),
+                tag_id=_Tag.for_journey_id(journey_id=journey.id),
             )
 
         return Journey(
@@ -1348,6 +1409,7 @@ __all__ = [
     "SessionMode",
     "SessionStatus",
     "StatusEventData",
+    "Tag",
     "TagId",
     "Term",
     "TermId",

@@ -32,6 +32,7 @@ from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
     MessageEventComposition,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
     ToolInsights,
@@ -125,10 +126,12 @@ class MessageGenerator(MessageEventComposer):
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[MessageSchema],
     ) -> None:
         self._logger = logger
         self._correlator = correlator
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
 
     async def shots(self) -> Sequence[MessageGeneratorShot]:
@@ -254,11 +257,9 @@ class MessageGenerator(MessageEventComposer):
             },
         )
 
-        generation_attempt_temperatures = {
-            0: 0.1,
-            1: 0.3,
-            2: 0.5,
-        }
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_message_generation_retry_temperatures()
+        )
 
         last_generation_exception: Exception | None = None
 

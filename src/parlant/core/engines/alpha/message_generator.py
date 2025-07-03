@@ -332,7 +332,7 @@ class MessageGenerator(MessageEventComposer):
             for m in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
         }
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="message-generator-general-instructions",
@@ -732,7 +732,7 @@ Produce a valid JSON object in the following format: ###
             hints={"temperature": temperature},
         )
 
-        self._logger.debug(
+        self._logger.trace(
             f"Completion:\n{message_event_response.content.model_dump_json(indent=2)}"
         )
 
@@ -740,7 +740,7 @@ Produce a valid JSON object in the following format: ###
             message_event_response.content.produced_reply is False
             or not message_event_response.content.revisions
         ):
-            self._logger.debug("Produced no reply")
+            self._logger.trace("Produced no reply")
             return message_event_response.info, None
 
         if first_correct_revision := next(

@@ -264,7 +264,7 @@ Guidelines:
     ) -> PromptBuilder:
         guideline_representations = {g.id: internal_representation(g) for g in guidelines.values()}
 
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="guideline-previously-applied-general-instructions",
@@ -288,14 +288,14 @@ Your task is to evaluate whether the action specified by each guideline has now 
 satisfies its action so the action can now be considered as applied.
 
 1. Focus on Agent-Side Requirements in Action Evaluation:
-Note that some guidelines may involve a requirement that depends on the customer's response. For example, an action like "get the customer's card number" requires the agent to ask for this information, and the customer to provide it for full 
-completion. In such cases, you should evaluate only the agent’s part of the action. Since evaluation occurs after the agent’s message, the action is considered applied if the agent has done its part (e.g., asked for the information), 
+Note that some guidelines may involve a requirement that depends on the customer's response. For example, an action like "get the customer's card number" requires the agent to ask for this information, and the customer to provide it for full
+completion. In such cases, you should evaluate only the agent’s part of the action. Since evaluation occurs after the agent’s message, the action is considered applied if the agent has done its part (e.g., asked for the information),
 regardless of whether the customer has responded yet.
 
 2. Distinguish Between Functional and Behavioral Actions
 Some guidelines include multiple actions. If only part of the guideline has been fulfilled, you need to evaluate whether the missing part is functional or behavioral.
 
-- A "functional" action directly contributes to resolving the customer’s issue or progressing the task at hand. These actions are core to the outcome of the interaction. If omitted, they may leave the issue unresolved, cause confusion, 
+- A "functional" action directly contributes to resolving the customer’s issue or progressing the task at hand. These actions are core to the outcome of the interaction. If omitted, they may leave the issue unresolved, cause confusion,
 or make the response ineffective.
 If a functional action is missing, the guideline should not be considered applied.
 
@@ -317,7 +317,7 @@ If the answer is no, it's likely behavioral and the guideline can be considered 
 If the answer is yes, it's likely functional and the guideline is still unfulfilled.
 
 3. Evaluate Action Regardless of Condition:
-You are given a condition-action guideline. Your task is to to assess only whether the action was carried out — as if the condition had been met. In some cases, the action may have been carried out for a different reason — triggered by another 
+You are given a condition-action guideline. Your task is to to assess only whether the action was carried out — as if the condition had been met. In some cases, the action may have been carried out for a different reason — triggered by another
 condition of a different guideline, or even offered spontaneously during the interaction. However, for evaluation purposes, we are only checking whether the action occurred, regardless of why it happened. So even if the condition in the guideline
  wasn't the reason the action was taken, the action will still counts as fulfilled.
 

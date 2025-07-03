@@ -136,7 +136,7 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
@@ -191,7 +191,7 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 

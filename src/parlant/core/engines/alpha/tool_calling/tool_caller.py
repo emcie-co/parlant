@@ -231,7 +231,7 @@ class ToolCaller:
         tool_id: ToolId,
     ) -> ToolCallResult:
         try:
-            self._logger.debug(
+            self._logger.trace(
                 f"Execution::Invocation: ({tool_call.tool_id.to_string()}/{tool_call.id})"
                 + (f"\n{json.dumps(tool_call.arguments, indent=2)}" if tool_call.arguments else "")
             )
@@ -245,7 +245,7 @@ class ToolCaller:
                     tool_call.arguments,
                 )
 
-                self._logger.debug(
+                self._logger.trace(
                     f"Execution::Result: Tool call succeeded ({tool_call.tool_id.to_string()}/{tool_call.id})\n{json.dumps(asdict(result), indent=2, default=str)}"
                 )
             except Exception as exc:

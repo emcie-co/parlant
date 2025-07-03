@@ -36,7 +36,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
-from parlant.core.loggers import Logger
+from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -121,7 +121,9 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope("OpenAISchematicGenerator"):
-            with self._logger.operation(f"LLM Request ({self.schema.__name__})"):
+            with self._logger.operation(
+                f"LLM Request ({self.schema.__name__})", level=LogLevel.DEBUG
+            ):
                 return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -150,7 +152,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
@@ -190,7 +192,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                 raise
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 
@@ -373,7 +375,7 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("OpenAI Moderation Request"):
+        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.DEBUG):
             response = await self._client.moderations.create(
                 input=content,
                 model=self.model_name,

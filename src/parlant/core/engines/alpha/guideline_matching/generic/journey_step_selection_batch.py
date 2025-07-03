@@ -236,9 +236,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     self._logger.debug(
                         f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
                     )
-                    journey_path = [self._previous_path[-1]] + journey_path  # Try to recover
+                    journey_path.insert(0, self._previous_path[-1])  # Try to recover
 
-                indexes_to_delete: Sequence[int] = []
+                indexes_to_delete: list[int] = []
                 for i in range(1, len(journey_path)):
                     if journey_path[i - 1] not in self._journey_steps.keys():
                         self._logger.debug(

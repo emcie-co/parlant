@@ -68,7 +68,47 @@ class Test_that_a_tool_enabled_variable_can_be_created(SDKTest):
         assert variable.tool_id == ToolId(p.INTEGRATED_TOOL_SERVICE_NAME, "get_value")
 
 
-class Test_that_a_variable_value_can_be_set(SDKTest):
+class Test_that_a_variable_value_can_be_set_for_a_customer(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rel Agent",
+            description="Agent for guideline relationships",
+        )
+
+        self.customer = await server.create_customer("John Doe")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_customer(self.customer, "premium")
+
+    async def run(self, ctx: Context) -> None:
+        assert "premium" == await self.variable.get_value_for_customer(self.customer)
+
+
+class Test_that_a_variable_value_can_be_set_for_a_tag(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rel Agent",
+            description="Agent for guideline relationships",
+        )
+
+        self.tag = await server.create_tag("premium_users")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_tag(self.tag, "premium")
+
+    async def run(self, ctx: Context) -> None:
+        assert "premium" == await self.variable.get_value_for_tag(self.tag.id)
+
+
+class Test_that_a_variable_value_can_be_set_globally(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Rel Agent",
@@ -80,5 +120,7 @@ class Test_that_a_variable_value_can_be_set(SDKTest):
             description="The current subscription plan of the user.",
         )
 
+        await self.variable.set_global_value("premium")
+
     async def run(self, ctx: Context) -> None:
-        await self.variable.set_value(key="value", value="premium")
+        assert "premium" == await self.variable.get_global_value()

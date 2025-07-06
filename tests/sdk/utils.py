@@ -41,6 +41,31 @@ class Context:
     client: Client
     container: p.Container
 
+    async def send_and_receive(self, customer_message: str, recipient: p.Agent) -> str:
+        session = await self.client.sessions.create(
+            agent_id=recipient.id,
+            allow_greeting=False,
+        )
+
+        event = await self.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message=customer_message,
+        )
+
+        agent_messages = await self.client.sessions.list_events(
+            session_id=session.id,
+            min_offset=event.offset,
+            source="ai_agent",
+            kinds="message",
+            wait_for_data=30,
+        )
+
+        assert len(agent_messages) == 1
+
+        return get_message(agent_messages[0])
+
 
 class SDKTest:
     STARTUP_TIMEOUT = 60

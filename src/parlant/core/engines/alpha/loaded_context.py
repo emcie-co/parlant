@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Optional, Sequence, cast
 
 from parlant.core.agents import Agent
@@ -41,6 +42,23 @@ class IterationState:
 
 
 @dataclass(frozen=True)
+class InteractionMessage:
+    """A message in the interaction history"""
+
+    source: EventSource
+    """The source of the message (e.g., customer, AI agent, etc.)"""
+
+    correlation_id: str
+    """The correlation ID of the message"""
+
+    content: str
+    """The content of the message"""
+
+    creation_utc: datetime
+    """The timestamp when the message was created"""
+
+
+@dataclass(frozen=True)
 class Interaction:
     """Helper class to access a session's interaction state"""
 
@@ -50,11 +68,32 @@ class Interaction:
         return Interaction(history=[], last_known_event_offset=-1)
 
     @property
-    def last_customer_message(self) -> Optional[str]:
+    def messages(self) -> Sequence[InteractionMessage]:
+        """Returns the messages in the interaction session"""
+        return [
+            InteractionMessage(
+                source=event.source,
+                correlation_id=event.correlation_id,
+                content=cast(str, cast(dict[str, Any], event.data).get("message", "")),
+                creation_utc=event.creation_utc,
+            )
+            for event in self.history
+            if event.kind == EventKind.MESSAGE
+        ]
+
+    @property
+    def last_customer_message(self) -> Optional[InteractionMessage]:
         """Returns the last customer message in the interaction session, if it exists"""
         for event in reversed(self.history):
             if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
-                return cast(str, cast(dict[str, Any], event.data).get("message"))
+                message = cast(str, cast(dict[str, Any], event.data).get("message"))
+
+                return InteractionMessage(
+                    source=event.source,
+                    correlation_id=event.correlation_id,
+                    content=message,
+                    creation_utc=event.creation_utc,
+                )
         return None
 
     history: Sequence[Event]

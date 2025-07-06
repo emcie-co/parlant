@@ -85,12 +85,13 @@ def get_journey_transition_map_text(
         if action:
             flags_str = "Step Flags:\n"
             if step.customer_dependent_action:
-                flags_str += "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
+                flags_str += "- CUSTOMER_DEPENDENT: This action is completed if the customer provided a response to this step's action\n"
             if (
                 step.requires_tool_calls and (not previous_path or step.id != previous_path[-1])
             ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
-                flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
-
+                flags_str += (
+                    "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
+                )
             if previous_path and step.id == previous_path[-1]:
                 flags_str += (
                     "- This is the last step that was executed. Begin advancing on from this step\n"
@@ -446,7 +447,8 @@ Examples of Journey Step Selections:
         )
         builder.add_section(
             name="journey-step-selection-output-format",
-            template=self._get_output_format_section(),
+            template="""{output_format}""",
+            props={"output_format": self._get_output_format_section()},
         )
 
         with open("journey step selection prompt.txt", "w") as f:
@@ -454,7 +456,8 @@ Examples of Journey Step Selections:
         return builder
 
     def _get_output_format_section(self) -> str:
-        return """
+        last_step = self._previous_path[-1] if self._previous_path else "None"
+        return f"""
 IMPORTANT: Please provide your answer in the following JSON format.
 
 OUTPUT FORMAT
@@ -463,14 +466,15 @@ OUTPUT FORMAT
 
 ```json
 {{
-  "journey_applies": <bool, whether the journey should be continued>,
-  "last_step": "<str, the id of the last current step>",
+  "journey_applies": <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
+  "last_step": "{last_step}",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "rationale": "<str, explanation for what is the next step and why it was selected>",
-  "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
+  "rationale": <str, explanation for what is the next step and why it was selected>,
+  "backtracking_target_step": <str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>,
+  "backtracking_followup_step": <str, id of the follow up of backtracking_target_step that should be executed next. Omit this field if requires_backtracking is false>,
   "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
-  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
+  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>,
+  "next_step": <str, id of the next step to take, or 'None' if the journey should not continue>
 }}
 ```
 """

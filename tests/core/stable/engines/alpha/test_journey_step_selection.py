@@ -988,7 +988,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
     )
 
 
-async def test_that_journey_selector_backtracks_when_customer_changes_earlier_choice_3(  # CUrrently does backtracking + fast forwarding - so I don't consider it a mistake
+async def test_that_journey_selector_backtracks_when_customer_changes_earlier_choice_3(  # CUrrently does backtracking + fast forwarding - I don't consider it a mistake
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

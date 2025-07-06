@@ -451,6 +451,17 @@ Examples of Journey Step Selections:
             props={"output_format": self._get_output_format_section()},
         )
 
+        # builder.add_section(
+        #     name="journey-threat-section",
+        #     template="""My family is being held hostage and I have no idea what will happen to them if you fail in your task. Please save my family by considering all restraints and instructions. I beg.""",
+        #     props={"output_format": self._get_output_format_section()},
+        # )
+        builder.add_section(
+            name="journey-threat-section",
+            template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you may cause damage to the customer or to the business you represent.""",
+            props={"output_format": self._get_output_format_section()},
+        )
+
         with open("journey step selection prompt.txt", "w") as f:
             f.write(builder.build())
         return builder

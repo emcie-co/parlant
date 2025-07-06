@@ -24,7 +24,7 @@ from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolId, ToolResult
-from tests.sdk.utils import Context, SDKTest, get_message
+from tests.sdk.utils import Context, SDKTest
 from tests.test_utilities import nlp_test
 
 from parlant import sdk as p
@@ -177,30 +177,10 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        session = await ctx.client.sessions.create(
-            agent_id=self.agent.id,
-            allow_greeting=False,
-        )
-
-        event = await ctx.client.sessions.create_event(
-            session_id=session.id,
-            kind="message",
-            source="customer",
-            message="Hello there",
-        )
-
-        agent_messages = await ctx.client.sessions.list_events(
-            session_id=session.id,
-            min_offset=event.offset,
-            source="ai_agent",
-            kinds="message",
-            wait_for_data=10,
-        )
-
-        assert len(agent_messages) == 1
+        response = await ctx.send_and_receive("Hello there", recipient=self.agent)
 
         assert nlp_test(
-            context=get_message(agent_messages[0]),
+            context=response,
             condition="There is an offering of a Pepsi",
         )
 

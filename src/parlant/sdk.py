@@ -15,18 +15,22 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import md5
 from pathlib import Path
 from types import TracebackType
 from typing import (
+    Any,
     Awaitable,
     Callable,
+    Coroutine,
     Iterable,
     Literal,
     Mapping,
+    Optional,
     Sequence,
     TypedDict,
     cast,
@@ -45,6 +49,7 @@ from parlant.core.agents import (
     CompositionMode,
 )
 from parlant.core.application import Application
+from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.context_variables import (
@@ -56,7 +61,7 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.customers import CustomerDocumentStore, CustomerId, CustomerStore
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import LoadedContext, Interaction, InteractionMessage
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -86,13 +91,16 @@ from parlant.core.sessions import (
     EventKind,
     EventSource,
     MessageEventData,
+    Session,
     SessionId,
     SessionDocumentStore,
     SessionStore,
     StatusEventData,
+    ToolCall as _SessionToolCall,
     ToolEventData,
+    ToolResult as _SessionToolResult,
 )
-from parlant.core.utterances import UtteranceVectorStore, UtteranceId, UtteranceStore
+from parlant.core.utterances import Utterance, UtteranceVectorStore, UtteranceId, UtteranceStore
 from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStatus,
@@ -381,7 +389,7 @@ class Guideline:
     tags: Sequence[TagId]
     metadata: Mapping[str, JSONSerializable]
 
-    _parlant: Server
+    _server: Server
     _container: Container
 
     async def prioritize_over(self, guideline: Guideline) -> Relationship:
@@ -475,7 +483,7 @@ class JourneyNode:
     tools: Sequence[ToolEntry]
     forward_links: list[JourneyNode]
 
-    _parlant: Server
+    _server: Server
     _container: Container
     _journey_id: JourneyId
 
@@ -523,7 +531,7 @@ class JourneyNode:
             action=action or evaluation.action_proposition,
             tools=tools,
             forward_links=[],
-            _parlant=parlant,
+            _server=parlant,
             _container=container,
             _journey_id=journey_id,
         )
@@ -547,7 +555,7 @@ class JourneyNode:
             )
 
         sub_node = await self._create_node(
-            self._parlant, self._container, self._journey_id, condition, action, tools
+            self._server, self._container, self._journey_id, condition, action, tools
         )
 
         if self.id == self.ROOT:
@@ -600,7 +608,7 @@ class Journey:
     tags: Sequence[TagId]
     root: JourneyNode
 
-    _parlant: Server
+    _server: Server
     _container: Container
 
     async def create_node(
@@ -610,7 +618,7 @@ class Journey:
         tools: Sequence[ToolEntry],
     ) -> JourneyNode:
         return await JourneyNode._create_node(
-            self._parlant, self._container, self.id, condition, action, tools
+            self._server, self._container, self.id, condition, action, tools
         )
 
     async def create_guideline(
@@ -624,7 +632,7 @@ class Journey:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=action),
             tool_ids,
         )
@@ -648,7 +656,7 @@ class Journey:
         )
 
         for t in list(tools):
-            await self._parlant._plugin_server.enable_tool(t)
+            await self._server._plugin_server.enable_tool(t)
 
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
@@ -661,7 +669,7 @@ class Journey:
             action=action,
             tags=guideline.tags,
             metadata=guideline.metadata,
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
         )
 
@@ -670,9 +678,9 @@ class Journey:
         tool: ToolEntry,
         condition: str,
     ) -> GuidelineId:
-        await self._parlant._plugin_server.enable_tool(tool)
+        await self._server._plugin_server.enable_tool(tool)
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=None),
             [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
         )
@@ -744,7 +752,7 @@ class Variable:
     tool: ToolEntry | None
     freshness_rules: str | None
     tags: Sequence[TagId]
-    _parlant: Server
+    _server: Server
     _container: Container
 
     async def set_value_for_customer(self, customer: Customer, value: JSONSerializable) -> None:
@@ -801,8 +809,28 @@ class Customer:
     tags: Sequence[TagId]
 
 
+@dataclass(frozen=True)
+class RetrieverContext:
+    correlation_id: str
+    session: Session
+    customer: Customer
+    variables: Mapping[ContextVariableId, JSONSerializable]
+    interaction: Interaction
+
+
+@dataclass(frozen=True)
+class RetrieverResult:
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+    utterances: Sequence[str] = field(default_factory=list)
+    utterance_fields: Mapping[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class Agent:
+    _server: Server
+    _container: Container
+
     id: AgentId
     name: str
     description: str | None
@@ -810,8 +838,9 @@ class Agent:
     composition_mode: CompositionMode
     tags: Sequence[TagId]
 
-    _parlant: Server
-    _container: Container
+    retrievers: Mapping[str, Callable[[RetrieverContext], Awaitable[JSONSerializable]]] = field(
+        default_factory=dict
+    )
 
     async def create_journey(
         self,
@@ -819,7 +848,7 @@ class Agent:
         description: str,
         conditions: list[str | Guideline],
     ) -> Journey:
-        journey = await self._parlant.create_journey(title, description, conditions)
+        journey = await self._server.create_journey(title, description, conditions)
 
         await self.attach_journey(journey)
 
@@ -835,11 +864,11 @@ class Agent:
                 action=None,
                 tools=[],
                 forward_links=[],
-                _parlant=self._parlant,
+                _server=self._server,
                 _container=self._container,
                 _journey_id=journey.id,
             ),
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
         )
 
@@ -860,7 +889,7 @@ class Agent:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=action),
             tool_ids,
         )
@@ -873,7 +902,7 @@ class Agent:
         )
 
         for t in list(tools):
-            await self._parlant._plugin_server.enable_tool(t)
+            await self._server._plugin_server.enable_tool(t)
 
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
@@ -886,7 +915,7 @@ class Agent:
             action=action,
             tags=guideline.tags,
             metadata=guideline.metadata,
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
         )
 
@@ -901,9 +930,9 @@ class Agent:
         tool: ToolEntry,
         condition: str,
     ) -> GuidelineId:
-        await self._parlant._plugin_server.enable_tool(tool)
+        await self._server._plugin_server.enable_tool(tool)
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=None),
             [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
         )
@@ -1000,9 +1029,24 @@ class Agent:
             tool=tool,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
         )
+
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]],
+        id: str | None = None,
+    ) -> None:
+        if not id:
+            id = f"retriever-{len(self.retrievers) + 1}"
+
+        cast(
+            dict[str, Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]]],
+            self.retrievers,
+        )[id] = retriever
+
+        self._server._retrievers[self.id][id] = retriever
 
 
 class Server:
@@ -1031,6 +1075,10 @@ class Server:
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
         self._initialize = initialize
+        self._retrievers: dict[
+            AgentId,
+            dict[str, Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]]],
+        ] = defaultdict(dict)
         self._exit_stack = AsyncExitStack()
 
         self._plugin_server: PluginServer
@@ -1047,9 +1095,133 @@ class Server:
         exc_value: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
+        await self._setup_retrievers()
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
         await self._exit_stack.aclose()
         return False
+
+    async def _setup_retrievers(self) -> None:
+        async def setup_retriever(
+            c: Container,
+            agent_id: AgentId,
+            retriever_id: str,
+            retriever: Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]],
+        ) -> None:
+            tasks_for_this_retriever: dict[
+                str,
+                tuple[Timeout, asyncio.Task[JSONSerializable | RetrieverResult]],
+            ] = {}
+
+            async def on_message_acknowledged(
+                ctx: LoadedContext,
+                exc: Optional[Exception],
+            ) -> EngineHookResult:
+                # First do some garbage collection if needed.
+                # This might be needed if tasks were not awaited
+                # because of exceptions during engine processing.
+                for correlation_id in list(tasks_for_this_retriever.keys()):
+                    if tasks_for_this_retriever[correlation_id][0].expired():
+                        # Very, very little change that this task is still meant to be running,
+                        # or that anyone is still waiting for it. It's 99.999% garbage.
+                        try:
+                            tasks_for_this_retriever[correlation_id][1].add_done_callback(
+                                default_done_callback()
+                            )
+                            tasks_for_this_retriever[correlation_id][1].cancel()
+                            del tasks_for_this_retriever[correlation_id]
+                        except BaseException:
+                            # If anything went unexpectedly here, whatever. Carry on.
+                            pass
+
+                coroutine = retriever(
+                    RetrieverContext(
+                        correlation_id=ctx.correlation_id,
+                        session=ctx.session,
+                        customer=Customer(
+                            id=ctx.customer.id,
+                            name=ctx.customer.name,
+                            extra=ctx.customer.extra,
+                            tags=ctx.customer.tags,
+                        ),
+                        variables={var.id: val.data for var, val in ctx.state.context_variables},
+                        interaction=ctx.interaction,
+                    )
+                )
+
+                c[Logger].trace(
+                    f"Starting retriever {retriever_id} for agent {agent_id} with correlation {ctx.correlation_id}"
+                )
+
+                tasks_for_this_retriever[ctx.correlation_id] = (
+                    Timeout(600),  # Expiration timeout for garbage collection purposes
+                    asyncio.create_task(
+                        cast(Coroutine[Any, Any, JSONSerializable | RetrieverResult], coroutine),
+                        name=f"Retriever {retriever_id} for agent {agent_id}",
+                    ),
+                )
+
+                return EngineHookResult.CALL_NEXT
+
+            async def on_generating_messages(
+                ctx: LoadedContext,
+                exc: Optional[Exception],
+            ) -> EngineHookResult:
+                if timeout_and_task := tasks_for_this_retriever.pop(ctx.correlation_id, None):
+                    _, task = timeout_and_task
+                    task_result = await task
+
+                    if isinstance(task_result, RetrieverResult):
+                        retriever_result = task_result
+                    else:
+                        retriever_result = RetrieverResult(
+                            data=task_result,
+                            metadata={},
+                            utterances=[],
+                            utterance_fields={},
+                        )
+
+                    ctx.state.tool_events.append(
+                        await ctx.response_event_emitter.emit_tool_event(
+                            ctx.correlation_id,
+                            ToolEventData(
+                                tool_calls=[
+                                    _SessionToolCall(
+                                        tool_id=ToolId(
+                                            service_name=INTEGRATED_TOOL_SERVICE_NAME,
+                                            tool_name=retriever_id,
+                                        ).to_string(),
+                                        arguments={},
+                                        result=_SessionToolResult(
+                                            data=retriever_result.data,
+                                            metadata=retriever_result.metadata,
+                                            control={"lifespan": "response"},
+                                            utterances=[
+                                                Utterance(
+                                                    id=Utterance.TRANSIENT_ID,
+                                                    creation_utc=datetime.now(timezone.utc),
+                                                    value=u,
+                                                    fields=[],
+                                                    queries=[],
+                                                    tags=[],
+                                                )
+                                                for u in retriever_result.utterances
+                                            ],
+                                            utterance_fields=retriever_result.utterance_fields,
+                                        ),
+                                    )
+                                ]
+                            ),
+                        )
+                    )
+
+                return EngineHookResult.CALL_NEXT
+
+            c[EngineHooks].on_acknowledged.append(on_message_acknowledged)
+            c[EngineHooks].on_generating_messages.append(on_generating_messages)
+
+        for agent in self._retrievers:
+            for retriever_id, retriever in self._retrievers[agent].items():
+                await setup_retriever(self._container, agent, retriever_id, retriever)
 
     async def create_tag(self, name: str) -> Tag:
         tag = await self._container[TagStore].create_tag(name=name)
@@ -1081,7 +1253,7 @@ class Server:
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=agent.composition_mode,
             tags=tags,
-            _parlant=self,
+            _server=self,
             _container=self._container,
         )
 
@@ -1168,7 +1340,7 @@ class Server:
                     action=guideline.content.action,
                     tags=guideline.tags,
                     metadata=guideline.metadata,
-                    _parlant=self,
+                    _server=self,
                     _container=self._container,
                 )
             )
@@ -1195,11 +1367,11 @@ class Server:
                 action=None,
                 tools=[],
                 forward_links=[],
-                _parlant=self,
+                _server=self,
                 _container=self._container,
                 _journey_id=journey.id,
             ),
-            _parlant=self,
+            _server=self,
             _container=self._container,
         )
 
@@ -1386,6 +1558,8 @@ __all__ = [
     "FallbackSchematicGenerator",
     "Guideline",
     "GuidelineId",
+    "Interaction",
+    "InteractionMessage",
     "Journey",
     "JourneyId",
     "JourneyNode",
@@ -1401,10 +1575,13 @@ __all__ = [
     "RelationshipEntityKind",
     "RelationshipId",
     "RelationshipKind",
+    "RetrieverContext",
+    "RetrieverResult",
     "SchematicGenerationResult",
     "SchematicGenerator",
     "Server",
     "ServiceRegistry",
+    "Session",
     "SessionId",
     "SessionMode",
     "SessionStatus",

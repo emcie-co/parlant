@@ -150,7 +150,9 @@ async def safe_gather(  # type: ignore[misc]
         )
     except asyncio.CancelledError:
         for future in futures:
+            future.add_done_callback(default_done_callback())
             future.cancel()
+
         raise
 
 
@@ -165,6 +167,7 @@ async def with_timeout(
     try:
         return await asyncio.wait_for(coro_or_future, timeout.remaining())
     except asyncio.TimeoutError:
+        fut.add_done_callback(default_done_callback())
         fut.cancel()
         raise
 
@@ -202,7 +205,7 @@ def default_done_callback(
             return None
         except Exception as e:
             if logger:
-                logger.error(f"Exception encountered in background task: {e}")
+                logger.error(f"Exception encountered in background task {task.get_name()}: {e}")
             return None
 
     return done_callback

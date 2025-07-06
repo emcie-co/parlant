@@ -61,6 +61,7 @@ class GuidelineMatchDTO(DefaultBaseModel):
     guideline_previously_applied: PreviouslyAppliedType = PreviouslyAppliedType.NO
     guideline_is_continuous: bool = False
     should_reapply: bool = False
+    associated_tool_ids: Optional[list[str]] = None
 
 
 class GuidelineMatchingResultDTO(DefaultBaseModel):
@@ -164,6 +165,7 @@ def create_test_guideline_matching_router(
             context_variables=context_variables,
             interaction_history=events,
             terms=terms,
+            capabilities=[],
             staged_events=staged_events,
             guidelines=guidelines,
         )

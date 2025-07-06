@@ -20,6 +20,7 @@ from parlant.api.common import JSONSerializableDTO, ToolNameField, apigen_config
 from parlant.api.context_variables import ContextVariableIdPath
 from parlant.api.customers import CustomerIdPath
 from parlant.api.glossary import TermIdPath
+from parlant.api.guideline_matcher_test_api import GuidelineMatchDTO
 from parlant.api.journeys import JourneyIdPath
 from parlant.api.sessions import (
     EventCorrelationIdField,
@@ -36,10 +37,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_matching.guideline_match import (
-    GuidelineMatch,
-    GuidelineMatchDTO,
-)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCall, ToolCaller
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guidelines import GuidelineStore
@@ -103,7 +101,7 @@ async def _convert_guideline_match(
     dto: GuidelineMatchDTO,
 ) -> GuidelineMatch:
     return GuidelineMatch(
-        await guideline_store.read_guideline(dto.guideline_id),
+        await guideline_store.read_guideline(dto.guideline),
         dto.score,
         dto.rationale,
         dto.guideline_previously_applied,

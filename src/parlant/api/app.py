@@ -171,26 +171,6 @@ class AppWrapper:
 async def configure_middlewares(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
     logger = container[Logger]
     correlator = container[ContextualCorrelator]
-    agent_store = container[AgentStore]
-    customer_store = container[CustomerStore]
-    tag_store = container[TagStore]
-    session_store = container[SessionStore]
-    session_listener = container[SessionListener]
-    evaluation_store = container[EvaluationStore]
-    evaluation_listener = container[EvaluationListener]
-    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
-    evaluation_service = container[BehavioralChangeEvaluator]
-    glossary_store = container[GlossaryStore]
-    guideline_store = container[GuidelineStore]
-    relationship_store = container[RelationshipStore]
-    guideline_tool_association_store = container[GuidelineToolAssociationStore]
-    context_variable_store = container[ContextVariableStore]
-    utterance_store = container[UtteranceStore]
-    journey_store = container[JourneyStore]
-    capability_store = container[CapabilityStore]
-    service_registry = container[ServiceRegistry]
-    nlp_service = container[NLPService]
-    application = container[Application]
 
     @app.middleware("http")
     async def handle_cancellation(
@@ -283,156 +263,7 @@ async def configure_legacy_agents(app: FastAPI, container: Container) -> AsyncIt
 
     agent_router.include_router(
         glossary.create_legacy_router(
-            glossary_store=glossary_store,
-        ),
-    )
-    agent_router.include_router(
-        variables.create_legacy_router(
-            context_variable_store=context_variable_store,
-            service_registry=service_registry,
-        ),
-    )
-
-    api_app.include_router(
-        router=agents.create_router(
-            agent_store=agent_store,
-            tag_store=tag_store,
-        ),
-        prefix="/agents",
-    )
-
-    api_app.include_router(
-        router=agent_router,
-    )
-
-    api_app.include_router(
-        prefix="/sessions",
-        router=sessions.create_router(
-            logger=logger,
-            application=application,
-            agent_store=agent_store,
-            customer_store=customer_store,
-            session_store=session_store,
-            session_listener=session_listener,
-            nlp_service=nlp_service,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/index",
-        router=index.legacy_create_router(
-            evaluation_service=legacy_evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
-            agent_store=agent_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/services",
-        router=services.create_router(
-            service_registry=service_registry,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/tags",
-        router=tags.create_router(
-            tag_store=tag_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/terms",
-        router=glossary.create_router(
-            glossary_store=glossary_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/customers",
-        router=customers.create_router(
-            customer_store=customer_store,
-            tag_store=tag_store,
-            agent_store=agent_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/utterances",
-        router=utterances.create_router(
-            utterance_store=utterance_store,
-            tag_store=tag_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/context-variables",
-        router=variables.create_router(
-            context_variable_store=context_variable_store,
-            service_registry=service_registry,
-            agent_store=agent_store,
-            tag_store=tag_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/guidelines",
-        router=guidelines.create_router(
-            guideline_store=guideline_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
-            journey_store=journey_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/relationships",
-        router=relationships.create_router(
-            relationship_store=relationship_store,
-            tag_store=tag_store,
-            guideline_store=guideline_store,
-            agent_store=agent_store,
-            journey_store=journey_store,
-            service_registry=service_registry,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/journeys",
-        router=journeys.create_router(
-            journey_store=journey_store,
-            guideline_store=guideline_store,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/evaluations",
-        router=evaluations.create_router(
-            evaluation_service=evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/capabilities",
-        router=capabilities.create_router(
-            capability_store=capability_store,
-            tag_store=tag_store,
-            agent_store=agent_store,
-            journey_store=journey_store,
-        ),
-    )
-
-    api_app.include_router(
-        router=logs.create_router(
-            websocket_logger,
+            glossary_store=container[GlossaryStore],
         )
     )
 
@@ -603,6 +434,20 @@ async def configure_evaluations_router(
 
 
 @asynccontextmanager
+async def configure_capabilities_router(
+    app: FastAPI, container: Container
+) -> AsyncIterator[FastAPI]:
+    router = capabilities.create_router(
+        capability_store=container[CapabilityStore],
+        tag_store=container[TagStore],
+        agent_store=container[AgentStore],
+        journey_store=container[JourneyStore],
+    )
+    app.include_router(router, prefix="/capabilities")
+    yield app
+
+
+@asynccontextmanager
 async def configure_logs_router(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
     router = logs.create_router(
         websocket_logger=container[WebSocketLogger],
@@ -668,6 +513,7 @@ default_configuration_steps: APIConfigurationSteps = [
     configure_journeys_router,
     configure_evaluations_router,
     configure_logs_router,
+    configure_capabilities_router,
 ]
 
 

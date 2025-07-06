@@ -12,18 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from datetime import datetime, timezone
 from typing import Any, cast
-
+import asyncio
 import httpx
 from lagom import Container
 from parlant.core.agents import Agent, AgentId
 from parlant.core.customers import Customer, CustomerId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
-    GuidelineMatch,
-    GuidelineMatchDTO,
     PreviouslyAppliedType,
+    GuidelineMatch,
 )
 from parlant.core.services.tools.plugins import tool
 from parlant.core.sessions import EventKind, EventSource
@@ -84,14 +82,14 @@ async def get_inferred_tool_calls(
 ) -> list[dict[str, Any]]:
     """Get inferred tool calls via the API endpoint."""
 
-    guideline_match_dtos = [
-        GuidelineMatchDTO(
-            guideline_id=match.guideline.id,
-            score=match.score,
-            rationale=match.rationale,
-            guideline_previously_applied=match.guideline_previously_applied,
-            associated_tool_ids=[t.to_string() for t in tool_ids],
-        )
+    payload = [
+        {
+            "guideline": match.guideline.id,
+            "score": match.score,
+            "rationale": match.rationale,
+            "guideline_previously_applied": match.guideline_previously_applied.value,
+            "associated_tool_ids": [t.to_string() for t in tool_ids],
+        }
         for (match, tool_ids) in tool_enabled_guideline_matches
     ]
 
@@ -104,9 +102,7 @@ async def get_inferred_tool_calls(
             "interaction_history": [],
             "terms": [],
             "ordinary_guideline_matches": [],
-            "tool_enabled_guideline_matches": [
-                json.loads(t.model_dump_json()) for t in guideline_match_dtos
-            ],
+            "tool_enabled_guideline_matches": payload,
             "journeys": [],
             "staged_events": conversation_history,
             "available_tools": [
@@ -156,8 +152,6 @@ async def test_weather_tool_inference(
                 await client.put(
                     "/services/my_sdk_service", json={"kind": "sdk", "sdk": {"url": server.url}}
                 )
-
-                import asyncio
 
                 await asyncio.sleep(0.5)
 

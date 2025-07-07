@@ -570,7 +570,7 @@ class Journey:
         tools: Sequence[ToolEntry],
     ) -> JourneyNode:
         for t in list(tools):
-            await self._parlant._plugin_server.enable_tool(t)
+            await self._server._plugin_server.enable_tool(t)
 
         node = await self._container[JourneyStore].create_node(
             journey_id=self.id,
@@ -586,7 +586,7 @@ class Journey:
             action=action,
             tools=tools,
             metadata=node.metadata,
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
             _journey=self,
         )
@@ -602,7 +602,7 @@ class Journey:
             for t in target.tools
         }
 
-        evaluation = await self._parlant._evaluator.evaluate_guideline(
+        evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition or "", action=target.internal_action),
             list(target_tool_ids.values()),
             journey_step_propositions=True,
@@ -636,7 +636,7 @@ class Journey:
                             kind=RelationshipEntityKind.TOOL,
                         ),
                         target=RelationshipEntity(
-                            id=Tag.for_journey_node_id(target.id),
+                            id=_Tag.for_journey_node_id(target.id),
                             kind=RelationshipEntityKind.TAG,
                         ),
                         kind=RelationshipKind.REEVALUATION,
@@ -891,7 +891,7 @@ class Agent:
             tags=journey.tags,
             nodes=journey.nodes,
             edges=journey.edges,
-            _parlant=self._parlant,
+            _server=self._server,
             _container=self._container,
         )
 
@@ -1383,7 +1383,7 @@ class Server:
             nodes=[],
             edges=[],
             tags=tags,
-            _parlant=self,
+            _server=self,
             _container=self._container,
         )
 
@@ -1397,7 +1397,7 @@ class Server:
                 action=root_node.action,
                 tools=[],
                 metadata=root_node.metadata,
-                _parlant=self,
+                _server=self,
                 _container=self._container,
                 _journey=journey,
             )

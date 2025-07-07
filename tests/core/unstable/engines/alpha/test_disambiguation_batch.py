@@ -37,6 +37,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch 
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingContext,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
@@ -313,6 +314,7 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
 
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(
         logger=context.logger,
+        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         disambiguation_guideline=guideline_head,
         disambiguation_targets=guideline_targets,

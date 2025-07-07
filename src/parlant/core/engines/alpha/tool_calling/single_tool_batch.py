@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from itertools import chain
 import ast
 import json
+import traceback
 from typing import Any, Literal, Optional, Sequence, TypeAlias
 from typing_extensions import override
 
@@ -24,12 +25,14 @@ from parlant.core.common import DefaultBaseModel, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
     InvalidToolData,
     ToolCall,
     ToolCallBatch,
+    ToolCallBatchError,
     ToolCallBatchResult,
     ToolCallContext,
     ToolCallId,
@@ -102,13 +105,15 @@ class SingleToolBatch(ToolCallBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[SingleToolBatchSchema],
         candidate_tool: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         context: ToolCallContext,
     ) -> None:
-        self._service_registry = service_registry
         self._logger = logger
+        self._optimization_policy = optimization_policy
+        self._service_registry = service_registry
         self._schematic_generator = schematic_generator
         self._context = context
         self._candidate_tool = candidate_tool
@@ -181,14 +186,34 @@ class SingleToolBatch(ToolCallBatch):
 
         # Send the tool call inference prompt to the LLM
         with self._logger.operation(f"Evaluation: {tool_id}"):
-            generation_info, inference_output = await self._run_inference(inference_prompt)
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_tool_calling_batch_retry_temperatures()
+            )
 
-        # Evaluate the tool calls
-        tool_calls, missing_data, invalid_data = await self._evaluate_tool_calls(
-            inference_output, candidate_descriptor
-        )
+            last_generation_exception: Exception | None = None
 
-        return generation_info, tool_calls, missing_data, invalid_data
+            for generation_attempt in range(3):
+                try:
+                    generation_info, inference_output = await self._run_inference(
+                        prompt=inference_prompt,
+                        temperature=generation_attempt_temperatures[generation_attempt],
+                    )
+
+                    # Evaluate the tool calls
+                    tool_calls, missing_data, invalid_data = await self._evaluate_tool_calls(
+                        inference_output, candidate_descriptor
+                    )
+
+                    return generation_info, tool_calls, missing_data, invalid_data
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"SingleToolBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+        raise ToolCallBatchError() from last_generation_exception
 
     async def _evaluate_tool_calls(
         self,
@@ -733,10 +758,11 @@ Guidelines:
     async def _run_inference(
         self,
         prompt: PromptBuilder,
+        temperature: float,
     ) -> tuple[GenerationInfo, Sequence[SingleToolBatchToolCallEvaluation]]:
         inference = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.05},
+            hints={"temperature": temperature},
         )
         self._logger.trace(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
 

@@ -15,6 +15,7 @@
 from dataclasses import dataclass
 import json
 from itertools import chain
+import traceback
 from typing import Optional, Sequence
 from typing_extensions import override
 from more_itertools import chunked
@@ -34,9 +35,11 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisBatch,
+    ResponseAnalysisBatchError,
     ResponseAnalysisBatchResult,
     ReportAnalysisContext,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
@@ -77,11 +80,13 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
         context: ReportAnalysisContext,
         guideline_matches: Sequence[GuidelineMatch],
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._batch_size = 5
 
@@ -159,35 +164,58 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
         with self._logger.operation(
             f"Running response analysis batch of {len(guidelines)} guidelines"
         ):
-            inference = await self._schematic_generator.generate(
-                prompt=prompt,
-                hints={"temperature": 0.15},
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
             )
 
-        analyzed_guidelines: list[AnalyzedGuideline] = []
+            last_generation_exception: Exception | None = None
 
-        for check in inference.content.checks:
-            if check.guideline_applied:
-                self._logger.debug(f"Completion::Applied:\n{check.model_dump_json(indent=2)}")
-                analyzed_guidelines.append(
-                    AnalyzedGuideline(
-                        guideline=guidelines[check.guideline_id],
-                        is_previously_applied=True,
+            for generation_attempt in range(3):
+                try:
+                    inference = await self._schematic_generator.generate(
+                        prompt=prompt,
+                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                )
-            else:
-                self._logger.debug(f"Completion::NotApplied:\n{check.model_dump_json(indent=2)}")
-                analyzed_guidelines.append(
-                    AnalyzedGuideline(
-                        guideline=guidelines[GuidelineId(check.guideline_id)],
-                        is_previously_applied=False,
-                    )
-                )
 
-        return ResponseAnalysisBatchResult(
-            analyzed_guidelines=analyzed_guidelines,
-            generation_info=inference.info,
-        )
+                    analyzed_guidelines: list[AnalyzedGuideline] = []
+
+                    for check in inference.content.checks:
+                        if check.guideline_applied:
+                            self._logger.debug(
+                                f"Completion::Applied:\n{check.model_dump_json(indent=2)}"
+                            )
+                            analyzed_guidelines.append(
+                                AnalyzedGuideline(
+                                    guideline=guidelines[check.guideline_id],
+                                    is_previously_applied=True,
+                                )
+                            )
+                        else:
+                            self._logger.debug(
+                                f"Completion::NotApplied:\n{check.model_dump_json(indent=2)}"
+                            )
+                            analyzed_guidelines.append(
+                                AnalyzedGuideline(
+                                    guideline=guidelines[GuidelineId(check.guideline_id)],
+                                    is_previously_applied=False,
+                                )
+                            )
+
+                    return ResponseAnalysisBatchResult(
+                        analyzed_guidelines=analyzed_guidelines,
+                        generation_info=inference.info,
+                    )
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"Response analysis attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise ResponseAnalysisBatchError() from last_generation_exception
 
     async def shots(self) -> Sequence[GenericResponseAnalysisShot]:
         return await shot_collection.list()

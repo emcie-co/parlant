@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import traceback
 from typing import Optional, Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -31,8 +32,10 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
     GuidelineMatchingContext,
+    GuidelineMatchingBatchError,
     GuidelineMatchingStrategy,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
@@ -68,6 +71,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema
         ],
@@ -76,6 +80,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
         self._journeys = journeys
@@ -88,37 +93,62 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
         with self._logger.operation(
             f"PreviouslyAppliedActionableGuidelineMatchingBatch: {len(self._guidelines)} guidelines"
         ):
-            inference = await self._schematic_generator.generate(
-                prompt=prompt,
-                hints={"temperature": 0.15},
-            )
-
-        if not inference.content.checks:
-            self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-        else:
-            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-        matches = []
-
-        for match in inference.content.checks:
-            if match.should_reapply:
-                self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
-
-                matches.append(
-                    GuidelineMatch(
-                        guideline=self._guidelines[match.guideline_id],
-                        score=10 if match.should_reapply else 1,
-                        rationale='''reapply rational: ""''',
-                        guideline_previously_applied=PreviouslyAppliedType.FULLY,
+            try:
+                generation_attempt_temperatures = (
+                    self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                        hints={"type": self.__class__.__name__}
                     )
                 )
-            else:
-                self._logger.debug(f"Completion::Skipped:\n{match.model_dump_json(indent=2)}")
 
-        return GuidelineMatchingBatchResult(
-            matches=matches,
-            generation_info=inference.info,
-        )
+                last_generation_exception: Exception | None = None
+
+                for generation_attempt in range(3):
+                    inference = await self._schematic_generator.generate(
+                        prompt=prompt,
+                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
+                    )
+
+                if not inference.content.checks:
+                    self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
+                else:
+                    self._logger.trace(
+                        f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                    )
+
+                matches = []
+
+                for match in inference.content.checks:
+                    if match.should_reapply:
+                        self._logger.debug(
+                            f"Completion::Activated:\n{match.model_dump_json(indent=2)}"
+                        )
+
+                        matches.append(
+                            GuidelineMatch(
+                                guideline=self._guidelines[match.guideline_id],
+                                score=10 if match.should_reapply else 1,
+                                rationale='''reapply rational: ""''',
+                                guideline_previously_applied=PreviouslyAppliedType.FULLY,
+                            )
+                        )
+                    else:
+                        self._logger.debug(
+                            f"Completion::Skipped:\n{match.model_dump_json(indent=2)}"
+                        )
+
+                return GuidelineMatchingBatchResult(
+                    matches=matches,
+                    generation_info=inference.info,
+                )
+
+            except Exception as exc:
+                self._logger.warning(
+                    f"PreviouslyAppliedActionableGuidelineMatchingBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
+
+                last_generation_exception = exc
+
+        raise GuidelineMatchingBatchError() from last_generation_exception
 
     async def shots(
         self,
@@ -315,12 +345,14 @@ class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrat
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         entity_queries: EntityQueries,
         schematic_generator: SchematicGenerator[
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema
         ],
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
 
@@ -389,6 +421,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrat
     ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._schematic_generator,
             guidelines=guidelines,
             journeys=journeys,

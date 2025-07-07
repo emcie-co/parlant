@@ -17,6 +17,7 @@ from itertools import chain
 from typing import Mapping, Sequence, cast
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatch,
     OverlappingToolsBatchSchema,
@@ -41,12 +42,14 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         single_tool_schematic_generator: SchematicGenerator[SingleToolBatchSchema],
         overlapping_tools_schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
         relationship_store: RelationshipStore,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._service_registry = service_registry
         self._single_tool_schematic_generator = single_tool_schematic_generator
         self._overlapping_tools_schematic_generator = overlapping_tools_schematic_generator
@@ -163,6 +166,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     ) -> ToolCallBatch:
         return SingleToolBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             service_registry=self._service_registry,
             schematic_generator=self._single_tool_schematic_generator,
             candidate_tool=candidate_tool,
@@ -176,6 +180,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     ) -> ToolCallBatch:
         return OverlappingToolsBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             service_registry=self._service_registry,
             schematic_generator=self._overlapping_tools_schematic_generator,
             overlapping_tools_batch=overlapping_tools_batch,

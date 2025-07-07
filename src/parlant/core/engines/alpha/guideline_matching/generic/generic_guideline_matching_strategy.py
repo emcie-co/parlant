@@ -214,6 +214,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return [
             GenericResponseAnalysisBatch(
                 logger=self._logger,
+                optimization_policy=self._optimization_policy,
                 schematic_generator=self._report_analysis_schematic_generator,
                 context=context,
                 guideline_matches=guideline_matches,
@@ -320,6 +321,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericObservationalGuidelineMatchingBatch:
         return GenericObservationalGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._observational_guideline_schematic_generator,
             guidelines=guidelines,
             journeys=journeys,
@@ -377,6 +379,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._previously_applied_actionable_guideline_schematic_generator,
             guidelines=guidelines,
             journeys=journeys,
@@ -434,6 +437,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._previously_applied_actionable_customer_dependent_guideline_schematic_generator,
             guidelines=guidelines,
             journeys=journeys,
@@ -491,6 +495,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericActionableGuidelineMatchingBatch:
         return GenericActionableGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._actionable_guideline_schematic_generator,
             guidelines=guidelines,
             journeys=journeys,
@@ -530,6 +535,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
 
         return GenericDisambiguationGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._disambiguation_guidelines_schematic_generator,
             disambiguation_guideline=disambiguation_guideline,
             disambiguation_targets=disambiguation_targets,

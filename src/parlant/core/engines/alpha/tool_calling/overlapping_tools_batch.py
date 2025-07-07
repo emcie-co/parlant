@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import json
+import traceback
 from typing import Any, Optional, Sequence
 from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
@@ -33,6 +35,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
     ToolCall,
     ToolCallBatch,
+    ToolCallBatchError,
     ToolCallBatchResult,
     ToolCallContext,
     ToolCallId,
@@ -85,13 +88,15 @@ class OverlappingToolsBatch(ToolCallBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
         overlapping_tools_batch: Sequence[tuple[ToolId, Tool, Sequence[GuidelineMatch]]],
         context: ToolCallContext,
     ) -> None:
-        self._service_registry = service_registry
         self._logger = logger
+        self._optimization_policy = optimization_policy
+        self._service_registry = service_registry
         self._schematic_generator = schematic_generator
         self._context = context
         self._overlapping_tools_batch = overlapping_tools_batch
@@ -141,15 +146,35 @@ class OverlappingToolsBatch(ToolCallBatch):
             await self.shots(),
         )
 
-        # Send the tool call inference prompt to the LLM
-        generation_info, inference_output = await self._run_inference(inference_prompt)
-
-        # Evaluate the tool calls
-        tool_calls, missing_data = await self._evaluate_tool_calls_parameters(
-            inference_output, overlapping_tools_batch
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_tool_calling_batch_retry_temperatures()
         )
 
-        return generation_info, tool_calls, missing_data
+        last_generation_exception: Exception | None = None
+
+        for generation_attempt in range(3):
+            try:
+                # Send the tool call inference prompt to the LLM
+                generation_info, inference_output = await self._run_inference(
+                    prompt=inference_prompt,
+                    temperature=generation_attempt_temperatures[generation_attempt],
+                )
+
+                # Evaluate the tool calls
+                tool_calls, missing_data = await self._evaluate_tool_calls_parameters(
+                    inference_output, overlapping_tools_batch
+                )
+
+                return generation_info, tool_calls, missing_data
+
+            except Exception as exc:
+                self._logger.warning(
+                    f"OverlappingToolBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
+
+                last_generation_exception = exc
+
+        raise ToolCallBatchError() from last_generation_exception
 
     def _get_tool_descriptor(
         self,
@@ -609,10 +634,11 @@ Guidelines:
     async def _run_inference(
         self,
         prompt: PromptBuilder,
+        temperature: float,
     ) -> tuple[GenerationInfo, Sequence[OverlappingToolsBatchToolEvaluation]]:
         inference = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.05},
+            hints={"temperature": temperature},
         )
 
         self._logger.trace(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")

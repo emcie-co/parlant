@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import traceback
 from typing_extensions import override
 
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -29,8 +30,10 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
     GuidelineMatchingContext,
+    GuidelineMatchingBatchError,
     GuidelineMatchingStrategy,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
@@ -68,12 +71,14 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GenericObservationalGuidelineMatchesSchema],
         guidelines: Sequence[Guideline],
         journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
         self._journeys = journeys
@@ -83,38 +88,65 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
 
-        with self._logger.operation(f"GuidelineMatchingBatch: {len(self._guidelines)} guidelines"):
-            inference = await self._schematic_generator.generate(
-                prompt=prompt,
-                hints={"temperature": 0.15},
+        with self._logger.operation("GenericObservationalGuidelineMatchingBatch"):
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
             )
 
-        if not inference.content.checks:
-            self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-        else:
-            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+            last_generation_exception: Exception | None = None
 
-        matches = []
-
-        for match in inference.content.checks:
-            if match.applies:
-                self._logger.debug(f"Completion::Activated:\n{match.model_dump_json(indent=2)}")
-
-                matches.append(
-                    GuidelineMatch(
-                        guideline=self._guidelines[match.guideline_id],
-                        score=10 if match.applies else 1,
-                        rationale=f'''Condition Application Rationale: "{match.rationale}"''',
-                        guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+            for generation_attempt in range(3):
+                try:
+                    inference = await self._schematic_generator.generate(
+                        prompt=prompt,
+                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                )
-            else:
-                self._logger.debug(f"Completion::Skipped:\n{match.model_dump_json(indent=2)}")
 
-        return GuidelineMatchingBatchResult(
-            matches=matches,
-            generation_info=inference.info,
-        )
+                    if not inference.content.checks:
+                        self._logger.warning(
+                            "Completion:\nNo checks generated! This shouldn't happen."
+                        )
+                    else:
+                        self._logger.trace(
+                            f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                        )
+
+                    matches = []
+
+                    for match in inference.content.checks:
+                        if match.applies:
+                            self._logger.debug(
+                                f"Completion::Activated:\n{match.model_dump_json(indent=2)}"
+                            )
+
+                            matches.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[match.guideline_id],
+                                    score=10 if match.applies else 1,
+                                    rationale=f'''Condition Application Rationale: "{match.rationale}"''',
+                                    guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                                )
+                            )
+                        else:
+                            self._logger.debug(
+                                f"Completion::Skipped:\n{match.model_dump_json(indent=2)}"
+                            )
+
+                    return GuidelineMatchingBatchResult(
+                        matches=matches,
+                        generation_info=inference.info,
+                    )
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"GenericObservationalGuidelineMatchingBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise GuidelineMatchingBatchError() from last_generation_exception
 
     async def shots(self) -> Sequence[GenericObservationalGuidelineMatchingShot]:
         return await shot_collection.list()
@@ -282,10 +314,12 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         entity_queries: EntityQueries,
         schematic_generator: SchematicGenerator[GenericObservationalGuidelineMatchesSchema],
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
 
@@ -354,6 +388,7 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
     ) -> GenericObservationalGuidelineMatchingBatch:
         return GenericObservationalGuidelineMatchingBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._schematic_generator,
             guidelines=guidelines,
             journeys=journeys,

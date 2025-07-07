@@ -51,6 +51,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingStrategy,
     GuidelineMatchingStrategyResolver,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
 from parlant.core.glossary import Term
@@ -559,6 +560,7 @@ async def analyze_response_and_update_session(
 
     generic_response_analysis_batch = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ReportAnalysisContext(
             agent=agent,

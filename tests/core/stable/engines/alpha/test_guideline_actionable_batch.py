@@ -29,6 +29,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_
     GenericActionableGuidelineMatchesSchema,
     GenericActionableGuidelineMatchingBatch,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -199,6 +200,7 @@ async def base_test_that_correct_guidelines_are_matched(
 
     guideline_actionable_matcher = GenericActionableGuidelineMatchingBatch(
         logger=context.container[Logger],
+        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         guidelines=context.guidelines,
         journeys=[],

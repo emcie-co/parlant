@@ -158,7 +158,7 @@ class GuidelineMatcher:
         [
             retry(
                 exceptions=Exception,
-                max_attempts=3,
+                max_exceptions=3,
             )
         ]
     )
@@ -171,7 +171,7 @@ class GuidelineMatcher:
         [
             retry(
                 exceptions=Exception,
-                max_attempts=3,
+                max_exceptions=3,
             )
         ]
     )

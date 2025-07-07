@@ -133,9 +133,9 @@ class HuggingFaceEmbedder(Embedder):
                     InferenceEndpointError,
                     InferenceEndpointTimeoutError,
                 ),
-                max_attempts=2,
+                max_exceptions=2,
             ),
-            retry(exceptions=(TextGenerationError), max_attempts=3),
+            retry(exceptions=(TextGenerationError), max_exceptions=3),
         ]
     )
     @override

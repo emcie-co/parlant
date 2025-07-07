@@ -89,7 +89,7 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
                     APIError,
                 )
             ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServiceUnavailableError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -267,7 +267,7 @@ class TogetherAIEmbedder(Embedder):
                     APIError,
                 )
             ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServiceUnavailableError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override

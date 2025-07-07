@@ -92,7 +92,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                     ResourceExhausted,
                 )
             ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -267,7 +267,7 @@ class GoogleEmbedder(Embedder):
                     ResourceExhausted,
                 )
             ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override

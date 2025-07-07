@@ -90,7 +90,7 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
                     APIResponseValidationError,
                 )
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override

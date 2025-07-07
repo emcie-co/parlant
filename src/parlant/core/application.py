@@ -21,7 +21,7 @@ from lagom import Container
 
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import JSONSerializable, generate_id
+from parlant.core.common import generate_id
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
@@ -33,14 +33,14 @@ from parlant.core.evaluations import (
     Invoice,
 )
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore
+from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
+from parlant.core.guidelines import GuidelineId, GuidelineStore
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -290,114 +290,3 @@ class Application:
                     entailment_propositions.add(proposition)
 
         return content_guidelines.values()
-
-    async def append_journey_step(
-        self,
-        journey_id: JourneyId,
-        step: JourneyNodeId,
-    ) -> Guideline:
-        # TODO: Support multiple journeys for the same guideline step.
-        journey = await self._journey_store.read_journey(journey_id=journey_id)
-
-        guideline = await self._guideline_store.set_metadata(
-            guideline_id=cast(GuidelineId, step),
-            key="journey_step",
-            value={
-                "journey_id": journey_id,
-                "id": len(journey.nodes) + 1,
-                "sub_steps": [],
-            },
-        )
-
-        await self._journey_store.update_journey(
-            journey_id=journey_id,
-            params={
-                "steps": list(journey.nodes) + [cast(JourneyNodeId, guideline.id)],
-            },
-        )
-
-        return guideline
-
-    async def append_journey_sub_step(
-        self,
-        parent_id: JourneyNodeId,
-        journey_id: JourneyId,
-        sub_step: JourneyNodeId,
-    ) -> Guideline:
-        # TODO: Support multiple journeys for the same guideline sub-step.
-        journey = await self._journey_store.read_journey(journey_id=journey_id)
-
-        # Update parent metadata to include the new step as sub-step
-        parent = await self._guideline_store.read_guideline(
-            guideline_id=cast(GuidelineId, parent_id)
-        )
-
-        assert "journey_step" in parent.metadata
-        assert "sub_steps" in cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])
-
-        sub_steps = cast(
-            list[JourneyNodeId],
-            cast(Mapping[str, JSONSerializable], parent.metadata["journey_step"])["sub_steps"],
-        )
-
-        perv_step = sub_steps[-1] if sub_steps else parent.id
-
-        # Sorting the journey steps for readability
-        updated_journey_steps: list[JourneyNodeId] = []
-
-        for s in journey.nodes:
-            updated_journey_steps.append(s)
-            if s == perv_step:
-                updated_journey_steps.append(sub_step)
-
-        await self._journey_store.update_journey(
-            journey_id=journey_id,
-            params={
-                "steps": updated_journey_steps,
-            },
-        )
-
-        for i, step in enumerate(updated_journey_steps, start=1):
-            if step == sub_step:
-                await self._guideline_store.set_metadata(
-                    guideline_id=cast(GuidelineId, sub_step),
-                    key="journey_step",
-                    value={
-                        "journey_id": journey_id,
-                        "id": i,
-                        "sub_steps": [],
-                    },
-                )
-
-            elif step == parent_id:
-                await self._guideline_store.set_metadata(
-                    guideline_id=cast(GuidelineId, parent_id),
-                    key="journey_step",
-                    value={
-                        "journey_id": journey_id,
-                        "id": i,
-                        "sub_steps": sub_steps + [sub_step],
-                    },
-                )
-
-            else:
-                guideline_step = await self._guideline_store.read_guideline(
-                    guideline_id=cast(GuidelineId, step)
-                )
-
-                await self._guideline_store.set_metadata(
-                    guideline_id=cast(GuidelineId, step),
-                    key="journey_step",
-                    value={
-                        **cast(
-                            Mapping[str, JSONSerializable], guideline_step.metadata["journey_step"]
-                        ),
-                        "id": i,
-                    },
-                )
-
-        sub_step_guideline = await self._guideline_store.read_guideline(
-            guideline_id=cast(GuidelineId, sub_step)
-        )
-
-        return sub_step_guideline

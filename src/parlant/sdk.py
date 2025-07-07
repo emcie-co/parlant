@@ -129,7 +129,13 @@ from parlant.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore, JourneyVectorStore
+from parlant.core.journeys import (
+    JourneyEdgeId,
+    JourneyId,
+    JourneyNodeId,
+    JourneyStore,
+    JourneyVectorStore,
+)
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
@@ -495,127 +501,60 @@ class Guideline:
 
 
 @dataclass(frozen=True)
+class JourneyEdge:
+    id: JourneyEdgeId
+    condition: str | None
+    source: JourneyNode
+    target: JourneyNode
+    metadata: Mapping[str, JSONSerializable]
+
+
+@dataclass(frozen=True)
 class JourneyNode:
     id: JourneyNodeId
-    condition: str | None
     action: str | None
     tools: Sequence[ToolEntry]
-    forward_links: list[JourneyNode]
+    metadata: Mapping[str, JSONSerializable]
 
     _server: Server
     _container: Container
-    _journey_id: JourneyId
+    _journey: Journey
 
-    ROOT: str = "ROOT"
-    END: None = None
+    END: str | None = None
 
-    @staticmethod
-    async def _create_node(
-        parlant: Server,
-        container: Container,
-        journey_id: JourneyId,
-        condition: str | None,
-        action: str | None,
-        tools: Sequence[ToolEntry],
-    ) -> JourneyNode:
-        condition = condition or ""
-        for t in list(tools):
-            await parlant._plugin_server.enable_tool(t)
+    @property
+    def internal_action(self) -> str | None:
+        return self.action or cast(str | None, self.metadata.get("action_proposition"))
 
-        tool_ids = [
-            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
-        ]
-
-        evaluation = await parlant._evaluator.evaluate_guideline(
-            GuidelineContent(condition=condition, action=action),
-            tool_ids=tool_ids,
-            journey_step_propositions=True,
-        )
-
-        guideline = await container[GuidelineStore].create_guideline(
-            condition=condition,
-            action=action or evaluation.action_proposition,
-            metadata=evaluation.properties,
-        )
-
-        for t in list(tools):
-            await container[GuidelineToolAssociationStore].create_association(
-                guideline_id=guideline.id,
-                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
-            )
-
-        return JourneyNode(
-            id=cast(JourneyNodeId, guideline.id),
-            condition=condition,
-            action=action or evaluation.action_proposition,
-            tools=tools,
-            forward_links=[],
-            _server=parlant,
-            _container=container,
-            _journey_id=journey_id,
-        )
-
-    async def link(
+    async def connect(
         self,
         node: JourneyNode | None = None,
         condition: str | None = None,
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
-    ) -> JourneyNode:
-        if node is not None:
-            self.forward_links.append(node)
-            return node
+    ) -> JourneyEdge:
+        if node is None:
+            node = await self._journey.create_node(action=action, tools=tools)
 
-        if len(self.forward_links) > 0 and (
-            not condition or any(not n.condition for n in self.forward_links)
+        node_connections = [edge for edge in self._journey.edges if edge.source == self]
+
+        if len(node_connections) > 0 and (
+            not condition or any(not e.condition for e in node_connections)
         ):
             raise SDKError(
-                "Cannot link a new node without a condition if there are already linked nodes without conditions."
+                "Cannot connect a new node without a condition if there are already connected nodes without conditions."
             )
 
-        sub_node = await self._create_node(
-            self._server, self._container, self._journey_id, condition, action, tools
+        edge = await self._journey.create_edge(
+            condition=condition,
+            source=self,
+            target=node,
         )
 
-        if self.id == self.ROOT:
-            _ = await self._container[Application].append_journey_step(
-                self._journey_id, sub_node.id
-            )
+        cast(list[JourneyNode], self._journey.nodes).append(node)
+        cast(list[JourneyEdge], self._journey.edges).append(edge)
 
-        else:
-            parent_guideline = await self._container[GuidelineStore].read_guideline(
-                cast(GuidelineId, self.id)
-            )
-
-            if parent_guideline.metadata.get("tool_running_only"):
-                parent_tools = [
-                    association.tool_id
-                    for association in await self._container[
-                        GuidelineToolAssociationStore
-                    ].list_associations()
-                    if association.guideline_id == cast(GuidelineId, self.id)
-                ]
-
-                for tool_id in parent_tools:
-                    await self._container[RelationshipStore].create_relationship(
-                        source=RelationshipEntity(
-                            id=tool_id,
-                            kind=RelationshipEntityKind.TOOL,
-                        ),
-                        target=RelationshipEntity(
-                            id=cast(GuidelineId, sub_node.id),
-                            kind=RelationshipEntityKind.GUIDELINE,
-                        ),
-                        kind=RelationshipKind.REEVALUATION,
-                    )
-
-            _ = await self._container[Application].append_journey_sub_step(
-                self.id, self._journey_id, sub_node.id
-            )
-
-        self.forward_links.append(sub_node)
-
-        return sub_node
+        return edge
 
 
 @dataclass(frozen=True)
@@ -625,19 +564,102 @@ class Journey:
     description: str
     conditions: list[Guideline]
     tags: Sequence[TagId]
-    root: JourneyNode
+    nodes: Sequence[JourneyNode]
+    edges: Sequence[JourneyEdge]
 
     _server: Server
     _container: Container
 
+    @property
+    def root(self) -> JourneyNode:
+        return next(n for n in self.nodes if n.id == self._container[JourneyStore].ROOT_NODE_ID)
+
     async def create_node(
         self,
-        condition: str | None,
         action: str | None,
         tools: Sequence[ToolEntry],
     ) -> JourneyNode:
-        return await JourneyNode._create_node(
-            self._server, self._container, self.id, condition, action, tools
+        for t in list(tools):
+            await self._parlant._plugin_server.enable_tool(t)
+
+        node = await self._container[JourneyStore].create_node(
+            journey_id=self.id,
+            action=action,
+            tools=[
+                ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name)
+                for t in tools
+            ],
+        )
+
+        return JourneyNode(
+            id=node.id,
+            action=action,
+            tools=tools,
+            metadata=node.metadata,
+            _parlant=self._parlant,
+            _container=self._container,
+            _journey=self,
+        )
+
+    async def create_edge(
+        self,
+        condition: str | None,
+        source: JourneyNode,
+        target: JourneyNode,
+    ) -> JourneyEdge:
+        target_tool_ids = {
+            t.tool.name: ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name)
+            for t in target.tools
+        }
+
+        evaluation = await self._parlant._evaluator.evaluate_guideline(
+            GuidelineContent(condition=condition or "", action=target.internal_action),
+            list(target_tool_ids.values()),
+            journey_step_propositions=True,
+        )
+
+        edge = await self._container[JourneyStore].create_edge(
+            journey_id=self.id,
+            source=source.id,
+            target=target.id,
+            condition=condition,
+        )
+
+        # Set metadata for the target node.
+        # The evaluated properties—`tool_running_only`, `customer_dependent_action`, and `action_proposition`
+        # are all tied to the node's action, so they are stored in the node metadata rather than in the edge.
+        #
+        # The evaluation is performed during edge creation for two reasons:
+        # 1. Prior to this point, the node is not yet connected to the graph and thus isn't relevant for evaluation.
+        # 2. The edge's condition provides important context for understanding the action during evaluation.
+        #
+        # We assume that evaluations between multiple edges pointing to the same node should not differ.
+        # Therefore, we safely override the target node's metadata with the evaluated properties.
+        for key, value in evaluation.properties.items():
+            await self._container[JourneyStore].set_node_metadata(target.id, key, value)
+
+            if key == "tool_running_only" and value:
+                for entry in target.tools:
+                    await self._container[RelationshipStore].create_relationship(
+                        source=RelationshipEntity(
+                            id=target_tool_ids[entry.tool.name],
+                            kind=RelationshipEntityKind.TOOL,
+                        ),
+                        target=RelationshipEntity(
+                            id=Tag.for_journey_node_id(target.id),
+                            kind=RelationshipEntityKind.TAG,
+                        ),
+                        kind=RelationshipKind.REEVALUATION,
+                    )
+
+        cast(dict[str, JSONSerializable], target.metadata).update(evaluation.properties)
+
+        return JourneyEdge(
+            id=edge.id,
+            condition=condition,
+            source=source,
+            target=target,
+            metadata=edge.metadata,
         )
 
     async def create_guideline(
@@ -878,17 +900,9 @@ class Agent:
             description=description,
             conditions=journey.conditions,
             tags=journey.tags,
-            root=JourneyNode(
-                id=JourneyNodeId(JourneyNode.ROOT),
-                condition=None,
-                action=None,
-                tools=[],
-                forward_links=[],
-                _server=self._server,
-                _container=self._container,
-                _journey_id=journey.id,
-            ),
-            _server=self._server,
+            nodes=journey.nodes,
+            edges=journey.edges,
+            _parlant=self._parlant,
             _container=self._container,
         )
 
@@ -1500,8 +1514,39 @@ class Server:
                 )
             )
 
-        journey = await self._container[JourneyStore].create_journey(
-            title, description, [c.id for c in condition_guidelines], []
+        stored_journey = await self._container[JourneyStore].create_journey(
+            title=title,
+            description=description,
+            conditions=[c.id for c in condition_guidelines],
+            tags=[],
+        )
+
+        journey = Journey(
+            id=stored_journey.id,
+            title=title,
+            description=description,
+            conditions=condition_guidelines,
+            nodes=[],
+            edges=[],
+            tags=tags,
+            _parlant=self,
+            _container=self._container,
+        )
+
+        root_node = await self._container[JourneyStore].read_node(
+            journey_id=journey.id, node_id=JourneyStore.ROOT_NODE_ID
+        )
+
+        cast(list[JourneyNode], journey.nodes).append(
+            JourneyNode(
+                id=root_node.id,
+                action=root_node.action,
+                tools=[],
+                metadata=root_node.metadata,
+                _parlant=self,
+                _container=self._container,
+                _journey=journey,
+            )
         )
 
         for c in condition_guidelines:
@@ -1510,25 +1555,7 @@ class Server:
                 tag_id=_Tag.for_journey_id(journey_id=journey.id),
             )
 
-        return Journey(
-            id=journey.id,
-            title=journey.title,
-            description=description,
-            conditions=condition_guidelines,
-            tags=tags,
-            root=JourneyNode(
-                id=JourneyNodeId("ROOT"),
-                condition=None,
-                action=None,
-                tools=[],
-                forward_links=[],
-                _server=self,
-                _container=self._container,
-                _journey_id=journey.id,
-            ),
-            _server=self,
-            _container=self._container,
-        )
+        return journey
 
     def _get_startup_params(self) -> StartupParameters:
         async def override_stores_with_transient_versions(c: Callable[[], Container]) -> None:
@@ -1771,6 +1798,7 @@ __all__ = [
     "Journey",
     "JourneyId",
     "JourneyNode",
+    "JourneyEdge",
     "JSONSerializable",
     "LoadedContext",
     "LogLevel",

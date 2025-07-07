@@ -96,6 +96,13 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                 self._target_ids[g.guideline_id]
                 for g in inference.content.guidelines or []
                 if g.requires_disambiguation
+                # The following is a "temporary" hack to avoid cases where
+                # we're asked to disambiguate observational guidelines of
+                # multiple journeys (in which case, they'd have no action).
+                # We add it here as a temporary fix to allow journeys to
+                # definitely remain non-activated as long as ambiguity
+                # between their activating conditions is present.
+                or not self._disambiguation_targets[self._target_ids[g.guideline_id]].content.action
             ]
 
             disambiguation_data: JSONSerializable = {

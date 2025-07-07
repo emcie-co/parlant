@@ -649,6 +649,19 @@ class JourneyVectorStore(JourneyStore):
     ) -> Journey:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
+            journey_id = JourneyId(generate_id())
+
+            root = JourneyNode(
+                id=self.ROOT_NODE_ID,
+                creation_utc=creation_utc,
+                action=None,
+                tools=[],
+                metadata={},
+            )
+
+            await self._node_association_collection.insert_one(
+                document=self._serialize_node(root, journey_id)
+            )
 
             journey_checksum = md5_checksum(f"{title}{description}{conditions}")
 

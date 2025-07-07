@@ -177,6 +177,8 @@ class Test_that_a_created_journey_is_followed(SDKTest):
             chat_state="offer a Pepsi",
         )
 
+        await self.journey.root.connect(action="offer a Pepsi")
+
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive("Hello there", recipient=self.agent)
 

@@ -407,7 +407,6 @@ class EntityQueries:
                         )
 
                         guidelines.extend(projected_journey_guidelines)
-
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.

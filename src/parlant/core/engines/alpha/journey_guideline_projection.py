@@ -38,6 +38,7 @@ class JourneyGuidelineProjection:
         edges_objs = await self._journey_store.list_edges(journey_id)
 
         nodes = {n.id: n for n in await self._journey_store.list_nodes(journey_id)}
+        node_indexes = {n.id: index for n in nodes.keys()}
         edges = {e.id: e for e in edges_objs}
 
         node_edges: dict[JourneyNodeId, list[JourneyEdge]] = defaultdict(list)
@@ -51,8 +52,12 @@ class JourneyGuidelineProjection:
             node: JourneyNode,
             edge: JourneyEdge | None,
         ) -> Guideline:
-            nonlocal index
-            index += 1
+            if node.id in node_indexes:
+                node_index = node_indexes[node.id]
+            else:
+                nonlocal index
+                index += 1
+                node_index = index
 
             return Guideline(
                 id=format_journey_node_guideline_id(node.id, edge.id if edge else None),
@@ -65,7 +70,11 @@ class JourneyGuidelineProjection:
                 tags=[],
                 metadata={
                     **{
-                        "journey_node": {"follow_ups": [], "index": index, "journey_id": journey_id}
+                        "journey_node": {
+                            "follow_ups": [],
+                            "index": node_index,
+                            "journey_id": journey_id,
+                        }
                     },
                     **({**edge.metadata, **node.metadata} if edge else node.metadata),
                 },

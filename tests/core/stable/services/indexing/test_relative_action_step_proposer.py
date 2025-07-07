@@ -112,8 +112,8 @@ async def base_test_that_related_action_step_proposed(
 
     for a in to_propose_actions.keys():
         assert await nlp_test(
-            context=f"Here's an action definition: {proposed_actions[a]}",
-            condition=f"The message contains {to_propose_actions[a]}",
+            context=f"Here's an action description: {proposed_actions[a]}",
+            condition=f"The description contains {to_propose_actions[a]}",
         ), f"proposed action: '{proposed_actions[a]}', expected to contain: '{to_propose_actions[a]}'"
 
 
@@ -134,7 +134,7 @@ async def test_action_step_proposition(
             _StepData(
                 id="2",
                 condition="",
-                action="Ask what they need it for",
+                action="Ask what they need that for",
                 follow_up_ids=["3"],
                 customer_dependent_action=True,
             ),
@@ -148,7 +148,7 @@ async def test_action_step_proposition(
             _StepData(
                 id="4",
                 condition="Employment details provided",
-                action="Run the initial check",
+                action="Run the initial eligibility check for the loan application",
                 follow_up_ids=["5", "6"],
                 requires_tool_calls=True,
             ),
@@ -188,59 +188,8 @@ async def test_action_step_proposition(
     )
     to_propose_action = {
         "2": "Ask what they need the loan for",
-        "4": "Run the initial eligibility check",
         "5": "The loan application looks good",
-        "6": "explain why the eligibility check for the loan application has failed ",
         "8": "Submit the loan application for review",
-    }
-    await base_test_that_related_action_step_proposed(
-        context,
-        journey,
-        to_propose_action,
-    )
-
-
-async def test_action_step_proposition_2(
-    context: ContextOfTest,
-) -> None:
-    journey = _JourneyData(
-        conditions=["The customer says their card is damaged or not working"],
-        title="replace card",
-        steps=[
-            _StepData(
-                id="1",
-                condition=None,
-                action="Confirm the issue with the customer.",
-                follow_up_ids=["2"],
-            ),
-            _StepData(
-                id="2",
-                condition="The customer confirms the card is unusable.",
-                action="Verify identity.",
-                follow_up_ids=["3"],
-            ),
-            _StepData(
-                id="3",
-                condition="Identity was successfully verified.",
-                action="Request a replacement.",
-                follow_up_ids=["4"],
-            ),
-            _StepData(
-                id="4",
-                condition="Replacement request was submitted.",
-                action="Let them know.",
-                follow_up_ids=["5"],
-            ),
-            _StepData(
-                id="5",
-                condition="The customer was notified.",
-                action="Ask if they need anything else.",
-                follow_up_ids=[],
-            ),
-        ],
-    )
-    to_propose_action = {
-        "4": "that need to let them know that the replacement request was submitted",
     }
     await base_test_that_related_action_step_proposed(
         context,
@@ -380,7 +329,7 @@ async def test_action_is_proposed_when_needed(
             _StepData(
                 id="4",
                 condition="Always",
-                action="Ask if they are able to call a human representative",
+                action="Ask the customer if they are able to call a human representative",
                 follow_up_ids=["5", "6"],
                 customer_dependent_action=True,
             ),

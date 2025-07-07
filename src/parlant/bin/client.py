@@ -22,8 +22,6 @@ from pathlib import Path
 import time
 from urllib.parse import urlparse
 import click
-import click.shell_completion
-import click_completion  # type: ignore
 from dataclasses import dataclass
 from datetime import datetime
 import requests
@@ -3312,8 +3310,6 @@ def tag_option(
 
 
 async def async_main() -> None:
-    click_completion.init()  # type: ignore
-
     @dataclass(frozen=True)
     class Config:
         server_address: str
@@ -3349,11 +3345,6 @@ async def async_main() -> None:
                 client=ParlantClient(base_url=server),
                 log_server_address=log_server_address,
             )
-
-    @cli.command(help="Generate shell completion code")
-    @click.option("-s", "--shell", type=str, help="Shell program (bash, zsh, etc.)", required=True)
-    def complete(shell: str) -> None:
-        click.echo(click_completion.get_code(shell))  # type: ignore
 
     @cli.group(help="Manage agents")
     def agent() -> None:

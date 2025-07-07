@@ -781,22 +781,6 @@ files = [
 colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
-name = "click-completion"
-version = "0.5.2"
-description = "Fish, Bash, Zsh and PowerShell completion for Click"
-optional = false
-python-versions = "*"
-files = [
-    {file = "click-completion-0.5.2.tar.gz", hash = "sha256:5bf816b81367e638a190b6e91b50779007d14301b3f9f3145d68e3cade7bce86"},
-]
-
-[package.dependencies]
-click = "*"
-jinja2 = "*"
-shellingham = "*"
-six = "*"
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 description = "Cross-platform colored terminal text."
@@ -6793,4 +6777,4 @@ together = ["together", "torch", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "69bc43557036b3f60144548beadfda22a19e4e02467a45d67cfb33db7c93ab45"
+content-hash = "32a7e4d8a523c1186187689911c335143a2204571088b38ccd19eb6007df3646"

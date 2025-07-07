@@ -26,7 +26,6 @@ import rich
 import toml
 from typing_extensions import NoReturn
 import click
-import click_completion
 from pathlib import Path
 import sys
 import uvicorn
@@ -837,8 +836,6 @@ async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
 
 
 def main() -> None:
-    click_completion.init()
-
     @click.group(invoke_without_command=True)
     @click.pass_context
     def cli(context: click.Context) -> None:

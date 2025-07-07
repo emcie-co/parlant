@@ -38,15 +38,17 @@ class _JourneyStepWrapper(DefaultBaseModel):
     conditions: Optional[Sequence[str]] = None
 
 
+class JourneyStepAdvancement(DefaultBaseModel):
+    step_id: str | None
+    completed: bool
+
+
 class JourneyStepSelectionSchema(DefaultBaseModel):
     journey_applies: bool
-    last_step: str
-    requires_backtracking: bool
     rationale: str
+    requires_backtracking: bool
     backtracking_target_step: Optional[str] | None = ""
-    backtracking_followup_step: Optional[str] | None = ""
-    last_step_completed: Optional[bool] | None = None
-    step_advance: Optional[Sequence[str | None]] = []
+    step_advancement: Sequence[JourneyStepAdvancement] = []
     next_step: str
 
 
@@ -213,70 +215,59 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-        # TODO VALIDATION NOTE: the following should be validated in a safe way:
-        # 1. The returned inference.content.step_advance, if it exists (is not None),
-        #  begins with the last index of is either None,
-        # or a list whose first index is self._previous_path and ends with next_step.
-        # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
-        # 3. If last_step == next_step, then the path should be a list with only that value
-        # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
-        # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
-        # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
+        try:
+            journey_path = [
+                advancement.step_id for advancement in inference.content.step_advancement
+            ]
 
-        if inference.content.requires_backtracking:
-            journey_path: list[str | None] = [inference.content.next_step]
-        else:
-            try:
-                journey_path = cast(list[str | None], inference.content.step_advance)
+            if (
+                self._previous_path
+                and not self._previous_path[-1]
+                and journey_path[0] != self._previous_path[-1]
+            ):
+                self._logger.warning(
+                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+                )
+                journey_path.insert(0, self._previous_path[-1])  # Try to recover
 
-                if (
-                    self._previous_path
-                    and not self._previous_path[-1]
-                    and journey_path[0] != self._previous_path[-1]
+            indexes_to_delete: list[int] = []
+            for i in range(1, len(journey_path)):
+                if journey_path[i - 1] not in self._journey_steps.keys():
+                    self._logger.warning(
+                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
+                    )
+                    indexes_to_delete.append(i)
+                elif (
+                    journey_path[i]
+                    not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
                 ):
                     self._logger.warning(
-                        f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+                        f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
                     )
-                    journey_path.insert(0, self._previous_path[-1])  # Try to recover
-
-                indexes_to_delete: list[int] = []
-                for i in range(1, len(journey_path)):
-                    if journey_path[i - 1] not in self._journey_steps.keys():
-                        self._logger.warning(
-                            f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
-                        )
-                        indexes_to_delete.append(i)
-                    elif (
-                        journey_path[i]
-                        not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                    # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
+                    if (
+                        i + 1 < len(journey_path)
+                        and journey_path[i + 1]
+                        in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
                     ):
-                        self._logger.warning(
-                            f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
-                        )
-                        # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
-                        if (
-                            i + 1 < len(journey_path)
-                            and journey_path[i + 1]
-                            in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
-                        ):
-                            indexes_to_delete.append(i)
-                if (
-                    journey_path
-                    and journey_path[-1] not in self._journey_steps.keys()
-                    and inference.content.next_step is not None
-                ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
-                    self._logger.warning(
-                        f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
-                    )
-                    journey_path[-1] = None
-
-                for i in reversed(indexes_to_delete):
-                    del journey_path[i]
-            except Exception:
+                        indexes_to_delete.append(i)
+            if (
+                journey_path
+                and journey_path[-1] not in self._journey_steps.keys()
+                and inference.content.next_step is not None
+            ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
                 self._logger.warning(
-                    f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
+                    f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
                 )
-                journey_path = [inference.content.next_step]
+                journey_path[-1] = None
+
+            for i in reversed(indexes_to_delete):
+                del journey_path[i]
+        except Exception:
+            self._logger.warning(
+                f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advancement}"
+            )
+            journey_path = [inference.content.next_step]
 
         return GuidelineMatchingBatchResult(
             matches=[
@@ -395,23 +386,27 @@ CRITICAL: If you are already executing journey steps (i.e., there is a "last_ste
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
-  - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
-  - Set `next_step` to A follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address). Next Step MUST be a follow up of 'backtracking_target_step'. It should not be backtracking_target_step itself.
-  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.  
+  - Set backtracking_target_step to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
+  - Continue to step 4 (Journey Advancement) but treat the backtracking_target_step as your starting point instead of last_step
+  - The advancement should begin from the backtracking target step and continue following the normal advancement rules until you reach a step that cannot be completed
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
-- Set `last_step_completed` to `true` if the agent performed the required action
-- For steps with `CUSTOMER_DEPENDENT` flag: step is complete only if both agent acted AND customer responded appropriately. These are usually questions that the customer must answer for the step to be considered completed.
-- If incomplete, set `next_step` to the current step ID (repeat the step) and return the current step ID as the sole member of 'step_advance'.
+- For steps with CUSTOMER_DEPENDENT flag: step is complete if the customer has provided the information that the step was seeking. If the step asks for specific information and the customer has provided that information (even in a previous message), the step can be considered completed and advanced through.
+- If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement
-If the current step is complete, advance through subsequent steps until you encounter:
-- A step requiring a tool call (`REQUIRES_TOOL_CALLS` flag)
+Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. Continue advancing until you encounter:
+- A step requiring a tool call (REQUIRES_TOOL_CALLS flag)
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
 
-Document your advancement path in `step_advance` as a list of step IDs, starting with last_step and ending with the next step to execute. Each step in this list must be a legal follow up of the last.
+For each step in the advancement path:
+- If the step can be completed based on available information, mark completed: true
+- If the step cannot be completed (missing information, requires tool calls, etc.), mark completed: false
+- Only advance to the next step if the current step is marked as completed
+
+Document your advancement path in step_advancement as a list of step advancement objects, starting with the last_step and ending with the next step to execute. Each step must be a legal follow-up of the previous step, and you can only advance if the previous step was completed.
 """,
         )
         builder.add_section(
@@ -478,14 +473,17 @@ OUTPUT FORMAT
 ```json
 {{
   "journey_applies": <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
-  "last_step": "{last_step}",
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "rationale": <str, explanation for what is the next step and why it was selected>,
-  "backtracking_target_step": <str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>,
-  "backtracking_followup_step": <str, id of the follow up of backtracking_target_step that should be executed next. Omit this field if requires_backtracking is false>,
-  "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>,
-  "next_step": <str, id of the next step to take, or 'None' if the journey should not continue>
+  "rationale": "<str, explanation for what is the next step and why it was selected>",
+  "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
+  "step_advancement": [
+    {{
+      "step_id": "<str, id of the step. First one should be either {last_step} or backtracking_target_step if it exists>",
+      "completed": <bool, whether this step was completed>
+    }},
+    ... <additional step advancements, as necessary>
+  ],
+  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```
 """
@@ -570,15 +568,26 @@ example_1_journey_steps = {
     ),
 }
 
+# journey_applies: bool
+#     last_step: str
+#     requires_backtracking: bool
+#     rationale: str
+#     backtracking_target_step: Optional[str] | None = ""
+#     step_advancement: Optional[Sequence[JourneyStepAdvancement]] = []
+#     next_step: str
+
 example_1_expected = JourneyStepSelectionSchema(
-    last_step="1",
     journey_applies=True,
-    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "4"],
+    last_step="1",
+    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
+    step_advancement=[
+        JourneyStepAdvancement(step_id="1", completed=True),
+        JourneyStepAdvancement(step_id="4", completed=False),
+    ],
     next_step="4",
 )
+
 
 example_2_events = [
     _make_event(
@@ -619,7 +628,7 @@ book_taxi_shot_journey_steps = {
         id="2",
         guideline_content=GuidelineContent(
             condition="You welcomed the customer",
-            action="Ask the customer where their desired pick up location",
+            action="Ask the customer for their desired pick up location",
         ),
         parent_ids=[],
         follow_up_ids=["3", "4"],
@@ -651,7 +660,7 @@ book_taxi_shot_journey_steps = {
     "5": _JourneyStepWrapper(
         id="5",
         guideline_content=GuidelineContent(
-            condition="the customer provided their destination",
+            condition="the desired pick up location is in NYC",
             action="ask for the customer's desired pick up time",
         ),
         parent_ids=["3"],
@@ -745,8 +754,12 @@ example_2_expected = JourneyStepSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["2", "3", "5", "6"],
+    step_advancement=[
+        JourneyStepAdvancement(step_id="2", completed=True),
+        JourneyStepAdvancement(step_id="3", completed=True),
+        JourneyStepAdvancement(step_id="5", completed=True),
+        JourneyStepAdvancement(step_id="6", completed=False),
+    ],
     next_step="6",
 )
 
@@ -768,8 +781,12 @@ example_3_expected = JourneyStepSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "2", "3", "5"],
+    step_advancement=[
+        JourneyStepAdvancement(step_id="1", completed=True),
+        JourneyStepAdvancement(step_id="2", completed=True),
+        JourneyStepAdvancement(step_id="3", completed=True),
+        JourneyStepAdvancement(step_id="5", completed=False),
+    ],
     next_step="5",
 )
 
@@ -838,35 +855,31 @@ example_4_events = [
         "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
     ),
     _make_event(
-        "45",
-        EventSource.AI_AGENT,
-        "Great! Where would you like to go?",
-    ),
-    _make_event(
-        "56",
-        EventSource.CUSTOMER,
-        "Times Square please",
-    ),
-    _make_event(
         "67",
         EventSource.AI_AGENT,
-        "Perfect! What time would you like to be picked up?",
+        "Yes! What time would you like to be picked up?",
     ),
     _make_event(
         "78",
         EventSource.CUSTOMER,
-        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+        "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
     ),
 ]
 
 example_4_expected = JourneyStepSelectionSchema(
     last_step="5",
+    journey_applies=True,
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
-    journey_applies=True,
     backtracking_target_step="2",
-    step_advance=["5", "2", "3"],
-    next_step="3",
+    step_advancement=[
+        JourneyStepAdvancement(step_id="5", completed=False),
+        JourneyStepAdvancement(step_id="2", completed=True),
+        JourneyStepAdvancement(step_id="3", completed=True),
+        JourneyStepAdvancement(step_id="5", completed=True),
+        JourneyStepAdvancement(step_id="6", completed=False),
+    ],
+    next_step="6",
 )
 
 example_5_events = [
@@ -892,8 +905,10 @@ example_5_expected = JourneyStepSelectionSchema(
     journey_applies=True,
     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "2"],
+    step_advancement=[
+        JourneyStepAdvancement(step_id="1", completed=True),
+        JourneyStepAdvancement(step_id="2", completed=False),
+    ],
     next_step="2",
 )
 
@@ -946,3 +961,6 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
 ]
 
 shot_collection = ShotCollection[JourneyStepSelectionShot](_baseline_shots)
+
+# TODO fix path stuff
+# TODO add few shot

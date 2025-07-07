@@ -123,6 +123,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
 )
+from parlant.core.services.indexing.relative_action_step_proposer import (
+    RelativeActionStepProposer,
+    RelativeActionStepSchema,
+)
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionSchema,
@@ -439,6 +443,7 @@ async def container(
             GuidelineConnectionPropositionsSchema,
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
+            RelativeActionStepSchema,
             CustomerDependentActionSchema,
             ToolRunningActionSchema,
             GenericResponseAnalysisSchema,
@@ -482,6 +487,7 @@ async def container(
         container[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
         container[AgentIntentionProposer] = Singleton(AgentIntentionProposer)
         container[ToolRunningActionDetector] = Singleton(ToolRunningActionDetector)
+        container[RelativeActionStepProposer] = Singleton(RelativeActionStepProposer)
         container[LocalToolService] = cast(
             LocalToolService,
             await container[ServiceRegistry].update_tool_service(

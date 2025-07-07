@@ -109,7 +109,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             GuidelineMatch(
                 guideline=self._disambiguation_guideline,
                 score=10 if inference.content.is_ambiguous else 1,
-                rationale=f'''Not previously applied matcher rationale: "{inference.content.tldr}"''',
+                rationale=f'''Disambiguation matcher rationale: "{inference.content.tldr}"''',
                 guideline_previously_applied=PreviouslyAppliedType.NO,
                 metadata=metadata,
             )
@@ -247,6 +247,7 @@ Examples of Guidelines Ambiguity Evaluations:
         builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
+        builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(

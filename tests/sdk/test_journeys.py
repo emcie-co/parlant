@@ -205,6 +205,148 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         )
 
 
+class Test_that_a_disambiguation_between_two_journeys_causes_neither_to_immediately_activate(
+    SDKTest
+):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Store agent",
+            description="You work at a bank and help customers",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        await self.agent.create_capability("Lock card", "Lock a credit card")
+        await self.agent.create_capability("Replace card", "Replace a credit card")
+        await self.agent.create_capability("Dispute transaction", "Dispute a transaction")
+
+        j1 = await self.agent.create_journey(
+            title="Dispute a transaction",
+            conditions=[
+                "the customer suspects fraudulent activity",
+                "the has an issue with some transaction",
+            ],
+            description="",
+        )
+
+        await j1.root.link(action="First ask them to verify the name of their mother")
+
+        j2 = await self.agent.create_journey(
+            title="Lock card",
+            conditions=[
+                "The customer does not recognize activity on their card",
+                "the customer suspects fraudulent activity",
+            ],
+            description="",
+        )
+
+        await j2.root.link(action="First ask them to verify the name of their father")
+
+        disambiguation_condition = await self.agent.create_observation(
+            "The customer has an issue with a transaction but it's not clear what they action they want to take in its regard"
+        )
+
+        await disambiguation_condition.disambiguate(j1.conditions + j2.conditions)
+
+    async def run(self, ctx: Context) -> None:
+        session = await ctx.client.sessions.create(
+            agent_id=self.agent.id,
+            allow_greeting=False,
+        )
+
+        event = await ctx.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message="Hi, there's a transaction I don't recognize. I need help.",
+        )
+
+        agent_messages = await ctx.client.sessions.list_events(
+            session_id=session.id,
+            min_offset=event.offset,
+            source="ai_agent",
+            kinds="message",
+            wait_for_data=30,
+        )
+
+        assert len(agent_messages) == 1
+
+        assert nlp_test(
+            context=get_message(agent_messages[0]),
+            condition="It has no mention of mother or father",
+        )
+
+
+class Test_that_a_disambiguation_between_two_journeys_causes_neither_to_immediately_activate_2(
+    SDKTest
+):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Store agent",
+            description="You work at a bank and help customers",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        # await self.agent.create_capability("Lock card", "Lock a credit card")
+        # await self.agent.create_capability("Replace card", "Replace a credit card")
+        # await self.agent.create_capability("Dispute transaction", "Dispute a transaction")
+
+        j1 = await self.agent.create_journey(
+            title="Dispute a transaction",
+            conditions=[
+                "the customer asked to dispute a transaction",
+                "the customer suspects a transaction",
+            ],
+            description="",
+        )
+
+        await j1.root.link(action="First ask them to verify the name of their mother")
+
+        j2 = await self.agent.create_journey(
+            title="Lock card",
+            conditions=[
+                "The customer suspects the card was stolen or lost",
+                "the customer asks to lock their card",
+            ],
+            description="",
+        )
+
+        await j2.root.link(action="First ask them to verify the name of their father")
+
+        disambiguation_condition = await self.agent.create_observation(
+            "The customer suspects fraud but it's not clear whether they want to dispute a transaction or lock a card"
+        )
+
+        await disambiguation_condition.disambiguate(j1.conditions + j2.conditions)
+
+    async def run(self, ctx: Context) -> None:
+        session = await ctx.client.sessions.create(
+            agent_id=self.agent.id,
+            allow_greeting=False,
+        )
+
+        event = await ctx.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message="Hi, there's a transaction I don't recognize. I need help.",
+        )
+
+        agent_messages = await ctx.client.sessions.list_events(
+            session_id=session.id,
+            min_offset=event.offset,
+            source="ai_agent",
+            kinds="message",
+            wait_for_data=30,
+        )
+
+        assert len(agent_messages) == 1
+
+        assert nlp_test(
+            context=get_message(agent_messages[0]),
+            condition="It has no mention of mother or father",
+        )
+
+
 class Test_that_journey_nodes_can_be_created(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

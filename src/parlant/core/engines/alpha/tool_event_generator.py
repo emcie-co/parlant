@@ -101,10 +101,9 @@ class ToolEventGenerator:
         retry(
             exceptions=(Exception,),
             max_attempts=3,
-            injected_parameters={"temperature": [0.1, 0.2]},
         )
     )
-    async def infer_tool_calls_with_retries_and_temperature_increase(
+    async def infer_tool_calls_with_retries(
         self,
         agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
@@ -159,7 +158,7 @@ class ToolEventGenerator:
             customer_id=customer.id,
         )
 
-        inference_result = await self.infer_tool_calls_with_retries_and_temperature_increase(
+        inference_result = await self.infer_tool_calls_with_retries(
             agent=agent,
             context_variables=context_variables,
             interaction_history=interaction_history,

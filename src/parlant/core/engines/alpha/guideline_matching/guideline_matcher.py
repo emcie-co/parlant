@@ -179,7 +179,6 @@ class GuidelineMatcher:
         retry(
             exceptions=(Exception,),
             max_attempts=3,
-            increased_parameters={"temperature_delta": 0.05},
         )
     )
     async def _process_batch_with_retry_and_temperature_increase(
@@ -193,7 +192,6 @@ class GuidelineMatcher:
         retry(
             exceptions=(Exception,),
             max_attempts=3,
-            increased_parameters={"temperature_delta": 0.05},
         )
     )
     async def _process_report_analysis_batch_with_retry_and_temperature_increase(

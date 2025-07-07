@@ -20,7 +20,6 @@ import json
 from uuid import UUID
 from pathlib import Path
 from typing import Any, Literal, Optional, Sequence, TypeAlias
-from google.api_core.exceptions import InvalidArgument
 from jsonschema.exceptions import FormatError
 from typing_extensions import override
 from datetime import datetime, date, timedelta

@@ -92,12 +92,18 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     async def process(
         self,
     ) -> ResponseAnalysisBatchResult:
+        with self._logger.scope("ResponseAnalysisBatch"):
+            return await self._do_process()
+
+    async def _do_process(
+        self,
+    ) -> ResponseAnalysisBatchResult:
         all_guidelines = [m.guideline for m in self._guideline_matches]
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
         with self._logger.operation(
-            f"ResponseAnalysisBatch: {len(all_guidelines)} guidelines "
+            f"Analyzing response given {len(all_guidelines)} guidelines "
             f"in {len(guideline_batches)} batches (batch size={self._batch_size})"
         ):
             batch_tasks = [
@@ -150,7 +156,9 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             guidelines=guidelines,
         )
 
-        with self._logger.operation(f"GenericGuidelineMatchingBatch: {len(guidelines)} guidelines"):
+        with self._logger.operation(
+            f"Running response analysis batch of {len(guidelines)} guidelines"
+        ):
             inference = await self._schematic_generator.generate(
                 prompt=prompt,
                 hints={"temperature": 0.15},
@@ -160,7 +168,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         for check in inference.content.checks:
             if check.guideline_applied:
-                self._logger.debug(f"Completion::Activated:\n{check.model_dump_json(indent=2)}")
+                self._logger.debug(f"Completion::Applied:\n{check.model_dump_json(indent=2)}")
                 analyzed_guidelines.append(
                     AnalyzedGuideline(
                         guideline=guidelines[check.guideline_id],
@@ -168,7 +176,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
                     )
                 )
             else:
-                self._logger.debug(f"Completion::Skipped:\n{check.model_dump_json(indent=2)}")
+                self._logger.debug(f"Completion::NotApplied:\n{check.model_dump_json(indent=2)}")
                 analyzed_guidelines.append(
                     AnalyzedGuideline(
                         guideline=guidelines[GuidelineId(check.guideline_id)],

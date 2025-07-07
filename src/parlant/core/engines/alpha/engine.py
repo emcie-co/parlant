@@ -1556,7 +1556,7 @@ class AlphaEngine(Engine):
             if match.guideline.id not in applied_guideline_ids
             and not match.guideline.metadata.get("continuous", False)
             and match.guideline.content.action
-            and "journey_step" not in match.guideline.metadata  # Exclude journey step guidelines
+            and "journey_node" not in match.guideline.metadata  # Exclude journey node guidelines
         ]
 
         self._todo_add_associated_guidelines(matches_to_analyze)
@@ -1614,7 +1614,7 @@ class AlphaEngine(Engine):
 
         for match in guideline_matches:
             if journey_id := cast(
-                dict[str, JSONSerializable], match.guideline.metadata.get("journey_step", {})
+                dict[str, JSONSerializable], match.guideline.metadata.get("journey_node", {})
             ).get("journey_id"):
                 journey_id = cast(JourneyId, journey_id)
                 journeys.remove(journey_id)

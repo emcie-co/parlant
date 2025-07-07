@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-from typing import Any, Optional, cast
+from typing import Any, Mapping, Optional, cast
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
@@ -118,6 +118,46 @@ Steps:
 """
 
 
+def build_journey_steps(
+    guideline_to_step_id_mapping: Mapping[GuidelineId, str],
+    step_guideline_mapping: Mapping[str, Guideline],
+) -> dict[str, _JourneyStepWrapper]:
+    journey_steps_dict: dict[str, _JourneyStepWrapper] = {
+        guideline_to_step_id_mapping[guideline.id]: _JourneyStepWrapper(
+            id=step_id,
+            guideline_content=guideline.content,
+            parent_ids=[],
+            follow_up_ids=[
+                guideline_to_step_id_mapping[guideline_id]
+                for guideline_id in cast(
+                    Sequence[GuidelineId],
+                    cast(dict[str, JSONSerializable], guideline.metadata["journey_step"]).get(
+                        "sub_steps", []
+                    ),
+                )
+            ],
+            customer_dependent_action=cast(
+                dict[str, bool],
+                guideline.metadata["customer_dependent_action_data"],
+            )["is_customer_dependent"]
+            if "is_customer_dependent"
+            in cast(
+                dict[str, bool],
+                guideline.metadata.get("customer_dependent_action_data", {}),
+            )
+            else False,
+            requires_tool_calls=cast(bool, guideline.metadata["tool_running_only"]),
+        )
+        for step_id, guideline in step_guideline_mapping.items()
+    }
+
+    for id, js in journey_steps_dict.items():
+        for followup_id in js.follow_up_ids:
+            journey_steps_dict[followup_id].parent_ids.append(id)
+
+    return journey_steps_dict
+
+
 class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
@@ -146,46 +186,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._context = context
         self._examined_journey = examined_journey
 
-        self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
+        self._journey_steps: dict[str, _JourneyStepWrapper] = build_journey_steps(
+            self._guideline_to_step_id_mapping, self._step_guideline_mapping
+        )
         self._previous_path: Sequence[str | None] = journey_path
-
-    def _build_journey_steps(
-        self,
-    ) -> dict[str, _JourneyStepWrapper]:
-        journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            self._guideline_to_step_id_mapping[guideline.id]: _JourneyStepWrapper(
-                id=step_id,
-                guideline_content=guideline.content,
-                parent_ids=[],
-                follow_up_ids=[
-                    self._guideline_to_step_id_mapping[guideline_id]
-                    for guideline_id in cast(
-                        Sequence[GuidelineId],
-                        cast(dict[str, JSONSerializable], guideline.metadata["journey_step"]).get(
-                            "sub_steps", []
-                        ),
-                    )
-                ],
-                customer_dependent_action=cast(
-                    dict[str, bool],
-                    guideline.metadata["customer_dependent_action_data"],
-                )["is_customer_dependent"]
-                if "is_customer_dependent"
-                in cast(
-                    dict[str, bool],
-                    guideline.metadata.get("customer_dependent_action_data", {}),
-                )
-                else False,
-                requires_tool_calls=cast(bool, guideline.metadata["tool_running_only"]),
-            )
-            for step_id, guideline in self._step_guideline_mapping.items()
-        }
-
-        for id, js in journey_steps_dict.items():
-            for followup_id in js.follow_up_ids:
-                journey_steps_dict[followup_id].parent_ids.append(id)
-
-        return journey_steps_dict
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:

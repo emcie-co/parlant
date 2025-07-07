@@ -15,6 +15,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import traceback
 import json
 from typing import Optional
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -27,7 +28,9 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
     GuidelineMatchingContext,
+    GuidelineMatchingBatchError,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.guidelines import Guideline, GuidelineContent
 from parlant.core.loggers import Logger
@@ -64,12 +67,14 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[DisambiguationGuidelineMatchesSchema],
         disambiguation_guideline: Guideline,
         disambiguation_targets: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._disambiguation_guideline = disambiguation_guideline
         self._disambiguation_targets = {g.id: g for g in disambiguation_targets}
@@ -83,53 +88,76 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         prompt = self._build_prompt(shots=await self.shots())
 
         with self._logger.operation("DisambiguationGuidelineMatchingBatch"):
-            inference = await self._schematic_generator.generate(
-                prompt=prompt,
-                hints={"temperature": 0.15},
-            )
-            self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-        metadata: dict[str, JSONSerializable] = {}
-
-        if inference.content.is_ambiguous:
-            guidelines: list[str] = [
-                self._target_ids[g.guideline_id]
-                for g in inference.content.guidelines or []
-                if g.requires_disambiguation
-                # The following is a "temporary" hack to avoid cases where
-                # we're asked to disambiguate observational guidelines of
-                # multiple journeys (in which case, they'd have no action).
-                # We add it here as a temporary fix to allow journeys to
-                # definitely remain non-activated as long as ambiguity
-                # between their activating conditions is present.
-                or not self._disambiguation_targets[self._target_ids[g.guideline_id]].content.action
-            ]
-
-            disambiguation_data: JSONSerializable = {
-                "targets": guidelines,
-                "enriched_action": inference.content.clarification_action or "",
-            }
-
-            metadata["disambiguation"] = disambiguation_data
-
-            self._logger.debug(
-                f"Disambiguation activated: {inference.content.model_dump_json(indent=2)}"
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
             )
 
-        matches = [
-            GuidelineMatch(
-                guideline=self._disambiguation_guideline,
-                score=10 if inference.content.is_ambiguous else 1,
-                rationale=f'''Not previously applied matcher rationale: "{inference.content.tldr}"''',
-                guideline_previously_applied=PreviouslyAppliedType.NO,
-                metadata=metadata,
-            )
-        ]
+            last_generation_exception: Exception | None = None
 
-        return GuidelineMatchingBatchResult(
-            matches=matches,
-            generation_info=inference.info,
-        )
+            for generation_attempt in range(3):
+                try:
+                    inference = await self._schematic_generator.generate(
+                        prompt=prompt,
+                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
+                    )
+                    self._logger.trace(
+                        f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                    )
+
+                    metadata: dict[str, JSONSerializable] = {}
+
+                    if inference.content.is_ambiguous:
+                        guidelines: list[str] = [
+                            self._target_ids[g.guideline_id]
+                            for g in inference.content.guidelines or []
+                            if g.requires_disambiguation
+                            # The following is a "temporary" hack to avoid cases where
+                            # we're asked to disambiguate observational guidelines of
+                            # multiple journeys (in which case, they'd have no action).
+                            # We add it here as a temporary fix to allow journeys to
+                            # definitely remain non-activated as long as ambiguity
+                            # between their activating conditions is present.
+                            or not self._disambiguation_targets[
+                                self._target_ids[g.guideline_id]
+                            ].content.action
+                        ]
+
+                        disambiguation_data: JSONSerializable = {
+                            "targets": guidelines,
+                            "enriched_action": inference.content.clarification_action or "",
+                        }
+
+                        metadata["disambiguation"] = disambiguation_data
+
+                        self._logger.debug(
+                            f"Disambiguation activated: {inference.content.model_dump_json(indent=2)}"
+                        )
+
+                    matches = [
+                        GuidelineMatch(
+                            guideline=self._disambiguation_guideline,
+                            score=10 if inference.content.is_ambiguous else 1,
+                            rationale=f'''Not previously applied matcher rationale: "{inference.content.tldr}"''',
+                            guideline_previously_applied=PreviouslyAppliedType.NO,
+                            metadata=metadata,
+                        )
+                    ]
+
+                    return GuidelineMatchingBatchResult(
+                        matches=matches,
+                        generation_info=inference.info,
+                    )
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"DisambiguationGuidelineMatchingBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise GuidelineMatchingBatchError() from last_generation_exception
 
     async def shots(self) -> Sequence[DisambiguationGuidelineMatchingShot]:
         return await shot_collection.list()

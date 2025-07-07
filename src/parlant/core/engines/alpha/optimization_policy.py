@@ -17,6 +17,24 @@ class OptimizationPolicy(ABC):
         hints: Mapping[str, Any] = {},
     ) -> Sequence[float]: ...
 
+    @abstractmethod
+    def get_guideline_matching_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]: ...
+
+    @abstractmethod
+    def get_response_analysis_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]: ...
+
+    @abstractmethod
+    def get_tool_calling_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]: ...
+
 
 class BasicOptimizationPolicy(OptimizationPolicy):
     @override
@@ -50,4 +68,37 @@ class BasicOptimizationPolicy(OptimizationPolicy):
             0.1,
             0.3,
             0.5,
+        ]
+
+    @override
+    def get_guideline_matching_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return [
+            0.15,
+            0.3,
+            0.1,
+        ]
+
+    @override
+    def get_response_analysis_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return [
+            0.15,
+            0.3,
+            0.1,
+        ]
+
+    @override
+    def get_tool_calling_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return [
+            0.15,
+            0.3,
+            0.1,
         ]

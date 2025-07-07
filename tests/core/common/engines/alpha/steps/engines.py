@@ -35,6 +35,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ReportAnalysisContext,
 )
 from parlant.core.engines.alpha.message_generator import MessageGenerator
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.alpha.utterance_selector import (
     UtteranceSelector,
@@ -233,6 +234,7 @@ def when_detection_and_processing_are_triggered(
 
     response_analysis = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ReportAnalysisContext(
             agent=agent,

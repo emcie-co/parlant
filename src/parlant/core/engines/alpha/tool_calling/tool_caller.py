@@ -40,6 +40,12 @@ from parlant.core.tools import (
     DEFAULT_PARAMETER_PRECEDENCE,
 )
 
+
+class ToolCallBatchError(Exception):
+    def __init__(self, message: str = "Tool Call Batch failed") -> None:
+        super().__init__(message)
+
+
 ToolCallId = NewType("ToolCallId", str)
 ToolResultId = NewType("ToolResultId", str)
 

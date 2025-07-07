@@ -51,6 +51,16 @@ from parlant.core.sessions import Event, Session
 from parlant.core.loggers import Logger
 
 
+class GuidelineMatchingBatchError(Exception):
+    def __init__(self, message: str = "Guideline Matching Batch failed") -> None:
+        super().__init__(message)
+
+
+class ResponseAnalysisBatchError(Exception):
+    def __init__(self, message: str = "Response Analysis Batch failed") -> None:
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class GuidelineMatchingContext:
     agent: Agent

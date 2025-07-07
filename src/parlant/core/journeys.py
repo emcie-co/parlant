@@ -82,6 +82,7 @@ class Journey:
     description: str
     conditions: Sequence[GuidelineId]
     title: str
+    root: JourneyNodeId
     tags: Sequence[TagId]
 
     def __hash__(self) -> int:
@@ -103,6 +104,8 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 
 
 class JourneyStore(ABC):
+    ROOT_NODE_ID = JourneyNodeId("root")
+
     @abstractmethod
     async def create_journey(
         self,
@@ -312,6 +315,7 @@ class JourneyDocument(TypedDict, total=False):
     creation_utc: str
     title: str
     description: str
+    root: JourneyNodeId
 
 
 class JourneyConditionAssociationDocument(TypedDict, total=False):
@@ -540,6 +544,7 @@ class JourneyVectorStore(JourneyStore):
             creation_utc=journey.creation_utc.isoformat(),
             title=journey.title,
             description=journey.description,
+            root=journey.root,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -561,6 +566,7 @@ class JourneyVectorStore(JourneyStore):
             conditions=conditions,
             title=doc["title"],
             description=doc["description"],
+            root=doc["root"],
             tags=tags,
         )
 
@@ -636,13 +642,27 @@ class JourneyVectorStore(JourneyStore):
     ) -> Journey:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
+            journey_id = JourneyId(generate_id())
+
+            root = JourneyNode(
+                id=self.ROOT_NODE_ID,
+                creation_utc=creation_utc,
+                action=None,
+                tools=[],
+                metadata={},
+            )
+
+            await self._node_association_collection.insert_one(
+                document=self._serialize_node(root, journey_id)
+            )
 
             journey = Journey(
-                id=JourneyId(generate_id()),
+                id=journey_id,
                 creation_utc=creation_utc,
                 conditions=conditions,
                 title=title,
                 description=description,
+                root=root.id,
                 tags=tags or [],
             )
 

@@ -28,6 +28,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.engines.alpha.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.guidelines import (
     Guideline,
     GuidelineId,
@@ -74,6 +75,7 @@ class EntityQueries:
         service_registry: ServiceRegistry,
         utterance_store: UtteranceStore,
         capability_store: CapabilityStore,
+        journey_guideline_projection: JourneyGuidelineProjection,
     ) -> None:
         self._agent_store = agent_store
         self._session_store = session_store
@@ -87,6 +89,7 @@ class EntityQueries:
         self._capability_store = capability_store
         self._service_registry = service_registry
         self._utterance_store = utterance_store
+        self._journey_guideline_projection = journey_guideline_projection
 
         self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
@@ -129,12 +132,19 @@ class EntityQueries:
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 
+        tasks = [
+            self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
+            for journey in journeys
+        ]
+        projected_journey_guidelines = await async_utils.safe_gather(*tasks)
+
         all_guidelines = set(
             chain(
                 agent_guidelines,
                 global_guidelines,
                 guidelines_for_agent_tags,
                 guidelines_for_journeys,
+                *projected_journey_guidelines,
             )
         )
 
@@ -347,13 +357,8 @@ class EntityQueries:
         tool_call_ids: Sequence[ToolId],
     ) -> Sequence[Guideline]:
         # Find guidelines that need reevaluation based on the tool calls made.
-        #
-        # TODO:
-        # - If a guideline associated with a journey requires reevaluation,
-        #   we return the journey steps, but not the guideline itself.
-        # - In the future, we may want to support multiple journeys for the same guideline.
         active_journeys_mapping = {journey.id: journey for journey in active_journeys}
-        guidelines = []
+        guidelines: list[Guideline] = []
 
         tasks = [
             self._relationship_store.list_relationships(
@@ -370,19 +375,23 @@ class EntityQueries:
             if relationship.target.id in available_guidelines:
                 guideline = available_guidelines[cast(GuidelineId, relationship.target.id)]
 
-                if guideline.metadata.get("journey_step") is not None:
-                    # If the guideline is associated with a journey step, we add the journey steps
-                    if journey_id := cast(
-                        Mapping[str, JSONSerializable], guideline.metadata["journey_step"]
-                    ).get("journey_id"):
-                        journey_id = cast(JourneyId, journey_id)
+                if guideline.metadata.get("journey_node") is not None:
+                    # If the guideline is a journey node, we add all the journey nodes of this journey
+                    journey_id = cast(
+                        JourneyId,
+                        cast(
+                            Mapping[str, JSONSerializable], guideline.metadata["journey_node"]
+                        ).get("journey_id"),
+                    )
 
-                        guidelines.extend(
-                            [
-                                available_guidelines[cast(GuidelineId, step)]
-                                for step in active_journeys_mapping[journey_id].nodes
-                            ]
+                    if journey_id in active_journeys_mapping:
+                        projected_journey_guidelines = (
+                            await self._journey_guideline_projection.project_journey_to_guidelines(
+                                journey_id
+                            )
                         )
+
+                        guidelines.extend(projected_journey_guidelines)
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.

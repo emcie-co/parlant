@@ -129,11 +129,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         active_journeys_mapping = {journey.id: journey for journey in context.relevant_journeys}
 
         for g in guidelines:
-            if g.metadata.get("journey_step") is not None:
-                # If the guideline is associated with a journey step, we add the journey steps
+            if g.metadata.get("journey_node") is not None:
+                # If the guideline is associated with a journey node, we add the journey steps
                 # to the list of journeys that need reevaluation.
                 if journey_id := cast(
-                    Mapping[str, JSONSerializable], g.metadata["journey_step"]
+                    Mapping[str, JSONSerializable], g.metadata["journey_node"]
                 ).get("journey_id"):
                     journey_id = cast(JourneyId, journey_id)
 
@@ -227,16 +227,18 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         matches: Sequence[GuidelineMatch],
     ) -> Sequence[GuidelineMatch]:
         result: list[GuidelineMatch] = []
-        guidelines_to_skip: list[GuidelineId] = []
+        guidelines_to_skip: set[GuidelineId] = set()
 
         for m in matches:
             if disambiguation := m.metadata.get("disambiguation"):
-                guidelines_to_skip.extend(
+                guidelines_to_skip.update(
                     cast(
                         list[GuidelineId],
                         cast(dict[str, JSONSerializable], disambiguation).get("targets"),
                     )
                 )
+
+                guidelines_to_skip.add(m.guideline.id)
 
                 result.append(
                     GuidelineMatch(
@@ -262,11 +264,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                     )
                 )
 
-        for m in matches:
-            if m.metadata.get("disambiguation") or m.guideline.id in guidelines_to_skip:
-                continue
-
-            result.append(m)
+        result.extend(m for m in matches if m.guideline.id not in guidelines_to_skip)
 
         return result
 

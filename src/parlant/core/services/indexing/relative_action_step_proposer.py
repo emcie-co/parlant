@@ -150,17 +150,16 @@ You will be asked to:
 1. Determine if the action description is sufficiently clear on its own:
     - Can an agent understand exactly what to do based solely on the condition and action?
     - Does the action rely on unstated context from previous journey steps?
+    - Are there ambiguous references like "it", "that", that are unclear given only the condition?
 
 2. Rewriting (when needed): If an action lacks clarity, rewrite it to be completely self-contained
     - Include all necessary context within the action description
+    - Replace ambiguous pronouns and references with specific nouns from the journey context
     - Ensure the agent can execute the action without referring to the broader journey
     - Maintain the original intent without elaborating beyond what is explicitly provided
 
-A well-written action should:
-
-- Clearly specify what the agent needs to do
-- Contain all necessary information for execution
-- Maintain the original functional intent without adding any information not explicitly stated in the journey
+Common issues requiring clarification: Pronouns like "it", "that" when their referent is unclear from the condition alone
+Standard, unambiguous pronouns (don't need clarification): "they/them" referring to "the customer" is completely standard and unambiguous
 
 """,
         )
@@ -187,7 +186,7 @@ EXAMPLES
             template="""
 OUTPUT FORMAT
 -----------
-Use the following format to evaluate whether the guideline has a customer dependent action:
+Use the following format to evaluate whether the action is relative and need rewriting:
 Expected output (JSON):
 ```json
 {{
@@ -210,7 +209,7 @@ Expected output (JSON):
                 "id": str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]),
                 "condition": g.content.condition,
                 "action": g.content.action,
-                "needs_rewrite_rational": "<Brief explanation of why the action does or does not need rewriting. Is it refer to something that is not mentioned in the current step>",
+                "needs_rewrite_rational": "<Brief explanation of is it refer to something that is not mentioned in the current step>",
                 "needs_rewrite": "<BOOL>",
                 "former_reference": "<information from previous steps that the definition is referring to>",
                 "rewritten_action": "<str. Full, self-contained version of the action - include only if requires_rewrite is True>",
@@ -286,7 +285,7 @@ book_hotel_shot_journey_steps = {
         id="2",
         guideline_content=GuidelineContent(
             condition="The customer has specified the hotel name",
-            action="Ask the customer how many guests will be staying.",
+            action="Ask them how many guests will be staying.",
         ),
         parent_ids=["1"],
         follow_up_ids=["3"],
@@ -307,7 +306,7 @@ book_hotel_shot_journey_steps = {
     "4": _JourneyStepWrapper(
         id="4",
         guideline_content=GuidelineContent(
-            condition="he customer has provided check-in and check-out dates",
+            condition="The customer has provided check-in and check-out dates",
             action="Make sure it's available",
         ),
         parent_ids=["3"],
@@ -393,76 +392,77 @@ example_1_shot = RelativeActionStepShot(
                 id="1",
                 condition=book_hotel_shot_journey_steps["1"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["1"].guideline_content.action,
-                needs_rewrite_rational="The action is self contained",
+                needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="2",
                 condition=book_hotel_shot_journey_steps["2"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["2"].guideline_content.action,
-                needs_rewrite_rational="The action is self contained",
+                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer."
+                "",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="3",
                 condition=book_hotel_shot_journey_steps["3"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["3"].guideline_content.action,
-                needs_rewrite_rational="The action is self contained",
+                needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="4",
                 condition=book_hotel_shot_journey_steps["4"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["4"].guideline_content.action,
-                needs_rewrite_rational="The action does not specify what availability to check",
+                needs_rewrite_rational="The action does not specify what availability to check based on the condition alone.",
                 needs_rewrite=True,
-                former_reference="The availability refers to rooms matching the provided hotel, dates and number of guests.",
-                rewritten_action="Make sure there is an available room in the asked hotel for the specified dates and number of guests.",
+                former_reference="The availability refers to hotel rooms matching the specified hotel, dates, and number of guests from previous steps.",
+                rewritten_action="Make sure there is an available room in the specified hotel for the provided dates and number of guests.",
             ),
             RelativeActionStepBatch(
                 id="5",
                 condition=book_hotel_shot_journey_steps["5"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["5"].guideline_content.action,
-                needs_rewrite_rational="Need to explain what to book",
+                needs_rewrite_rational="The action does not specify what to book based on the condition alone.",
                 needs_rewrite=True,
-                former_reference="the booking refers to a hotel selected earlier",
-                rewritten_action="Book the selected hotel for the specified dates and number of guests.",
+                former_reference="The booking refers to the hotel reservation with the specified details from previous steps.",
+                rewritten_action="Book the hotel for the specified dates and number of guests.",
             ),
             RelativeActionStepBatch(
                 id="6",
                 condition=book_hotel_shot_journey_steps["6"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["6"].guideline_content.action,
-                needs_rewrite_rational="I'ts clear that need to explain that the availability check failed, given the condition",
+                needs_rewrite_rational="'it' refers to the fact that the availability check failed. I'ts clear that need to explain that the availability check failed, given the condition",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="7",
                 condition=book_hotel_shot_journey_steps["7"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["7"].guideline_content.action,
-                needs_rewrite_rational="no need",
+                needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer and why.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="8",
                 condition=book_hotel_shot_journey_steps["8"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["8"].guideline_content.action,
-                needs_rewrite_rational="Need to clarify what to send",
+                needs_rewrite_rational="The action does not specify what to send based on the condition alone.",
                 needs_rewrite=True,
-                former_reference="previous steps says that need the mail address to send the booking confirmation.",
-                rewritten_action="Send them the confirmation detailed of the booked hotel",
+                former_reference="Previous step mentions asking for email address to send booking confirmation.",
+                rewritten_action="Send them the booking confirmation.",
             ),
             RelativeActionStepBatch(
                 id="9",
                 condition=book_hotel_shot_journey_steps["9"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["9"].guideline_content.action,
-                needs_rewrite_rational="no need",
+                needs_rewrite_rational="The action is self-contained and clearly specifies what to inform the customer and what to ask for.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
                 id="10",
                 condition=book_hotel_shot_journey_steps["10"].guideline_content.condition,
                 action=book_hotel_shot_journey_steps["10"].guideline_content.action,
-                needs_rewrite_rational="no need",
+                needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
         ]

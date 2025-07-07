@@ -40,14 +40,14 @@ class _JourneyStepWrapper(DefaultBaseModel):
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
     journey_applies: bool
-    last_step: str
+    last_step: Optional[str] = None
     requires_backtracking: bool
-    rationale: str
-    backtracking_target_step: Optional[str] | None = ""
-    backtracking_followup_step: Optional[str] | None = ""
+    rationale: Optional[str] = None
+    backtracking_target_step: Optional[str] | None = None
+    backtracking_followup_step: Optional[str] | None = None
     last_step_completed: Optional[bool] | None = None
-    step_advance: Optional[Sequence[str | None]] = []
-    next_step: str
+    step_advance: Optional[Sequence[str | None]] = None
+    next_step: Optional[str] = None
 
 
 @dataclass
@@ -121,7 +121,7 @@ TRANSITIONS:
 Journey: {journey_title}
 {journey_conditions_str}
 Steps:
-{steps_str} 
+{steps_str}
 """
 
 
@@ -226,7 +226,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             journey_path: list[str | None] = [inference.content.next_step]
         else:
             try:
-                journey_path = cast(list[str | None], inference.content.step_advance)
+                journey_path = cast(list[str | None], inference.content.step_advance or [])
 
                 if (
                     self._previous_path
@@ -282,7 +282,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 GuidelineMatch(
                     guideline=self._step_guideline_mapping[inference.content.next_step],
                     score=10,
-                    rationale=inference.content.rationale,
+                    rationale=inference.content.rationale or "Not provided",
                     guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                     metadata={
                         "journey_path": journey_path,
@@ -357,8 +357,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             template="""
 GENERAL INSTRUCTIONS
 -------------------
-You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business. 
-Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes. 
+You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business.
+Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes.
 
 ## Journey Structure
 Each journey consists of:
@@ -367,7 +367,7 @@ Each journey consists of:
 - **Flags**: Special properties that modify how steps behave
 
 ## Your Core Task
-Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.  
+Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -379,7 +379,7 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation should continue within the current journey. 
+Determine if the conversation should continue within the current journey.
 Once a journey has begun, continue following it unless the customer explicitly indicates they no longer want to pursue the journey's original goal.
 
 Set journey_applies to true unless the customer explicitly requests to leave the topic or abandon the journey's goal entirely.
@@ -390,13 +390,13 @@ If journey_applies is false, set next_step to 'None' and skip remaining steps
 
 CRITICAL: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.
 
-## 2: Backtracking Check  
+## 2: Backtracking Check
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
   - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
   - Set `next_step` to A follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address). Next Step MUST be a follow up of 'backtracking_target_step'. It should not be backtracking_target_step itself.
-  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.  
+  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
@@ -469,7 +469,7 @@ OUTPUT FORMAT
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>, 
+  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>,
   "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
 }}
 ```

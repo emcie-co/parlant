@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import traceback
 from typing import Any, Optional, cast
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -12,9 +13,11 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
+    GuidelineMatchingBatchError,
     GuidelineMatchingBatchResult,
     GuidelineMatchingContext,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey
@@ -129,6 +132,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
@@ -137,6 +141,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         journey_conditions: Sequence[str] = [],
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
 
         self._step_guideline_mapping = {
@@ -201,100 +206,126 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         prompt = self._build_prompt(shots=await self.shots())
 
         with self._logger.operation(f"JourneyStepSelectionBatch: {self._examined_journey.title}"):
-            inference = await self._schematic_generator.generate(
-                prompt=prompt,
-                hints={"temperature": 0.15},
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
             )
 
-        with open("journey step selection output.txt", "w") as f:
-            f.write(inference.content.model_dump_json(indent=2))
-            f.write("\nTime: " + str(inference.info.duration))
+            last_generation_exception: Exception | None = None
 
-        self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-        # TODO VALIDATION NOTE: the following should be validated in a safe way:
-        # 1. The returned inference.content.step_advance, if it exists (is not None),
-        #  begins with the last index of is either None,
-        # or a list whose first index is self._previous_path and ends with next_step.
-        # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
-        # 3. If last_step == next_step, then the path should be a list with only that value
-        # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
-        # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
-        # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
-
-        if inference.content.requires_backtracking:
-            journey_path: list[str | None] = [inference.content.next_step]
-        else:
-            try:
-                journey_path = cast(list[str | None], inference.content.step_advance or [])
-
-                if (
-                    self._previous_path
-                    and not self._previous_path[-1]
-                    and journey_path[0] != self._previous_path[-1]
-                ):
-                    self._logger.warning(
-                        f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+            for generation_attempt in range(3):
+                try:
+                    inference = await self._schematic_generator.generate(
+                        prompt=prompt,
+                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                    journey_path.insert(0, self._previous_path[-1])  # Try to recover
 
-                indexes_to_delete: list[int] = []
-                for i in range(1, len(journey_path)):
-                    if journey_path[i - 1] not in self._journey_steps.keys():
-                        self._logger.warning(
-                            f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
-                        )
-                        indexes_to_delete.append(i)
-                    elif (
-                        journey_path[i]
-                        not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
-                    ):
-                        self._logger.warning(
-                            f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
-                        )
-                        # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
-                        if (
-                            i + 1 < len(journey_path)
-                            and journey_path[i + 1]
-                            in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
-                        ):
-                            indexes_to_delete.append(i)
-                if (
-                    journey_path
-                    and journey_path[-1] not in self._journey_steps.keys()
-                    and inference.content.next_step is not None
-                ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
-                    self._logger.warning(
-                        f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+                    with open("journey step selection output.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
+                        f.write("\nTime: " + str(inference.info.duration))
+
+                    self._logger.trace(
+                        f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
-                    journey_path[-1] = None
 
-                for i in reversed(indexes_to_delete):
-                    del journey_path[i]
-            except Exception:
-                self._logger.warning(
-                    f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
-                )
-                journey_path = [inference.content.next_step]
+                    # TODO VALIDATION NOTE: the following should be validated in a safe way:
+                    # 1. The returned inference.content.step_advance, if it exists (is not None),
+                    #  begins with the last index of is either None,
+                    # or a list whose first index is self._previous_path and ends with next_step.
+                    # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
+                    # 3. If last_step == next_step, then the path should be a list with only that value
+                    # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
+                    # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
+                    # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
 
-        return GuidelineMatchingBatchResult(
-            matches=[
-                GuidelineMatch(
-                    guideline=self._step_guideline_mapping[inference.content.next_step],
-                    score=10,
-                    rationale=inference.content.rationale or "Not provided",
-                    guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
-                    metadata={
-                        "journey_path": journey_path,
-                        "step_selection_journey_id": self._examined_journey.id,
-                    },
-                )
-            ]
-            if inference.content.next_step
-            in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
-            else [],
-            generation_info=inference.info,
-        )
+                    if inference.content.requires_backtracking:
+                        journey_path: list[str | None] = [inference.content.next_step]
+                    else:
+                        try:
+                            journey_path = cast(
+                                list[str | None], inference.content.step_advance or []
+                            )
+
+                            if (
+                                self._previous_path
+                                and not self._previous_path[-1]
+                                and journey_path[0] != self._previous_path[-1]
+                            ):
+                                self._logger.warning(
+                                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+                                )
+                                journey_path.insert(0, self._previous_path[-1])  # Try to recover
+
+                            indexes_to_delete: list[int] = []
+                            for i in range(1, len(journey_path)):
+                                if journey_path[i - 1] not in self._journey_steps.keys():
+                                    self._logger.warning(
+                                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
+                                    )
+                                    indexes_to_delete.append(i)
+                                elif (
+                                    journey_path[i]
+                                    not in self._journey_steps[
+                                        str(journey_path[i - 1])
+                                    ].follow_up_ids
+                                ):
+                                    self._logger.warning(
+                                        f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
+                                    )
+                                    # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
+                                    if (
+                                        i + 1 < len(journey_path)
+                                        and journey_path[i + 1]
+                                        in self._journey_steps[
+                                            str(journey_path[i - 1])
+                                        ].follow_up_ids
+                                    ):
+                                        indexes_to_delete.append(i)
+                            if (
+                                journey_path
+                                and journey_path[-1] not in self._journey_steps.keys()
+                                and inference.content.next_step is not None
+                            ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
+                                self._logger.warning(
+                                    f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+                                )
+                                journey_path[-1] = None
+
+                            for i in reversed(indexes_to_delete):
+                                del journey_path[i]
+                        except Exception:
+                            self._logger.warning(
+                                f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
+                            )
+                            journey_path = [inference.content.next_step]
+
+                    return GuidelineMatchingBatchResult(
+                        matches=[
+                            GuidelineMatch(
+                                guideline=self._step_guideline_mapping[inference.content.next_step],
+                                score=10,
+                                rationale=inference.content.rationale or "Not provided",
+                                guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                                metadata={
+                                    "journey_path": journey_path,
+                                    "step_selection_journey_id": self._examined_journey.id,
+                                },
+                            )
+                        ]
+                        if inference.content.next_step
+                        in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
+                        else [],
+                        generation_info=inference.info,
+                    )
+                except Exception as exc:
+                    self._logger.warning(
+                        f"JourneyStepSelectionBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise GuidelineMatchingBatchError() from last_generation_exception
 
     async def shots(self) -> Sequence[JourneyStepSelectionShot]:
         return await shot_collection.list()

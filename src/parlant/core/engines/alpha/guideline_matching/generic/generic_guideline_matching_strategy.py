@@ -560,6 +560,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericJourneyStepSelectionBatch:
         return GenericJourneyStepSelectionBatch(
             logger=self._logger,
+            optimization_policy=self._optimization_policy,
             schematic_generator=self._journey_step_selection_schematic_generator,
             examined_journey=examined_journey,
             step_guidelines=step_guidelines,

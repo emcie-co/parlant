@@ -24,6 +24,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selectio
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingContext,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId, JourneyStepId
@@ -418,6 +419,7 @@ async def base_test_that_correct_step_is_selected(
 
     journey_step_selector = GenericJourneyStepSelectionBatch(
         logger=context.logger,
+        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         examined_journey=journey,
         step_guidelines=journey_step_guidelines,

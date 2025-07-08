@@ -381,7 +381,7 @@ class Relationship:
     target: RelationshipEntityId
 
 
-@dataclass
+@dataclass(frozen=True)
 class Guideline:
     id: GuidelineId
     condition: str
@@ -599,7 +599,7 @@ class JourneyNode:
         return sub_node
 
 
-@dataclass
+@dataclass(frozen=True)
 class Journey:
     id: JourneyId
     title: str
@@ -726,7 +726,7 @@ class Journey:
         return utterance.id
 
 
-@dataclass
+@dataclass(frozen=True)
 class Capability:
     id: CapabilityId
     title: str
@@ -735,7 +735,7 @@ class Capability:
     tags: Sequence[TagId]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Term:
     id: TermId
     name: str
@@ -744,7 +744,7 @@ class Term:
     tags: Sequence[TagId]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Variable:
     id: ContextVariableId
     name: str
@@ -801,7 +801,7 @@ class Variable:
         return value.data if value else None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Customer:
     id: CustomerId
     name: str
@@ -826,7 +826,7 @@ class RetrieverResult:
     utterance_fields: Mapping[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Agent:
     _server: Server
     _container: Container
@@ -1235,7 +1235,7 @@ class Server:
         self,
         name: str,
         description: str,
-        composition_mode: CompositionMode = CompositionMode.COMPOSITED_UTTERANCE,
+        composition_mode: CompositionMode = CompositionMode.FLUID_UTTERANCE,
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
     ) -> Agent:

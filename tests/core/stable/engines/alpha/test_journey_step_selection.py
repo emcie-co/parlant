@@ -268,14 +268,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             ),
             _StepData(
                 id="8",
-                condition="The customer chose their calzone type",
+                condition="The customer chose a calzone type for every calzone they ordered",
                 action="Ask which size of calzone they want between small, medium, and large",
                 follow_up_ids=["9"],
                 customer_dependent_action=True,
             ),
             _StepData(
                 id="9",
-                condition="The customer chose their calzone size",
+                condition="The customer chose their calzone size for every calzone they'd like to order",
                 action="Ask if they want any drinks with their order",
                 follow_up_ids=["10"],
                 customer_dependent_action=True,
@@ -380,6 +380,7 @@ async def create_journey(
         id=JourneyId("-"),
         creation_utc=datetime.now(timezone.utc),
         conditions=[],
+        steps=[g.id for g in journey_step_guidelines],
         title=title,
         description="",
         tags=[],
@@ -418,12 +419,12 @@ async def base_test_that_correct_step_is_selected(
 
     journey_step_selector = GenericJourneyStepSelectionBatch(
         logger=context.logger,
-        optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         examined_journey=journey,
         step_guidelines=journey_step_guidelines,
         journey_path=journey_previous_path,
         journey_conditions=JOURNEYS_DICT[journey_name].conditions,
+        optimization_policy=context.container[OptimizationPolicy],
         context=GuidelineMatchingContext(
             agent=agent,
             session=session,
@@ -680,7 +681,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_step_3(
         ),
         (
             EventSource.CUSTOMER,
-            "Thank you, have a good day too!",
+            "Thank you, have a good day too! Now what's up with my password?",
         ),
     ]
     await base_test_that_correct_step_is_selected(
@@ -927,7 +928,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         conversation_context=conversation_context,
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8"],
-        expected_next_step_id="7",  # Should return to asking about calzone type
+        expected_next_step_id="8",  # Should return to asking about calzone type
     )
 
 
@@ -989,7 +990,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
     )
 
 
-async def test_that_journey_selector_backtracks_when_customer_changes_earlier_choice_3(  # CUrrently does backtracking + fast forwarding - so I don't consider it a mistake
+async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_1(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -1023,7 +1024,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         ),
         (
             EventSource.CUSTOMER,
-            "Large please",
+            "Large for all of them, please",
         ),
         (
             EventSource.AI_AGENT,
@@ -1080,7 +1081,8 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         conversation_context=conversation_context,
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
-        expected_next_step_id="9",  # Should return to asking about drinks since size affects the entire order
+        expected_path=["8", "9", "10"],
+        expected_next_step_id="10",  # Should check stock again
         staged_events=staged_events,
     )
 
@@ -1211,4 +1213,355 @@ async def test_that_multistep_advancement_is_stopped_at_step_that_requires_sayin
         journey_previous_path=["1", "2"],
         expected_path=["2", "3", "4", "5"],
         expected_next_step_id="5",
+    )
+
+
+# TODO always stops too early - right at backtracking step
+async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    """Test backtracking when customer changes calzone type mid-order, then fast forwards through size/drinks to stock check"""
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'd like to order calzones",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "3 calzones please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Spinach and Ricotta please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What size would you like - small, medium, or large?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Medium please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Would you like any drinks with your order?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, I'll take 2 sodas",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Can you please confirm your order details? We have 3 medium spinach and ricotta calzones and 2 sodas.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Actually, I want to change the calzone type for one of the orders to Chicken and Broccoli instead.",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="calzone_journey",
+        journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
+        expected_path=[
+            "7",
+            "8",
+            "9",
+            "10",
+        ],  # Backtrack to type selection, then fast forward through size/drinks to stock check
+        expected_next_step_id="10",
+    )
+
+
+async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_3(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    """Test backtracking when customer changes account number after email was provided, then fast forwards through email collection"""
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I just realized I gave you the wrong account number. It should be 987654, not 318475. My email is still john.doe@email.com though.",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3"],
+        expected_path=[
+            "1",
+            "2",
+            "3",
+        ],  # Backtrack to account collection, then fast forward through email to good day
+        expected_next_step_id="3",
+    )
+
+
+async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_4(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thank you, have a good day too!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I apologize, but the password could not be reset at this time due to a system error.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Oh wait, I think I gave you the wrong account number. It should be 987654, not 318475",
+        ),
+    ]
+
+    # Mock tool result showing password reset failed
+    failed_tool_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:reset_password",
+                    "arguments": {"account_number": "318475", "email": "john.doe@email.com"},
+                    "result": {
+                        "data": "Password reset failed - account not found",
+                        "metadata": {"error": "ACCOUNT_NOT_FOUND"},
+                        "control": {},
+                    },
+                }
+            ]
+        },
+    )
+
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            correlation_id="",
+            data=failed_tool_result,
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3", "5", "7"],
+        staged_events=staged_events,
+        expected_path=[
+            "1",
+            "2",
+            "3",
+            "5",
+        ],  # Backtrack to account collection, then fast forward through email to good day
+        expected_next_step_id="5",
+    )
+
+
+# TODO sometimes passes, sometimes fails by fast forwards over the calzone type choice
+async def test_that_journey_selector_doesnt_fast_forward_when_earlier_customer_decision_no_longer_applies(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    """Test backtracking when customer changes calzone type mid-order, then fast forwards through size/drinks to stock check"""
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'd like to order calzones",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "3 calzones please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "2 Spinach and Ricotta and 1 Italian please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What size would you like - small, medium, or large?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Medium please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Would you like any drinks with your order?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, I'll take 2 sodas",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Can you please confirm your order details? We have 2 medium spinach and ricotta calzones, one medium classic Italian and 2 sodas.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Wait I got confused. I want 4 calzones please.",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="calzone_journey",
+        journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
+        expected_path=[
+            "2",
+            "7",
+        ],  # Backtrack to type selection, then fast forwards through number of calzones. Should stop at calzone type since
+        expected_next_step_id="7",
+    )
+
+
+async def test_that_journey_selector_backtracks_back_doesnt_fast_forward_upon_new_customer_request(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi there, I need to reset my password",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm here to help you with that. What is your account number?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "318475",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Now I need your email address or phone number.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "john.doe@email.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! Have a good day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thank you, have a good day too!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'll now reset your password for account 318475.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Wait! Actually, I want to reset my husband's password first - the info I'm looking for is under his account. I think his account number is 123655.",
+        ),
+    ]
+
+    await base_test_that_correct_step_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=["1", "2", "3", "5"],
+        expected_path=[
+            "1",
+            "2",
+        ],  # From tool execution step, back to account collection, then fast forward through email/good day to tool execution
+        expected_next_step_id="2",
     )

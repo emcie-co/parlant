@@ -80,7 +80,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
         self,
         context: LoadedContext | None = None,
     ) -> float:
-        return random.uniform(1.5, 2.5)
+        return random.uniform(1.0, 2.0)
 
     @override
     async def get_follow_up_delay(

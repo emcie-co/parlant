@@ -2110,7 +2110,7 @@ async def test_that_observational_guidelines_are_matched_based_on_vague_customer
     )
 
 
-async def test_that_observational_guidelines_are_matched_based_on_old_messages(
+async def test_that_observational_guidelines_are_not_matched_based_on_old_messages(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -2175,7 +2175,7 @@ async def test_that_observational_guidelines_are_matched_based_on_old_messages(
         ),
     ]
     conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
-    relevant_guideline_names = ["lock_card_request_1", "lock_card_request_2"]
+    relevant_guideline_names: list[str] = []
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,

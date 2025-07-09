@@ -1418,7 +1418,24 @@ Output a JSON object with three properties:
                 )
                 self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
 
-        # Step 4: Try to match the draft message with one of the rendered utterances
+        # Step 4.1: In composited mode, recompose the draft message with the style of the rendered utterances
+        if composition_mode == CompositionMode.COMPOSITED_UTTERANCE:
+            recomposition_generation_info, composited_message = await self._recompose(
+                context=context,
+                draft_message=draft_response.content.response_body,
+                reference_messages=[u[1] for u in rendered_utterances],
+            )
+
+            return {
+                "draft": draft_response.info,
+                "composition": recomposition_generation_info,
+            }, _UtteranceSelectionResult(
+                message=composited_message,
+                draft=draft_response.content.response_body,
+                utterances=[],
+            )
+
+        # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered utterances
         selection_response = await self._utterance_selection_generator.generate(
             prompt=self._build_selection_prompt(
                 context=context,
@@ -1523,10 +1540,14 @@ Output a JSON object with three properties:
         self,
         context: UtteranceContext,
         draft_message: str,
-        reference_message: str,
+        reference_messages: list[str],
     ) -> tuple[GenerationInfo, str]:
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(f"Composition Prompt:\n{prompt}")
+        )
+
+        reference_messages_text = "\n\n".join(
+            [f"{i + 1}) {msg}" for i, msg in enumerate(reference_messages)]
         )
 
         builder.add_agent_identity(context.agent)
@@ -1536,18 +1557,18 @@ Output a JSON object with three properties:
             template="""\
 Task Description
 ----------------
-You are given two messages:
-1. Draft message
-2. Style reference message
+You are given two message types:
+1. A single draft message
+2. One or more style reference messages
 
 The draft message contains what should be said right now.
-The style reference message teaches you what communication style to try to copy.
+The style reference messages teach you what communication style to try to copy.
 
-You must say what the draft message says, but capture the tone and style of the style reference message precisely.
+You must say what the draft message says, but capture the tone and style of the style reference messages precisely.
 
 Make sure NOT to add, remove, or hallucinate information nor add or remove key words (nouns, verbs) to the message.
 
-IMPORTANT NOTE: Always try to separate points in your message by 2 newlines (\\n\\n) — even if the reference message doesn't do so. You may do this zero or multiple times in the message, as needed. Pay extra attention to this requirement. For example, here's what you should separate:
+IMPORTANT NOTE: Always try to separate points in your message by 2 newlines (\\n\\n) — even if the reference messages don't do so. You may do this zero or multiple times in the message, as needed. Pay extra attention to this requirement. For example, here's what you should separate:
 1. Answering one thing and then another thing -- Put two newlines in between
 2. Answering one thing and then asking a follow-up question (e.g., Should I... / Can I... / Want me to... / etc.) -- Put two newlines in between
 3. An initial acknowledgement (Sure... / Sorry... / Thanks...) or greeting (Hey... / Good day...) and actual follow-up statements -- Put two newlines in between
@@ -1556,15 +1577,16 @@ Draft message: ###
 {draft_message}
 ###
 
-Style reference message: ###
-{reference_message}
+Style reference messages: ###
+{reference_messages_text}
 ###
 
 Respond with a JSON object {{ "revised_utterance": "<message_with_points_separated_by_double_newlines>" }}
 """,
             props={
                 "draft_message": draft_message,
-                "reference_message": reference_message,
+                "reference_messages": reference_messages,
+                "reference_messages_text": reference_messages_text,
             },
         )
 

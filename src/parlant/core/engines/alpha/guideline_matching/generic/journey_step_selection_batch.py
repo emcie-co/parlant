@@ -31,11 +31,18 @@ ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
 
-class _JourneyStepWrapper(DefaultBaseModel):
+@dataclass
+class _JourneyFollowupWrapper(DefaultBaseModel):
+    target_id: str
+    condition: str
+
+
+@dataclass
+class _JourneyNodeWrapper(DefaultBaseModel):
     id: str
     guideline_content: GuidelineContent
     parent_ids: list[str]
-    follow_up_ids: list[str]
+    follow_up_ids: list[_JourneyFollowupWrapper]
     customer_dependent_action: bool
     requires_tool_calls: bool
     conditions: Optional[Sequence[str]] = None
@@ -62,14 +69,14 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_title: str
-    journey_steps: dict[str, _JourneyStepWrapper] | None
+    journey_steps: dict[str, _JourneyNodeWrapper] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
     conditions: Sequence[str]
 
 
 def get_journey_transition_map_text(
-    steps: dict[str, _JourneyStepWrapper],
+    steps: dict[str, _JourneyNodeWrapper],
     journey_title: str,
     journey_conditions: Sequence[str] = [],
     previous_path: Sequence[str | None] = [],
@@ -88,7 +95,7 @@ def get_journey_transition_map_text(
     # Sort steps by step id as integer if possible, else as string
     steps_str = ""
     for step_id in sorted(steps.keys(), key=step_sort_key):
-        step: _JourneyStepWrapper = steps[step_id]
+        step: _JourneyNodeWrapper = steps[step_id]
         action: str | None = step.guideline_content.action
         if action:
             flags_str = "Step Flags:\n"
@@ -152,7 +159,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._schematic_generator = schematic_generator
 
         self._step_guideline_mapping = {
-            str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]): g
+            cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get(
+                "index", "-1"
+            ): g
             for g in step_guidelines
         }
 
@@ -166,15 +175,15 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._context = context
         self._examined_journey = examined_journey
 
-        self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
+        self._journey_steps: dict[str, _JourneyNodeWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
         self._journey_conditions: Sequence[str] = journey_conditions
 
     def _build_journey_steps(  # TODO rewrite entirely, make static (non class method)
         self,
-    ) -> dict[str, _JourneyStepWrapper]:
-        journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            self._guideline_to_step_id_mapping[guideline.id]: _JourneyStepWrapper(
+    ) -> dict[str, _JourneyNodeWrapper]:
+        journey_steps_dict: dict[str, _JourneyNodeWrapper] = {
+            self._guideline_to_step_id_mapping[guideline.id]: _JourneyNodeWrapper(
                 id=step_id,
                 guideline_content=guideline.content,
                 parent_ids=[],
@@ -573,7 +582,7 @@ example_1_events = [
 
 
 example_1_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNodeWrapper(
         id="1",
         guideline_content=GuidelineContent(
             condition="",
@@ -584,7 +593,7 @@ example_1_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNodeWrapper(
         id="2",
         guideline_content=GuidelineContent(
             condition="The customer prefers exploring cities",
@@ -595,7 +604,7 @@ example_1_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNodeWrapper(
         id="3",
         guideline_content=GuidelineContent(
             condition="The customer prefers scenic landscapes",
@@ -606,7 +615,7 @@ example_1_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNodeWrapper(
         id="4",
         guideline_content=GuidelineContent(
             condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
@@ -656,7 +665,7 @@ example_2_events = [
 ]
 
 book_taxi_shot_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNodeWrapper(
         id="1",
         guideline_content=GuidelineContent(
             condition="",
@@ -667,7 +676,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNodeWrapper(
         id="2",
         guideline_content=GuidelineContent(
             condition="You welcomed the customer",
@@ -678,7 +687,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNodeWrapper(
         id="3",
         guideline_content=GuidelineContent(
             condition="The desired pick up location is in NYC",
@@ -689,7 +698,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNodeWrapper(
         id="4",
         guideline_content=GuidelineContent(
             condition="The desired pick up location is outside of NYC",
@@ -700,7 +709,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "5": _JourneyStepWrapper(
+    "5": _JourneyNodeWrapper(
         id="5",
         guideline_content=GuidelineContent(
             condition="the desired pick up location is in NYC",
@@ -711,7 +720,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "6": _JourneyStepWrapper(
+    "6": _JourneyNodeWrapper(
         id="6",
         guideline_content=GuidelineContent(
             condition="the customer provided their desired pick up time",
@@ -722,7 +731,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
-    "7": _JourneyStepWrapper(
+    "7": _JourneyNodeWrapper(
         id="7",
         guideline_content=GuidelineContent(
             condition="the taxi ride was successfully booked",
@@ -733,7 +742,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "8": _JourneyStepWrapper(
+    "8": _JourneyNodeWrapper(
         id="8",
         guideline_content=GuidelineContent(
             condition="the customer wants to pay in credit",
@@ -744,7 +753,7 @@ book_taxi_shot_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "9": _JourneyStepWrapper(
+    "9": _JourneyNodeWrapper(
         id="9",
         guideline_content=GuidelineContent(
             condition="the customer wants to pay in cash",
@@ -758,7 +767,7 @@ book_taxi_shot_journey_steps = {
 }
 
 random_actions_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNodeWrapper(
         id="1",
         guideline_content=GuidelineContent(
             condition="",
@@ -769,7 +778,7 @@ random_actions_journey_steps = {
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNodeWrapper(
         id="2",
         guideline_content=GuidelineContent(
             condition="The previous step was completed",
@@ -780,7 +789,7 @@ random_actions_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNodeWrapper(
         id="3",
         guideline_content=GuidelineContent(
             condition="This step was completed",
@@ -1029,7 +1038,7 @@ example_6_events = [
 ]
 
 loan_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNodeWrapper(
         id="1",
         guideline_content=GuidelineContent(
             condition="", action="Ask for the customer's full name."
@@ -1039,7 +1048,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNodeWrapper(
         id="2",
         guideline_content=GuidelineContent(
             condition="Customer provided their name",
@@ -1050,7 +1059,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNodeWrapper(
         id="3",
         guideline_content=GuidelineContent(
             condition="Customer chose Personal loan", action="Ask for the desired loan amount."
@@ -1060,7 +1069,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNodeWrapper(
         id="4",
         guideline_content=GuidelineContent(
             condition="Customer chose Business loan", action="Ask for the desired loan amount."
@@ -1070,7 +1079,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "5": _JourneyStepWrapper(
+    "5": _JourneyNodeWrapper(
         id="5",
         guideline_content=GuidelineContent(
             condition="Personal loan amount provided", action="Ask for employment status."
@@ -1080,7 +1089,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "6": _JourneyStepWrapper(
+    "6": _JourneyNodeWrapper(
         id="6",
         guideline_content=GuidelineContent(
             condition="Business loan amount provided", action="Ask for collateral."
@@ -1090,7 +1099,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "7": _JourneyStepWrapper(
+    "7": _JourneyNodeWrapper(
         id="7",
         guideline_content=GuidelineContent(
             condition="Employment status provided", action="Review and confirm application."
@@ -1100,7 +1109,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "8": _JourneyStepWrapper(
+    "8": _JourneyNodeWrapper(
         id="8",
         guideline_content=GuidelineContent(
             condition="Digital asset was chosen as collateral",
@@ -1111,7 +1120,7 @@ loan_journey_steps = {
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "9": _JourneyStepWrapper(
+    "9": _JourneyNodeWrapper(
         id="9",
         guideline_content=GuidelineContent(
             condition="physical asset was chosen as collateral", action=None

@@ -468,6 +468,21 @@ class UtteranceSelector(MessageEventComposer):
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
+        context = UtteranceContext(
+            event_emitter=event_emitter,
+            agent=agent,
+            customer=customer,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            terms=terms,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=journeys,
+            capabilities=capabilities,
+            tool_insights=tool_insights,
+            staged_events=staged_events,
+        )
+
         last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
 
         await event_emitter.emit_status_event(
@@ -522,10 +537,28 @@ You must generate the preamble message. You must produce a JSON object with a si
                 if Tag.preamble() in u.tags
             ]
 
-            # LLMs are usually biased toward the last choices, so we shuffle the list.
-            shuffle(preamble_utterances)
+            preamble_choices = []
 
-            preamble_choices_text = "".join([f'\n- "{u.value}"' for u in preamble_utterances])
+            for u in preamble_utterances:
+                try:
+                    rendered_utterance = await self._render_utterance(
+                        context=context,
+                        utterance=u.value,
+                    )
+
+                    preamble_choices.append(rendered_utterance)
+                except Exception as exc:
+                    self._logger.error(
+                        f"Failed to pre-render preamble utterance for matching '{u.id}' ('{u.value}')"
+                    )
+                    self._logger.error(
+                        f"Preamble utterance rendering failed: {traceback.format_exception(exc)}"
+                    )
+
+            # LLMs are usually biased toward the last choices, so we shuffle the list.
+            shuffle(preamble_choices)
+
+            preamble_choices_text = "".join([f'\n- "{c}"' for c in preamble_choices])
 
             instructions = f"""\
 These are the preamble messages you can choose from. You must ONLY choose one of these: ###
@@ -575,7 +608,7 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         if agent.composition_mode == CompositionMode.STRICT_UTTERANCE:
-            if response.content.preamble not in [u.value for u in preamble_utterances]:
+            if response.content.preamble not in preamble_choices:
                 self._logger.error(
                     f"Selected preamble '{response.content.preamble}' is not in the list of available preamble utterances."
                 )

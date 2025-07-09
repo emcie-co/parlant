@@ -19,6 +19,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import chain
+from random import shuffle
 import re
 import jinja2
 import jinja2.meta
@@ -49,6 +50,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
+from parlant.core.tags import Tag
 from parlant.core.utterances import Utterance, UtteranceId, UtteranceStore
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -352,6 +354,16 @@ Example return value: ###
 Example return value: ###
 {{ "field_name": "flight_list", "field_value": "- <FLIGHT_1>\\n- <FLIGHT_2>\\n" }}
 ###
+
+4) Utterance is "It seems that {{{{generative.customer_issue}}}} might be caused by a different issue."
+Example return value: ###
+{{ "field_name": "customer_issue", "field_value": "the red light you're seeing" }}
+###
+
+5) Utterance is "I could suggest {{{{generative.way_to_help}}}} as a potential solution."
+Example return value: ###
+{{ "field_name": "way_to_help", "field_value": "that you restart your router" }}
+###
 """,
             props={"utterance": utterance, "field_name": field_name},
         )
@@ -395,11 +407,6 @@ class UtteranceFieldExtractor(ABC):
                 return True, extracted_value
 
         return False, None
-
-
-class FluidUtteranceFallback(Exception):
-    def __init__(self) -> None:
-        pass
 
 
 def _get_utterance_template_fields(template: str) -> set[str]:
@@ -461,12 +468,6 @@ class UtteranceSelector(MessageEventComposer):
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
-        if agent.composition_mode not in [
-            # TODO: Add support for fluid and strict mode (and adjust the tests accordingly)
-            CompositionMode.COMPOSITED_UTTERANCE,
-        ]:
-            return []
-
         last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
 
         await event_emitter.emit_status_event(
@@ -484,31 +485,83 @@ class UtteranceSelector(MessageEventComposer):
 
         prompt_builder.add_agent_identity(agent)
 
-        prompt_builder.add_section(
-            name="utterance-fluid-preamble-instructions",
-            template="""\
-You are an AI agent that is expected to generate a preamble message for the customer.
+        preamble_utterances: Sequence[Utterance] = []
+        preamble_choices: list[str] = []
 
-The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble in order to save time.
+        if agent.composition_mode != CompositionMode.STRICT_UTTERANCE:
+            preamble_choices = [
+                "Hey there!",
+                "Just a moment.",
+                "Hello.",
+                "Sorry to hear that.",
+                "Definitely.",
+                "Let me check that for you.",
+            ]
+
+            preamble_choices_text = "".join([f"\n- {choice}" for choice in preamble_choices])
+
+            instructions = f"""\
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
 
 Example preamble messages:
-- "Hey there!"
-- "Just a moment."
-- "Hello."
-- "Sorry to hear that."
-- "Definitely."
-- "Let me check that for you."
+{preamble_choices_text}
 etc.
 
 Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
 We leave that later response to another agent. Make sure you understand this.
 
 You must generate the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string.
+"""
+        else:
+            preamble_utterances = [
+                u
+                for u in await self._entity_queries.find_utterances_for_context(
+                    agent_id=agent.id,
+                    journeys=journeys,
+                )
+                if Tag.preamble() in u.tags
+            ]
+
+            # LLMs are usually biased toward the last choices, so we shuffle the list.
+            shuffle(preamble_utterances)
+
+            preamble_choices_text = "".join([f'\n- "{u.value}"' for u in preamble_utterances])
+
+            instructions = f"""\
+These are the preamble messages you can choose from. You must ONLY choose one of these: ###
+{preamble_choices_text}
+###
+
+Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
+We leave that later response to another agent. Make sure you understand this.
+
+Instructions:
+- Note that some of the choices are more generic, and some are more specific to a particular scenario.
+- If you're unsure what to choose --> prefer to go with a more generic, bland choice. This should be 80% of cases.
+  Examples of generic choices: "Hey there!", "Just a moment.", "Hello.", "Got it."
+- If you see clear value in saying something more specific and nuanced --> then go with a more specific choice. This should be 20% or less of cases.
+  Examples of specific choices: "Let me check that for you.", "Sorry to hear that.", "Thanks for your patience."
+
+You must now choose the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string,
+EXACTLY as it is given (pay attention to subtleties like punctuation and copy your choice EXACTLY as it is given above).
+"""
+
+        prompt_builder.add_section(
+            name="utterance-fluid-preamble-instructions",
+            template="""\
+You are an AI agent that is expected to generate a preamble message for the customer.
+
+The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble in order to save time.
+
+{composition_mode_specific_instructions}
 
 You will now be given the current state of the interaction to which you must generate the next preamble message.
 """,
-            props={},
+            props={
+                "composition_mode_specific_instructions": instructions,
+                "composition_mode": agent.composition_mode,
+                "preamble_choices": preamble_choices,
+            },
         )
 
         prompt_builder.add_interaction_history(interaction_history)
@@ -520,6 +573,13 @@ You will now be given the current state of the interaction to which you must gen
         self._logger.trace(
             f"Utterance Preamble Completion:\n{response.content.model_dump_json(indent=2)}"
         )
+
+        if agent.composition_mode == CompositionMode.STRICT_UTTERANCE:
+            if response.content.preamble not in [u.value for u in preamble_utterances]:
+                self._logger.error(
+                    f"Selected preamble '{response.content.preamble}' is not in the list of available preamble utterances."
+                )
+                return []
 
         emitted_event = await event_emitter.emit_message_event(
             correlation_id=f"{self._correlator.correlation_id}.preamble",
@@ -551,49 +611,36 @@ You will now be given the current state of the interaction to which you must gen
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
-            try:
-                with self._logger.scope("UtteranceSelector"):
-                    with self._logger.operation("Utterance selection and rendering"):
-                        return await self._do_generate_events(
-                            event_emitter=event_emitter,
-                            agent=agent,
-                            customer=customer,
-                            context_variables=context_variables,
-                            interaction_history=interaction_history,
-                            terms=terms,
-                            ordinary_guideline_matches=ordinary_guideline_matches,
-                            journeys=journeys,
-                            capabilities=capabilities,
-                            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-                            tool_insights=tool_insights,
-                            staged_events=staged_events,
-                            latch=latch,
-                        )
-            except FluidUtteranceFallback:
-                return await self._message_generator.generate_response(
-                    event_emitter,
-                    agent,
-                    customer,
-                    context_variables,
-                    interaction_history,
-                    terms,
-                    capabilities,
-                    ordinary_guideline_matches,
-                    tool_enabled_guideline_matches,
-                    journeys,
-                    tool_insights,
-                    staged_events,
-                    latch,
-                )
+            with self._logger.scope("UtteranceSelector"):
+                with self._logger.operation("Utterance selection and rendering"):
+                    return await self._do_generate_events(
+                        event_emitter=event_emitter,
+                        agent=agent,
+                        customer=customer,
+                        context_variables=context_variables,
+                        interaction_history=interaction_history,
+                        terms=terms,
+                        ordinary_guideline_matches=ordinary_guideline_matches,
+                        journeys=journeys,
+                        capabilities=capabilities,
+                        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+                        tool_insights=tool_insights,
+                        staged_events=staged_events,
+                        latch=latch,
+                    )
 
     async def _get_relevant_utterances(
         self,
         context: UtteranceContext,
     ) -> list[Utterance]:
-        stored_utterances = await self._entity_queries.find_utterances_for_context(
-            agent_id=context.agent.id,
-            journeys=context.journeys,
-        )
+        stored_utterances = [
+            u
+            for u in await self._entity_queries.find_utterances_for_context(
+                agent_id=context.agent.id,
+                journeys=context.journeys,
+            )
+            if Tag.preamble() not in u.tags
+        ]
 
         # Add utterances from staged tool events (transient)
         utterances_by_staged_event: list[Utterance] = []
@@ -693,10 +740,6 @@ You will now be given the current state of the interaction to which you must gen
 
         utterances = await self._get_relevant_utterances(context)
 
-        if not utterances and agent.composition_mode == CompositionMode.FLUID_UTTERANCE:
-            self._logger.warning("No utterances found; falling back to fluid generation")
-            raise FluidUtteranceFallback()
-
         generation_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
                 hints={"type": "utterance-selection"}
@@ -787,8 +830,6 @@ You will now be given the current state of the interaction to which you must gen
                 else:
                     self._logger.debug("Skipping response; no response deemed necessary")
                     return [MessageEventComposition(generation_info, [])]
-            except FluidUtteranceFallback:
-                raise
             except Exception as exc:
                 self._logger.warning(
                     f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -1264,8 +1305,7 @@ Output a JSON object with three properties:
         )
 
         direct_draft_output_mode = (
-            not utterances
-            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
+            not utterances and context.agent.composition_mode != CompositionMode.STRICT_UTTERANCE
         )
 
         # Step 1: Generate the draft message
@@ -1334,12 +1374,11 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        rendered_utterances = []
+        rendered_utterances: list[tuple[UtteranceId, str]] = []
 
         for u in top_relevant_utterances:
             try:
-                rendered_utterance = await self._render_utterance(context, u.value)
-                rendered_utterances.append((u.id, rendered_utterance))
+                rendered_utterances.append((u.id, await self._render_utterance(context, u.value)))
             except Exception as exc:
                 self._logger.error(
                     f"Failed to pre-render utterance for matching '{u.id}' ('{u.value}')"
@@ -1361,11 +1400,14 @@ Output a JSON object with three properties:
         )
 
         # Step 5: Respond based on the match quality
+
+        # Step 5.1: Assuming no match or a low-quality match
         if (
             selection_response.content.match_quality not in ["partial", "high"]
             or not selection_response.content.chosen_template_id
         ):
             if composition_mode == CompositionMode.STRICT_UTTERANCE:
+                # Return a no-match message
                 self._logger.warning(
                     "Failed to find relevant utterances. Please review utterance selection prompt and completion."
                 )
@@ -1375,6 +1417,7 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
             else:
+                # Return the draft message as the response
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
@@ -1384,10 +1427,12 @@ Output a JSON object with three properties:
                     utterances=[],
                 )
 
+        # Step 5.2: Assuming a partial match in non-strict mode
         if (
             selection_response.content.match_quality == "partial"
-            and composition_mode == CompositionMode.FLUID_UTTERANCE
+            and composition_mode != CompositionMode.STRICT_UTTERANCE
         ):
+            # Return the draft message as the response
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
@@ -1397,11 +1442,14 @@ Output a JSON object with three properties:
                 utterances=[],
             )
 
+        # Step 5.3: Assuming a high-quality match or a partial match in strict mode
         utterance_id = UtteranceId(selection_response.content.chosen_template_id)
+        rendered_utterance = next(
+            (value for uid, value in rendered_utterances if uid == utterance_id),
+            None,
+        )
 
-        utterance = next((u.value for u in utterances if u.id == utterance_id), None)
-
-        if not utterance:
+        if not rendered_utterance:
             self._logger.error(
                 "Invalid utterance ID choice. Please review utterance selection prompt and completion."
             )
@@ -1411,47 +1459,14 @@ Output a JSON object with three properties:
                 "selection": selection_response.info,
             }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
 
-        try:
-            rendered_utterance = await self._render_utterance(context, utterance)
-        except Exception as exc:
-            self._logger.error(f"Failed to render utterance '{utterance_id}' ('{utterance}')")
-            self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
-
-            return {
-                "draft": draft_response.info,
-                "selection": selection_response.info,
-            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
-
-        match composition_mode:
-            case CompositionMode.COMPOSITED_UTTERANCE if (
-                selection_response.content.match_quality != "high" and False
-            ):
-                recomposition_generation_info, recomposed_utterance = await self._recompose(
-                    context,
-                    draft_response.content.response_body,
-                    rendered_utterance,
-                )
-
-                return {
-                    "draft": draft_response.info,
-                    "selection": selection_response.info,
-                    "composition": recomposition_generation_info,
-                }, _UtteranceSelectionResult(
-                    message=recomposed_utterance,
-                    draft=draft_response.content.response_body,
-                    utterances=[(utterance_id, utterance)],
-                )
-            case _:
-                return {
-                    "draft": draft_response.info,
-                    "selection": selection_response.info,
-                }, _UtteranceSelectionResult(
-                    message=rendered_utterance,
-                    draft=draft_response.content.response_body,
-                    utterances=[(utterance_id, utterance)],
-                )
-
-        raise Exception("Unsupported composition mode")
+        return {
+            "draft": draft_response.info,
+            "selection": selection_response.info,
+        }, _UtteranceSelectionResult(
+            message=rendered_utterance,
+            draft=draft_response.content.response_body,
+            utterances=[(utterance_id, rendered_utterance)],
+        )
 
     async def _render_utterance(self, context: UtteranceContext, utterance: str) -> str:
         args = {}

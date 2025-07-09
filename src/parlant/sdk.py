@@ -304,7 +304,7 @@ class _CachedEvaluator:
             )
 
 
-class _PicoAgentStore(AgentStore):
+class _SdkAgentStore(AgentStore):
     """This is a minimal in-memory implementation of AgentStore for SDK purposes.
     The reason we use this and not any of the other implementations is that it
     uses the agent's name as the ID, which is convenient for SDK usage.
@@ -1383,7 +1383,7 @@ class Server:
         async def override_stores_with_transient_versions(c: Container) -> None:
             c[NLPService] = self._nlp_service_func(c)
 
-            c[AgentStore] = _PicoAgentStore()
+            c[AgentStore] = _SdkAgentStore()
 
             for interface, implementation in [
                 (ContextVariableStore, ContextVariableDocumentStore),

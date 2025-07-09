@@ -113,6 +113,8 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
+                    with open("output_observational.txt", "a") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
                     matches = []
 
                     for match in inference.content.checks:
@@ -211,7 +213,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             {
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
-                "rationale": "<Explanation for why the condition is or isn't met>",
+                "rationale": "<Explanation for why the condition is or isn't met based on recent interaction>",
                 "applies": "<BOOL>",
             }
             for i, g in self._guidelines.items()
@@ -240,15 +242,11 @@ Task Description
 ----------------
 Your task is to evaluate whether each provided condition applies to the current interaction between an AI agent and a user. For each condition, you must determine a binary True/False decision.
 
-Application Rules:
-1. Historical Relevance: Generally, mark a condition as applicable (YES) if it has been satisfied at ANY point during the conversation history, even if not in the most recent messages.
+Evaluation Criteria
 
-2. Temporal Qualifiers: If a condition contains explicit temporal qualifiers (e.g., "currently discussing," "in the process of," "actively seeking"), evaluate only against the CURRENT state of the conversation.
-
-Example:
-- Condition: "the customer is planning a special occasion dinner"
-- Mark as YES if: The user mentions celebrating an anniversary, birthday, graduation, or other special event; asks for restaurant recommendations for a "special night"; discusses making reservations for a celebration; or inquires about upscale dining options for an important date.
-- Mark as NO if: The user is discussing everyday meal planning, looking for quick casual dining options, or has given no indication of planning any special event-related dining.
+- Current State Focus: Conditions are evaluated based on the most recent messages in the conversation
+- Topic Continuity: If the conversation is still within the same general topic or context as the condition, it should be considered applicable (True), even if the specific details have evolved
+- Temporal Relevance: If a user previously discussed something that triggered a condition but the conversation has moved to a completely different topic or context, mark the condition as NOT applicable (False)
 
 The exact format of your response will be provided later in this prompt.
 
@@ -454,7 +452,7 @@ example_1_guidelines = [
         action=None,
     ),
     GuidelineContent(
-        condition="our pro plan was discussed or mentioned",
+        condition="our pro plan is discussed or mentioned",
         action=None,
     ),
 ]
@@ -464,20 +462,20 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer is a senior citizen",
-            rationale="there is no indication regarding the customer's age.",
+            rationale="There is no indication regarding the customer's age.",
             applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about data security",
-            rationale="The customer specifically inquired about data security policies.",
+            rationale="The customer asks who can see the account, which is related to data security.",
             applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="our pro plan was discussed or mentioned",
-            rationale="The customer asked to subscribe to the pro plan",
-            applies=True,
+            condition="our pro plan is discussed",
+            rationale="The conversation moved from pro plan subscription to data security, so it is no longer applicable.",
+            applies=False,
         ),
     ]
 )
@@ -539,6 +537,10 @@ example_2_guidelines = [
         condition="the conversation is currently about peanut allergies",
         action=None,
     ),
+    GuidelineContent(
+        condition="the conversation is about recipe recommendations",
+        action=None,
+    ),
 ]
 
 example_2_expected = GenericObservationalGuidelineMatchesSchema(
@@ -546,8 +548,8 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="food allergies are discussed",
-            rationale="nut allergies were discussed earlier in the interaction",
-            applies=True,
+            rationale="Nut allergies were discussed earlier and the conversation moved to preferred ingredients.",
+            applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
@@ -558,8 +560,14 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the conversation is currently about peanut allergies",
-            rationale="peanut allergies were discussed, but the conversation has moved on from the subject",
+            rationale="Peanut allergies were discussed, but the conversation has moved on from the subject so the condition no longer applies.",
             applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the conversation is about recipe recommendations",
+            rationale="The conversation is about preferred foods, which is within the topic of recipe recommendations.",
+            applies=True,
         ),
     ]
 )

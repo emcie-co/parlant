@@ -40,6 +40,10 @@ class Tag:
     name: str
 
     @staticmethod
+    def preamble() -> TagId:
+        return TagId("__preamble__")
+
+    @staticmethod
     def for_agent_id(agent_id: str) -> TagId:
         return TagId(f"agent:{agent_id}")
 

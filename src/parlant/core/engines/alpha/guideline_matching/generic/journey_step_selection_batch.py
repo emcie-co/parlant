@@ -170,7 +170,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._previous_path: Sequence[str | None] = journey_path
         self._journey_conditions: Sequence[str] = journey_conditions
 
-    def _build_journey_steps(  # TODO rewrite entirely
+    def _build_journey_steps(  # TODO rewrite entirely, make static (non class method)
         self,
     ) -> dict[str, _JourneyStepWrapper]:
         journey_steps_dict: dict[str, _JourneyStepWrapper] = {

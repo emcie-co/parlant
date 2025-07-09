@@ -369,6 +369,10 @@ class _PicoAgentStore(AgentStore):
 
 @dataclass(frozen=True)
 class Tag:
+    @staticmethod
+    def preamble() -> TagId:
+        return _Tag.preamble()
+
     id: TagId
     name: str
 
@@ -958,7 +962,7 @@ class Agent:
     ) -> UtteranceId:
         utterance = await self._container[UtteranceStore].create_utterance(
             value=template,
-            tags=tags,
+            tags=[_Tag.for_agent_id(self.id), *tags],
             fields=[],
             queries=queries,
         )

@@ -560,7 +560,7 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the conversation is currently about peanut allergies",
-            rationale="Peanut allergies were discussed, but the conversation has moved on from the subject so the condition no longer applies.",
+            rationale="Peanut allergies were discussed, but the conversation has moved on from the subject so the it no longer applies.",
             applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(

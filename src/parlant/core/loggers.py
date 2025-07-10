@@ -162,6 +162,9 @@ class CorrelationalLogger(Logger):
 
     @override
     def trace(self, message: str) -> None:
+        if self.log_level != LogLevel.TRACE:
+            return
+
         self._logger.debug(
             f"TRACE {self._add_correlation_id_and_scopes(message)}",
         )

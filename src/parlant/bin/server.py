@@ -151,7 +151,13 @@ from parlant.core.guidelines import (
     GuidelineStore,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory
+from parlant.core.nlp.embedding import (
+    BasicEmbeddingCache,
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCache,
+    NullEmbeddingCache,
+)
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.tools.service_registry import (
     ServiceRegistry,
@@ -571,6 +577,18 @@ async def initialize_container(
 
         shared_chroma_db: VectorDatabase | None = None
 
+        if c[OptimizationPolicy].use_embedding_cache():
+            c[EmbeddingCache] = BasicEmbeddingCache(
+                await EXIT_STACK.enter_async_context(
+                    JSONFileDocumentDatabase(
+                        c[Logger],
+                        PARLANT_HOME_DIR / "cache_embeddings.json",
+                    )
+                )
+            )
+        else:
+            c[EmbeddingCache] = NullEmbeddingCache()
+
         async def get_shared_chroma_db() -> VectorDatabase:
             nonlocal shared_chroma_db
             if shared_chroma_db is None:
@@ -581,6 +599,7 @@ async def initialize_container(
                         c[Logger],
                         PARLANT_HOME_DIR,
                         embedder_factory,
+                        lambda: c[EmbeddingCache],
                     ),
                 )
             return cast(VectorDatabase, shared_chroma_db)

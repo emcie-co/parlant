@@ -67,7 +67,12 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
 )
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, EmbeddingResult
+from parlant.core.nlp.embedding import (
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCache,
+    EmbeddingResult,
+)
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -222,7 +227,7 @@ class _CachedEvaluator:
             # Check if the cached evaluation is based on our current runtime version.
             # This is important as the required evaluation data can change between versions.
             if cached_evaluation["version"] == VERSION:
-                self._logger.info(
+                self._logger.trace(
                     f"Using cached evaluation for guideline: Condition: {g.condition or 'None'}; Action: {g.action or 'None'}"
                 )
 
@@ -1380,10 +1385,10 @@ class Server:
         )
 
     def _get_startup_params(self) -> StartupParameters:
-        async def override_stores_with_transient_versions(c: Container) -> None:
-            c[NLPService] = self._nlp_service_func(c)
+        async def override_stores_with_transient_versions(c: Callable[[], Container]) -> None:
+            c()[NLPService] = self._nlp_service_func(c())
 
-            c[AgentStore] = _SdkAgentStore()
+            c()[AgentStore] = _SdkAgentStore()
 
             for interface, implementation in [
                 (ContextVariableStore, ContextVariableDocumentStore),
@@ -1394,7 +1399,7 @@ class Server:
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
-                c[interface] = await self._exit_stack.enter_async_context(
+                c()[interface] = await self._exit_stack.enter_async_context(
                     implementation(TransientDocumentDatabase())  #  type: ignore
                 )
 
@@ -1407,15 +1412,15 @@ class Server:
             def make_json_db(file_path: Path) -> Awaitable[DocumentDatabase]:
                 return self._exit_stack.enter_async_context(
                     JSONFileDocumentDatabase(
-                        c[Logger],
+                        c()[Logger],
                         file_path,
                     ),
                 )
 
             if isinstance(self._session_store, SessionStore):
-                c[SessionStore] = self._session_store
+                c()[SessionStore] = self._session_store
             else:
-                c[SessionStore] = await self._exit_stack.enter_async_context(
+                c()[SessionStore] = await self._exit_stack.enter_async_context(
                     SessionDocumentStore(
                         await cast(
                             dict[str, Callable[[], Awaitable[DocumentDatabase]]],
@@ -1427,71 +1432,92 @@ class Server:
                     )
                 )
 
-            c[ServiceRegistry] = await self._exit_stack.enter_async_context(
+            c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(
                     database=TransientDocumentDatabase(),
-                    event_emitter_factory=c[EventEmitterFactory],
-                    logger=c[Logger],
-                    correlator=c[ContextualCorrelator],
-                    nlp_services_provider=lambda: {"__nlp__": c[NLPService]},
+                    event_emitter_factory=c()[EventEmitterFactory],
+                    logger=c()[Logger],
+                    correlator=c()[ContextualCorrelator],
+                    nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
                     allow_migration=False,
                 )
             )
 
-            embedder_factory = EmbedderFactory(c)
+            embedder_factory = EmbedderFactory(c())
 
             async def get_embedder_type() -> type[Embedder]:
-                return type(await c[NLPService].get_embedder())
+                return type(await c()[NLPService].get_embedder())
 
-            c[GlossaryStore] = await self._exit_stack.enter_async_context(
+            c()[GlossaryStore] = await self._exit_stack.enter_async_context(
                 GlossaryVectorStore(
-                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    vector_db=TransientVectorDatabase(
+                        c()[Logger],
+                        embedder_factory,
+                        lambda: c()[EmbeddingCache],
+                    ),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,
                     embedder_type_provider=get_embedder_type,
                 )
             )
 
-            c[UtteranceStore] = await self._exit_stack.enter_async_context(
+            c()[UtteranceStore] = await self._exit_stack.enter_async_context(
                 UtteranceVectorStore(
-                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    vector_db=TransientVectorDatabase(
+                        c()[Logger],
+                        embedder_factory,
+                        lambda: c()[EmbeddingCache],
+                    ),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,
                     embedder_type_provider=get_embedder_type,
                 )
             )
 
-            c[CapabilityStore] = await self._exit_stack.enter_async_context(
+            c()[CapabilityStore] = await self._exit_stack.enter_async_context(
                 CapabilityVectorStore(
-                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    vector_db=TransientVectorDatabase(
+                        c()[Logger],
+                        embedder_factory,
+                        lambda: c()[EmbeddingCache],
+                    ),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,
                     embedder_type_provider=get_embedder_type,
                 )
             )
 
-            c[JourneyStore] = await self._exit_stack.enter_async_context(
+            c()[JourneyStore] = await self._exit_stack.enter_async_context(
                 JourneyVectorStore(
-                    vector_db=TransientVectorDatabase(c[Logger], embedder_factory),
+                    vector_db=TransientVectorDatabase(
+                        c()[Logger],
+                        embedder_factory,
+                        lambda: c()[EmbeddingCache],
+                    ),
                     document_db=TransientDocumentDatabase(),
                     embedder_factory=embedder_factory,
                     embedder_type_provider=get_embedder_type,
                 )
             )
 
-            c[Application] = lambda rc: Application(rc)
+            c()[Application] = lambda rc: Application(rc)
 
         async def configure(c: Container) -> Container:
-            await override_stores_with_transient_versions(c)
+            latest_container = c
+
+            def get_latest_container() -> Container:
+                return latest_container
+
+            await override_stores_with_transient_versions(get_latest_container)
 
             if self._configure_container:
-                c = await self._configure_container(c.clone())
+                latest_container = await self._configure_container(latest_container.clone())
 
             if self._configure_hooks:
                 hooks = await self._configure_hooks(c[EngineHooks])
-                c[EngineHooks] = hooks
+                latest_container[EngineHooks] = hooks
 
-            return c
+            return latest_container
 
         async def async_nlp_service_shim(c: Container) -> NLPService:
             return c[NLPService]

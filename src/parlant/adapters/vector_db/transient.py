@@ -54,7 +54,12 @@ logging.getLogger = orig_getLogger
 # Back to business
 
 from parlant.core.common import JSONSerializable
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory
+from parlant.core.nlp.embedding import (
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCache,
+    EmbeddingCacheProvider,
+)
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ensure_is_total, matches_filters, Where
 from parlant.core.persistence.vector_database import (
@@ -74,9 +79,11 @@ class TransientVectorDatabase(VectorDatabase):
         self,
         logger: Logger,
         embedder_factory: EmbedderFactory,
+        embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
         self._embedder_factory = embedder_factory
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._databases: dict[str, nano_vectordb.NanoVectorDB] = {}
         self._collections: dict[str, TransientVectorCollection[BaseDocument]] = {}
@@ -102,6 +109,7 @@ class TransientVectorDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=embedder,
+            embedding_cache_provider=self._embedding_cache_provider,
         )
 
         return cast(TransientVectorCollection[TDocument], self._collections[name])
@@ -141,6 +149,7 @@ class TransientVectorDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=self._embedder_factory.create_embedder(embedder_type),
+            embedding_cache_provider=self._embedding_cache_provider,
         )
 
         return cast(TransientVectorCollection[TDocument], self._collections[name])
@@ -185,11 +194,13 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
         name: str,
         schema: type[TDocument],
         embedder: Embedder,
+        embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
         self._name = name
         self._schema = schema
         self._embedder = embedder
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._lock = asyncio.Lock()
         self._nano_db = nano_db
@@ -236,7 +247,19 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
     ) -> InsertResult:
         ensure_is_total(document, self._schema)
 
-        embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+        if e := await self._embedding_cache_provider().get(
+            embedder_type=type(self._embedder),
+            texts=[document["content"]],
+        ):
+            embeddings = list(e.vectors)
+        else:
+            embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+            await self._embedding_cache_provider().set(
+                embedder_type=type(self._embedder),
+                texts=[document["content"]],
+                vectors=embeddings,
+            )
+
         vector = np.array(embeddings[0], dtype=np.float32)
 
         data = {**document, "__id__": document["id"], "__vector__": vector}
@@ -258,9 +281,22 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             for i, doc in enumerate(self._documents):
                 if matches_filters(filters, doc):
                     if "content" in params:
-                        embeddings = list((await self._embedder.embed([params["content"]])).vectors)
+                        content = params["content"]
                     else:
-                        embeddings = list((await self._embedder.embed([doc["content"]])).vectors)
+                        content = str(doc["content"])
+
+                    if e := await self._embedding_cache_provider().get(
+                        embedder_type=type(self._embedder),
+                        texts=[content],
+                    ):
+                        embeddings = list(e.vectors)
+                    else:
+                        embeddings = list((await self._embedder.embed([content])).vectors)
+                        await self._embedding_cache_provider().set(
+                            embedder_type=type(self._embedder),
+                            texts=[content],
+                            vectors=embeddings,
+                        )
 
                     vector = np.array(embeddings[0], dtype=np.float32)
                     data = {**params, "__id__": doc["id"], "__vector__": vector}

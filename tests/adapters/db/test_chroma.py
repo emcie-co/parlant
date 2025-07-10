@@ -28,7 +28,7 @@ from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import Version, md5_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
@@ -95,6 +95,7 @@ def create_database(context: _TestContext) -> ChromaDatabase:
         logger=context.container[Logger],
         dir_path=context.home_dir,
         embedder_factory=EmbedderFactory(context.container),
+        embedding_cache_provider=NullEmbeddingCache,
     )
 
 
@@ -364,7 +365,10 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
 
     with tempfile.TemporaryDirectory() as temp_dir:
         async with ChromaDatabase(
-            container[Logger], Path(temp_dir), EmbedderFactory(container)
+            container[Logger],
+            Path(temp_dir),
+            EmbedderFactory(container),
+            embedding_cache_provider=NullEmbeddingCache,
         ) as chroma_db:
             async with GlossaryVectorStore(
                 vector_db=chroma_db,

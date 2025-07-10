@@ -745,6 +745,7 @@ class JourneyVectorStore(JourneyStore):
 
         async with self._lock.reader_lock:
             queries = await query_chunks(query, self._embedder)
+
             filters: Where = {"id": {"$in": [str(j.id) for j in available_journeys]}}
 
             tasks = [

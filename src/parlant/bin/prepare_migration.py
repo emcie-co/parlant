@@ -76,7 +76,7 @@ from parlant.core.guidelines import (
     GuidelineDocument_v0_1_0,
 )
 from parlant.core.loggers import LogLevel, StdoutLogger
-from parlant.core.nlp.embedding import EmbedderFactory
+from parlant.core.nlp.embedding import EmbedderFactory, NullEmbeddingCache
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -198,7 +198,12 @@ async def get_component_versions() -> list[tuple[str, str]]:
 
     embedder_factory = EmbedderFactory(Container())
     chroma_db = await EXIT_STACK.enter_async_context(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
     )
     with suppress(chromadb.errors.InvalidCollectionException):
         if chroma_db.chroma_client.get_collection("glossary_unembedded"):
@@ -331,7 +336,12 @@ async def migrate_glossary_with_metadata() -> None:
         embedder_factory = EmbedderFactory(Container())
 
         db = await EXIT_STACK.enter_async_context(
-            ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+            ChromaDatabase(
+                LOGGER,
+                PARLANT_HOME_DIR,
+                embedder_factory,
+                embedding_cache_provider=NullEmbeddingCache,
+            )
         )
 
         try:
@@ -662,7 +672,12 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
     embedder_factory = EmbedderFactory(Container())
 
     db = await EXIT_STACK.enter_async_context(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
     )
 
     glossary_tags_db = await EXIT_STACK.enter_async_context(
@@ -765,7 +780,12 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
     )
 
     db = await EXIT_STACK.enter_async_context(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
     )
 
     utterance_tags_db = await EXIT_STACK.enter_async_context(
@@ -881,7 +901,12 @@ async def migrate_journeys_0_1_0_to_0_2_0() -> None:
     )
 
     db = await EXIT_STACK.enter_async_context(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
     )
 
     journey_associations_db = await EXIT_STACK.enter_async_context(
@@ -1230,7 +1255,12 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
     embedder_factory = EmbedderFactory(Container())
 
     db = await EXIT_STACK.enter_async_context(
-        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
     )
 
     journey_associations_db = await EXIT_STACK.enter_async_context(

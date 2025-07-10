@@ -22,6 +22,7 @@ from lagom import Container, Singleton
 from pytest import fixture, Config
 import pytest
 
+from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
@@ -127,7 +128,13 @@ from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionSchema,
 )
 from parlant.core.utterances import UtteranceStore, UtteranceVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory
+from parlant.core.nlp.embedding import (
+    BasicEmbeddingCache,
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCache,
+    NullEmbeddingCache,
+)
 from parlant.core.nlp.generation import T, SchematicGenerator
 from parlant.core.relationships import (
     RelationshipDocumentStore,
@@ -197,6 +204,7 @@ from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.core.tools import LocalToolService
 
 from .test_utilities import (
+    GLOBAL_EMBEDDER_CACHE_FILE,
     CachedSchematicGenerator,
     JournalingEngineHooks,
     SchematicGenerationResultDocument,
@@ -230,7 +238,9 @@ def logger(correlator: ContextualCorrelator) -> Logger:
 @dataclass(frozen=True)
 class CacheOptions:
     cache_enabled: bool
-    cache_collection: DocumentCollection[SchematicGenerationResultDocument] | None
+    cache_schematic_generation_collection: (
+        DocumentCollection[SchematicGenerationResultDocument] | None
+    )
 
 
 @fixture
@@ -240,10 +250,20 @@ async def cache_options(
 ) -> AsyncIterator[CacheOptions]:
     if not request.config.getoption("no_cache", True):
         logger.warning("*** Cache is enabled")
-        async with create_schematic_generation_result_collection(logger=logger) as collection:
-            yield CacheOptions(cache_enabled=True, cache_collection=collection)
+
+        async with (
+            create_schematic_generation_result_collection(logger=logger) as schematic_collection,
+        ):
+            yield CacheOptions(
+                cache_enabled=True,
+                cache_schematic_generation_collection=schematic_collection,
+            )
+
     else:
-        yield CacheOptions(cache_enabled=False, cache_collection=None)
+        yield CacheOptions(
+            cache_enabled=False,
+            cache_schematic_generation_collection=None,
+        )
 
 
 @fixture
@@ -264,11 +284,11 @@ async def make_schematic_generator(
     base_generator = await container[NLPService].get_schematic_generator(schema)
 
     if cache_options.cache_enabled:
-        assert cache_options.cache_collection
+        assert cache_options.cache_schematic_generation_collection
 
         return CachedSchematicGenerator[T](
             base_generator=base_generator,
-            collection=cache_options.cache_collection,
+            collection=cache_options.cache_schematic_generation_collection,
             use_cache=True,
         )
     else:
@@ -345,9 +365,20 @@ async def container(
 
         embedder_factory = EmbedderFactory(container)
 
+        if cache_options.cache_enabled:
+            embedding_cache: EmbeddingCache = BasicEmbeddingCache(
+                document_database=await stack.enter_async_context(
+                    JSONFileDocumentDatabase(logger, GLOBAL_EMBEDDER_CACHE_FILE),
+                )
+            )
+        else:
+            embedding_cache = NullEmbeddingCache()
+
         container[JourneyStore] = await stack.enter_async_context(
             JourneyVectorStore(
-                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                vector_db=TransientVectorDatabase(
+                    container[Logger], embedder_factory, lambda: embedding_cache
+                ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
                 embedder_type_provider=get_embedder_type,
@@ -356,7 +387,9 @@ async def container(
 
         container[GlossaryStore] = await stack.enter_async_context(
             GlossaryVectorStore(
-                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                vector_db=TransientVectorDatabase(
+                    container[Logger], embedder_factory, lambda: embedding_cache
+                ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
                 embedder_type_provider=get_embedder_type,
@@ -365,7 +398,9 @@ async def container(
 
         container[UtteranceStore] = await stack.enter_async_context(
             UtteranceVectorStore(
-                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                vector_db=TransientVectorDatabase(
+                    container[Logger], embedder_factory, lambda: embedding_cache
+                ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
                 embedder_type_provider=get_embedder_type,
@@ -374,7 +409,9 @@ async def container(
 
         container[CapabilityStore] = await stack.enter_async_context(
             CapabilityVectorStore(
-                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                vector_db=TransientVectorDatabase(
+                    container[Logger], embedder_factory, lambda: embedding_cache
+                ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
                 embedder_type_provider=get_embedder_type,

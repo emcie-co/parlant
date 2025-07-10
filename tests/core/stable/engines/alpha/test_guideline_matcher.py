@@ -136,11 +136,23 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "reset_password": {
-        "condition": "The customer wants to reset their password",
+        "condition": "The customer currently wants to reset their password",
         "observation": "-",
     },
     "lost_card": {
         "condition": "The customer said that they lost their card",
+        "observation": "-",
+    },
+    "business_class": {
+        "condition": "The customer is currently saying that they want a business class",
+        "observation": "-",
+    },
+    "book_flight": {
+        "condition": "The customer wants to book a flight",
+        "observation": "-",
+    },
+    "book_flight_2": {
+        "condition": "The conversation is about flight booking",
         "observation": "-",
     },
 }
@@ -2182,8 +2194,8 @@ async def test_that_observational_guidelines_are_matched_based_on_old_messages(
             "I'll email the Technology Sector Fund prospectus to the address we have on file for you. Regarding cryptocurrency, our bank recently launched a Cryptocurrency Investment Platform that allows you to invest in major cryptocurrencies like Bitcoin and Ethereum. This platform requires a minimum investment of $500 and includes educational resources to help you understand this asset class. We also offer a Cryptocurrency Index Fund that provides diversified exposure across multiple digital currencies. Would you like information about either of these options?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["lock_card_request_2"]
-    relevant_guideline_names: list[str] = ["lock_card_request_2"]
+    conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
+    relevant_guideline_names: list[str] = ["lock_card_request_2", "lock_card_request_1"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -2273,63 +2285,108 @@ async def test_that_observational_guidelines_are_not_matched_based_when_topic_wa
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
-            "Hello, I need to lock my credit card immediately. I think I lost it.",
+            "Hey, I need to book a flight.",
         ),
         (
             EventSource.AI_AGENT,
-            "I'm sorry to hear about your lost card. I can help you lock it right away. Could you please verify the last four digits of the card you need to lock?",
+            "Sure! Can you please tell me your departure and destination airports?",
         ),
         (
             EventSource.CUSTOMER,
-            "It's 7890.",
+            "Flying from JFK to LAX.",
         ),
         (
             EventSource.AI_AGENT,
-            "Thank you for verifying. I've placed a temporary lock on your credit card ending in 7890. This will prevent any new purchases, cash advances, or balance transfers. The lock is effective immediately. Would you like me to order a replacement card for you as well?",
+            "Got it. What date would you like to travel?",
         ),
         (
             EventSource.CUSTOMER,
-            "Yes please, send it to my home address.",
+            "July 18th.",
         ),
         (
             EventSource.AI_AGENT,
-            "I've ordered a replacement card to be sent to your home address on file. You should receive it within 5-7 business days. Is there anything else I can assist you with regarding your card?",
+            "And would you prefer economy or business class?",
         ),
         (
             EventSource.CUSTOMER,
-            "That's all for the card. Actually, I've been thinking about investing. What stocks do you think I should buy?",
+            "Business class, please.",
         ),
         (
             EventSource.AI_AGENT,
-            "I understand you're interested in exploring investment opportunities. While I can't recommend specific stocks, I'd be happy to discuss our investment services. We offer managed portfolios, self-directed trading accounts, and retirement investment options. What are your investment goals? Are you looking for long-term growth, income generation, or something else?",
+            "Perfect. Lastly, can I have the name of the traveler?",
         ),
         (
             EventSource.CUSTOMER,
-            "I'm mostly interested in tech stocks for long-term growth.",
+            "Jennifer Morales.",
         ),
         (
             EventSource.AI_AGENT,
-            "Long-term growth in the technology sector is a popular investment strategy. Our bank offers several ways to invest in technology. You could consider our Technology Sector Fund which provides diversified exposure to various tech companies, or our self-directed trading platform if you prefer selecting individual stocks. Would you like me to connect you with one of our investment advisors who can provide more detailed information based on your specific financial situation?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "How much would I need to start with the Technology Sector Fund?",
+            "Thanks, Jennifer. I’ll go ahead and book your business class flight from JFK to LAX on July 18th.",
         ),
         (
             EventSource.AI_AGENT,
-            "Our Technology Sector Fund has a minimum initial investment of $1,000. After that, you can make additional investments of $100 or more at any time. The fund has an expense ratio of 0.85%, which is competitive for actively managed sector funds. Would you like me to send you our fund prospectus with more detailed information about historical performance and holdings?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "Yes, please email me the prospectus. And what about cryptocurrency investments?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "I'll email the Technology Sector Fund prospectus to the address we have on file for you. Regarding cryptocurrency, our bank recently launched a Cryptocurrency Investment Platform that allows you to invest in major cryptocurrencies like Bitcoin and Ethereum. This platform requires a minimum investment of $500 and includes educational resources to help you understand this asset class. We also offer a Cryptocurrency Index Fund that provides diversified exposure across multiple digital currencies. Would you like information about either of these options?",
+            "Your flight has been booked! A confirmation has been sent to your email.",
         ),
     ]
-    conversation_guideline_names: list[str] = ["lock_card_request_1", "lost_card"]
+    conversation_guideline_names: list[str] = ["business_class"]
     relevant_guideline_names: list[str] = []
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        new_session.id,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+async def test_that_observational_guidelines_are_matched_when_conversation_is_on_sub_topic(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, I need to book a flight.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure! Can you please tell me your departure and destination airports?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Flying from JFK to LAX.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it. What date would you like to travel?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "July 18th.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "And would you prefer economy or business class?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Business class, please.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Perfect. Lastly, can I have the name of the traveler?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Jennifer Morales.",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["book_flight", "book_flight_2"]
+    relevant_guideline_names: list[str] = ["book_flight", "book_flight_2"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,

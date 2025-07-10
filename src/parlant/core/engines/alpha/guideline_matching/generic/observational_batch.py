@@ -242,11 +242,21 @@ Task Description
 ----------------
 Your task is to evaluate whether each provided condition applies to the current interaction between an AI agent and a user. For each condition, you must determine a binary True/False decision.
 
-Evaluation Criteria
+Evaluation Criteria:
+Evaluate each condition based on its natural meaning and context:
 
-- Current State Focus: Conditions are evaluated based on the most recent messages in the conversation
-- Topic Continuity: If the conversation is still within the same general topic or context as the condition, it should be considered applicable (True), even if the specific details have evolved
-- Temporal Relevance: If a user previously discussed something that triggered a condition but the conversation has moved to a completely different topic or context, mark the condition as NOT applicable (False)
+- Current Activity Or State: Conditions about what's happening "now" in the conversation (e.g., "the conversation is about X", "the user asks about Y") apply based on the most recent messages and current topic of discussion.
+- Historical Events: Conditions about things that happened during the interaction (e.g., "the user mentioned X", "the customer asked about Y") apply if the event occurred at any point in the conversation.
+- Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established, regardless of current discussion topic.
+
+When evaluating current activity or state you should:
+- Consider sub issues: Recognize that conversations often evolve naturally within related domains or explore connected subtopics—in these cases, broader thematic conditions may remain applicable.
+- Consider topic shifts: When a user previously discussed something that triggered a condition but the conversation has since moved to a different topic or context with no ongoing connection, mark the condition as not applicable.
+
+Key Considerations:
+- Use natural language intuition to interpret what each condition is actually asking about.
+- Ambiguous phrasing: When a condition's temporal scope is unclear, treat it as a historical event that remains True as long as it was relevant at some point in the interaction.
+
 
 The exact format of your response will be provided later in this prompt.
 
@@ -444,15 +454,15 @@ example_1_events = [
 
 example_1_guidelines = [
     GuidelineContent(
-        condition="the customer is a senior citizen.",
+        condition="The customer is a senior citizen.",
         action=None,
     ),
     GuidelineContent(
-        condition="the customer asks about data security",
+        condition="The customer asks about data security",
         action=None,
     ),
     GuidelineContent(
-        condition="our pro plan is discussed or mentioned",
+        condition="Our pro plan is discussed or mentioned",
         action=None,
     ),
 ]
@@ -473,8 +483,8 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="our pro plan is discussed",
-            rationale="The conversation moved from pro plan subscription to data security, so it is no longer applicable.",
+            condition="our pro plan is discussed or mentioned",
+            rationale="Pro plan subscription was discussed and the conversation moved to data security, so it is no longer applicable.",
             applies=False,
         ),
     ]
@@ -526,19 +536,19 @@ example_2_events = [
 
 example_2_guidelines = [
     GuidelineContent(
-        condition="food allergies are discussed",
+        condition="Food allergies are discussed",
         action=None,
     ),
     GuidelineContent(
-        condition="the customer is allergic to almonds",
+        condition="The customer is allergic to almonds",
         action=None,
     ),
     GuidelineContent(
-        condition="the conversation is currently about peanut allergies",
+        condition="The customer discusses peanut allergies",
         action=None,
     ),
     GuidelineContent(
-        condition="the conversation is about recipe recommendations",
+        condition="The conversation is about recipe recommendations",
         action=None,
     ),
 ]
@@ -547,31 +557,137 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="food allergies are discussed",
-            rationale="Nut allergies were discussed earlier and the conversation moved to preferred ingredients.",
-            applies=False,
+            condition="The customer discussed about food allergies",
+            rationale="Nut allergies were discussed earlier at the conversation",
+            applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer is allergic to almonds",
+            condition="The customer is allergic to almonds",
             rationale="While the customer has some nut allergies, we do not know if they are for almonds specifically",
             applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the conversation is currently about peanut allergies",
+            condition="The customer discusses peanut allergies",
             rationale="Peanut allergies were discussed, but the conversation has moved on from the subject so the it no longer applies.",
             applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the conversation is about recipe recommendations",
+            condition="The customer asks about recipe recommendation",
             rationale="The conversation is about preferred foods, which is within the topic of recipe recommendations.",
             applies=True,
         ),
     ]
 )
 
+example_3_events = [
+    _make_event("11", EventSource.CUSTOMER, "Hi, I'd like to place an order for delivery"),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Great! I'd be happy to help you with your order. What would you like to order today?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "I'm looking at your pizza menu. Do you have any vegetarian options?",
+    ),
+    _make_event(
+        "56",
+        EventSource.AI_AGENT,
+        "Absolutely! We have several vegetarian pizzas including Margherita, Veggie Supreme, and Mediterranean. We also have vegan cheese available.",
+    ),
+    _make_event(
+        "88",
+        EventSource.CUSTOMER,
+        "Perfect! I'll take a large Veggie Supreme pizza.",
+    ),
+    _make_event(
+        "90",
+        EventSource.CUSTOMER,
+        "Actually, I'm ordering for a party of 6. Do you have any combo deals or discounts for large orders?",
+    ),
+    _make_event(
+        "91",
+        EventSource.AI_AGENT,
+        "We do! For orders over $50, we offer 15% off. And we have a family deal - 3 large pizzas for $45. Would you like to add more pizzas?",
+    ),
+    _make_event(
+        "92",
+        EventSource.CUSTOMER,
+        "That family deal sounds great! Can I get two more large pizzas - one pepperoni and one Hawaiian?",
+    ),
+    _make_event(
+        "93",
+        EventSource.AI_AGENT,
+        "Perfect! So you'll have three large pizzas total with our family deal. Now, what's your delivery address?",
+    ),
+    _make_event(
+        "94",
+        EventSource.CUSTOMER,
+        "123 Oak Street, apartment 4B. How long will delivery take?",
+    ),
+]
+
+example_3_guidelines = [
+    GuidelineContent(
+        condition="the customer requested vegetarian options",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="the conversation is about dietary restrictions",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="the customer is ordering for multiple people",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="discounts are being discussed",
+        action=None,
+    ),
+    GuidelineContent(
+        condition="Delivery details are discussed",
+        action=None,
+    ),
+]
+
+example_3_expected = GenericObservationalGuidelineMatchesSchema(
+    checks=[
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer requests vegetarian options",
+            rationale="The customer asked about vegetarian options earlier in the conversation but now the conversation moved to delivery details.",
+            applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the conversation is about dietary restrictions",
+            rationale="The conversation has moved from dietary restrictions to delivery details, so it's currently not about dietary restrictions.",
+            applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer is ordering for multiple people",
+            rationale="The customer mentioned they are ordering for a party of 6 people.",
+            applies=True,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="discounts are being discussed",
+            rationale="Discounts and combo deals were mentioned, but the conversation has moved to delivery logistics.",
+            applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="Delivery details are discussed",
+            rationale="The most recent messages are about delivery address and timing, which are delivery details.",
+            applies=True,
+        ),
+    ]
+)
 
 _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
     GenericObservationalGuidelineMatchingShot(
@@ -585,6 +701,12 @@ _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
         interaction_events=example_2_events,
         guidelines=example_2_guidelines,
         expected_result=example_2_expected,
+    ),
+    GenericObservationalGuidelineMatchingShot(
+        description="",
+        interaction_events=example_3_events,
+        guidelines=example_3_guidelines,
+        expected_result=example_3_expected,
     ),
 ]
 

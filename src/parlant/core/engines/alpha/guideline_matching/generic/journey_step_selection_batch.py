@@ -26,26 +26,27 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
-
+EXIT_JOURNEY_INSTRUCTION = "EXIT JOURNEY, RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
 
 @dataclass
-class _JourneyFollowupWrapper(DefaultBaseModel):
-    target_id: str
-    condition: str
+class _JourneyEdge(DefaultBaseModel):
+    target_guideline: Guideline
+    condition: str | None
+    source_node_index: str
+    target_node_index: str
 
 
 @dataclass
 class _JourneyNodeWrapper(DefaultBaseModel):
     id: str
-    guideline_content: GuidelineContent
-    parent_ids: list[str]
-    follow_up_ids: list[_JourneyFollowupWrapper]
+    action: str
+    incoming_edges: list[_JourneyEdge]
+    outgoing_edges: list[_JourneyEdge]
     customer_dependent_action: bool
     requires_tool_calls: bool
-    conditions: Optional[Sequence[str]] = None
 
 
 class JourneyStepAdvancement(DefaultBaseModel):
@@ -75,10 +76,67 @@ class JourneyStepSelectionShot(Shot):
     conditions: Sequence[str]
 
 
+def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNodeWrapper]:
+    def _get_guideline_node_index(guideline: Guideline) -> str:
+        return cast(
+            str,
+            cast(dict[str, JSONSerializable], g.metadata["journey_node"]).get(
+                "index", "-1"
+            ),  # TODO can I make it less ugly?
+        )
+
+    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in step_guidelines}
+    guideline_id_to_node_index: dict[GuidelineId, str] = {
+        g.id: _get_guideline_node_index(g) for g in step_guidelines
+    }
+    node_wrappers: dict[str, _JourneyNodeWrapper] = {}
+
+    # Build nodes
+    for g in step_guidelines:
+        node_index: str = guideline_id_to_node_index[g.id]
+        if node_index not in node_wrappers:
+            node_wrappers[node_index] = _JourneyNodeWrapper(
+                id=_get_guideline_node_index(g),
+                action=g.content.action or "",
+                incoming_edges=[],
+                outgoing_edges=[],
+                customer_dependent_action=cast(
+                    bool,
+                    g.metadata.get("is_customer_dependent"),
+                ),
+                requires_tool_calls=cast(bool, g.metadata.get("tool_running_only")),
+            )
+
+    # Build edges
+    registered_edges: set[tuple[str, str]] = set()
+    for g in step_guidelines:
+        source_node_index: str = guideline_id_to_node_index[g.id]
+        for followup_id in cast(dict[str, Sequence[GuidelineId]], g.metadata.get("node", {})).get(
+            "follow_ups", []
+        ):
+            followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
+            followup_guideline = next((g for g in step_guidelines if g.id == followup_id), None)
+            if (
+                followup_guideline
+                and (source_node_index, followup_node_index) not in registered_edges
+            ):
+                edge = _JourneyEdge(
+                    target_guideline=guideline_id_to_guideline[followup_id],
+                    condition=guideline_id_to_guideline[followup_id].content.condition,
+                    source_node_index=source_node_index,
+                    target_node_index=followup_node_index,
+                )
+                node_wrappers[source_node_index].outgoing_edges.append(edge)
+                node_wrappers[followup_node_index].incoming_edges.append(edge)
+                registered_edges.add((source_node_index, followup_node_index))
+
+    return node_wrappers
+
+
 def get_journey_transition_map_text(
-    steps: dict[str, _JourneyNodeWrapper],
+    nodes: dict[str, _JourneyNodeWrapper],
     journey_title: str,
-    journey_conditions: Sequence[str] = [],
+    journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
 ) -> str:
     def step_sort_key(step_id: str) -> Any:
@@ -92,44 +150,47 @@ def get_journey_transition_map_text(
         journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
     else:
         journey_conditions_str = ""
-    # Sort steps by step id as integer if possible, else as string
-    steps_str = ""
-    for step_id in sorted(steps.keys(), key=step_sort_key):
-        step: _JourneyNodeWrapper = steps[step_id]
-        action: str | None = step.guideline_content.action
-        if action:
+
+    nodes_str = ""
+    for node_index in sorted(nodes.keys(), key=step_sort_key):
+        node: _JourneyNodeWrapper = nodes[node_index]
+        if node.action:
             flags_str = "Step Flags:\n"
-            if step.customer_dependent_action:
+            if node.customer_dependent_action:
                 flags_str += "- CUSTOMER_DEPENDENT: This action is completed if the customer provided a response to this step's action\n"
             if (
-                step.requires_tool_calls and (not previous_path or step.id != previous_path[-1])
+                node.requires_tool_calls and (not previous_path or node.id != previous_path[-1])
             ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
                 flags_str += (
                     "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
                 )
 
-            if previous_path and step.id == previous_path[-1]:
+            if previous_path and node.id == previous_path[-1]:
                 flags_str += (
                     "- This is the last step that was executed. Begin advancing on from this step\n"
                 )
-            elif step.id in previous_path:
+            elif node.id in previous_path:
                 flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
             else:
                 flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
-
-            if len(step.follow_up_ids) == 0:
-                follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
-            elif len(step.follow_up_ids) == 1:
-                follow_ups_str = f"""↳ If "{steps[step.follow_up_ids[0]].guideline_content.condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → Go to step {step.follow_up_ids[0] if steps[step.follow_up_ids[0]].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
+            if len(node.outgoing_edges) == 0:
+                follow_ups_str = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
+            elif len(node.outgoing_edges) == 1:
+                followup_instruction = (
+                    f"Go to step {node.outgoing_edges[0].target_node_index}"
+                    if node.outgoing_edges[0].target_guideline.content.action
+                    else EXIT_JOURNEY_INSTRUCTION
+                )
+                follow_ups_str = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
             else:
                 follow_ups_str = "\n".join(
                     [
-                        f"""↳ If "{steps[follow_up_id].guideline_content.condition or ELSE_CONDITION_STR}" → {"Go to step " + follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
-                        for follow_up_id in step.follow_up_ids
+                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_guideline.content.action else EXIT_JOURNEY_INSTRUCTION}"""
+                        for e in node.outgoing_edges
                     ]
                 )
-            steps_str += f"""
-STEP {step_id}: {action}
+            nodes_str += f"""
+STEP {node_index}: {node.action}
 {flags_str}
 TRANSITIONS:
 {follow_ups_str}
@@ -138,7 +199,7 @@ TRANSITIONS:
 Journey: {journey_title}
 {journey_conditions_str}
 Steps:
-{steps_str} 
+{nodes_str} 
 """
 
 
@@ -150,72 +211,19 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        journey_conditions: Sequence[Guideline] = [],  # TODO add conditions from all calls
         step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
-        journey_conditions: Sequence[str] = [],
     ) -> None:
         self._logger = logger
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
-
-        self._step_guideline_mapping = {
-            cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get(
-                "index", "-1"
-            ): g
-            for g in step_guidelines
-        }
-
-        self._guideline_to_step_id_mapping = {
-            g.id: str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"])
-            for g in step_guidelines
-        }
-
-        self._guideline_ids = {g.id: g for g in step_guidelines}
-
+        self._conditions = journey_conditions  # TODO work into map builder
+        self._node_wrappers: dict[str, _JourneyNodeWrapper] = build_node_wrappers(step_guidelines)
         self._context = context
         self._examined_journey = examined_journey
-
-        self._journey_steps: dict[str, _JourneyNodeWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
-        self._journey_conditions: Sequence[str] = journey_conditions
-
-    def _build_journey_steps(  # TODO rewrite entirely, make static (non class method)
-        self,
-    ) -> dict[str, _JourneyNodeWrapper]:
-        journey_steps_dict: dict[str, _JourneyNodeWrapper] = {
-            self._guideline_to_step_id_mapping[guideline.id]: _JourneyNodeWrapper(
-                id=step_id,
-                guideline_content=guideline.content,
-                parent_ids=[],
-                follow_up_ids=[
-                    self._guideline_to_step_id_mapping[guideline_id]
-                    for guideline_id in cast(
-                        Sequence[GuidelineId],
-                        cast(dict[str, JSONSerializable], guideline.metadata["journey_step"]).get(
-                            "sub_steps", []
-                        ),
-                    )
-                ],
-                customer_dependent_action=cast(
-                    dict[str, bool],
-                    guideline.metadata["customer_dependent_action_data"],
-                )["is_customer_dependent"]
-                if "is_customer_dependent"
-                in cast(
-                    dict[str, bool],
-                    guideline.metadata.get("customer_dependent_action_data", {}),
-                )
-                else False,
-                requires_tool_calls=cast(bool, guideline.metadata["tool_running_only"]),
-            )
-            for step_id, guideline in self._step_guideline_mapping.items()
-        }
-
-        for id, js in journey_steps_dict.items():
-            for followup_id in js.follow_up_ids:
-                journey_steps_dict[followup_id].parent_ids.append(id)
-
-        return journey_steps_dict
+        self._journey_conditions: Sequence[Guideline] = journey_conditions
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
@@ -249,7 +257,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
-                                guideline=self._step_guideline_mapping[inference.content.next_step],
+                                guideline=self._node_guideline_mapping[inference.content.next_step],
                                 score=10,
                                 rationale=inference.content.rationale,
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
@@ -365,7 +373,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
                 )
                 indexes_to_delete.append(i)
-            elif journey_path[i] not in self._journey_steps[str(journey_path[i - 1])].follow_up_ids:
+            elif (
+                journey_path[i] not in self._journey_steps[str(journey_path[i - 1])].outgoing_edges
+            ):
                 self._logger.warning(
                     f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
                 )
@@ -373,7 +383,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 if (
                     i + 1 < len(journey_path)
                     and journey_path[i + 1]
-                    in self._journey_steps[str(journey_path[i - 1])].follow_up_ids
+                    in self._journey_steps[str(journey_path[i - 1])].outgoing_edges
                 ):
                     indexes_to_delete.append(i)
         if (
@@ -493,7 +503,7 @@ Example section is over. The following is the real data you need to use for your
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=get_journey_transition_map_text(
-                steps=self._journey_steps,
+                nodes=self._journey_steps,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
                 journey_conditions=self._journey_conditions,
@@ -584,45 +594,45 @@ example_1_events = [
 example_1_journey_steps = {
     "1": _JourneyNodeWrapper(
         id="1",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="",
             action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
         ),
         parent_ids=[],
-        follow_up_ids=["2", "3", "4"],
+        outgoing_edges=["2", "3", "4"],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "2": _JourneyNodeWrapper(
         id="2",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The customer prefers exploring cities",
             action="Recommend the capital city of their desired nation",
         ),
         parent_ids=["1"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "3": _JourneyNodeWrapper(
         id="3",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The customer prefers scenic landscapes",
             action="Recommend the top hiking route of their desired nation",
         ),
         parent_ids=["1"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "4": _JourneyNodeWrapper(
         id="4",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
             action="Refer them to our travel information page",
         ),
         parent_ids=["1"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
@@ -667,100 +677,100 @@ example_2_events = [
 book_taxi_shot_journey_steps = {
     "1": _JourneyNodeWrapper(
         id="1",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="",
             action="Welcome the customer to the taxi service",
         ),
         parent_ids=[],
-        follow_up_ids=["2"],
+        outgoing_edges=["2"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "2": _JourneyNodeWrapper(
         id="2",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="You welcomed the customer",
             action="Ask the customer for their desired pick up location",
         ),
         parent_ids=["1"],
-        follow_up_ids=["3", "4"],
+        outgoing_edges=["3", "4"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "3": _JourneyNodeWrapper(
         id="3",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The desired pick up location is in NYC",
             action="Ask where their destination is",
         ),
         parent_ids=["2"],
-        follow_up_ids=["5"],
+        outgoing_edges=["5"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "4": _JourneyNodeWrapper(
         id="4",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The desired pick up location is outside of NYC",
             action="Inform the customer that we do not operate outside of NYC",
         ),
         parent_ids=["2"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "5": _JourneyNodeWrapper(
         id="5",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="the desired pick up location is in NYC",
             action="ask for the customer's desired pick up time",
         ),
         parent_ids=["3"],
-        follow_up_ids=["6"],
+        outgoing_edges=["6"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "6": _JourneyNodeWrapper(
         id="6",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="the customer provided their desired pick up time",
             action="Book the taxi ride as the customer requested",
         ),
         parent_ids=["5"],
-        follow_up_ids=["7"],
+        outgoing_edges=["7"],
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
     "7": _JourneyNodeWrapper(
         id="7",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="the taxi ride was successfully booked",
             action="Ask the customer if they want to pay in cash or credit",
         ),
         parent_ids=["6"],
-        follow_up_ids=["8", "9"],
+        outgoing_edges=["8", "9"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "8": _JourneyNodeWrapper(
         id="8",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="the customer wants to pay in credit",
             action="Send the customer a credit card payment link",
         ),
         parent_ids=["7"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "9": _JourneyNodeWrapper(
         id="9",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="the customer wants to pay in cash",
             action=None,
         ),
         parent_ids=["7"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
@@ -769,33 +779,33 @@ book_taxi_shot_journey_steps = {
 random_actions_journey_steps = {
     "1": _JourneyNodeWrapper(
         id="1",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="",
             action="State a random capital city. Do not say anything else.",
         ),
         parent_ids=[],
-        follow_up_ids=["2"],
+        outgoing_edges=["2"],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "2": _JourneyNodeWrapper(
         id="2",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="The previous step was completed",
             action="Ask the customer for money.",
         ),
-        follow_up_ids=["3"],
+        outgoing_edges=["3"],
         parent_ids=["1"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "3": _JourneyNodeWrapper(
         id="3",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="This step was completed",
             action="Wish the customer a good day and disconnect from the conversation",
         ),
-        follow_up_ids=[],
+        outgoing_edges=[],
         parent_ids=["2"],
         customer_dependent_action=False,
         requires_tool_calls=False,
@@ -1040,93 +1050,89 @@ example_6_events = [
 loan_journey_steps = {
     "1": _JourneyNodeWrapper(
         id="1",
-        guideline_content=GuidelineContent(
-            condition="", action="Ask for the customer's full name."
-        ),
+        action=GuidelineContent(condition="", action="Ask for the customer's full name."),
         parent_ids=[],
-        follow_up_ids=["2"],
+        outgoing_edges=["2"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "2": _JourneyNodeWrapper(
         id="2",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Customer provided their name",
             action="Ask for the type of loan: Personal or Business.",
         ),
         parent_ids=["1"],
-        follow_up_ids=["3", "4"],
+        outgoing_edges=["3", "4"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "3": _JourneyNodeWrapper(
         id="3",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Customer chose Personal loan", action="Ask for the desired loan amount."
         ),
         parent_ids=["2"],
-        follow_up_ids=["5"],
+        outgoing_edges=["5"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "4": _JourneyNodeWrapper(
         id="4",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Customer chose Business loan", action="Ask for the desired loan amount."
         ),
         parent_ids=["2"],
-        follow_up_ids=["6"],
+        outgoing_edges=["6"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "5": _JourneyNodeWrapper(
         id="5",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Personal loan amount provided", action="Ask for employment status."
         ),
         parent_ids=["3"],
-        follow_up_ids=["7"],
+        outgoing_edges=["7"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "6": _JourneyNodeWrapper(
         id="6",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Business loan amount provided", action="Ask for collateral."
         ),
         parent_ids=["4"],
-        follow_up_ids=["8", "9"],
+        outgoing_edges=["8", "9"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "7": _JourneyNodeWrapper(
         id="7",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Employment status provided", action="Review and confirm application."
         ),
         parent_ids=["5"],
-        follow_up_ids=["9"],
+        outgoing_edges=["9"],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "8": _JourneyNodeWrapper(
         id="8",
-        guideline_content=GuidelineContent(
+        action=GuidelineContent(
             condition="Digital asset was chosen as collateral",
             action="Review and confirm application.",
         ),
         parent_ids=["6"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
     "9": _JourneyNodeWrapper(
         id="9",
-        guideline_content=GuidelineContent(
-            condition="physical asset was chosen as collateral", action=None
-        ),
+        action=GuidelineContent(condition="physical asset was chosen as collateral", action=None),
         parent_ids=["6"],
-        follow_up_ids=[],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),

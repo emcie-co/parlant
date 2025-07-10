@@ -5,6 +5,12 @@ from typing_extensions import override
 
 class OptimizationPolicy(ABC):
     @abstractmethod
+    def use_embedding_cache(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> bool: ...
+
+    @abstractmethod
     def get_guideline_matching_batch_size(
         self,
         guideline_count: int,
@@ -37,6 +43,13 @@ class OptimizationPolicy(ABC):
 
 
 class BasicOptimizationPolicy(OptimizationPolicy):
+    @override
+    def use_embedding_cache(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> bool:
+        return True
+
     @override
     def get_guideline_matching_batch_size(
         self,

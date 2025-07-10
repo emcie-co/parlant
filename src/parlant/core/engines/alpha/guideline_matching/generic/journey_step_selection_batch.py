@@ -26,6 +26,9 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
+PRE_ROOT_INDEX = "0"
+ROOT_INDEX = "1"
+
 EXIT_JOURNEY_INSTRUCTION = "EXIT JOURNEY, RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
@@ -129,6 +132,19 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 node_wrappers[source_node_index].outgoing_edges.append(edge)
                 node_wrappers[followup_node_index].incoming_edges.append(edge)
                 registered_edges.add((source_node_index, followup_node_index))
+
+    # Add pseudo-edge that goes into the root
+    if "1" in node_wrappers:
+        node_wrappers[ROOT_INDEX].incoming_edges.append(
+            _JourneyEdge(
+                target_guideline=next(
+                    g for g in step_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+                ),
+                condition=None,
+                source_node_index=PRE_ROOT_INDEX,
+                target_node_index="1",
+            )
+        )
 
     return node_wrappers
 
@@ -254,10 +270,43 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     )
 
                     journey_path = self._get_verified_step_advancement(inference.content)
+
+                    # Get correct guideline to return based on the transition into next_step
+                    matched_guideline: Guideline | None = None
+                    if inference.content.next_step in self._node_wrappers:
+                        if len(journey_path) > 1 and next(
+                            True
+                            for e in self._node_wrappers[inference.content.next_step].incoming_edges
+                            if e.source_node_index == journey_path[-2]
+                        ):
+                            matched_guideline = next(
+                                e
+                                for e in self._node_wrappers[
+                                    inference.content.next_step
+                                ].incoming_edges
+                                if e.source_node_index == journey_path[-2]
+                            ).target_guideline
+                        elif (
+                            inference.content.next_step == ROOT_INDEX
+                        ):  # Executing root node w/o having previous node
+                            matched_guideline = next(
+                                e.target_guideline
+                                for e in self._node_wrappers[
+                                    inference.content.next_step
+                                ].incoming_edges
+                                if e.source_node_index == PRE_ROOT_INDEX
+                            )
+                        else:
+                            matched_guideline = (
+                                self._node_wrappers[inference.content.next_step]
+                                .incoming_edges[0]
+                                .target_guideline
+                            )
+                    # TODO how do we return the path if we're exiting the journey?
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
-                                guideline=self._node_guideline_mapping[inference.content.next_step],
+                                guideline=matched_guideline,
                                 score=10,
                                 rationale=inference.content.rationale,
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
@@ -267,8 +316,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                                 },
                             )
                         ]
-                        if inference.content.next_step
-                        in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
+                        if matched_guideline  # If either 'None' or an illegal step was returned, don't activate guidelines
                         else [],
                         generation_info=inference.info,
                     )
@@ -319,7 +367,20 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 shot.journey_steps,
                 previous_path=shot.previous_path,
                 journey_title=shot.journey_title,
-                journey_conditions=shot.conditions,
+                journey_conditions=[
+                    Guideline(
+                        id=GuidelineId(f"c-{i}"),
+                        creation_utc=datetime.now(timezone.utc),
+                        metadata={"journey_node": {"journey_id": "journey"}},
+                        content=GuidelineContent(
+                            condition=c,
+                            action=None,
+                        ),
+                        enabled=False,
+                        tags=[],
+                    )
+                    for i, c in enumerate(shot.conditions)
+                ],
             )
 
         formatted_shot += f"""
@@ -339,8 +400,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             journey_path.append(advancement.id)
             if (
                 i > 0
-                and advancement.id in self._journey_steps
-                and self._journey_steps[advancement.id].requires_tool_calls
+                and advancement.id in self._node_wrappers
+                and self._node_wrappers[advancement.id].requires_tool_calls
             ):
                 break  # Don't continue past tool calling step
 
@@ -368,13 +429,13 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         indexes_to_delete: list[int] = []
         for i in range(1, len(journey_path)):  # Verify all transitions are legal
-            if journey_path[i - 1] not in self._journey_steps.keys():
+            if journey_path[i - 1] not in self._node_wrappers:
                 self._logger.warning(
                     f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
                 )
                 indexes_to_delete.append(i)
             elif (
-                journey_path[i] not in self._journey_steps[str(journey_path[i - 1])].outgoing_edges
+                journey_path[i] not in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
             ):
                 self._logger.warning(
                     f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
@@ -383,11 +444,11 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 if (
                     i + 1 < len(journey_path)
                     and journey_path[i + 1]
-                    in self._journey_steps[str(journey_path[i - 1])].outgoing_edges
+                    in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
                 ):
                     indexes_to_delete.append(i)
         if (
-            journey_path and journey_path[-1] not in self._journey_steps.keys()
+            journey_path and journey_path[-1] not in self._node_wrappers
         ):  # 'Exit journey' was selected, or illegal value returned (both should cause no guidelines to be active)
             self._logger.warning(
                 f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
@@ -503,7 +564,7 @@ Example section is over. The following is the real data you need to use for your
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=get_journey_transition_map_text(
-                nodes=self._journey_steps,
+                nodes=self._node_wrappers,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
                 journey_conditions=self._journey_conditions,
@@ -590,7 +651,7 @@ example_1_events = [
     ),
 ]
 
-
+# TODO fix few shots
 example_1_journey_steps = {
     "1": _JourneyNodeWrapper(
         id="1",

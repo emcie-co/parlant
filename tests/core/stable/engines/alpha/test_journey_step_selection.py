@@ -447,7 +447,7 @@ async def base_test_that_correct_step_is_selected(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    journey, journey_step_guidelines, journey_conditions = await create_journey(
+    journey, journey_step_guidelines, condition_guidelines = await create_journey(
         title=JOURNEYS_DICT[journey_name].title,
         steps=JOURNEYS_DICT[journey_name].steps,
         conditions=JOURNEYS_DICT[journey_name].conditions,
@@ -459,7 +459,7 @@ async def base_test_that_correct_step_is_selected(
         examined_journey=journey,
         step_guidelines=journey_step_guidelines,
         journey_path=journey_previous_path,
-        journey_conditions=JOURNEYS_DICT[journey_name].conditions,
+        condition_guidelines=condition_guidelines,
         optimization_policy=context.container[OptimizationPolicy],
         context=GuidelineMatchingContext(
             agent=agent,

@@ -150,11 +150,11 @@ class EntityQueries:
 
         return list(all_guidelines)
 
-    async def find_journey_dependent_guidelines(
+    async def find_journey_related_guidelines(
         self,
         journey: Journey,
     ) -> Sequence[GuidelineId]:
-        """Return guidelines that are dependent on the specified journey."""
+        """Return guidelines that are dependent or derived on the specified journey."""
         iterated_relationships = set()
 
         guideline_ids = set()
@@ -193,6 +193,13 @@ class EntityQueries:
             journeys.append(journey)
 
             self.find_journeys_on_which_this_guideline_depends[id] = journeys
+
+        guideline_ids.update(
+            g.id
+            for g in await self._journey_guideline_projection.project_journey_to_guidelines(
+                journey.id
+            )
+        )
 
         return list(guideline_ids)
 
@@ -392,6 +399,13 @@ class EntityQueries:
                         )
 
                         guidelines.extend(projected_journey_guidelines)
+
+                        journey_conditions = [
+                            available_guidelines[c]
+                            for c in active_journeys_mapping[journey_id].conditions
+                        ]
+
+                        guidelines.extend(journey_conditions)
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.

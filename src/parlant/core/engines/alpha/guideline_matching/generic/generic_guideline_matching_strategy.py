@@ -63,6 +63,7 @@ from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.tags import Tag
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -128,8 +129,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
 
         active_journeys_mapping = {journey.id: journey for journey in context.relevant_journeys}
 
+        journey_tags = {Tag.for_journey_id(jid) for jid in active_journeys_mapping.keys()}
+
         for g in guidelines:
-            if g.metadata.get("journey_node") is not None:
+            if g.metadata.get("journey_node") is not None or set(g.tags).intersection(journey_tags):
                 # If the guideline is associated with a journey node, we add the journey steps
                 # to the list of journeys that need reevaluation.
                 if journey_id := cast(
@@ -141,6 +144,12 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         journey_step_selection_journeys[active_journeys_mapping[journey_id]].append(
                             g
                         )
+                elif condition_tags := set(g.tags).intersection(journey_tags):
+                    for tag_id in condition_tags:
+                        journey_step_selection_journeys[
+                            active_journeys_mapping[cast(JourneyId, Tag.extract_journey_id(tag_id))]
+                        ].append(g)
+
             elif not g.content.action:
                 if targets := await self._try_get_disambiguation_group_targets(g, guidelines):
                     disambiguation_groups.append((g, targets))

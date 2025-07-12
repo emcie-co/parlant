@@ -421,7 +421,7 @@ async def test_list_guidelines_dependent_directly_on_journey(
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    result = await entity_queries.find_journey_dependent_guidelines(journey)
+    result = await entity_queries.find_journey_related_guidelines(journey)
 
     assert len(result) == 1
     assert result[0] == guideline1.id
@@ -483,7 +483,7 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    result = await entity_queries.find_journey_dependent_guidelines(journey)
+    result = await entity_queries.find_journey_related_guidelines(journey)
 
     assert len(result) == 3
 

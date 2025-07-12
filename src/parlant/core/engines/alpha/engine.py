@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 import asyncio
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -963,11 +963,15 @@ class AlphaEngine(Engine):
         }
 
         # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
-        # (everything beyond the first `top_k` journeys), and also remove all journey step guidelines.
+        # (everything beyond the first `top_k` journeys), and also remove all journey graph guidelines.
         # Removing these guidelines
         # matching pass fast and focused on the most likely flows.
         top_k = 3
-        relevant_guidelines = await self._prune_low_prob_guidelines_and_all_steps(
+        (
+            relevant_guidelines,
+            high_prob_journeys,
+        ) = await self._prune_low_prob_guidelines_and_all_graph(
+            context.session,
             relevant_journeys=sorted_journeys_by_relevance,
             all_stored_guidelines=all_stored_guidelines,
             top_k=top_k,
@@ -983,17 +987,13 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            relevant_journeys=sorted_journeys_by_relevance[
-                :top_k
-            ],  # Only consider the top K journeys
+            relevant_journeys=high_prob_journeys,  # Only consider the top K journeys
             guidelines=relevant_guidelines,
         )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [
-            j for j in sorted_journeys_by_relevance if set(j.conditions).intersection(match_ids)
-        ]
+        journeys = [j for j in high_prob_journeys if set(j.conditions).intersection(match_ids)]
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
         # have in fact been activated, run an additional matching pass for the guidelines
@@ -1003,7 +1003,7 @@ class AlphaEngine(Engine):
             all_stored_guidelines=all_stored_guidelines,
             relevant_journeys=sorted_journeys_by_relevance,
             activated_journeys=journeys,
-            top_k=top_k,
+            top_k=len(high_prob_journeys),
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
             matches = list(chain.from_iterable(batches))
@@ -1235,29 +1235,73 @@ class AlphaEngine(Engine):
 
         return dict(tools_for_guidelines)
 
-    async def _prune_low_prob_guidelines_and_all_steps(
+    async def _prune_low_prob_guidelines_and_all_graph(
         self,
+        session: Session,
         relevant_journeys: Sequence[Journey],
         all_stored_guidelines: dict[GuidelineId, Guideline],
         top_k: int,
-    ) -> list[Guideline]:
-        # Prune low-probability journey-dependent guidelines.
-        # by only keeping those that are either not dependent on any journey
-        # or are dependent on the top K most relevant journeys.
-        relevant_journeys_dependent_ids = set(
+    ) -> tuple[list[Guideline], list[Journey]]:
+        # `relevant_journeys` is already sorted by semantic relevance to the current context.
+        #
+        # 1.  Re-order the list so that journeys that were **active in the previous interaction**
+        #     are moved to the front. This gives continuity higher priority than raw relevance.
+        #
+        # 2.  Build two sets:
+        #     • `relevant_journeys_related_ids` – every guideline that belongs to any journey
+        #       in `relevant_journeys`.
+        #     • `high_prob_journey_related_ids` – guidelines tied to:
+        #         – every previously-active journey, *plus*
+        #         – the next most-relevant journeys until we reach *top_k* total journeys.
+        #
+        #     Edge cases:
+        #       • If the number of previously-active journeys exceeds `top_k`,
+        #         keep all of their guidelines.
+        #       • If there are fewer than `top_k` active journeys (X where 0 ≤ X < top_k),
+        #         supplement them with the top `(top_k - X)` journeys from
+        #         the remaining `relevant_journeys`.
+        #
+        # 3.  Return a pruned list that keeps:
+        #     • guidelines whose IDs are in `high_prob_journey_related_ids`, or
+        #     • guidelines that are **not** tied to any journey at all.
+        #
+        # The result is a focused set of high-probability guidelines that balances
+        # journey continuity with current contextual relevance :)
+        previous_interaction_active_journeys = (
+            [
+                id
+                for id, path in session.agent_states[-1]["journey_paths"].items()
+                if path and path[-1]
+            ]
+            if session.agent_states
+            else []
+        )
+
+        relevant_journeys_deque: deque[Journey] = deque()
+        for j in relevant_journeys:
+            if j.id in previous_interaction_active_journeys:
+                relevant_journeys_deque.appendleft(j)
+            else:
+                relevant_journeys_deque.append(j)
+
+        relevant_journeys_related_ids = set(
             chain.from_iterable(
                 [
-                    await self._entity_queries.find_journey_dependent_guidelines(j)
+                    await self._entity_queries.find_journey_related_guidelines(j)
                     for j in relevant_journeys
                 ]
             )
         )
 
-        high_prob_journey_dependent_ids = set(
+        high_prob_journeys = list(relevant_journeys_deque)[
+            : max(len(previous_interaction_active_journeys), top_k)
+        ]
+
+        high_prob_journey_related_ids = set(
             chain.from_iterable(
                 [
-                    await self._entity_queries.find_journey_dependent_guidelines(j)
-                    for j in relevant_journeys[:top_k]
+                    await self._entity_queries.find_journey_related_guidelines(j)
+                    for j in high_prob_journeys
                 ]
             )
         )
@@ -1265,8 +1309,8 @@ class AlphaEngine(Engine):
         return [
             g
             for id, g in all_stored_guidelines.items()
-            if (id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids)
-        ]
+            if (id in high_prob_journey_related_ids or id not in relevant_journeys_related_ids)
+        ], high_prob_journeys
 
     async def _process_activated_low_probability_journey_guidelines(
         self,
@@ -1276,10 +1320,10 @@ class AlphaEngine(Engine):
         activated_journeys: Sequence[Journey],
         top_k: int,
     ) -> Optional[GuidelineMatchingResult]:
-        activated_low_priority_dep_ids = set(
+        activated_low_priority_related_ids = set(
             chain.from_iterable(
                 [
-                    await self._entity_queries.find_journey_dependent_guidelines(j)
+                    await self._entity_queries.find_journey_related_guidelines(j)
                     for j in [
                         activated_journey
                         for activated_journey in activated_journeys
@@ -1289,13 +1333,21 @@ class AlphaEngine(Engine):
             )
         )
 
-        if activated_low_priority_dep_ids:
+        if activated_low_priority_related_ids:
+            journey_conditions = chain.from_iterable(
+                [j.conditions for j in activated_journeys if j.conditions]
+            )
+
             self._logger.operation(
                 "Second-pass: matching guidelines dependent on activated low-priority journeys"
             )
+
             additional_matching_guidelines = [
-                g for id, g in all_stored_guidelines.items() if id in activated_low_priority_dep_ids
+                g
+                for id, g in all_stored_guidelines.items()
+                if id in activated_low_priority_related_ids or id in journey_conditions
             ]
+
             return await self._guideline_matcher.match_guidelines(
                 agent=context.agent,
                 session=context.session,
@@ -1317,20 +1369,26 @@ class AlphaEngine(Engine):
         all_stored_guidelines: dict[GuidelineId, Guideline],
         activated_journeys: Sequence[Journey],
     ) -> Optional[GuidelineMatchingResult]:
-        dependent_guidelines = chain.from_iterable(
+        related_guidelines = chain.from_iterable(
             [
-                await self._entity_queries.find_journey_dependent_guidelines(j)
+                await self._entity_queries.find_journey_related_guidelines(j)
                 for j in [activated_journey for activated_journey in activated_journeys]
             ]
         )
 
-        if dependent_guidelines:
+        if related_guidelines:
+            journey_conditions = chain.from_iterable(
+                [j.conditions for j in activated_journeys if j.conditions]
+            )
+
             self._logger.operation(
                 "Second-pass: matching guidelines dependent on activated journeys"
             )
 
             additional_matching_guidelines = [
-                g for id, g in all_stored_guidelines.items() if id in dependent_guidelines
+                g
+                for id, g in all_stored_guidelines.items()
+                if id in related_guidelines or id in journey_conditions
             ]
 
             return await self._guideline_matcher.match_guidelines(

@@ -8,9 +8,9 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId, JourneyNode, JourneyNodeId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.relative_action_step_proposer import (
-    RelativeActionStepProposer,
-    RelativeActionStepSchema,
+from parlant.core.services.indexing.relative_action_proposer import (
+    RelativeActionProposer,
+    RelativeActionSchema,
 )
 from tests.test_utilities import SyncAwaiter, nlp_test
 
@@ -19,7 +19,7 @@ from tests.test_utilities import SyncAwaiter, nlp_test
 class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
-    schematic_generator: SchematicGenerator[RelativeActionStepSchema]
+    schematic_generator: SchematicGenerator[RelativeActionSchema]
     logger: Logger
 
 
@@ -49,7 +49,7 @@ def context(
         container,
         sync_await,
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[RelativeActionStepSchema]],
+        schematic_generator=container[SchematicGenerator[RelativeActionSchema]],
     )
 
 
@@ -131,14 +131,14 @@ async def base_test_that_related_action_step_proposed(
     journey: _JourneyData,
     to_propose_actions: Mapping[str, str],
 ) -> None:
-    relative_action_proposer = context.container[RelativeActionStepProposer]
+    relative_action_proposer = context.container[RelativeActionProposer]
 
     examined_journey, step_guidelines, condition_guidelines = create_journey(
         title=journey.title,
         steps=journey.steps,
         conditions=journey.conditions,
     )
-    result = await relative_action_proposer.propose_relative_action_step(
+    result = await relative_action_proposer.propose_relative_action(
         examined_journey,
         step_guidelines,
         condition_guidelines,

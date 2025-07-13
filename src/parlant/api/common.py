@@ -18,7 +18,7 @@ from pydantic import Field
 from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
-from parlant.core.evaluations import GuidelinePayloadOperation
+from parlant.core.evaluations import PayloadOperation
 from parlant.core.relationships import RelationshipId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.tags import TagId
@@ -192,10 +192,10 @@ class LegacyGuidelinePayloadDTO(
     connection_proposition: GuidelinePayloadConnectionPropositionField
 
 
-def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> GuidelinePayloadOperation:
+def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> PayloadOperation:
     if operation := {
-        GuidelinePayloadOperationDTO.ADD: GuidelinePayloadOperation.ADD,
-        GuidelinePayloadOperationDTO.UPDATE: GuidelinePayloadOperation.UPDATE,
+        GuidelinePayloadOperationDTO.ADD: PayloadOperation.ADD,
+        GuidelinePayloadOperationDTO.UPDATE: PayloadOperation.UPDATE,
     }.get(dto):
         return operation
 

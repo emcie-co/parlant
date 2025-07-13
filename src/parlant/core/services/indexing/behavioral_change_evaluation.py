@@ -27,7 +27,8 @@ from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
     EvaluationId,
-    GuidelinePayloadOperation,
+    GuidelinePayload,
+    PayloadOperation,
     Invoice,
     InvoiceGuidelineData,
     Payload,
@@ -36,6 +37,7 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.journeys import JourneyStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
@@ -112,9 +114,9 @@ class LegacyGuidelineEvaluator:
         ] = None
 
         coherence_checks_task = asyncio.create_task(
-            self._check_payloads_coherence(
+            self._check_guideline_payloads_coherence(
                 agent,
-                payloads,
+                cast(Sequence[GuidelinePayload], payloads),
                 existing_guidelines,
                 progress_report,
             )
@@ -122,9 +124,9 @@ class LegacyGuidelineEvaluator:
         tasks.append(coherence_checks_task)
 
         connection_propositions_task = asyncio.create_task(
-            self._propose_payloads_connections(
+            self._propose_guideline_payloads_connections(
                 agent,
-                payloads,
+                cast(Sequence[GuidelinePayload], payloads),
                 existing_guidelines,
                 progress_report,
             )
@@ -174,10 +176,10 @@ class LegacyGuidelineEvaluator:
                 for _ in payloads
             ]
 
-    async def _check_payloads_coherence(
+    async def _check_guideline_payloads_coherence(
         self,
         agent: Agent,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         existing_guidelines: Sequence[Guideline],
         progress_report: ProgressReport,
     ) -> Optional[Iterable[Sequence[CoherenceCheck]]]:
@@ -188,7 +190,7 @@ class LegacyGuidelineEvaluator:
         updated_ids = {
             cast(GuidelineId, p.updated_id)
             for p in payloads
-            if p.operation == GuidelinePayloadOperation.UPDATE
+            if p.operation == PayloadOperation.UPDATE
         }
 
         remaining_existing_guidelines = []
@@ -270,10 +272,10 @@ class LegacyGuidelineEvaluator:
 
         return coherence_checks_by_guideline_payload.values()
 
-    async def _propose_payloads_connections(
+    async def _propose_guideline_payloads_connections(
         self,
         agent: Agent,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         existing_guidelines: Sequence[Guideline],
         progress_report: ProgressReport,
     ) -> Optional[Iterable[Sequence[EntailmentRelationshipProposition]]]:
@@ -281,9 +283,7 @@ class LegacyGuidelineEvaluator:
 
         guidelines_to_skip = [(p.content, False) for p in payloads if not p.connection_proposition]
 
-        updated_ids = {
-            p.updated_id for p in payloads if p.operation == GuidelinePayloadOperation.UPDATE
-        }
+        updated_ids = {p.updated_id for p in payloads if p.operation == PayloadOperation.UPDATE}
 
         remaining_existing_guidelines = [
             (GuidelineContent(condition=g.content.condition, action=g.content.action), True)
@@ -383,7 +383,9 @@ class LegacyBehavioralChangeEvaluator:
         if not payload_descriptors:
             raise EvaluationValidationError("No payloads provided for the evaluation task.")
 
-        guideline_payloads = [p for k, p in payload_descriptors if k == PayloadKind.GUIDELINE]
+        guideline_payloads = [
+            cast(GuidelinePayload, p) for k, p in payload_descriptors if k == PayloadKind.GUIDELINE
+        ]
 
         if guideline_payloads:
 
@@ -516,6 +518,16 @@ class LegacyBehavioralChangeEvaluator:
             raise
 
 
+class JourneyEvaluator:
+    def __init__(
+        self,
+        logger: Logger,
+        journey_store: JourneyStore,
+    ) -> None:
+        self._logger = logger
+        self._journey_store = journey_store
+
+
 class GuidelineEvaluator:
     def __init__(
         self,
@@ -591,7 +603,7 @@ class GuidelineEvaluator:
 
     async def evaluate(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[InvoiceGuidelineData]:
         action_propositions = await self._propose_actions(
@@ -627,7 +639,7 @@ class GuidelineEvaluator:
 
     async def _propose_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineActionProposition]]:
         tasks: list[asyncio.Task[GuidelineActionProposition]] = []
@@ -655,7 +667,7 @@ class GuidelineEvaluator:
 
     async def _detect_customer_dependant_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[CustomerDependentActionProposition]]:
@@ -688,7 +700,7 @@ class GuidelineEvaluator:
 
     async def _propose_continuous(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineContinuousProposition]]:
@@ -725,7 +737,7 @@ class GuidelineEvaluator:
 
     async def _propose_agent_intention(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[AgentIntentionProposition]]:
         tasks: list[asyncio.Task[AgentIntentionProposition]] = []
@@ -758,7 +770,7 @@ class GuidelineEvaluator:
 
     async def _detect_tool_running_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[ToolRunningActionProposition]]:
         tasks: list[asyncio.Task[ToolRunningActionProposition]] = []
@@ -871,7 +883,7 @@ class BehavioralChangeEvaluator:
 
             guideline_evaluation_data = await self._guideline_evaluator.evaluate(
                 payloads=[
-                    invoice.payload
+                    cast(GuidelinePayload, invoice.payload)
                     for invoice in evaluation.invoices
                     if invoice.kind == PayloadKind.GUIDELINE
                 ],

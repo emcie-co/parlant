@@ -29,7 +29,9 @@ from parlant.core.customers import CustomerId
 from parlant.core.evaluations import (
     EntailmentRelationshipProposition,
     EntailmentRelationshipPropositionKind,
-    GuidelinePayloadOperation,
+    GuidelinePayload,
+    InvoiceGuidelineData,
+    PayloadOperation,
     Invoice,
 )
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
@@ -208,30 +210,33 @@ class Application:
                 kind=RelationshipKind.ENTAILMENT,
             )
 
-        content_guidelines: dict[str, GuidelineId] = {
-            f"{invoice.payload.content.condition}_{invoice.payload.content.action}": (
+        content_guidelines: dict[str, GuidelineId] = {}
+
+        for invoice in invoices:
+            payload = cast(GuidelinePayload, invoice.payload)
+
+            content_guidelines[
+                f"{cast(GuidelinePayload, invoice.payload).content.condition}_{cast(GuidelinePayload, invoice.payload).content.action}"
+            ] = (
                 await self._guideline_store.create_guideline(
-                    condition=invoice.payload.content.condition,
-                    action=invoice.payload.content.action,
+                    condition=payload.content.condition,
+                    action=payload.content.action,
                 )
-                if invoice.payload.operation == GuidelinePayloadOperation.ADD
+                if invoice.payload.operation == PayloadOperation.ADD
                 else await self._guideline_store.update_guideline(
-                    guideline_id=cast(GuidelineId, invoice.payload.updated_id),
+                    guideline_id=cast(GuidelineId, payload.updated_id),
                     params={
-                        "condition": invoice.payload.content.condition,
-                        "action": invoice.payload.content.action or None,
+                        "condition": payload.content.condition,
+                        "action": payload.content.action or None,
                     },
                 )
             ).id
-            for invoice in invoices
-        }
 
         for invoice in invoices:
-            if (
-                invoice.payload.operation == GuidelinePayloadOperation.UPDATE
-                and invoice.payload.connection_proposition
-            ):
-                guideline_id = cast(GuidelineId, invoice.payload.updated_id)
+            payload = cast(GuidelinePayload, invoice.payload)
+
+            if payload.operation == PayloadOperation.UPDATE and payload.connection_proposition:
+                guideline_id = cast(GuidelineId, payload.updated_id)
 
                 relationships_to_delete = list(
                     await self._relationship_store.list_relationships(
@@ -256,11 +261,12 @@ class Application:
 
         for invoice in invoices:
             assert invoice.data
+            data = cast(InvoiceGuidelineData, invoice.data)
 
-            if not invoice.data.entailment_propositions:
+            if not data.entailment_propositions:
                 continue
 
-            for proposition in invoice.data.entailment_propositions:
+            for proposition in data.entailment_propositions:
                 source_key = f"{proposition.source.condition}_{proposition.source.action}"
                 target_key = f"{proposition.target.condition}_{proposition.target.action}"
 
@@ -287,6 +293,7 @@ class Application:
                             content_guidelines,
                             proposition,
                         )
+
                     entailment_propositions.add(proposition)
 
         return content_guidelines.values()

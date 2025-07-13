@@ -39,6 +39,7 @@ from parlant.core.common import (
     generate_id,
 )
 from parlant.core.guidelines import GuidelineContent, GuidelineId
+from parlant.core.journeys import JourneyEdgeId, JourneyId, JourneyNodeId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -64,6 +65,7 @@ class EvaluationStatus(Enum):
 
 class PayloadKind(Enum):
     GUIDELINE = auto()
+    JOURNEY = auto()
 
 
 class CoherenceCheckKind(Enum):
@@ -80,7 +82,7 @@ class EntailmentRelationshipPropositionKind(Enum):
     CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE = "connection_with_another_evaluated_guideline"
 
 
-class GuidelinePayloadOperation(Enum):
+class PayloadOperation(Enum):
     ADD = "add"
     UPDATE = "update"
 
@@ -89,7 +91,7 @@ class GuidelinePayloadOperation(Enum):
 class GuidelinePayload:
     content: GuidelineContent
     tool_ids: Sequence[ToolId]
-    operation: GuidelinePayloadOperation
+    operation: PayloadOperation
     coherence_check: bool  # Legacy and will be removed in the future
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
@@ -101,7 +103,13 @@ class GuidelinePayload:
         return f"condition: {self.content.condition}, action: {self.content.action}"
 
 
-Payload: TypeAlias = Union[GuidelinePayload]
+@dataclass(frozen=True)
+class JourneyPayload:
+    journey_id: JourneyId
+    operation: PayloadOperation
+
+
+Payload: TypeAlias = Union[GuidelinePayload, JourneyPayload]
 
 
 class PayloadDescriptor(NamedTuple):
@@ -133,7 +141,14 @@ class InvoiceGuidelineData:
     _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
 
 
-InvoiceData: TypeAlias = Union[InvoiceGuidelineData]
+@dataclass(frozen=True)
+class InvoiceJourneyData:
+    node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]]
+    edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+    _type: Literal["journey"] = "journey"  # Union discriminator for Pydantic
+
+
+InvoiceData: TypeAlias = Union[InvoiceGuidelineData, InvoiceJourneyData]
 
 
 @dataclass(frozen=True)
@@ -245,6 +260,11 @@ class GuidelinePayloadDocument(TypedDict):
     journey_step_propositions: bool
 
 
+class JourneyPayloadDocument(TypedDict):
+    journey_id: JourneyId
+    action: Literal["add", "update"]
+
+
 _PayloadDocument = Union[GuidelinePayloadDocument]
 
 
@@ -293,7 +313,12 @@ class InvoiceGuidelineDataDocument(TypedDict):
     properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
-_InvoiceDataDocument = Union[InvoiceGuidelineDataDocument]
+class InvoiceJourneyDataDocument(TypedDict):
+    node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]]
+    edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument = Union[InvoiceGuidelineDataDocument, InvoiceJourneyDataDocument]
 
 
 class InvoiceDocument_v0_1_0(TypedDict, total=False):
@@ -494,7 +519,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         checksum=inv["checksum"],
                         state_version=inv["state_version"],
                         approved=inv["approved"],
-                        data=_InvoiceDataDocument(
+                        data=InvoiceGuidelineDataDocument(
                             coherence_checks=inv["data"].get("coherence_checks"),
                             connection_propositions=inv["data"].get("connection_propositions"),
                             properties_proposition={
@@ -623,7 +648,28 @@ class EvaluationDocumentStore(EvaluationStore):
                 checksum=invoice.checksum,
                 state_version=invoice.state_version,
                 approved=invoice.approved,
-                data=serialize_invoice_guideline_data(invoice.data) if invoice.data else None,
+                data=serialize_invoice_guideline_data(cast(InvoiceGuidelineData, invoice.data))
+                if invoice.data
+                else None,
+                error=invoice.error,
+            )
+        elif kind == "JOURNEY":
+            return InvoiceDocument(
+                kind=kind,
+                payload=serialize_payload(invoice.payload),
+                checksum=invoice.checksum,
+                state_version=invoice.state_version,
+                approved=invoice.approved,
+                data=InvoiceJourneyDataDocument(
+                    node_properties_proposition=cast(
+                        InvoiceJourneyData, invoice.data
+                    ).node_properties_proposition,
+                    edge_properties_proposition=cast(
+                        InvoiceJourneyData, invoice.data
+                    ).edge_properties_proposition,
+                )
+                if invoice.data
+                else None,
                 error=invoice.error,
             )
         else:
@@ -705,7 +751,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         action=payload_doc["content"]["action"] or None,
                     ),
                     tool_ids=payload_doc["tool_ids"],
-                    operation=GuidelinePayloadOperation(payload_doc["action"]),
+                    operation=PayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],
                     coherence_check=payload_doc["coherence_check"],
                     connection_proposition=payload_doc["connection_proposition"],
@@ -723,7 +769,19 @@ class EvaluationDocumentStore(EvaluationStore):
 
             data_doc = invoice_doc.get("data")
             if data_doc is not None:
-                data = deserialize_invoice_guideline_data(data_doc)
+                if kind == PayloadKind.GUIDELINE:
+                    data: Optional[InvoiceData] = deserialize_invoice_guideline_data(
+                        cast(InvoiceGuidelineDataDocument, data_doc)
+                    )
+                elif kind == PayloadKind.JOURNEY:
+                    data = InvoiceJourneyData(
+                        node_properties_proposition=cast(InvoiceJourneyDataDocument, data_doc)[
+                            "node_properties_proposition"
+                        ],
+                        edge_properties_proposition=cast(InvoiceJourneyDataDocument, data_doc)[
+                            "edge_properties_proposition"
+                        ],
+                    )
             else:
                 data = None
 

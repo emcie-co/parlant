@@ -67,7 +67,7 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["action_proposition"] == "greet them back with 'Hello'"
+    assert invoice["data"]["guideline"]["internal_action"] == "greet them back with 'Hello'"
 
 
 async def test_that_an_evaluation_can_be_fetched_with_running_status(
@@ -223,7 +223,8 @@ async def test_that_action_proposition_is_evaluated(
         assert invoice["approved"]
 
         assert invoice["data"]
-        assert isinstance(invoice["data"]["guideline"]["action_proposition"], str)
+        assert isinstance(invoice["data"]["guideline"]["properties"], dict)
+        assert invoice["data"]["guideline"]["properties"].get("internal_action") is not None
 
 
 async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_payload(

@@ -18,7 +18,7 @@ from parlant.core.agents import AgentId
 from parlant.core.common import JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
+from parlant.core.evaluations import GuidelinePayload, PayloadOperation
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
@@ -50,7 +50,7 @@ def get_guideline_properties(
                         action=action,
                     ),
                     tool_ids=[],
-                    operation=GuidelinePayloadOperation.ADD,
+                    operation=PayloadOperation.ADD,
                     coherence_check=False,
                     connection_proposition=False,
                     action_proposition=True,

@@ -436,19 +436,18 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
                 )
                 indexes_to_delete.append(i)
-            elif (
-                journey_path[i]
-                not in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
-            ):
+            elif journey_path[i] not in [
+                e.target_node_index
+                for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
+            ]:
                 self._logger.warning(
                     f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
                 )
                 # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
-                if (
-                    i + 1 < len(journey_path)
-                    and journey_path[i + 1]
-                    in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
-                ):
+                if i + 1 < len(journey_path) and journey_path[i + 1] in [
+                    e.target_node_index
+                    for e in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
+                ]:
                     indexes_to_delete.append(i)
         if (
             journey_path and journey_path[-1] not in self._node_wrappers

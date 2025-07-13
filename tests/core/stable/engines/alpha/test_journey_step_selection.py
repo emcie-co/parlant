@@ -459,7 +459,7 @@ async def base_test_that_correct_step_is_selected(
         examined_journey=journey,
         step_guidelines=journey_step_guidelines,
         journey_path=journey_previous_path,
-        condition_guidelines=condition_guidelines,
+        journey_conditions=condition_guidelines,
         optimization_policy=context.container[OptimizationPolicy],
         context=GuidelineMatchingContext(
             agent=agent,

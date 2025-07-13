@@ -112,11 +112,13 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
 
     # Build edges
     registered_edges: set[tuple[str, str]] = set()
+
+    # Build real edges
     for g in step_guidelines:
         source_node_index: str = guideline_id_to_node_index[g.id]
-        for followup_id in cast(dict[str, Sequence[GuidelineId]], g.metadata.get("node", {})).get(
-            "follow_ups", []
-        ):
+        for followup_id in cast(
+            dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
+        ).get("follow_ups", []):
             followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
             followup_guideline = next((g for g in step_guidelines if g.id == followup_id), None)
             if (
@@ -134,7 +136,7 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 registered_edges.add((source_node_index, followup_node_index))
 
     # Add pseudo-edge that goes into the root
-    if "1" in node_wrappers:
+    if ROOT_INDEX in node_wrappers:
         node_wrappers[ROOT_INDEX].incoming_edges.append(
             _JourneyEdge(
                 target_guideline=next(
@@ -142,7 +144,7 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 ),
                 condition=None,
                 source_node_index=PRE_ROOT_INDEX,
-                target_node_index="1",
+                target_node_index=ROOT_INDEX,
             )
         )
 
@@ -273,14 +275,14 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
                     journey_path = self._get_verified_step_advancement(inference.content)
 
-                    # Get correct guideline to return based on the transition into next_step
+                    # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
                     matched_guideline: Guideline | None = None
                     if inference.content.next_step in self._node_wrappers:
-                        if len(journey_path) > 1 and next(
-                            True
+                        if len(journey_path) > 1 and [
+                            e
                             for e in self._node_wrappers[inference.content.next_step].incoming_edges
                             if e.source_node_index == journey_path[-2]
-                        ):
+                        ]:
                             matched_guideline = next(
                                 e
                                 for e in self._node_wrappers[
@@ -288,16 +290,6 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                                 ].incoming_edges
                                 if e.source_node_index == journey_path[-2]
                             ).target_guideline
-                        elif (
-                            inference.content.next_step == ROOT_INDEX
-                        ):  # Executing root node w/o having previous node
-                            matched_guideline = next(
-                                e.target_guideline
-                                for e in self._node_wrappers[
-                                    inference.content.next_step
-                                ].incoming_edges
-                                if e.source_node_index == PRE_ROOT_INDEX
-                            )
                         else:
                             matched_guideline = (
                                 self._node_wrappers[inference.content.next_step]
@@ -397,6 +389,20 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def _get_verified_step_advancement(
         self, response: JourneyStepSelectionSchema
     ) -> list[str | None]:
+        def add_and_remove_list_values(list_to_alter, indexes_to_add, indexes_to_delete):
+            result = list_to_alter.copy()
+
+            for i in reversed(indexes_to_delete):
+                del result[i]
+
+            for original_i, value in indexes_to_add:
+                deletions_before = sum(1 for del_i in indexes_to_delete if del_i < original_i)
+                additions_before = sum(1 for add_i, _ in indexes_to_add if add_i < original_i)
+                adjusted_i = original_i - deletions_before + additions_before
+                result.insert(adjusted_i, value)
+
+            return result
+
         journey_path: list[str | None] = []
         for i, advancement in enumerate(response.step_advancement or []):
             journey_path.append(advancement.id)
@@ -430,6 +436,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             journey_path.insert(0, self._previous_path[-1])  # Try to recover
 
         indexes_to_delete: list[int] = []
+        indexes_to_add: list[tuple[int, str]] = []
         for i in range(1, len(journey_path)):  # Verify all transitions are legal
             if journey_path[i - 1] not in self._node_wrappers:
                 self._logger.warning(
@@ -449,6 +456,26 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     for e in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
                 ]:
                     indexes_to_delete.append(i)
+                else:
+                    # In other cases, it skips a node that would make the path valid. We want to identify and add the missing node
+                    previous_node_follow_ups = set(
+                        e.target_node_index
+                        for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
+                        if e.source_node_index == journey_path[i - 1]
+                    )
+                    current_node_origins = set(
+                        e.source_node_index
+                        for e in self._node_wrappers[cast(str, journey_path[i])].incoming_edges
+                    )
+                    possible_connector_nodes = list(
+                        previous_node_follow_ups.intersection(current_node_origins)
+                    )
+                    if len(possible_connector_nodes) == 1:
+                        indexes_to_add.append((i, possible_connector_nodes[0]))
+                journey_path = add_and_remove_list_values(
+                    journey_path, indexes_to_add, indexes_to_delete
+                )
+
         if (
             journey_path and journey_path[-1] not in self._node_wrappers
         ):  # 'Exit journey' was selected, or illegal value returned (both should cause no guidelines to be active)
@@ -457,8 +484,6 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             )
             journey_path[-1] = None
 
-        for i in reversed(indexes_to_delete):
-            del journey_path[i]
         return journey_path
 
     def _build_prompt(

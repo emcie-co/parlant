@@ -23,11 +23,11 @@ class RewrittenActionResult(DefaultBaseModel):
     rewritten_actions: str
 
 
-class RelativeActionStepProposition(DefaultBaseModel):
+class RelativeActionProposition(DefaultBaseModel):
     actions: Sequence[RewrittenActionResult]
 
 
-class RelativeActionStepBatch(DefaultBaseModel):
+class RelativeActionBatch(DefaultBaseModel):
     index: str
     conditions: str
     action: str
@@ -37,39 +37,39 @@ class RelativeActionStepBatch(DefaultBaseModel):
     rewritten_action: Optional[str] = None
 
 
-class RelativeActionStepSchema(DefaultBaseModel):
-    actions: Sequence[RelativeActionStepBatch]
+class RelativeActionSchema(DefaultBaseModel):
+    actions: Sequence[RelativeActionBatch]
 
 
 @dataclass
-class RelativeActionStepShot(Shot):
+class RelativeActionShot(Shot):
     journey_title: str
     journey_steps: dict[str, _JourneyNode]
-    expected_result: RelativeActionStepSchema
+    expected_result: RelativeActionSchema
 
 
-class RelativeActionStepProposer:
+class RelativeActionProposer:
     def __init__(
         self,
         logger: Logger,
-        schematic_generator: SchematicGenerator[RelativeActionStepSchema],
+        schematic_generator: SchematicGenerator[RelativeActionSchema],
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
         self._service_registry = service_registry
 
-    async def propose_relative_action_step(
+    async def propose_relative_action(
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline] = [],
         journey_conditions: Sequence[Guideline] = [],
         progress_report: Optional[ProgressReport] = None,
-    ) -> RelativeActionStepProposition:
+    ) -> RelativeActionProposition:
         if progress_report:
             await progress_report.stretch(1)
 
-        with self._logger.scope("RelativeActionStepProposer"):
+        with self._logger.scope("RelativeActionProposer"):
             result = await self._generate_relative_action_step_proposer(
                 examined_journey,
                 step_guidelines,
@@ -88,7 +88,7 @@ class RelativeActionStepProposer:
                         rewritten_actions=a.rewritten_action,
                     )
                 )
-        return RelativeActionStepProposition(actions=rewritten_actions)
+        return RelativeActionProposition(actions=rewritten_actions)
 
     def get_journey_text(
         self,
@@ -108,12 +108,12 @@ class RelativeActionStepProposer:
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
         journey_conditions: Sequence[Guideline],
-        shots: Sequence[RelativeActionStepShot],
+        shots: Sequence[RelativeActionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder()
 
         builder.add_section(
-            name="relative-action-step-proposer-general-instructions",
+            name="relative-action-proposer-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -135,7 +135,7 @@ These condition-action pairs are then sent to an agent for execution. However, m
         )
 
         builder.add_section(
-            name="relative-action-step-proposer-task-description",
+            name="relative-action-proposer-task-description",
             template="""
 TASK DESCRIPTION
 -----------------
@@ -160,7 +160,7 @@ No need to rewrite such actions (needs_rewrite is False)
 """,
         )
         builder.add_section(
-            name="relative-action-step-proposer-shots",
+            name="relative-action-proposer-shots",
             template="""
 EXAMPLES
 -----------
@@ -170,7 +170,7 @@ EXAMPLES
         )
 
         builder.add_section(
-            name="relative-action-step-proposer-journey-steps",
+            name="relative-action-proposer-journey-steps",
             template=self.get_journey_text(
                 examined_journey,
                 step_guidelines,
@@ -179,7 +179,7 @@ EXAMPLES
         )
 
         builder.add_section(
-            name="relative-action-step-proposer-output-format",
+            name="relative-action-proposer-output-format",
             template="""
 OUTPUT FORMAT
 -----------
@@ -222,7 +222,7 @@ Expected output (JSON):
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
         journey_conditions: Sequence[Guideline],
-    ) -> RelativeActionStepSchema:
+    ) -> RelativeActionSchema:
         prompt = await self._build_prompt(
             examined_journey,
             step_guidelines,
@@ -240,7 +240,7 @@ Expected output (JSON):
 
     def _format_shots(
         self,
-        shots: Sequence[RelativeActionStepShot],
+        shots: Sequence[RelativeActionShot],
     ) -> str:
         return "\n".join(
             f"""
@@ -253,7 +253,7 @@ Example #{i}: ###
 
     def _format_shot(
         self,
-        shot: RelativeActionStepShot,
+        shot: RelativeActionShot,
     ) -> str:
         formatted_shot = ""
         formatted_shot += f"""
@@ -505,13 +505,13 @@ book_hotel_shot_journey_steps = {
     ),
 }
 
-example_1_shot = RelativeActionStepShot(
+example_1_shot = RelativeActionShot(
     description=" ",
     journey_title="",
     journey_steps=book_hotel_shot_journey_steps,
-    expected_result=RelativeActionStepSchema(
+    expected_result=RelativeActionSchema(
         actions=[
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="1",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["1"].incoming_edges]
@@ -520,7 +520,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="2",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["2"].incoming_edges]
@@ -529,7 +529,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite.",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="3",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["3"].incoming_edges]
@@ -538,7 +538,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="4",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["4"].incoming_edges]
@@ -549,7 +549,7 @@ example_1_shot = RelativeActionStepShot(
                 former_reference="The availability refers to hotel rooms matching the specified hotel, dates, and number of guests from previous steps.",
                 rewritten_action="Make sure there is an available room in the specified hotel for the provided dates and number of guests.",
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="5",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["5"].incoming_edges]
@@ -560,7 +560,7 @@ example_1_shot = RelativeActionStepShot(
                 former_reference="The booking refers to the hotel reservation with the specified details from previous steps.",
                 rewritten_action="Book the hotel for the specified dates and number of guests.",
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="6",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["6"].incoming_edges]
@@ -569,7 +569,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="'it' refers to the fact that the availability check failed. I'ts clear that need to explain that the availability check failed, given the condition",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="7",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["7"].incoming_edges]
@@ -578,7 +578,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer and why.",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="8",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["8"].incoming_edges]
@@ -589,7 +589,7 @@ example_1_shot = RelativeActionStepShot(
                 former_reference="Previous step mentions asking for email address to send booking confirmation.",
                 rewritten_action="Send them the booking confirmation.",
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="9",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["9"].incoming_edges]
@@ -598,7 +598,7 @@ example_1_shot = RelativeActionStepShot(
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite",
                 needs_rewrite=False,
             ),
-            RelativeActionStepBatch(
+            RelativeActionBatch(
                 index="10",
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["10"].incoming_edges]
@@ -611,8 +611,8 @@ example_1_shot = RelativeActionStepShot(
     ),
 )
 
-_baseline_shots: Sequence[RelativeActionStepShot] = [
+_baseline_shots: Sequence[RelativeActionShot] = [
     example_1_shot,
 ]
 
-shot_collection = ShotCollection[RelativeActionStepShot](_baseline_shots)
+shot_collection = ShotCollection[RelativeActionShot](_baseline_shots)

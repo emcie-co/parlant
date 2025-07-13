@@ -510,7 +510,6 @@ def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuide
         return InvoiceGuidelineData(
             coherence_checks=coherence_checks,
             entailment_propositions=connection_propositions,
-            action_proposition=None,
             properties_proposition=None,
         )
     except Exception:

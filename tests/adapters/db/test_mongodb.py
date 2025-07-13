@@ -800,8 +800,10 @@ async def test_evaluation_update(
             invoice_data: InvoiceData = InvoiceGuidelineData(
                 coherence_checks=[],
                 entailment_propositions=None,
-                action_proposition="Provide a list of book recommendations",
-                properties_proposition={"continuous": True},
+                properties_proposition={
+                    "continuous": True,
+                    "internal_action": "Provide a list of book recommendations",
+                },
             )
 
             invoice = Invoice(

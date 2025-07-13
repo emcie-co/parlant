@@ -45,7 +45,10 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     DocumentCollection,
 )
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
+    DocumentStoreMigrationHelper,
+)
 from parlant.core.tags import TagId
 from parlant.core.tools import ToolId
 
@@ -126,7 +129,6 @@ class EntailmentRelationshipProposition:
 class InvoiceGuidelineData:
     coherence_checks: Optional[Sequence[CoherenceCheck]]
     entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
-    action_proposition: Optional[str]
     properties_proposition: Optional[dict[str, JSONSerializable]]
     _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
 
@@ -265,10 +267,29 @@ class _InvoiceGuidelineDataDocument_v0_1_0(TypedDict):
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
 
 
-class InvoiceGuidelineDataDocument(TypedDict):
+class InvoiceGuidelineDataDocument_v0_2_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument_v0_2_0 = Union[InvoiceGuidelineDataDocument_v0_2_0]
+
+
+class InvoiceGuidelineDataDocument_v0_3_0(TypedDict):
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
+    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
+    action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument_v0_3_0 = Union[InvoiceGuidelineDataDocument_v0_3_0]
+
+
+class InvoiceGuidelineDataDocument(TypedDict):
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
+    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
@@ -291,7 +312,17 @@ class InvoiceDocument_v0_2_0(TypedDict, total=False):
     checksum: str
     state_version: str
     approved: bool
-    data: Optional[_InvoiceDataDocument]
+    data: Optional[_InvoiceDataDocument_v0_2_0]
+    error: Optional[str]
+
+
+class InvoiceDocument_v0_3_0(TypedDict, total=False):
+    kind: str
+    payload: _PayloadDocument
+    checksum: str
+    state_version: str
+    approved: bool
+    data: Optional[_InvoiceDataDocument_v0_3_0]
     error: Optional[str]
 
 
@@ -327,6 +358,16 @@ class EvaluationDocument_v0_2_0(TypedDict, total=False):
     progress: float
 
 
+class EvaluationDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    status: str
+    error: Optional[str]
+    invoices: Sequence[InvoiceDocument_v0_3_0]
+    progress: float
+
+
 class EvaluationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -346,7 +387,7 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
 
 
 class EvaluationDocumentStore(EvaluationStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
@@ -359,12 +400,12 @@ class EvaluationDocumentStore(EvaluationStore):
     async def tag_association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[EvaluationTagAssociationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        elif doc["version"] == "0.2.0":
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(EvaluationTagAssociationDocument, doc)
 
             return EvaluationTagAssociationDocument(
@@ -375,28 +416,43 @@ class EvaluationDocumentStore(EvaluationStore):
                 tag_id=TagId(doc["tag_id"]),
             )
 
-        elif doc["version"] == "0.3.0":
-            return cast(EvaluationTagAssociationDocument, doc)
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationTagAssociationDocument, doc)
 
-        return None
+            return EvaluationTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.4.0"),
+                creation_utc=doc["creation_utc"],
+                evaluation_id=EvaluationId(doc["evaluation_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        return await DocumentMigrationHelper[EvaluationTagAssociationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
+            },
+        ).migrate(doc)
 
     async def document_loader(self, doc: BaseDocument) -> Optional[EvaluationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        if doc["version"] == "0.2.0":
-            doc = cast(EvaluationDocument, doc)
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationDocument_v0_2_0, doc)
 
-            return EvaluationDocument(
+            return EvaluationDocument_v0_3_0(
                 id=ObjectId(doc["id"]),
                 version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 status=doc["status"],
                 error=doc.get("error"),
                 invoices=[
-                    InvoiceDocument(
+                    InvoiceDocument_v0_3_0(
                         kind=inv["kind"],
                         payload=GuidelinePayloadDocument(
                             content=GuidelineContentDocument(
@@ -416,6 +472,44 @@ class EvaluationDocumentStore(EvaluationStore):
                         state_version=inv["state_version"],
                         approved=inv["approved"],
                         data=inv["data"],
+                    )
+                    for inv in doc["invoices"]
+                ],
+                progress=doc["progress"],
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationDocument_v0_3_0, doc)
+
+            return EvaluationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.4.0"),
+                creation_utc=doc["creation_utc"],
+                status=doc["status"],
+                error=doc.get("error"),
+                invoices=[
+                    InvoiceDocument(
+                        kind=inv["kind"],
+                        payload=inv["payload"],
+                        checksum=inv["checksum"],
+                        state_version=inv["state_version"],
+                        approved=inv["approved"],
+                        data=_InvoiceDataDocument(
+                            coherence_checks=inv["data"].get("coherence_checks"),
+                            connection_propositions=inv["data"].get("connection_propositions"),
+                            properties_proposition={
+                                **cast(
+                                    dict[str, JSONSerializable],
+                                    inv["data"].get("properties_proposition", {}),
+                                ),
+                                **({"internal_action": inv["data"].get("action_proposition", {})}),
+                            }
+                            if inv["data"].get("properties_proposition")
+                            or inv["data"].get("action_proposition")
+                            else None,
+                        )
+                        if inv["data"]
+                        else None,
                     )
                     for inv in doc["invoices"]
                 ],
@@ -496,9 +590,6 @@ class EvaluationDocumentStore(EvaluationStore):
                     [serialize_connection_proposition(cp) for cp in data.entailment_propositions]
                     if data.entailment_propositions
                     else None
-                ),
-                action_proposition=(
-                    data.action_proposition if data.action_proposition is not None else None
                 ),
                 properties_proposition=(
                     data.properties_proposition if data.properties_proposition is not None else None
@@ -594,11 +685,6 @@ class EvaluationDocumentStore(EvaluationStore):
                         for cp_doc in data_doc["connection_propositions"]
                     ]
                     if data_doc["connection_propositions"] is not None
-                    else None
-                ),
-                action_proposition=(
-                    data_doc["action_proposition"]
-                    if data_doc["action_proposition"] is not None
                     else None
                 ),
                 properties_proposition=(

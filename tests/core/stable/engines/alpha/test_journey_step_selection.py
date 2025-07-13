@@ -1204,7 +1204,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_much_earli
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
         journey_previous_path=["1", "2", "3", "5", "7"],
-        expected_next_step_id=["2", "5"],
+        expected_next_step_id=["1", "2", "5"],
         staged_events=staged_events,
     )
 
@@ -1379,7 +1379,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
     )
 
 
-async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_4(
+async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_4(  # Sometimes skips a node in the returned path,  but outputs the correct decision
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

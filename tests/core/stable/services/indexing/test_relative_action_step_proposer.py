@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Mapping, Optional, Sequence, cast
+from typing import Mapping, Sequence
 from lagom import Container
 from pytest import fixture
 
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import Journey, JourneyId, JourneyStepId
+from parlant.core.journeys import Journey, JourneyId, JourneyNode, JourneyNodeId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.relative_action_step_proposer import (
@@ -37,7 +37,7 @@ class _StepData:
 class _JourneyData:
     title: str
     steps: list[_StepData]
-    conditions: Optional[Sequence[str]] = None
+    conditions: Sequence[str] = field(default_factory=list)
 
 
 @fixture
@@ -56,8 +56,26 @@ def context(
 def create_journey(
     title: str,
     steps: list[_StepData],
-) -> tuple[Journey, Sequence[Guideline]]:
-    journey_step_guidelines: Sequence[Guideline] = [
+    conditions: Sequence[str],
+) -> tuple[Journey, Sequence[Guideline], Sequence[Guideline]]:
+    # 1. Create conditions, get IDs
+    # 2. Create guidelines from step data
+    # 3. Return journey, guidelines, conditions
+    journey_id = JourneyId("j1")
+
+    condition_guidelines: Sequence[Guideline] = [
+        Guideline(
+            id=GuidelineId(f"c-{i}"),
+            creation_utc=datetime.now(timezone.utc),
+            content=GuidelineContent(condition=condition, action=None),
+            enabled=False,
+            tags=[],
+            metadata={},
+        )
+        for i, condition in enumerate(conditions)
+    ]
+
+    step_guidelines: Sequence[Guideline] = [
         Guideline(
             id=GuidelineId(step.id),
             creation_utc=datetime.now(timezone.utc),
@@ -68,28 +86,44 @@ def create_journey(
             enabled=False,
             tags=[],
             metadata={
-                "journey_step": {
-                    "id": step.id,
-                    "sub_steps": [GuidelineId(follow_up_id) for follow_up_id in step.follow_up_ids],
+                "journey_node": {
+                    "follow_ups": [
+                        GuidelineId(follow_up_id) for follow_up_id in step.follow_up_ids
+                    ],
+                    "index": step.id,
+                    "journey_id": journey_id,
                 },
                 "customer_dependent_action_data": {
-                    "is_customer_dependent": step.customer_dependent_action
+                    "is_customer_dependent": step.customer_dependent_action,
+                    "customer_action": "",
+                    "agent_action": "",
                 },
                 "tool_running_only": step.requires_tool_calls,
             },
         )
         for step in steps
     ]
-    journey = Journey(
-        id=JourneyId("-"),
+
+    root_step = next(s for s in steps if s.id == "1")
+    root_node = JourneyNode(
+        id=JourneyNodeId(f"j-{journey_id}-root"),
         creation_utc=datetime.now(timezone.utc),
-        conditions=[],
-        steps=[cast(JourneyStepId, g.id) for g in journey_step_guidelines],
-        title=title,
+        action=root_step.action,
+        tools=[],
+        metadata={},
+    )
+
+    journey = Journey(
+        id=journey_id,
+        creation_utc=datetime.now(timezone.utc),
         description="",
+        conditions=[g.id for g in condition_guidelines],
+        title=title,
+        root=root_node.id,
         tags=[],
     )
-    return journey, journey_step_guidelines
+
+    return journey, step_guidelines, condition_guidelines
 
 
 async def base_test_that_related_action_step_proposed(
@@ -99,14 +133,17 @@ async def base_test_that_related_action_step_proposed(
 ) -> None:
     relative_action_proposer = context.container[RelativeActionStepProposer]
 
-    examined_journey, journey_step_guidelines = create_journey(
+    examined_journey, step_guidelines, condition_guidelines = create_journey(
         title=journey.title,
         steps=journey.steps,
+        conditions=journey.conditions,
     )
     result = await relative_action_proposer.propose_relative_action_step(
-        examined_journey, journey_step_guidelines
+        examined_journey,
+        step_guidelines,
+        condition_guidelines,
     )
-    proposed_actions = {a.id: a.rewritten_actions for a in result.actions}
+    proposed_actions = {a.index: a.rewritten_actions for a in result.actions}
 
     assert set(proposed_actions.keys()) == set(to_propose_actions.keys())
 

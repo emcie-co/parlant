@@ -366,7 +366,6 @@ def _invoice_data_to_dto(
     if kind == PayloadKind.GUIDELINE:
         return InvoiceDataDTO(
             guideline=GuidelineInvoiceDataDTO(
-                action_proposition=invoice_data.action_proposition,
                 properties_proposition=invoice_data.properties_proposition,
             ),
         )

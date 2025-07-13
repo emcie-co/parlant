@@ -149,7 +149,6 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=payload_coherence_checks,
                     entailment_propositions=None,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for payload_coherence_checks in coherence_checks
@@ -160,7 +159,6 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=[],
                     entailment_propositions=payload_connection_propositions,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for payload_connection_propositions in connection_propositions
@@ -171,7 +169,6 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=[],
                     entailment_propositions=None,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for _ in payloads
@@ -562,8 +559,6 @@ class GuidelineEvaluator:
             agent_intention_propositions,
             tool_running_action_propositions,
         ):
-            action_prop = payload_action.content.action if payload_action else None
-
             properties_prop: dict[str, JSONSerializable] = {
                 **{
                     "continuous": payload_continuous.is_continuous if payload_continuous else None,
@@ -575,6 +570,7 @@ class GuidelineEvaluator:
                     and agent_intention.rewritten_condition
                     and agent_intention.is_agent_intention
                     else None,
+                    "internal_action": payload_action.content.action if payload_action else None,
                 },
                 **(
                     {"tool_running_only": tool_running_action.is_tool_running_only}
@@ -586,7 +582,6 @@ class GuidelineEvaluator:
             invoice_data = InvoiceGuidelineData(
                 coherence_checks=None,
                 entailment_propositions=None,
-                action_proposition=action_prop,
                 properties_proposition=properties_prop,
             )
 

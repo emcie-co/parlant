@@ -28,7 +28,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
-from parlant.core.engines.alpha.journey_guideline_projection import JourneyGuidelineProjection
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.guidelines import (
     Guideline,
     GuidelineId,

@@ -38,7 +38,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
+from parlant.core.evaluations import GuidelinePayload, PayloadOperation
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
@@ -214,7 +214,7 @@ async def create_guideline(
                         action=action,
                     ),
                     tool_ids=[],
-                    operation=GuidelinePayloadOperation.ADD,
+                    operation=PayloadOperation.ADD,
                     coherence_check=False,
                     connection_proposition=False,
                     action_proposition=True,

@@ -36,14 +36,14 @@ SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
 @dataclass
 class _JourneyEdge(DefaultBaseModel):
-    target_guideline: Guideline
+    target_guideline: Guideline | None
     condition: str | None
     source_node_index: str
     target_node_index: str
 
 
 @dataclass
-class _JourneyNodeWrapper(DefaultBaseModel):
+class _JourneyNode(DefaultBaseModel):
     id: str
     action: str
     incoming_edges: list[_JourneyEdge]
@@ -73,13 +73,13 @@ class JourneyStepSelectionSchema(DefaultBaseModel):
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_title: str
-    journey_steps: dict[str, _JourneyNodeWrapper] | None
+    journey_steps: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
     conditions: Sequence[str]
 
 
-def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNodeWrapper]:
+def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
     def _get_guideline_node_index(guideline: Guideline) -> str:
         return cast(
             str,
@@ -92,13 +92,13 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
     guideline_id_to_node_index: dict[GuidelineId, str] = {
         g.id: _get_guideline_node_index(g) for g in step_guidelines
     }
-    node_wrappers: dict[str, _JourneyNodeWrapper] = {}
+    node_wrappers: dict[str, _JourneyNode] = {}
 
     # Build nodes
     for g in step_guidelines:
         node_index: str = guideline_id_to_node_index[g.id]
         if node_index not in node_wrappers:
-            node_wrappers[node_index] = _JourneyNodeWrapper(
+            node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
                 action=g.content.action or "",
                 incoming_edges=[],
@@ -150,7 +150,7 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
 
 
 def get_journey_transition_map_text(
-    nodes: dict[str, _JourneyNodeWrapper],
+    nodes: dict[str, _JourneyNode],
     journey_title: str,
     journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
@@ -169,7 +169,7 @@ def get_journey_transition_map_text(
 
     nodes_str = ""
     for node_index in sorted(nodes.keys(), key=step_sort_key):
-        node: _JourneyNodeWrapper = nodes[node_index]
+        node: _JourneyNode = nodes[node_index]
         if node.action:
             flags_str = "Step Flags:\n"
             if node.customer_dependent_action:
@@ -194,14 +194,16 @@ def get_journey_transition_map_text(
             elif len(node.outgoing_edges) == 1:
                 followup_instruction = (
                     f"Go to step {node.outgoing_edges[0].target_node_index}"
-                    if node.outgoing_edges[0].target_guideline.content.action
+                    if node.outgoing_edges[0].target_node_index in nodes
+                    and nodes[node.outgoing_edges[0].target_node_index].action
                     else EXIT_JOURNEY_INSTRUCTION
                 )
                 follow_ups_str = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
             else:
                 follow_ups_str = "\n".join(
                     [
-                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_guideline.content.action else EXIT_JOURNEY_INSTRUCTION}"""
+                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if node.outgoing_edges[0].target_node_index in nodes
+                    and nodes[node.outgoing_edges[0].target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
                         for e in node.outgoing_edges
                     ]
                 )
@@ -235,7 +237,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._conditions = journey_conditions  # TODO work into map builder
-        self._node_wrappers: dict[str, _JourneyNodeWrapper] = build_node_wrappers(step_guidelines)
+        self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
@@ -652,581 +654,580 @@ example_1_events = [
 ]
 
 # TODO fix few shots
-example_1_journey_steps = {
-    "1": _JourneyNodeWrapper(
-        id="1",
-        action=GuidelineContent(
-            condition="",
-            action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
-        ),
-        parent_ids=[],
-        outgoing_edges=["2", "3", "4"],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "2": _JourneyNodeWrapper(
-        id="2",
-        action=GuidelineContent(
-            condition="The customer prefers exploring cities",
-            action="Recommend the capital city of their desired nation",
-        ),
-        parent_ids=["1"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "3": _JourneyNodeWrapper(
-        id="3",
-        action=GuidelineContent(
-            condition="The customer prefers scenic landscapes",
-            action="Recommend the top hiking route of their desired nation",
-        ),
-        parent_ids=["1"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "4": _JourneyNodeWrapper(
-        id="4",
-        action=GuidelineContent(
-            condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
-            action="Refer them to our travel information page",
-        ),
-        parent_ids=["1"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-}
+# example_1_journey_steps = {
+#     "1": _JourneyNodeWrapper(
+#         id="1",
+#         action=GuidelineContent(
+#             condition="",
+#             action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
+#         ),
+#         parent_ids=[],
+#         outgoing_edges=["2", "3", "4"],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "2": _JourneyNodeWrapper(
+#         id="2",
+#         action=GuidelineContent(
+#             condition="The customer prefers exploring cities",
+#             action="Recommend the capital city of their desired nation",
+#         ),
+#         parent_ids=["1"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "3": _JourneyNodeWrapper(
+#         id="3",
+#         action=GuidelineContent(
+#             condition="The customer prefers scenic landscapes",
+#             action="Recommend the top hiking route of their desired nation",
+#         ),
+#         parent_ids=["1"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "4": _JourneyNodeWrapper(
+#         id="4",
+#         action=GuidelineContent(
+#             condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
+#             action="Refer them to our travel information page",
+#         ),
+#         parent_ids=["1"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+# }
 
 
-example_1_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    requires_backtracking=False,
-    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
-    step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2", "3", "4"]),
-        JourneyStepAdvancement(id="4", completed=False),
-    ],
-    next_step="4",
-)
+# example_1_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     requires_backtracking=False,
+#     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
+#     step_advancement=[
+#         JourneyStepAdvancement(id="1", completed=True, follow_ups=["2", "3", "4"]),
+#         JourneyStepAdvancement(id="4", completed=False),
+#     ],
+#     next_step="4",
+# )
 
 
-example_2_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "Welcome to our taxi service! How can I help you today?",
-    ),
-    _make_event(
-        "12",
-        EventSource.CUSTOMER,
-        "I would like to book a taxi",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "From where would you like to request a taxi?",
-    ),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "I'd like to book a taxi from 20 W 34th St., NYC to JFK Airport at 5 PM, please. I'll pay by cash.",
-    ),
-]
+# example_2_events = [
+#     _make_event(
+#         "11",
+#         EventSource.AI_AGENT,
+#         "Welcome to our taxi service! How can I help you today?",
+#     ),
+#     _make_event(
+#         "12",
+#         EventSource.CUSTOMER,
+#         "I would like to book a taxi",
+#     ),
+#     _make_event(
+#         "23",
+#         EventSource.AI_AGENT,
+#         "From where would you like to request a taxi?",
+#     ),
+#     _make_event(
+#         "34",
+#         EventSource.CUSTOMER,
+#         "I'd like to book a taxi from 20 W 34th St., NYC to JFK Airport at 5 PM, please. I'll pay by cash.",
+#     ),
+# ]
 
-book_taxi_shot_journey_steps = {
-    "1": _JourneyNodeWrapper(
-        id="1",
-        action=GuidelineContent(
-            condition="",
-            action="Welcome the customer to the taxi service",
-        ),
-        parent_ids=[],
-        outgoing_edges=["2"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "2": _JourneyNodeWrapper(
-        id="2",
-        action=GuidelineContent(
-            condition="You welcomed the customer",
-            action="Ask the customer for their desired pick up location",
-        ),
-        parent_ids=["1"],
-        outgoing_edges=["3", "4"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "3": _JourneyNodeWrapper(
-        id="3",
-        action=GuidelineContent(
-            condition="The desired pick up location is in NYC",
-            action="Ask where their destination is",
-        ),
-        parent_ids=["2"],
-        outgoing_edges=["5"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "4": _JourneyNodeWrapper(
-        id="4",
-        action=GuidelineContent(
-            condition="The desired pick up location is outside of NYC",
-            action="Inform the customer that we do not operate outside of NYC",
-        ),
-        parent_ids=["2"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "5": _JourneyNodeWrapper(
-        id="5",
-        action=GuidelineContent(
-            condition="the desired pick up location is in NYC",
-            action="ask for the customer's desired pick up time",
-        ),
-        parent_ids=["3"],
-        outgoing_edges=["6"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "6": _JourneyNodeWrapper(
-        id="6",
-        action=GuidelineContent(
-            condition="the customer provided their desired pick up time",
-            action="Book the taxi ride as the customer requested",
-        ),
-        parent_ids=["5"],
-        outgoing_edges=["7"],
-        customer_dependent_action=False,
-        requires_tool_calls=True,
-    ),
-    "7": _JourneyNodeWrapper(
-        id="7",
-        action=GuidelineContent(
-            condition="the taxi ride was successfully booked",
-            action="Ask the customer if they want to pay in cash or credit",
-        ),
-        parent_ids=["6"],
-        outgoing_edges=["8", "9"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "8": _JourneyNodeWrapper(
-        id="8",
-        action=GuidelineContent(
-            condition="the customer wants to pay in credit",
-            action="Send the customer a credit card payment link",
-        ),
-        parent_ids=["7"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "9": _JourneyNodeWrapper(
-        id="9",
-        action=GuidelineContent(
-            condition="the customer wants to pay in cash",
-            action=None,
-        ),
-        parent_ids=["7"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-}
+# book_taxi_shot_journey_steps = {
+#     "1": _JourneyNodeWrapper(
+#         id="1",
+#         action=GuidelineContent(
+#             condition="",
+#             action="Welcome the customer to the taxi service",
+#         ),
+#         parent_ids=[],
+#         outgoing_edges=["2"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "2": _JourneyNodeWrapper(
+#         id="2",
+#         action=GuidelineContent(
+#             condition="You welcomed the customer",
+#             action="Ask the customer for their desired pick up location",
+#         ),
+#         parent_ids=["1"],
+#         outgoing_edges=["3", "4"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "3": _JourneyNodeWrapper(
+#         id="3",
+#         action=GuidelineContent(
+#             condition="The desired pick up location is in NYC",
+#             action="Ask where their destination is",
+#         ),
+#         parent_ids=["2"],
+#         outgoing_edges=["5"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "4": _JourneyNodeWrapper(
+#         id="4",
+#         action=GuidelineContent(
+#             condition="The desired pick up location is outside of NYC",
+#             action="Inform the customer that we do not operate outside of NYC",
+#         ),
+#         parent_ids=["2"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "5": _JourneyNodeWrapper(
+#         id="5",
+#         action=GuidelineContent(
+#             condition="the desired pick up location is in NYC",
+#             action="ask for the customer's desired pick up time",
+#         ),
+#         parent_ids=["3"],
+#         outgoing_edges=["6"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "6": _JourneyNodeWrapper(
+#         id="6",
+#         action=GuidelineContent(
+#             condition="the customer provided their desired pick up time",
+#             action="Book the taxi ride as the customer requested",
+#         ),
+#         parent_ids=["5"],
+#         outgoing_edges=["7"],
+#         customer_dependent_action=False,
+#         requires_tool_calls=True,
+#     ),
+#     "7": _JourneyNodeWrapper(
+#         id="7",
+#         action=GuidelineContent(
+#             condition="the taxi ride was successfully booked",
+#             action="Ask the customer if they want to pay in cash or credit",
+#         ),
+#         parent_ids=["6"],
+#         outgoing_edges=["8", "9"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "8": _JourneyNodeWrapper(
+#         id="8",
+#         action=GuidelineContent(
+#             condition="the customer wants to pay in credit",
+#             action="Send the customer a credit card payment link",
+#         ),
+#         parent_ids=["7"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "9": _JourneyNodeWrapper(
+#         id="9",
+#         action=GuidelineContent(
+#             condition="the customer wants to pay in cash",
+#             action=None,
+#         ),
+#         parent_ids=["7"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+# }
 
-random_actions_journey_steps = {
-    "1": _JourneyNodeWrapper(
-        id="1",
-        action=GuidelineContent(
-            condition="",
-            action="State a random capital city. Do not say anything else.",
-        ),
-        parent_ids=[],
-        outgoing_edges=["2"],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-    "2": _JourneyNodeWrapper(
-        id="2",
-        action=GuidelineContent(
-            condition="The previous step was completed",
-            action="Ask the customer for money.",
-        ),
-        outgoing_edges=["3"],
-        parent_ids=["1"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "3": _JourneyNodeWrapper(
-        id="3",
-        action=GuidelineContent(
-            condition="This step was completed",
-            action="Wish the customer a good day and disconnect from the conversation",
-        ),
-        outgoing_edges=[],
-        parent_ids=["2"],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-}
-example_2_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
-    requires_backtracking=False,
-    step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=False),
-    ],
-    next_step="6",
-)
+# random_actions_journey_steps = {
+#     "1": _JourneyNodeWrapper(
+#         id="1",
+#         action=GuidelineContent(
+#             condition="",
+#             action="State a random capital city. Do not say anything else.",
+#         ),
+#         parent_ids=[],
+#         outgoing_edges=["2"],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+#     "2": _JourneyNodeWrapper(
+#         id="2",
+#         action=GuidelineContent(
+#             condition="The previous step was completed",
+#             action="Ask the customer for money.",
+#         ),
+#         outgoing_edges=["3"],
+#         parent_ids=["1"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "3": _JourneyNodeWrapper(
+#         id="3",
+#         action=GuidelineContent(
+#             condition="This step was completed",
+#             action="Wish the customer a good day and disconnect from the conversation",
+#         ),
+#         outgoing_edges=[],
+#         parent_ids=["2"],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+# }
+# example_2_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
+#     requires_backtracking=False,
+#     step_advancement=[
+#         JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+#         JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+#         JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
+#         JourneyStepAdvancement(id="6", completed=False),
+#     ],
+#     next_step="6",
+# )
 
-example_3_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "Welcome to our taxi service! How can I help you today?",
-    ),
-    _make_event(
-        "23",
-        EventSource.CUSTOMER,
-        "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
-    ),
-]
+# example_3_events = [
+#     _make_event(
+#         "11",
+#         EventSource.AI_AGENT,
+#         "Welcome to our taxi service! How can I help you today?",
+#     ),
+#     _make_event(
+#         "23",
+#         EventSource.CUSTOMER,
+#         "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
+#     ),
+# ]
 
-example_3_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
-    requires_backtracking=False,
-    step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["3"]),
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=False),
-    ],
-    next_step="5",
-)
+# example_3_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
+#     requires_backtracking=False,
+#     step_advancement=[
+#         JourneyStepAdvancement(id="1", completed=True, follow_ups=["3"]),
+#         JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+#         JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+#         JourneyStepAdvancement(id="5", completed=False),
+#     ],
+#     next_step="5",
+# )
 
-example_4_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "Welcome to our taxi service! How can I help you today?",
-    ),
-    _make_event(
-        "12",
-        EventSource.CUSTOMER,
-        "I would like to book a taxi from Newark Airport to Manhattan",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "I'm sorry, we do not operate outside of NYC.",
-    ),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
-    ),
-    _make_event(
-        "45",
-        EventSource.AI_AGENT,
-        "Great! Where would you like to go?",
-    ),
-    _make_event(
-        "56",
-        EventSource.CUSTOMER,
-        "Times Square please",
-    ),
-    _make_event(
-        "67",
-        EventSource.AI_AGENT,
-        "Perfect! What time would you like to be picked up?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
-    ),
-]
+# example_4_events = [
+#     _make_event(
+#         "11",
+#         EventSource.AI_AGENT,
+#         "Welcome to our taxi service! How can I help you today?",
+#     ),
+#     _make_event(
+#         "12",
+#         EventSource.CUSTOMER,
+#         "I would like to book a taxi from Newark Airport to Manhattan",
+#     ),
+#     _make_event(
+#         "23",
+#         EventSource.AI_AGENT,
+#         "I'm sorry, we do not operate outside of NYC.",
+#     ),
+#     _make_event(
+#         "34",
+#         EventSource.CUSTOMER,
+#         "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+#     ),
+#     _make_event(
+#         "45",
+#         EventSource.AI_AGENT,
+#         "Great! Where would you like to go?",
+#     ),
+#     _make_event(
+#         "56",
+#         EventSource.CUSTOMER,
+#         "Times Square please",
+#     ),
+#     _make_event(
+#         "67",
+#         EventSource.AI_AGENT,
+#         "Perfect! What time would you like to be picked up?",
+#     ),
+#     _make_event(
+#         "78",
+#         EventSource.CUSTOMER,
+#         "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+#     ),
+# ]
 
-example_4_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "I need help with booking a taxi",
-    ),
-    _make_event(
-        "12",
-        EventSource.CUSTOMER,
-        "I would like to book a taxi from Newark Airport to Manhattan",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "I'm sorry, we do not operate outside of NYC.",
-    ),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
-    ),
-    _make_event(
-        "67",
-        EventSource.AI_AGENT,
-        "Yes! What time would you like to be picked up?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
-    ),
-]
+# example_4_events = [
+#     _make_event(
+#         "11",
+#         EventSource.AI_AGENT,
+#         "I need help with booking a taxi",
+#     ),
+#     _make_event(
+#         "12",
+#         EventSource.CUSTOMER,
+#         "I would like to book a taxi from Newark Airport to Manhattan",
+#     ),
+#     _make_event(
+#         "23",
+#         EventSource.AI_AGENT,
+#         "I'm sorry, we do not operate outside of NYC.",
+#     ),
+#     _make_event(
+#         "34",
+#         EventSource.CUSTOMER,
+#         "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+#     ),
+#     _make_event(
+#         "67",
+#         EventSource.AI_AGENT,
+#         "Yes! What time would you like to be picked up?",
+#     ),
+#     _make_event(
+#         "78",
+#         EventSource.CUSTOMER,
+#         "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+#     ),
+# ]
 
-example_4_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    requires_backtracking=True,
-    rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
-    backtracking_target_step="2",
-    step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=False),
-    ],
-    next_step="6",
-)
+# example_4_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     requires_backtracking=True,
+#     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
+#     backtracking_target_step="2",
+#     step_advancement=[
+#         JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+#         JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+#         JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
+#         JourneyStepAdvancement(id="6", completed=False),
+#     ],
+#     next_step="6",
+# )
 
-example_5_events = [
-    _make_event(
-        "11",
-        EventSource.CUSTOMER,
-        "Hi, I need to book a taxi",
-    ),
-    _make_event(
-        "12",
-        EventSource.AI_AGENT,
-        "The capital of Australia is Canberra",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "Oh really? I always thought it was Sydney",
-    ),
-]
+# example_5_events = [
+#     _make_event(
+#         "11",
+#         EventSource.CUSTOMER,
+#         "Hi, I need to book a taxi",
+#     ),
+#     _make_event(
+#         "12",
+#         EventSource.AI_AGENT,
+#         "The capital of Australia is Canberra",
+#     ),
+#     _make_event(
+#         "23",
+#         EventSource.AI_AGENT,
+#         "Oh really? I always thought it was Sydney",
+#     ),
+# ]
 
-example_5_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
-    requires_backtracking=False,
-    step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2"]),
-        JourneyStepAdvancement(id="2", completed=False),
-    ],
-    next_step="2",
-)
+# example_5_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
+#     requires_backtracking=False,
+#     step_advancement=[
+#         JourneyStepAdvancement(id="1", completed=True, follow_ups=["2"]),
+#         JourneyStepAdvancement(id="2", completed=False),
+#     ],
+#     next_step="2",
+# )
 
-_baseline_shots: Sequence[JourneyStepSelectionShot] = [
-    JourneyStepSelectionShot(
-        description="Example 1 - Simple Single-Step Advancement",
-        journey_title="Recommend Vacation Journey",
-        interaction_events=example_1_events,
-        journey_steps=example_1_journey_steps,
-        expected_result=example_1_expected,
-        previous_path=["1"],
-        conditions=["the customer is interested in a vacation"],
-    ),
-    JourneyStepSelectionShot(
-        description="Example 2 - Multiple Step Advancement Stopped by Tool Calling Step",
-        journey_title="Book Taxi Journey",
-        interaction_events=example_2_events,
-        journey_steps=book_taxi_shot_journey_steps,
-        expected_result=example_2_expected,
-        previous_path=["1", "2"],
-        conditions=[],
-    ),
-    JourneyStepSelectionShot(
-        description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
-        journey_title="Book Taxi Journey - Same Journey as in Example 2",
-        interaction_events=example_3_events,
-        journey_steps=None,
-        expected_result=example_3_expected,
-        previous_path=["1"],
-        conditions=[],
-    ),
-    JourneyStepSelectionShot(
-        description="Example 4 - Backtracking Due to Changed Customer Decision",
-        journey_title="Book Taxi Journey - Same as in Example 2",
-        interaction_events=example_4_events,
-        journey_steps=None,
-        expected_result=example_4_expected,
-        previous_path=["1", "2", "4", "2", "3", "5"],
-        conditions=[],
-    ),
-    JourneyStepSelectionShot(
-        description="Example 5 - Remaining in journey unless explicitly told otherwise",
-        journey_title="Book Taxi II Journey",
-        interaction_events=example_5_events,
-        journey_steps=random_actions_journey_steps,
-        expected_result=example_5_expected,
-        previous_path=["1"],
-        conditions=["customer wants to book a taxi"],
-    ),
-]
 
-# Example 6: Loan Application Journey with branching, backtracking, and completion
+# # Example 6: Loan Application Journey with branching, backtracking, and completion
 
-example_6_events = [
-    _make_event("1", EventSource.CUSTOMER, "Hi, I want to apply for a loan."),
-    _make_event("2", EventSource.AI_AGENT, "Great! Can I have your full name?"),
-    _make_event("3", EventSource.CUSTOMER, "Jane Doe"),
-    _make_event(
-        "4", EventSource.AI_AGENT, "What type of loan are you interested in? Personal or Business?"
-    ),
-    _make_event("5", EventSource.CUSTOMER, "Personal"),
-    _make_event("6", EventSource.AI_AGENT, "How much would you like to borrow?"),
-    _make_event("7", EventSource.CUSTOMER, "50000"),
-    _make_event("8", EventSource.AI_AGENT, "What is your current employment status?"),
-    _make_event(
-        "9",
-        EventSource.CUSTOMER,
-        "I work as a finance manager for Very Important Business Deals LTD",
-    ),
-    _make_event(
-        "10",
-        EventSource.AI_AGENT,
-        "Please review your application: Name: Jane Doe, Type: Personal, Amount: 50000, Employment: Finance manager for Very Important Business Deals LTD. Confirm to submit?",
-    ),
-    _make_event(
-        "11",
-        EventSource.CUSTOMER,
-        "Actually, I want to take it as a business loan instead. It's for the company I work at. Use their car fleet as collateral. Same loan details otherwise",
-    ),
-]
+# example_6_events = [
+#     _make_event("1", EventSource.CUSTOMER, "Hi, I want to apply for a loan."),
+#     _make_event("2", EventSource.AI_AGENT, "Great! Can I have your full name?"),
+#     _make_event("3", EventSource.CUSTOMER, "Jane Doe"),
+#     _make_event(
+#         "4", EventSource.AI_AGENT, "What type of loan are you interested in? Personal or Business?"
+#     ),
+#     _make_event("5", EventSource.CUSTOMER, "Personal"),
+#     _make_event("6", EventSource.AI_AGENT, "How much would you like to borrow?"),
+#     _make_event("7", EventSource.CUSTOMER, "50000"),
+#     _make_event("8", EventSource.AI_AGENT, "What is your current employment status?"),
+#     _make_event(
+#         "9",
+#         EventSource.CUSTOMER,
+#         "I work as a finance manager for Very Important Business Deals LTD",
+#     ),
+#     _make_event(
+#         "10",
+#         EventSource.AI_AGENT,
+#         "Please review your application: Name: Jane Doe, Type: Personal, Amount: 50000, Employment: Finance manager for Very Important Business Deals LTD. Confirm to submit?",
+#     ),
+#     _make_event(
+#         "11",
+#         EventSource.CUSTOMER,
+#         "Actually, I want to take it as a business loan instead. It's for the company I work at. Use their car fleet as collateral. Same loan details otherwise",
+#     ),
+# ]
 
-loan_journey_steps = {
-    "1": _JourneyNodeWrapper(
-        id="1",
-        action=GuidelineContent(condition="", action="Ask for the customer's full name."),
-        parent_ids=[],
-        outgoing_edges=["2"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "2": _JourneyNodeWrapper(
-        id="2",
-        action=GuidelineContent(
-            condition="Customer provided their name",
-            action="Ask for the type of loan: Personal or Business.",
-        ),
-        parent_ids=["1"],
-        outgoing_edges=["3", "4"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "3": _JourneyNodeWrapper(
-        id="3",
-        action=GuidelineContent(
-            condition="Customer chose Personal loan", action="Ask for the desired loan amount."
-        ),
-        parent_ids=["2"],
-        outgoing_edges=["5"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "4": _JourneyNodeWrapper(
-        id="4",
-        action=GuidelineContent(
-            condition="Customer chose Business loan", action="Ask for the desired loan amount."
-        ),
-        parent_ids=["2"],
-        outgoing_edges=["6"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "5": _JourneyNodeWrapper(
-        id="5",
-        action=GuidelineContent(
-            condition="Personal loan amount provided", action="Ask for employment status."
-        ),
-        parent_ids=["3"],
-        outgoing_edges=["7"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "6": _JourneyNodeWrapper(
-        id="6",
-        action=GuidelineContent(
-            condition="Business loan amount provided", action="Ask for collateral."
-        ),
-        parent_ids=["4"],
-        outgoing_edges=["8", "9"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "7": _JourneyNodeWrapper(
-        id="7",
-        action=GuidelineContent(
-            condition="Employment status provided", action="Review and confirm application."
-        ),
-        parent_ids=["5"],
-        outgoing_edges=["9"],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "8": _JourneyNodeWrapper(
-        id="8",
-        action=GuidelineContent(
-            condition="Digital asset was chosen as collateral",
-            action="Review and confirm application.",
-        ),
-        parent_ids=["6"],
-        outgoing_edges=[],
-        customer_dependent_action=True,
-        requires_tool_calls=False,
-    ),
-    "9": _JourneyNodeWrapper(
-        id="9",
-        action=GuidelineContent(condition="physical asset was chosen as collateral", action=None),
-        parent_ids=["6"],
-        outgoing_edges=[],
-        customer_dependent_action=False,
-        requires_tool_calls=False,
-    ),
-}
+# loan_journey_steps = {
+#     "1": _JourneyNodeWrapper(
+#         id="1",
+#         action=GuidelineContent(condition="", action="Ask for the customer's full name."),
+#         parent_ids=[],
+#         outgoing_edges=["2"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "2": _JourneyNodeWrapper(
+#         id="2",
+#         action=GuidelineContent(
+#             condition="Customer provided their name",
+#             action="Ask for the type of loan: Personal or Business.",
+#         ),
+#         parent_ids=["1"],
+#         outgoing_edges=["3", "4"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "3": _JourneyNodeWrapper(
+#         id="3",
+#         action=GuidelineContent(
+#             condition="Customer chose Personal loan", action="Ask for the desired loan amount."
+#         ),
+#         parent_ids=["2"],
+#         outgoing_edges=["5"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "4": _JourneyNodeWrapper(
+#         id="4",
+#         action=GuidelineContent(
+#             condition="Customer chose Business loan", action="Ask for the desired loan amount."
+#         ),
+#         parent_ids=["2"],
+#         outgoing_edges=["6"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "5": _JourneyNodeWrapper(
+#         id="5",
+#         action=GuidelineContent(
+#             condition="Personal loan amount provided", action="Ask for employment status."
+#         ),
+#         parent_ids=["3"],
+#         outgoing_edges=["7"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "6": _JourneyNodeWrapper(
+#         id="6",
+#         action=GuidelineContent(
+#             condition="Business loan amount provided", action="Ask for collateral."
+#         ),
+#         parent_ids=["4"],
+#         outgoing_edges=["8", "9"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "7": _JourneyNodeWrapper(
+#         id="7",
+#         action=GuidelineContent(
+#             condition="Employment status provided", action="Review and confirm application."
+#         ),
+#         parent_ids=["5"],
+#         outgoing_edges=["9"],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "8": _JourneyNodeWrapper(
+#         id="8",
+#         action=GuidelineContent(
+#             condition="Digital asset was chosen as collateral",
+#             action="Review and confirm application.",
+#         ),
+#         parent_ids=["6"],
+#         outgoing_edges=[],
+#         customer_dependent_action=True,
+#         requires_tool_calls=False,
+#     ),
+#     "9": _JourneyNodeWrapper(
+#         id="9",
+#         action=GuidelineContent(condition="physical asset was chosen as collateral", action=None),
+#         parent_ids=["6"],
+#         outgoing_edges=[],
+#         customer_dependent_action=False,
+#         requires_tool_calls=False,
+#     ),
+# }
 
-example_6_expected = JourneyStepSelectionSchema(
-    journey_applies=True,
-    requires_backtracking=True,
-    rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
-    backtracking_target_step="2",
-    step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
-        JourneyStepAdvancement(
-            id="None",
-            completed=False,
-        ),
-    ],
-    next_step="None",
-)
+# example_6_expected = JourneyStepSelectionSchema(
+#     journey_applies=True,
+#     requires_backtracking=True,
+#     rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
+#     backtracking_target_step="2",
+#     step_advancement=[
+#         JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+#         JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
+#         JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
+#         JourneyStepAdvancement(
+#             id="None",
+#             completed=False,
+#         ),
+#     ],
+#     next_step="None",
+# )
 
-_baseline_shots.append(
-    JourneyStepSelectionShot(
-        description="Example 6 - Backtracking and fast forwarding to Completion",
-        journey_title="Loan Application Journey",
-        interaction_events=example_6_events,
-        journey_steps=loan_journey_steps,
-        expected_result=example_6_expected,
-        previous_path=["1", "2", "3", "5", "7"],
-        conditions=["customer wants a loan"],
-    )
-)
+# _baseline_shots: Sequence[JourneyStepSelectionShot] = [
+#     JourneyStepSelectionShot(
+#         description="Example 1 - Simple Single-Step Advancement",
+#         journey_title="Recommend Vacation Journey",
+#         interaction_events=example_1_events,
+#         journey_steps=example_1_journey_steps,
+#         expected_result=example_1_expected,
+#         previous_path=["1"],
+#         conditions=["the customer is interested in a vacation"],
+#     ),
+#     JourneyStepSelectionShot(
+#         description="Example 2 - Multiple Step Advancement Stopped by Tool Calling Step",
+#         journey_title="Book Taxi Journey",
+#         interaction_events=example_2_events,
+#         journey_steps=book_taxi_shot_journey_steps,
+#         expected_result=example_2_expected,
+#         previous_path=["1", "2"],
+#         conditions=[],
+#     ),
+#     JourneyStepSelectionShot(
+#         description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
+#         journey_title="Book Taxi Journey - Same Journey as in Example 2",
+#         interaction_events=example_3_events,
+#         journey_steps=None,
+#         expected_result=example_3_expected,
+#         previous_path=["1"],
+#         conditions=[],
+#     ),
+#     JourneyStepSelectionShot(
+#         description="Example 4 - Backtracking Due to Changed Customer Decision",
+#         journey_title="Book Taxi Journey - Same as in Example 2",
+#         interaction_events=example_4_events,
+#         journey_steps=None,
+#         expected_result=example_4_expected,
+#         previous_path=["1", "2", "4", "2", "3", "5"],
+#         conditions=[],
+#     ),
+#     JourneyStepSelectionShot(
+#         description="Example 5 - Remaining in journey unless explicitly told otherwise",
+#         journey_title="Book Taxi II Journey",
+#         interaction_events=example_5_events,
+#         journey_steps=random_actions_journey_steps,
+#         expected_result=example_5_expected,
+#         previous_path=["1"],
+#         conditions=["customer wants to book a taxi"],
+#     ),
+#     JourneyStepSelectionShot(
+#         description="Example 6 - Backtracking and fast forwarding to Completion",
+#         journey_title="Loan Application Journey",
+#         interaction_events=example_6_events,
+#         journey_steps=loan_journey_steps,
+#         expected_result=example_6_expected,
+#         previous_path=["1", "2", "3", "5", "7"],
+#         conditions=["customer wants a loan"],
+#     ),
+# ]  TODO uncomment
+
+_baseline_shots: Sequence[JourneyStepSelectionShot] = []  # TODO delete
+
 shot_collection = ShotCollection[JourneyStepSelectionShot](_baseline_shots)
-
-# TODO fix path stuff

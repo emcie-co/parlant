@@ -154,7 +154,7 @@ async def base_test_that_related_action_step_proposed(
         ), f"proposed action: '{proposed_actions[a]}', expected to contain: '{to_propose_actions[a]}'"
 
 
-async def test_action_step_proposition(
+async def test_action_is_proposed_when_needed(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
@@ -336,7 +336,7 @@ async def test_action_is_not_proposed_when_not_needed(
     )
 
 
-async def test_action_is_proposed_when_needed(
+async def test_action_is_proposed_when_needed_2(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(

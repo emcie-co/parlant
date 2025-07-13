@@ -225,7 +225,7 @@ async def test_action_step_proposition(
     )
     to_propose_action = {
         "2": "Ask what they need the loan for",
-        "5": "The loan application looks good",
+        "5": "The loan application process looks good or the initial eligibility check looks good",
         "8": "Submit the loan application for review",
     }
     await base_test_that_related_action_step_proposed(

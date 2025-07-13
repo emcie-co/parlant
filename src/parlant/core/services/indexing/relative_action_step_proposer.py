@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Sequence, cast
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from typing import Optional, Sequence
+from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selection_batch import (
     _JourneyEdge,
     _JourneyNode,
@@ -154,7 +154,8 @@ You will be asked to:
     - Maintain the original intent without elaborating beyond what is explicitly provided
 
 Common issues requiring clarification: Pronouns like "it", "that" when their referent is unclear from the condition alone
-Standard, unambiguous pronouns (don't need clarification): "they/them" referring to "the customer" is completely standard and unambiguous
+Standard, unambiguous pronouns (don't need clarification): We are in the context of customer service. In this context "they/them" referring to "the customer" and is completely standard and unambiguous. 
+No need to rewrite such actions (needs_rewrite is False)
 
 """,
         )
@@ -200,17 +201,18 @@ Expected output (JSON):
         self,
         step_guidelines: Sequence[Guideline],
     ) -> str:
+        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         result_structure = [
             {
-                "id": str(cast(dict[str, JSONSerializable], g.metadata["journey_node"])["index"]),
-                "condition": g.content.condition,
-                "action": g.content.action,
+                "index": idx,
+                "conditions": str([edge.condition for edge in node.incoming_edges]),
+                "action": node.action,
                 "needs_rewrite_rational": "<Brief explanation of is it refer to something that is not mentioned in the current step>",
                 "needs_rewrite": "<BOOL>",
                 "former_reference": "<information from previous steps that the definition is referring to>",
                 "rewritten_action": "<str. Full, self-contained version of the action - include only if requires_rewrite is True>",
             }
-            for g in step_guidelines
+            for idx, node in node_wrappers.items()
         ]
         result = {"actions": result_structure}
         return json.dumps(result, indent=4)
@@ -454,7 +456,7 @@ book_hotel_shot_journey_steps = {
     ),
     "9": _JourneyNode(
         id="9",
-        action="Inform the customer that the email address is invalid and ask for a valid one.",
+        action="Inform them that the email address is invalid and ask for a valid one.",
         incoming_edges=[
             _JourneyEdge(
                 target_guideline=None,
@@ -524,7 +526,7 @@ example_1_shot = RelativeActionStepShot(
                     [edge.condition for edge in book_hotel_shot_journey_steps["2"].incoming_edges]
                 ),
                 action=book_hotel_shot_journey_steps["2"].action,
-                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer.",
+                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
@@ -593,7 +595,7 @@ example_1_shot = RelativeActionStepShot(
                     [edge.condition for edge in book_hotel_shot_journey_steps["9"].incoming_edges]
                 ),
                 action=book_hotel_shot_journey_steps["9"].action,
-                needs_rewrite_rational="The action is self-contained and clearly specifies what to inform the customer and what to ask for.",
+                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(

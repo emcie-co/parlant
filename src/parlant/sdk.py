@@ -111,7 +111,8 @@ from parlant.core.evaluations import (
     EvaluationStatus,
     EvaluationStore,
     GuidelinePayload,
-    GuidelinePayloadOperation,
+    InvoiceGuidelineData,
+    PayloadOperation,
     PayloadDescriptor,
     PayloadKind,
 )
@@ -260,7 +261,7 @@ class _CachedEvaluator:
                             action=g.action,
                         ),
                         tool_ids=tool_ids,
-                        operation=GuidelinePayloadOperation.ADD,
+                        operation=PayloadOperation.ADD,
                         coherence_check=False,  # Legacy and will be removed in the future
                         connection_proposition=False,  # Legacy and will be removed in the future
                         action_proposition=True,
@@ -301,13 +302,14 @@ class _CachedEvaluator:
                 {
                     "id": ObjectId(_hash),
                     "version": Version.String(VERSION),
-                    "properties": invoice.data.properties_proposition or {},
+                    "properties": cast(InvoiceGuidelineData, invoice.data).properties_proposition
+                    or {},
                 }
             )
 
             # Return the evaluation result
             return self.GuidelineEvaluation(
-                properties=invoice.data.properties_proposition or {},
+                properties=cast(InvoiceGuidelineData, invoice.data).properties_proposition or {},
             )
 
 

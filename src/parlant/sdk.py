@@ -177,7 +177,6 @@ class _CachedEvaluation(TypedDict, total=False):
 class _CachedEvaluator:
     @dataclass(frozen=True)
     class GuidelineEvaluation:
-        action_proposition: str | None
         properties: dict[str, JSONSerializable]
 
     def __init__(
@@ -246,7 +245,6 @@ class _CachedEvaluator:
                 )
 
                 return self.GuidelineEvaluation(
-                    action_proposition=cached_evaluation.get("action_proposition"),
                     properties=cached_evaluation["properties"],
                 )
             else:
@@ -312,13 +310,11 @@ class _CachedEvaluator:
                     "id": ObjectId(_hash),
                     "version": Version.String(VERSION),
                     "properties": invoice.data.properties_proposition or {},
-                    "action_proposition": invoice.data.action_proposition or None,
                 }
             )
 
             # Return the evaluation result
             return self.GuidelineEvaluation(
-                action_proposition=invoice.data.action_proposition,
                 properties=invoice.data.properties_proposition or {},
             )
 
@@ -683,7 +679,7 @@ class Journey:
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=action or evaluation.action_proposition,
+            action=action,
             metadata={**evaluation.properties, **metadata},
         )
 
@@ -729,7 +725,7 @@ class Journey:
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=evaluation.action_proposition,
+            action=None,
             metadata=evaluation.properties,
         )
 
@@ -933,7 +929,7 @@ class Agent:
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=action or evaluation.action_proposition,
+            action=action,
             metadata={**evaluation.properties, **metadata},
             tags=[_Tag.for_agent_id(self.id)],
         )
@@ -974,7 +970,7 @@ class Agent:
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
-            action=evaluation.action_proposition,
+            action=None,
             metadata=evaluation.properties,
         )
 

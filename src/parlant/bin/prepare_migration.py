@@ -46,7 +46,7 @@ from parlant.core.evaluations import (
     GuidelineContentDocument,
     GuidelinePayloadDocument_v0_2_0,
     InvoiceDocument_v0_2_0,
-    InvoiceGuidelineDataDocument,
+    InvoiceGuidelineDataDocument_v0_2_0,
 )
 from parlant.core.glossary import (
     GlossaryVectorStore,
@@ -1055,7 +1055,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0() -> None:
                         checksum=i["checksum"],
                         state_version=i["state_version"],
                         approved=i["approved"],
-                        data=InvoiceGuidelineDataDocument(
+                        data=InvoiceGuidelineDataDocument_v0_2_0(
                             coherence_checks=i["data"]["coherence_checks"],
                             connection_propositions=i["data"]["connection_propositions"],
                             action_proposition=None,

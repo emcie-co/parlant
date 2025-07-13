@@ -3,12 +3,13 @@ import json
 from typing import Optional, Sequence, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selection_batch import (
-    _JourneyStepWrapper,
+    _JourneyEdge,
+    _JourneyNode,
+    build_node_wrappers,
     get_journey_transition_map_text,
-    build_journey_steps,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent
+from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -18,7 +19,7 @@ from parlant.core.shots import Shot, ShotCollection
 
 
 class RewrittenActionResult(DefaultBaseModel):
-    id: str
+    index: str
     rewritten_actions: str
 
 
@@ -27,8 +28,8 @@ class RelativeActionStepProposition(DefaultBaseModel):
 
 
 class RelativeActionStepBatch(DefaultBaseModel):
-    id: str
-    condition: str
+    index: str
+    conditions: str
     action: str
     needs_rewrite_rational: str
     needs_rewrite: bool
@@ -43,7 +44,7 @@ class RelativeActionStepSchema(DefaultBaseModel):
 @dataclass
 class RelativeActionStepShot(Shot):
     journey_title: str
-    journey_steps: dict[str, _JourneyStepWrapper]
+    journey_steps: dict[str, _JourneyNode]
     expected_result: RelativeActionStepSchema
 
 
@@ -62,6 +63,7 @@ class RelativeActionStepProposer:
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline] = [],
+        journey_conditions: Sequence[Guideline] = [],
         progress_report: Optional[ProgressReport] = None,
     ) -> RelativeActionStepProposition:
         if progress_report:
@@ -71,6 +73,7 @@ class RelativeActionStepProposer:
             result = await self._generate_relative_action_step_proposer(
                 examined_journey,
                 step_guidelines,
+                journey_conditions,
             )
 
         if progress_report:
@@ -81,7 +84,7 @@ class RelativeActionStepProposer:
             if a.needs_rewrite:
                 rewritten_actions.append(
                     RewrittenActionResult(
-                        id=a.id,
+                        index=a.index,
                         rewritten_actions=a.rewritten_action,
                     )
                 )
@@ -91,28 +94,20 @@ class RelativeActionStepProposer:
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
+        journey_conditions: Sequence[Guideline],
     ) -> str:
-        step_guideline_mapping = {
-            str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]): g
-            for g in step_guidelines
-        }
-
-        guideline_to_step_id_mapping = {
-            g.id: str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"])
-            for g in step_guidelines
-        }
-        journey_steps: dict[str, _JourneyStepWrapper] = build_journey_steps(
-            guideline_to_step_id_mapping, step_guideline_mapping
-        )
+        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         return get_journey_transition_map_text(
-            journey_steps,
-            examined_journey.title,
+            nodes=node_wrappers,
+            journey_title=examined_journey.title,
+            journey_conditions=journey_conditions,
         )
 
     async def _build_prompt(
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
+        journey_conditions: Sequence[Guideline],
         shots: Sequence[RelativeActionStepShot],
     ) -> PromptBuilder:
         builder = PromptBuilder()
@@ -178,6 +173,7 @@ EXAMPLES
             template=self.get_journey_text(
                 examined_journey,
                 step_guidelines,
+                journey_conditions,
             ),
         )
 
@@ -206,7 +202,7 @@ Expected output (JSON):
     ) -> str:
         result_structure = [
             {
-                "id": str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]),
+                "id": str(cast(dict[str, JSONSerializable], g.metadata["journey_node"])["index"]),
                 "condition": g.content.condition,
                 "action": g.content.action,
                 "needs_rewrite_rational": "<Brief explanation of is it refer to something that is not mentioned in the current step>",
@@ -222,9 +218,15 @@ Expected output (JSON):
     async def _generate_relative_action_step_proposer(
         self,
         examined_journey: Journey,
-        step_guidelines: Sequence[Guideline] = [],
+        step_guidelines: Sequence[Guideline],
+        journey_conditions: Sequence[Guideline],
     ) -> RelativeActionStepSchema:
-        prompt = await self._build_prompt(examined_journey, step_guidelines, _baseline_shots)
+        prompt = await self._build_prompt(
+            examined_journey,
+            step_guidelines,
+            journey_conditions,
+            _baseline_shots,
+        )
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
@@ -270,113 +272,232 @@ Example #{i}: ###
 
 
 book_hotel_shot_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNode(
         id="1",
-        guideline_content=GuidelineContent(
-            condition="",
-            action="Ask the customer which hotel they would like to book.",
-        ),
-        parent_ids=[],
-        follow_up_ids=["2"],
+        action="Ask the customer which hotel they would like to book.",
+        incoming_edges=[],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has specified the hotel name",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNode(
         id="2",
-        guideline_content=GuidelineContent(
-            condition="The customer has specified the hotel name",
-            action="Ask them how many guests will be staying.",
-        ),
-        parent_ids=["1"],
-        follow_up_ids=["3"],
+        action="Ask them how many guests will be staying.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has specified the hotel name",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has specified the number of guests.",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNode(
         id="3",
-        guideline_content=GuidelineContent(
-            condition="The customer has specified the number of guests.",
-            action="Ask the customer for the check-in and check-out dates.",
-        ),
-        parent_ids=["2"],
-        follow_up_ids=["4"],
+        action="Ask the customer for the check-in and check-out dates.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has specified the number of guests.",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided check-in and check-out dates.",
+                source_node_index="3",
+                target_node_index="4",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNode(
         id="4",
-        guideline_content=GuidelineContent(
-            condition="The customer has provided check-in and check-out dates",
-            action="Make sure it's available",
-        ),
-        parent_ids=["3"],
-        follow_up_ids=["5", "6"],
+        action="Make sure it's available",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided check-in and check-out dates.",
+                source_node_index="3",
+                target_node_index="4",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The availability check passed",
+                source_node_index="4",
+                target_node_index="5",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The availability check failed",
+                source_node_index="4",
+                target_node_index="6",
+            ),
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "5": _JourneyStepWrapper(
+    "5": _JourneyNode(
         id="5",
-        guideline_content=GuidelineContent(
-            condition="The availability check passed",
-            action="Book it.",
-        ),
-        parent_ids=["4"],
-        follow_up_ids=["7"],
+        action="Book it.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The availability check passed",
+                source_node_index="4",
+                target_node_index="5",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The hotel booking was successful",
+                source_node_index="5",
+                target_node_index="7",
+            )
+        ],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "6": _JourneyStepWrapper(
+    "6": _JourneyNode(
         id="6",
-        guideline_content=GuidelineContent(
-            condition="The availability check failed",
-            action="Explain it to the user",
-        ),
-        parent_ids=["4"],
-        follow_up_ids=[],
+        action="Explain it to the user",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The availability check failed",
+                source_node_index="4",
+                target_node_index="6",
+            ),
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "7": _JourneyStepWrapper(
+    "7": _JourneyNode(
         id="7",
-        guideline_content=GuidelineContent(
-            condition="The hotel booking was successful",
-            action="Ask the customer to provide their email address to send the booking confirmation.",
-        ),
-        parent_ids=["5"],
-        follow_up_ids=["8", "9"],
+        action="Ask the customer to provide their email address to send the booking confirmation.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The hotel booking was successful",
+                source_node_index="5",
+                target_node_index="7",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided a valid email address",
+                source_node_index="7",
+                target_node_index="8",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided an invalid email address",
+                source_node_index="7",
+                target_node_index="9",
+            ),
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "8": _JourneyStepWrapper(
+    "8": _JourneyNode(
         id="8",
-        guideline_content=GuidelineContent(
-            condition="The customer has provided a valid email address.",
-            action="send it to them",
-        ),
-        parent_ids=["7"],
-        follow_up_ids=["10"],
+        action="send it to them",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided a valid email address",
+                source_node_index="7",
+                target_node_index="8",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided a valid email address",
+                source_node_index="9",
+                target_node_index="8",
+            ),
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The booking confirmation was sent successfully",
+                source_node_index="8",
+                target_node_index="10",
+            )
+        ],
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
-    "9": _JourneyStepWrapper(
+    "9": _JourneyNode(
         id="9",
-        guideline_content=GuidelineContent(
-            condition="The customer has provided an invalid email address.",
-            action="Inform the customer that the email address is invalid and ask for a valid one.",
-        ),
-        parent_ids=["7"],
-        follow_up_ids=["7"],
+        action="Inform the customer that the email address is invalid and ask for a valid one.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided an invalid email address",
+                source_node_index="7",
+                target_node_index="9",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided an invalid email address",
+                source_node_index="9",
+                target_node_index="9",
+            ),
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided an invalid email address",
+                source_node_index="9",
+                target_node_index="9",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The customer has provided a valid email address",
+                source_node_index="9",
+                target_node_index="8",
+            ),
+        ],
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
-    "10": _JourneyStepWrapper(
+    "10": _JourneyNode(
         id="10",
-        guideline_content=GuidelineContent(
-            condition="The booking confirmation was sent successfully.",
-            action="Ask the customer if there is anything else you can help with.",
-        ),
-        parent_ids=["6"],
-        follow_up_ids=[],
+        action="Ask the customer if there is anything else you can help with.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The booking confirmation was sent successfully",
+                source_node_index="8",
+                target_node_index="10",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
@@ -389,79 +510,98 @@ example_1_shot = RelativeActionStepShot(
     expected_result=RelativeActionStepSchema(
         actions=[
             RelativeActionStepBatch(
-                id="1",
-                condition=book_hotel_shot_journey_steps["1"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["1"].guideline_content.action,
+                index="1",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["1"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["1"].action,
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="2",
-                condition=book_hotel_shot_journey_steps["2"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["2"].guideline_content.action,
-                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer."
-                "",
+                index="2",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["2"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["2"].action,
+                needs_rewrite_rational="The action is self-contained. 'them' refers to the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="3",
-                condition=book_hotel_shot_journey_steps["3"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["3"].guideline_content.action,
+                index="3",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["3"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["3"].action,
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="4",
-                condition=book_hotel_shot_journey_steps["4"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["4"].guideline_content.action,
+                index="4",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["4"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["4"].action,
                 needs_rewrite_rational="The action does not specify what availability to check based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="The availability refers to hotel rooms matching the specified hotel, dates, and number of guests from previous steps.",
                 rewritten_action="Make sure there is an available room in the specified hotel for the provided dates and number of guests.",
             ),
             RelativeActionStepBatch(
-                id="5",
-                condition=book_hotel_shot_journey_steps["5"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["5"].guideline_content.action,
+                index="5",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["5"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["5"].action,
                 needs_rewrite_rational="The action does not specify what to book based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="The booking refers to the hotel reservation with the specified details from previous steps.",
                 rewritten_action="Book the hotel for the specified dates and number of guests.",
             ),
             RelativeActionStepBatch(
-                id="6",
-                condition=book_hotel_shot_journey_steps["6"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["6"].guideline_content.action,
+                index="6",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["6"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["6"].action,
                 needs_rewrite_rational="'it' refers to the fact that the availability check failed. I'ts clear that need to explain that the availability check failed, given the condition",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="7",
-                condition=book_hotel_shot_journey_steps["7"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["7"].guideline_content.action,
+                index="7",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["7"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["7"].action,
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer and why.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="8",
-                condition=book_hotel_shot_journey_steps["8"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["8"].guideline_content.action,
+                index="8",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["8"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["8"].action,
                 needs_rewrite_rational="The action does not specify what to send based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="Previous step mentions asking for email address to send booking confirmation.",
                 rewritten_action="Send them the booking confirmation.",
             ),
             RelativeActionStepBatch(
-                id="9",
-                condition=book_hotel_shot_journey_steps["9"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["9"].guideline_content.action,
+                index="9",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["9"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["9"].action,
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to inform the customer and what to ask for.",
                 needs_rewrite=False,
             ),
             RelativeActionStepBatch(
-                id="10",
-                condition=book_hotel_shot_journey_steps["10"].guideline_content.condition,
-                action=book_hotel_shot_journey_steps["10"].guideline_content.action,
+                index="10",
+                conditions=str(
+                    [edge.condition for edge in book_hotel_shot_journey_steps["10"].incoming_edges]
+                ),
+                action=book_hotel_shot_journey_steps["10"].action,
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),

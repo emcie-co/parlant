@@ -354,10 +354,9 @@ def create_context_variable(
 async def create_journey(
     title: str, steps: Sequence[_StepData], conditions: Sequence[str]
 ) -> tuple[Journey, Sequence[Guideline], Sequence[Guideline]]:
-    # TODO
     # 1. Create conditions, get IDs
     # 2. Create guidelines from step data
-    # 2. Return journey, guidelines, conditions
+    # 3. Return journey, guidelines, conditions
     journey_id = JourneyId("j1")
 
     condition_guidelines: Sequence[Guideline] = [

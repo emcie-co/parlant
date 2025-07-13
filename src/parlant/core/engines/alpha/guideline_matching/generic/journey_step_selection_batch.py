@@ -35,7 +35,7 @@ SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
 
 @dataclass
-class _JourneyEdge(DefaultBaseModel):
+class _JourneyEdge:
     target_guideline: Guideline | None
     condition: str | None
     source_node_index: str
@@ -43,7 +43,7 @@ class _JourneyEdge(DefaultBaseModel):
 
 
 @dataclass
-class _JourneyNode(DefaultBaseModel):
+class _JourneyNode:
     id: str
     action: str | None
     incoming_edges: list[_JourneyEdge]
@@ -83,9 +83,9 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
     def _get_guideline_node_index(guideline: Guideline) -> str:
         return cast(
             str,
-            cast(dict[str, JSONSerializable], g.metadata["journey_node"]).get(
+            cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
                 "index", "-1"
-            ),  # TODO can I make it less ugly?
+            ),
         )
 
     guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in step_guidelines}

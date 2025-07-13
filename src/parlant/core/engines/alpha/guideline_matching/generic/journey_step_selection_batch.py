@@ -389,7 +389,11 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def _get_verified_step_advancement(
         self, response: JourneyStepSelectionSchema
     ) -> list[str | None]:
-        def add_and_remove_list_values(list_to_alter, indexes_to_add, indexes_to_delete):
+        def add_and_remove_list_values(
+            list_to_alter: list[Any],
+            indexes_to_add: Sequence[tuple[int, Any]],
+            indexes_to_delete: Sequence[int],
+        ) -> list[Any]:
             result = list_to_alter.copy()
 
             for i in reversed(indexes_to_delete):

@@ -29,7 +29,7 @@ from parlant.core.shots import Shot, ShotCollection
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 
-EXIT_JOURNEY_INSTRUCTION = "EXIT JOURNEY, RETURN 'NONE'"
+EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
@@ -162,7 +162,7 @@ def get_journey_transition_map_text(
             return step_id
 
     if journey_conditions:
-        journey_conditions_str = " OR ".join(f'"{condition}"' for condition in journey_conditions)
+        journey_conditions_str = " OR ".join(f'"{g.content.condition}"' for g in journey_conditions)
         journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
     else:
         journey_conditions_str = ""

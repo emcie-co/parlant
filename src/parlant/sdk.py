@@ -524,7 +524,7 @@ class JourneyNode:
 
     @property
     def internal_action(self) -> str | None:
-        return self.action or cast(str | None, self.metadata.get("action_proposition"))
+        return self.action or cast(str | None, self.metadata.get("internal_action"))
 
     async def connect(
         self,

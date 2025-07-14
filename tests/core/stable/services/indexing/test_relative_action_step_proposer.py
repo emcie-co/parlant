@@ -5,7 +5,7 @@ from lagom import Container
 from pytest import fixture
 
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import Journey, JourneyId, JourneyNode, JourneyNodeId
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.relative_action_proposer import (
@@ -104,22 +104,12 @@ def create_journey(
         for step in steps
     ]
 
-    root_step = next(s for s in steps if s.id == "1")
-    root_node = JourneyNode(
-        id=JourneyNodeId(f"j-{journey_id}-root"),
-        creation_utc=datetime.now(timezone.utc),
-        action=root_step.action,
-        tools=[],
-        metadata={},
-    )
-
     journey = Journey(
         id=journey_id,
         creation_utc=datetime.now(timezone.utc),
         description="",
         conditions=[g.id for g in condition_guidelines],
         title=title,
-        root=root_node.id,
         tags=[],
     )
 

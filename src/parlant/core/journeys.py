@@ -82,7 +82,6 @@ class Journey:
     description: str
     conditions: Sequence[GuidelineId]
     title: str
-    root: JourneyNodeId
     tags: Sequence[TagId]
 
     def __hash__(self) -> int:
@@ -105,23 +104,11 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 
 class JourneyStore(ABC):
     ROOT_NODE_ID = JourneyNodeId("root")
+    END_NODE_ID = JourneyNodeId("end")
 
-    @dataclass(frozen=True)
-    class JourneyRootNode(JourneyNode):
-        def __init__(
-            self,
-            creation_utc: datetime,
-            action: Optional[str] = None,
-            tools: Sequence[ToolId] = (),
-            metadata: Mapping[str, JSONSerializable] = {},
-        ):
-            super().__init__(
-                id=JourneyStore.ROOT_NODE_ID,
-                creation_utc=creation_utc,
-                action=action,
-                tools=tools,
-                metadata=metadata,
-            )
+    DEFAULT_ROOT_ACTION = (
+        "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
+    )
 
     @abstractmethod
     async def create_journey(
@@ -332,7 +319,6 @@ class JourneyDocument(TypedDict, total=False):
     creation_utc: str
     title: str
     description: str
-    root: JourneyNodeId
 
 
 class JourneyConditionAssociationDocument(TypedDict, total=False):
@@ -345,6 +331,7 @@ class JourneyConditionAssociationDocument(TypedDict, total=False):
 
 class JourneyNodeAssociationDocument(TypedDict, total=False):
     id: ObjectId
+    node_id: JourneyNodeId
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
@@ -561,7 +548,6 @@ class JourneyVectorStore(JourneyStore):
             creation_utc=journey.creation_utc.isoformat(),
             title=journey.title,
             description=journey.description,
-            root=journey.root,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -583,7 +569,6 @@ class JourneyVectorStore(JourneyStore):
             conditions=conditions,
             title=doc["title"],
             description=doc["description"],
-            root=doc["root"],
             tags=tags,
         )
 
@@ -593,7 +578,8 @@ class JourneyVectorStore(JourneyStore):
         journey_id: JourneyId,
     ) -> JourneyNodeAssociationDocument:
         return JourneyNodeAssociationDocument(
-            id=ObjectId(node.id),
+            id=ObjectId(generate_id()),
+            node_id=node.id,
             version=self.VERSION.to_string(),
             creation_utc=datetime.now(timezone.utc).isoformat(),
             journey_id=journey_id,
@@ -604,7 +590,7 @@ class JourneyVectorStore(JourneyStore):
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
         return JourneyNode(
-            id=JourneyNodeId(doc["id"]),
+            id=JourneyNodeId(doc["node_id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
             action=doc["action"],
             tools=doc["tools"],
@@ -661,9 +647,10 @@ class JourneyVectorStore(JourneyStore):
             creation_utc = creation_utc or datetime.now(timezone.utc)
             journey_id = JourneyId(generate_id())
 
-            root = JourneyStore.JourneyRootNode(
+            root = JourneyNode(
+                id=self.ROOT_NODE_ID,
                 creation_utc=creation_utc,
-                action=title,
+                action=JourneyStore.DEFAULT_ROOT_ACTION,
                 tools=[],
                 metadata={},
             )
@@ -678,7 +665,6 @@ class JourneyVectorStore(JourneyStore):
                 conditions=conditions,
                 title=title,
                 description=description,
-                root=root.id,
                 tags=tags or [],
             )
 
@@ -1041,7 +1027,7 @@ class JourneyVectorStore(JourneyStore):
                 raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
             doc = await self._node_association_collection.find_one(
-                {"id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
+                {"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
             )
 
         if not doc:
@@ -1063,7 +1049,7 @@ class JourneyVectorStore(JourneyStore):
                 raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
             doc = await self._node_association_collection.find_one(
-                {"id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
+                {"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
             )
 
             if not doc:
@@ -1072,7 +1058,7 @@ class JourneyVectorStore(JourneyStore):
             updated = {**doc, **params}
 
             result = await self._node_association_collection.update_one(
-                filters={"id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}},
+                filters={"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}},
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
 
@@ -1093,7 +1079,7 @@ class JourneyVectorStore(JourneyStore):
                 await self.delete_edge(edge.id)
 
             result = await self._node_association_collection.delete_one(
-                filters={"id": {"$eq": node_id}}
+                filters={"node_id": {"$eq": node_id}}
             )
 
         if result.deleted_count == 0:
@@ -1114,7 +1100,15 @@ class JourneyVectorStore(JourneyStore):
                 filters={"journey_id": {"$eq": journey_id}}
             )
 
-        return [self._deserialize_node(doc) for doc in docs]
+        return [self._deserialize_node(doc) for doc in docs] + [
+            JourneyNode(
+                id=self.END_NODE_ID,
+                creation_utc=datetime.now(timezone.utc),
+                action=None,
+                tools=[],
+                metadata={},
+            )
+        ]
 
     @override
     async def set_node_metadata(
@@ -1124,7 +1118,7 @@ class JourneyVectorStore(JourneyStore):
         value: JSONSerializable,
     ) -> JourneyNode:
         async with self._lock.writer_lock:
-            doc = await self._node_association_collection.find_one({"id": {"$eq": node_id}})
+            doc = await self._node_association_collection.find_one({"node_id": {"$eq": node_id}})
 
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1132,7 +1126,7 @@ class JourneyVectorStore(JourneyStore):
             updated_metadata = {**doc["metadata"], key: value}
 
             result = await self._node_association_collection.update_one(
-                filters={"id": {"$eq": node_id}},
+                filters={"node_id": {"$eq": node_id}},
                 params={
                     "metadata": updated_metadata,
                 },
@@ -1149,7 +1143,7 @@ class JourneyVectorStore(JourneyStore):
         key: str,
     ) -> JourneyNode:
         async with self._lock.writer_lock:
-            doc = await self._node_association_collection.find_one({"id": {"$eq": node_id}})
+            doc = await self._node_association_collection.find_one({"node_id": {"$eq": node_id}})
 
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1157,7 +1151,7 @@ class JourneyVectorStore(JourneyStore):
             updated_metadata = {k: v for k, v in doc["metadata"].items() if k != key}
 
             result = await self._node_association_collection.update_one(
-                filters={"id": {"$eq": node_id}},
+                filters={"node_id": {"$eq": node_id}},
                 params={
                     "metadata": updated_metadata,
                 },

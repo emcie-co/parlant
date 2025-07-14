@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, Iterable, Optional, OrderedDict, Sequence, Union, cast
+from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -28,6 +28,7 @@ from parlant.core.evaluations import (
     EvaluationStatus,
     EvaluationId,
     GuidelinePayload,
+    InvoiceData,
     InvoiceJourneyData,
     JourneyPayload,
     PayloadOperation,
@@ -1031,7 +1032,7 @@ class BehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
-            evaluation_tasks = [
+            guideline_evaluation_data, journey_evaluation_data = await async_utils.safe_gather(
                 self._guideline_evaluator.evaluate(
                     payloads=[
                         cast(GuidelinePayload, invoice.payload)
@@ -1048,10 +1049,10 @@ class BehavioralChangeEvaluator:
                     ],
                     progress_report=progress_report,
                 ),
-            ]
+            )
 
-            evaluation_data = await async_utils.safe_gather(
-                *evaluation_tasks,
+            evaluation_data: Sequence[InvoiceData] = list(guideline_evaluation_data) + list(
+                journey_evaluation_data
             )
 
             invoices: list[Invoice] = []
@@ -1066,7 +1067,7 @@ class BehavioralChangeEvaluator:
                         checksum=invoice_checksum,
                         state_version=state_version,
                         approved=True,
-                        data=cast(Union[InvoiceGuidelineData, InvoiceJourneyData], result),
+                        data=result,
                         error=None,
                     )
                 )

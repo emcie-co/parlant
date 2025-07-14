@@ -117,6 +117,7 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
 )
+from parlant.core.services.indexing.relative_action_proposer import RelativeActionSchema
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionSchema,
@@ -655,6 +656,7 @@ async def initialize_container(
         AgentIntentionProposerSchema,
         DisambiguationGuidelineMatchesSchema,
         JourneyStepSelectionSchema,
+        RelativeActionSchema,
     ):
         try_define(
             SchematicGenerator[schema],  # type: ignore

@@ -138,7 +138,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 # If the guideline is associated with a journey node, we add the journey steps
                 # to the list of journeys that need reevaluation.
                 if journey_id := cast(
-                    Mapping[str, JSONSerializable], g.metadata["journey_node"]
+                    Mapping[str, JSONSerializable], g.metadata.get("journey_node", {})
                 ).get("journey_id"):
                     journey_id = cast(JourneyId, journey_id)
 

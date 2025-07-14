@@ -160,14 +160,24 @@ def _load_openai(container: Container) -> NLPService:
     return OpenAIService(container[Logger])
 
 
-class _CachedEvaluation(TypedDict, total=False):
+class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId
     version: Version.String
-    action_proposition: str | None
     properties: dict[str, JSONSerializable]
 
 
+class _CachedJourneyEvaluation(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    node_properties: dict[JourneyNodeId, dict[str, JSONSerializable]]
+    edge_properties: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+
+
 class _CachedEvaluator:
+    @dataclass(frozen=True)
+    class JourneyEvaluation:
+        properties: dict[JourneyNodeId, dict[str, JSONSerializable]]
+
     @dataclass(frozen=True)
     class GuidelineEvaluation:
         properties: dict[str, JSONSerializable]
@@ -178,7 +188,9 @@ class _CachedEvaluator:
         container: Container,
     ) -> None:
         self._db: JSONFileDocumentDatabase = db
-        self._collection: JSONFileDocumentCollection[_CachedEvaluation]
+        self._guideline_collection: JSONFileDocumentCollection[_CachedGuidelineEvaluation]
+        self._journey_collection: JSONFileDocumentCollection[_CachedJourneyEvaluation]
+
         self._container = container
         self._logger = container[Logger]
         self._exit_stack = AsyncExitStack()
@@ -186,10 +198,16 @@ class _CachedEvaluator:
     async def __aenter__(self) -> _CachedEvaluator:
         await self._exit_stack.enter_async_context(self._db)
 
-        self._collection = await self._db.get_or_create_collection(
+        self._guideline_collection = await self._db.get_or_create_collection(
             name="guideline_evaluations",
-            schema=_CachedEvaluation,
-            document_loader=identity_loader_for(_CachedEvaluation),
+            schema=_CachedGuidelineEvaluation,
+            document_loader=identity_loader_for(_CachedGuidelineEvaluation),
+        )
+
+        self._journey_collection = await self._db.get_or_create_collection(
+            name="journey_evaluations",
+            schema=_CachedJourneyEvaluation,
+            document_loader=identity_loader_for(_CachedJourneyEvaluation),
         )
 
         return self
@@ -203,13 +221,13 @@ class _CachedEvaluator:
         await self._exit_stack.aclose()
         return False
 
-    def _hash_request(
+    def _hash_guideline_evaluation_request(
         self,
         g: GuidelineContent,
         tool_ids: Sequence[ToolId],
         journey_step_propositions: bool,
     ) -> str:
-        """Generate a hash for the evaluation request."""
+        """Generate a hash for the guideline evaluation request."""
         tool_ids_str = ",".join(str(tool_id) for tool_id in tool_ids) if tool_ids else ""
 
         return md5(
@@ -223,13 +241,13 @@ class _CachedEvaluator:
         journey_step_propositions: bool = False,
     ) -> _CachedEvaluator.GuidelineEvaluation:
         # First check if we have a cached evaluation for this guideline
-        _hash = self._hash_request(
+        _hash = self._hash_guideline_evaluation_request(
             g=g,
             tool_ids=tool_ids,
             journey_step_propositions=journey_step_propositions,
         )
 
-        if cached_evaluation := await self._collection.find_one({"id": {"$eq": _hash}}):
+        if cached_evaluation := await self._guideline_collection.find_one({"id": {"$eq": _hash}}):
             # Check if the cached evaluation is based on our current runtime version.
             # This is important as the required evaluation data can change between versions.
             if cached_evaluation["version"] == VERSION:
@@ -245,7 +263,9 @@ class _CachedEvaluator:
                     f"Deleting outdated cached evaluation for guideline: {g.condition or 'None'}"
                 )
 
-                await self._collection.delete_one({"id": {"$eq": cached_evaluation["id"]}})
+                await self._guideline_collection.delete_one(
+                    {"id": {"$eq": cached_evaluation["id"]}}
+                )
 
         self._logger.info(
             f"Evaluating guideline: Condition: {g.condition or 'None'}, Action: {g.action or 'None'}"
@@ -298,7 +318,7 @@ class _CachedEvaluator:
             assert invoice.data
 
             # Cache the evaluation result
-            await self._collection.insert_one(
+            await self._guideline_collection.insert_one(
                 {
                     "id": ObjectId(_hash),
                     "version": Version.String(VERSION),
@@ -504,11 +524,7 @@ class JourneyNode:
     tools: Sequence[ToolEntry]
     metadata: Mapping[str, JSONSerializable]
 
-    _server: Server
-    _container: Container
-    _journey: Journey
-
-    END: str | None = None
+    _journey: Journey | None
 
     @property
     def internal_action(self) -> str | None:
@@ -521,7 +537,10 @@ class JourneyNode:
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
     ) -> JourneyEdge:
-        if node is None:
+        if not self._journey:
+            raise SDKError("EndNode cannot be connected to any other nodes.")
+
+        if node is None and (action or tools):
             node = await self._journey.create_node(action=action, tools=tools)
 
         node_connections = [edge for edge in self._journey.edges if edge.source == self]
@@ -534,15 +553,24 @@ class JourneyNode:
             )
 
         edge = await self._journey.create_edge(
-            condition=condition,
-            source=self,
-            target=node,
+            condition=condition, source=self, target=node if node else JourneyEndNode
         )
 
-        cast(list[JourneyNode], self._journey.nodes).append(node)
+        if node:
+            cast(list[JourneyNode], self._journey.nodes).append(node)
+
         cast(list[JourneyEdge], self._journey.edges).append(edge)
 
         return edge
+
+
+JourneyEndNode = JourneyNode(
+    id=JourneyStore.END_NODE_ID,
+    action=None,
+    tools=[],
+    metadata={},
+    _journey=None,
+)
 
 
 @dataclass(frozen=True)
@@ -584,8 +612,6 @@ class Journey:
             action=action,
             tools=tools,
             metadata=node.metadata,
-            _server=self._server,
-            _container=self._container,
             _journey=self,
         )
 
@@ -595,52 +621,55 @@ class Journey:
         source: JourneyNode,
         target: JourneyNode,
     ) -> JourneyEdge:
-        target_tool_ids = {
-            t.tool.name: ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name)
-            for t in target.tools
-        }
+        if target is not None and target.id != JourneyStore.END_NODE_ID:
+            target_tool_ids = {
+                t.tool.name: ToolId(
+                    service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
+                )
+                for t in target.tools
+            }
 
-        evaluation = await self._server._evaluator.evaluate_guideline(
-            GuidelineContent(condition=condition or "", action=target.internal_action),
-            list(target_tool_ids.values()),
-            journey_step_propositions=True,
-        )
+            evaluation = await self._server._evaluator.evaluate_guideline(
+                GuidelineContent(condition=condition or "", action=target.internal_action),
+                list(target_tool_ids.values()),
+                journey_step_propositions=True,
+            )
+
+            # Set metadata for the target node.
+            # The evaluated properties—`tool_running_only`, `customer_dependent_action`, and `action_proposition`
+            # are all tied to the node's action, so they are stored in the node metadata rather than in the edge.
+            #
+            # The evaluation is performed during edge creation for two reasons:
+            # 1. Prior to this point, the node is not yet connected to the graph and thus isn't relevant for evaluation.
+            # 2. The edge's condition provides important context for understanding the action during evaluation.
+            #
+            # We assume that evaluations between multiple edges pointing to the same node should not differ.
+            # Therefore, we safely override the target node's metadata with the evaluated properties.
+            for key, value in evaluation.properties.items():
+                await self._container[JourneyStore].set_node_metadata(target.id, key, value)
+
+                if key == "tool_running_only" and value:
+                    for entry in target.tools:
+                        await self._container[RelationshipStore].create_relationship(
+                            source=RelationshipEntity(
+                                id=target_tool_ids[entry.tool.name],
+                                kind=RelationshipEntityKind.TOOL,
+                            ),
+                            target=RelationshipEntity(
+                                id=_Tag.for_journey_node_id(target.id),
+                                kind=RelationshipEntityKind.TAG,
+                            ),
+                            kind=RelationshipKind.REEVALUATION,
+                        )
+
+            cast(dict[str, JSONSerializable], target.metadata).update(evaluation.properties)
 
         edge = await self._container[JourneyStore].create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id,
+            target=target.id if target else JourneyStore.END_NODE_ID,
             condition=condition,
         )
-
-        # Set metadata for the target node.
-        # The evaluated properties—`tool_running_only`, `customer_dependent_action`, and `action_proposition`
-        # are all tied to the node's action, so they are stored in the node metadata rather than in the edge.
-        #
-        # The evaluation is performed during edge creation for two reasons:
-        # 1. Prior to this point, the node is not yet connected to the graph and thus isn't relevant for evaluation.
-        # 2. The edge's condition provides important context for understanding the action during evaluation.
-        #
-        # We assume that evaluations between multiple edges pointing to the same node should not differ.
-        # Therefore, we safely override the target node's metadata with the evaluated properties.
-        for key, value in evaluation.properties.items():
-            await self._container[JourneyStore].set_node_metadata(target.id, key, value)
-
-            if key == "tool_running_only" and value:
-                for entry in target.tools:
-                    await self._container[RelationshipStore].create_relationship(
-                        source=RelationshipEntity(
-                            id=target_tool_ids[entry.tool.name],
-                            kind=RelationshipEntityKind.TOOL,
-                        ),
-                        target=RelationshipEntity(
-                            id=_Tag.for_journey_node_id(target.id),
-                            kind=RelationshipEntityKind.TAG,
-                        ),
-                        kind=RelationshipKind.REEVALUATION,
-                    )
-
-        cast(dict[str, JSONSerializable], target.metadata).update(evaluation.properties)
 
         return JourneyEdge(
             id=edge.id,
@@ -1395,8 +1424,6 @@ class Server:
                 action=root_node.action,
                 tools=[],
                 metadata=root_node.metadata,
-                _server=self,
-                _container=self._container,
                 _journey=journey,
             )
         )
@@ -1618,6 +1645,7 @@ __all__ = [
     "Journey",
     "JourneyId",
     "JourneyNode",
+    "JourneyEndNode",
     "JourneyEdge",
     "JSONSerializable",
     "LoadedContext",

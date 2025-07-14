@@ -46,7 +46,6 @@ class Test_that_journey_can_be_created_without_conditions(SDKTest):
         journey = await journey_store.read_journey(journey_id=self.journey.id)
 
         assert journey.id == self.journey.id
-        assert journey.root is not None
         assert journey.title == "Greeting the customer"
         assert journey.description == "1. Offer the customer a Pepsi"
 
@@ -384,3 +383,24 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
         assert relationships[0].target.id == Tag.for_journey_node_id(
             self.edge_check_balance.target.id,
         )
+
+
+class Test_that_journey_node_can_connect_to_end_node(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="EndNode Agent",
+            description="Agent for end node connection test",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="End Node Journey",
+            conditions=[],
+            description="A journey that ends",
+        )
+
+        self.edge_to_end = await self.journey.root.connect(node=p.JourneyEndNode)
+
+    async def run(self, ctx: Context) -> None:
+        assert self.edge_to_end in self.journey.edges
+        assert self.edge_to_end.target.id == JourneyStore.END_NODE_ID

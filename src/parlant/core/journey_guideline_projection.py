@@ -49,9 +49,6 @@ class JourneyGuidelineProjection:
 
         index = 0
 
-        journey = await self._journey_store.read_journey(journey_id)
-        root_id = journey.root
-
         edges_objs = await self._journey_store.list_edges(journey_id)
 
         nodes = {n.id: n for n in await self._journey_store.list_nodes(journey_id)}
@@ -87,7 +84,7 @@ class JourneyGuidelineProjection:
                     **{
                         "journey_node": {
                             "follow_ups": [],
-                            "index": node_indexes[node.id],
+                            "index": str(node_indexes[node.id]),
                             "journey_id": journey_id,
                         }
                     },
@@ -110,7 +107,7 @@ class JourneyGuidelineProjection:
             )
 
         queue: deque[tuple[JourneyNodeId, JourneyEdgeId | None]] = deque()
-        queue.append((root_id, None))
+        queue.append((JourneyStore.ROOT_NODE_ID, None))
 
         while queue:
             node_id, edge_id = queue.popleft()

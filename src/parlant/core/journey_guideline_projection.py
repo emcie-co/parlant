@@ -1,9 +1,6 @@
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Sequence, cast
-from parlant.core.engines.alpha.guideline_matching.generic.common import (
-    format_journey_node_guideline_id,
-)
+from typing import Optional, Sequence, cast
 from parlant.core.guidelines import Guideline, GuidelineStore, GuidelineContent, GuidelineId
 from parlant.core.journeys import (
     JourneyEdge,
@@ -13,6 +10,26 @@ from parlant.core.journeys import (
     JourneyStore,
     JourneyNodeId,
 )
+
+
+def format_journey_node_guideline_id(
+    node_id: JourneyNodeId,
+    edge_id: Optional[JourneyEdgeId] = None,
+) -> GuidelineId:
+    if edge_id:
+        return GuidelineId(f"journey_node:{node_id}:{edge_id}")
+
+    return GuidelineId(f"journey_node:{node_id}")
+
+
+def extract_node_id_from_journey_node_guideline_id(
+    guideline_id: GuidelineId,
+) -> JourneyNodeId:
+    parts = guideline_id.split(":")
+    if len(parts) < 2 or parts[0] != "journey_node":
+        raise ValueError(f"Invalid guideline ID format: {guideline_id}")
+
+    return JourneyNodeId(parts[1])
 
 
 class JourneyGuidelineProjection:

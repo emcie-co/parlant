@@ -565,7 +565,7 @@ class Journey:
     async def create_node(
         self,
         action: str | None,
-        tools: Sequence[ToolEntry],
+        tools: Sequence[ToolEntry] = [],
     ) -> JourneyNode:
         for t in list(tools):
             await self._server._plugin_server.enable_tool(t)

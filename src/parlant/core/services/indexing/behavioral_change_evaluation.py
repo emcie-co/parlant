@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, Iterable, Optional, OrderedDict, Sequence, cast
+from typing import Any, Iterable, Optional, OrderedDict, Sequence, Union, cast
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -28,6 +28,8 @@ from parlant.core.evaluations import (
     EvaluationStatus,
     EvaluationId,
     GuidelinePayload,
+    InvoiceJourneyData,
+    JourneyPayload,
     PayloadOperation,
     Invoice,
     InvoiceGuidelineData,
@@ -36,8 +38,12 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import JourneyStore
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.journey_guideline_projection import (
+    JourneyGuidelineProjection,
+    extract_node_id_from_journey_node_guideline_id,
+)
+from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
@@ -63,6 +69,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.services.indexing.relative_action_proposer import (
+    RelativeActionProposer,
+    RelativeActionProposition,
+)
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionProposition,
@@ -522,10 +532,135 @@ class JourneyEvaluator:
     def __init__(
         self,
         logger: Logger,
+        guideline_store: GuidelineStore,
         journey_store: JourneyStore,
+        journey_guideline_projection: JourneyGuidelineProjection,
+        relative_action_proposer: RelativeActionProposer,
     ) -> None:
         self._logger = logger
+
+        self._guideline_store = guideline_store
         self._journey_store = journey_store
+        self._journey_guideline_projection = journey_guideline_projection
+
+        self._relative_action_proposer = relative_action_proposer
+
+    async def _build_invoice_data(
+        self,
+        relative_action_propositions: Sequence[RelativeActionProposition],
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+    ) -> Sequence[InvoiceJourneyData]:
+        index_to_node_ids = {
+            journey_id: {
+                cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
+                    "index"
+                ]: extract_node_id_from_journey_node_guideline_id(g.id)
+                for g in journey_projections[journey_id][1]
+            }
+            for journey_id in journey_projections
+        }
+
+        result = []
+
+        for proposition, journey_id in zip(
+            relative_action_propositions, journey_projections.keys()
+        ):
+            invoice_data = InvoiceJourneyData(
+                node_properties_proposition={
+                    index_to_node_ids[journey_id][r.index]: {
+                        "rewritten_actions": r.rewritten_actions
+                    }
+                    for r in proposition.actions
+                },
+                edge_properties_proposition={},
+            )
+
+            result.append(invoice_data)
+
+        return result
+
+    async def evaluate(
+        self,
+        payloads: Sequence[JourneyPayload],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[InvoiceJourneyData]:
+        journeys: dict[JourneyId, Journey] = {
+            j.id: j
+            for j in await async_utils.safe_gather(
+                *[
+                    self._journey_store.read_journey(journey_id=payload.journey_id)
+                    for payload in payloads
+                ]
+            )
+        }
+
+        journey_conditions = [
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(guideline_id=condition)
+                    for condition in journey.conditions
+                ]
+            )
+            for journey in journeys.values()
+        ]
+
+        journey_projections = {
+            payload.journey_id: (journeys[payload.journey_id], projection, conditions)
+            for payload, projection, conditions in zip(
+                payloads,
+                await async_utils.safe_gather(
+                    *[
+                        self._journey_guideline_projection.project_journey_to_guidelines(
+                            journey_id=payload.journey_id
+                        )
+                        for payload in payloads
+                    ]
+                ),
+                journey_conditions,
+            )
+        }
+
+        relative_action_propositions = await self._propose_relative_actions(
+            journey_projections,
+            progress_report,
+        )
+
+        invoices = await self._build_invoice_data(
+            relative_action_propositions,
+            journey_projections,
+        )
+
+        return invoices
+
+    async def _propose_relative_actions(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[RelativeActionProposition]:
+        tasks: list[asyncio.Task[RelativeActionProposition]] = []
+
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            if not step_guidelines:
+                continue
+
+            tasks.append(
+                asyncio.create_task(
+                    self._relative_action_proposer.propose_relative_action(
+                        examined_journey=journey,
+                        step_guidelines=step_guidelines,
+                        journey_conditions=journey_conditions,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = list(await async_utils.safe_gather(*tasks))
+
+        return sparse_results
 
 
 class GuidelineEvaluator:
@@ -806,19 +941,26 @@ class BehavioralChangeEvaluator:
         logger: Logger,
         background_task_service: BackgroundTaskService,
         agent_store: AgentStore,
+        guideline_store: GuidelineStore,
+        journey_store: JourneyStore,
         evaluation_store: EvaluationStore,
         entity_queries: EntityQueries,
+        journey_guideline_projection: JourneyGuidelineProjection,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
         customer_dependent_action_detector: CustomerDependentActionDetector,
         agent_intention_proposer: AgentIntentionProposer,
         tool_running_action_detector: ToolRunningActionDetector,
+        relative_action_proposer: RelativeActionProposer,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
+
         self._agent_store = agent_store
+
         self._evaluation_store = evaluation_store
         self._entity_queries = entity_queries
+
         self._guideline_evaluator = GuidelineEvaluator(
             logger=logger,
             entity_queries=entity_queries,
@@ -827,6 +969,14 @@ class BehavioralChangeEvaluator:
             customer_dependent_action_detector=customer_dependent_action_detector,
             agent_intention_proposer=agent_intention_proposer,
             tool_running_action_detector=tool_running_action_detector,
+        )
+
+        self._journey_evaluator = JourneyEvaluator(
+            logger=logger,
+            guideline_store=guideline_store,
+            journey_store=journey_store,
+            journey_guideline_projection=journey_guideline_projection,
+            relative_action_proposer=relative_action_proposer,
         )
 
     async def validate_payloads(
@@ -881,17 +1031,31 @@ class BehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
-            guideline_evaluation_data = await self._guideline_evaluator.evaluate(
-                payloads=[
-                    cast(GuidelinePayload, invoice.payload)
-                    for invoice in evaluation.invoices
-                    if invoice.kind == PayloadKind.GUIDELINE
-                ],
-                progress_report=progress_report,
+            evaluation_tasks = [
+                self._guideline_evaluator.evaluate(
+                    payloads=[
+                        cast(GuidelinePayload, invoice.payload)
+                        for invoice in evaluation.invoices
+                        if invoice.kind == PayloadKind.GUIDELINE
+                    ],
+                    progress_report=progress_report,
+                ),
+                self._journey_evaluator.evaluate(
+                    payloads=[
+                        cast(JourneyPayload, invoice.payload)
+                        for invoice in evaluation.invoices
+                        if invoice.kind == PayloadKind.JOURNEY
+                    ],
+                    progress_report=progress_report,
+                ),
+            ]
+
+            evaluation_data = await async_utils.safe_gather(
+                *evaluation_tasks,
             )
 
             invoices: list[Invoice] = []
-            for i, result in enumerate(guideline_evaluation_data):
+            for i, result in enumerate(evaluation_data):
                 invoice_checksum = md5_checksum(str(evaluation.invoices[i].payload))
                 state_version = str(hash("Temporarily"))
 
@@ -902,7 +1066,7 @@ class BehavioralChangeEvaluator:
                         checksum=invoice_checksum,
                         state_version=state_version,
                         approved=True,
-                        data=result,
+                        data=cast(Union[InvoiceGuidelineData, InvoiceJourneyData], result),
                         error=None,
                     )
                 )

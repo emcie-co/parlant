@@ -66,7 +66,7 @@ class JourneyGuidelineProjection:
             node: JourneyNode,
             edge: JourneyEdge | None,
         ) -> Guideline:
-            if node.id not in node_indexes:
+            if node.id not in node_indexes and node.id != JourneyStore.END_NODE_ID:
                 nonlocal index
                 index += 1
                 node_indexes[node.id] = index
@@ -84,7 +84,9 @@ class JourneyGuidelineProjection:
                     **{
                         "journey_node": {
                             "follow_ups": [],
-                            "index": str(node_indexes[node.id]),
+                            "index": str(node_indexes[node.id])
+                            if node.id != JourneyStore.END_NODE_ID
+                            else "<end>",
                             "journey_id": journey_id,
                         }
                     },

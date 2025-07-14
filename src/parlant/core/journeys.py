@@ -106,6 +106,23 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 class JourneyStore(ABC):
     ROOT_NODE_ID = JourneyNodeId("root")
 
+    @dataclass(frozen=True)
+    class JourneyRootNode(JourneyNode):
+        def __init__(
+            self,
+            creation_utc: datetime,
+            action: Optional[str] = None,
+            tools: Sequence[ToolId] = (),
+            metadata: Mapping[str, JSONSerializable] = {},
+        ):
+            super().__init__(
+                id=JourneyStore.ROOT_NODE_ID,
+                creation_utc=creation_utc,
+                action=action,
+                tools=tools,
+                metadata=metadata,
+            )
+
     @abstractmethod
     async def create_journey(
         self,
@@ -644,10 +661,9 @@ class JourneyVectorStore(JourneyStore):
             creation_utc = creation_utc or datetime.now(timezone.utc)
             journey_id = JourneyId(generate_id())
 
-            root = JourneyNode(
-                id=self.ROOT_NODE_ID,
+            root = JourneyStore.JourneyRootNode(
                 creation_utc=creation_utc,
-                action=None,
+                action=title,
                 tools=[],
                 metadata={},
             )

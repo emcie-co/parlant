@@ -328,7 +328,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         terms=[],
         capabilities=[],
         staged_events=[],
-        relevant_journeys=[],
+        active_journeys=[],
         guidelines=context.guidelines,
     )
 

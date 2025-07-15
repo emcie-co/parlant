@@ -987,13 +987,15 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            relevant_journeys=high_prob_journeys,  # Only consider the top K journeys
+            active_journeys=high_prob_journeys,  # Only consider the top K journeys
             guidelines=relevant_guidelines,
         )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [j for j in high_prob_journeys if set(j.conditions).intersection(match_ids)]
+        journeys = [
+            j for j in sorted_journeys_by_relevance if set(j.conditions).intersection(match_ids)
+        ]
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
         # have in fact been activated, run an additional matching pass for the guidelines
@@ -1087,7 +1089,7 @@ class AlphaEngine(Engine):
             terms=list(context.state.glossary_terms),
             capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            relevant_journeys=context.state.journeys,
+            active_journeys=context.state.journeys,
             guidelines=guidelines_to_reevaluate,
         )
 
@@ -1357,7 +1359,7 @@ class AlphaEngine(Engine):
                 terms=list(context.state.glossary_terms),
                 capabilities=context.state.capabilities,
                 staged_events=context.state.tool_events,
-                relevant_journeys=activated_journeys,
+                active_journeys=activated_journeys,
                 guidelines=additional_matching_guidelines,
             )
 
@@ -1400,7 +1402,7 @@ class AlphaEngine(Engine):
                 terms=list(context.state.glossary_terms),
                 capabilities=context.state.capabilities,
                 staged_events=context.state.tool_events,
-                relevant_journeys=activated_journeys,
+                active_journeys=activated_journeys,
                 guidelines=additional_matching_guidelines,
             )
 

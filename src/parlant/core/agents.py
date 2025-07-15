@@ -258,6 +258,8 @@ class AgentDocumentStore(AgentStore):
 
             agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
 
+            agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+
             agent = Agent(
                 id=AgentId(self._id_generator.generate(agent_checksum)),
                 name=name,

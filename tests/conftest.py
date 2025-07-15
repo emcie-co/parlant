@@ -443,7 +443,6 @@ async def container(
             GuidelineConnectionPropositionsSchema,
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
-            RelativeActionSchema,
             CustomerDependentActionSchema,
             ToolRunningActionSchema,
             GenericResponseAnalysisSchema,

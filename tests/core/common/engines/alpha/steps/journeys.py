@@ -880,7 +880,7 @@ def given_a_journey_path_for_the_journey(
     session = context.sync_await(session_store.read_session(session_id))
 
     path = journey_path.strip("[]").split(", ")
-    guideline_path = [cast(GuidelineId, p) for p in path]
+    guideline_path = [cast(GuidelineId | None, p) for p in path]
 
     journey = context.journeys[journey_title]
 

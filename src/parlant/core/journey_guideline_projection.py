@@ -13,23 +13,34 @@ from parlant.core.journeys import (
 
 
 def format_journey_node_guideline_id(
+    journey_id: JourneyId,
     node_id: JourneyNodeId,
     edge_id: Optional[JourneyEdgeId] = None,
 ) -> GuidelineId:
     if edge_id:
-        return GuidelineId(f"journey_node:{node_id}:{edge_id}")
+        return GuidelineId(f"journey_node:{journey_id}:{node_id}:{edge_id}")
 
-    return GuidelineId(f"journey_node:{node_id}")
+    return GuidelineId(f"journey_node:{journey_id}:{node_id}")
 
 
 def extract_node_id_from_journey_node_guideline_id(
     guideline_id: GuidelineId,
 ) -> JourneyNodeId:
     parts = guideline_id.split(":")
-    if len(parts) < 2 or parts[0] != "journey_node":
+    if len(parts) < 3 or parts[0] != "journey_node":
         raise ValueError(f"Invalid guideline ID format: {guideline_id}")
 
-    return JourneyNodeId(parts[1])
+    return JourneyNodeId(parts[2])
+
+
+def extract_journey_id_from_journey_node_guideline_id(
+    guideline_id: GuidelineId,
+) -> JourneyId:
+    parts = guideline_id.split(":")
+    if len(parts) < 3 or parts[0] != "journey_node":
+        raise ValueError(f"Invalid guideline ID format: {guideline_id}")
+
+    return JourneyId(parts[1])
 
 
 class JourneyGuidelineProjection:
@@ -72,7 +83,7 @@ class JourneyGuidelineProjection:
                 node_indexes[node.id] = index
 
             return Guideline(
-                id=format_journey_node_guideline_id(node.id, edge.id if edge else None),
+                id=format_journey_node_guideline_id(journey_id, node.id, edge.id if edge else None),
                 content=GuidelineContent(
                     condition=edge.condition if edge and edge.condition else "",
                     action=node.action,
@@ -124,7 +135,8 @@ class JourneyGuidelineProjection:
                 queue.append((edge.target, edge.id))
 
                 add_edge_guideline_metadata(
-                    new_guideline.id, format_journey_node_guideline_id(edge.target, edge.id)
+                    new_guideline.id,
+                    format_journey_node_guideline_id(journey_id, edge.target, edge.id),
                 )
 
             visited.add((node_id, edge_id))

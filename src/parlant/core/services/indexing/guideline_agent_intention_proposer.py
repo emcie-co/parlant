@@ -164,8 +164,6 @@ Expected output (JSON):
         )
         if not response.content:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-        else:
-            self._logger.debug(f"Completion:\n{response.content.model_dump_json(indent=2)}")
 
         return response.content
 

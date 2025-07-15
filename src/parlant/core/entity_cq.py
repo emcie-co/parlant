@@ -34,7 +34,7 @@ from parlant.core.guidelines import (
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import Journey, JourneyId, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.relationships import (
     RelationshipKind,
     RelationshipEntityKind,
@@ -242,6 +242,13 @@ class EntityQueries:
         self,
     ) -> Sequence[GuidelineToolAssociation]:
         return await self._guideline_tool_association_store.list_associations()
+
+    async def find_journey_node_tool_associations(
+        self,
+        journey_id: JourneyId,
+        node_id: JourneyNodeId,
+    ) -> Sequence[ToolId]:
+        return (await self._journey_store.read_node(journey_id=journey_id, node_id=node_id)).tools
 
     async def find_capabilities_for_agent(
         self,

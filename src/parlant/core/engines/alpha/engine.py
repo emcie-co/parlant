@@ -57,6 +57,10 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
+from parlant.core.journey_guideline_projection import (
+    extract_journey_id_from_journey_node_guideline_id,
+    extract_node_id_from_journey_node_guideline_id,
+)
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.sessions import (
     AgentState,
@@ -1234,6 +1238,29 @@ class AlphaEngine(Engine):
             tools_for_guidelines[guideline_matches_by_id[association.guideline_id]].append(
                 association.tool_id
             )
+
+        # Fetch node tool associations
+        node_guidelines = [
+            m.guideline for m in guideline_matches if m.guideline.id.startswith("journey_node:")
+        ]
+
+        node_tools_associations = {
+            guideline_matches_by_id[g.id]: list(tools)
+            for g, tools in zip(
+                node_guidelines,
+                await async_utils.safe_gather(
+                    *[
+                        self._entity_queries.find_journey_node_tool_associations(
+                            extract_journey_id_from_journey_node_guideline_id(g.id),
+                            extract_node_id_from_journey_node_guideline_id(g.id),
+                        )
+                        for g in node_guidelines
+                    ]
+                ),
+            )
+        }
+
+        tools_for_guidelines.update(node_tools_associations)
 
         return dict(tools_for_guidelines)
 

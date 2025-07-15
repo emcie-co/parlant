@@ -511,7 +511,6 @@ INTERACTION CONTEXT
                 'When providing your full response, list offered capabilities under the "offered_services" key, and not under "factual_information_provided".'
             ],
         )
-        builder.add_journeys(journeys)
         builder.add_guidelines_for_message_generation(
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,

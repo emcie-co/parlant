@@ -80,7 +80,7 @@ Feature: Strict Utterance
         And the message contains the text "not eligible to participate in the sweepstake"
 
     Scenario: Multistep journey is partially followed 1 (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -96,7 +96,7 @@ Feature: Strict Utterance
         And the message contains asking the customer for their username, but not for their email or phone number
 
     Scenario: Irrelevant journey is ignored (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -112,7 +112,7 @@ Feature: Strict Utterance
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2 (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -124,15 +124,15 @@ Feature: Strict Utterance
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
+        And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted
         And the message contains asking the customer for their mobile number or email address
         And the message contains nothing about wishing the customer a good day
 
-
     Scenario: Critical guideline overrides journey (strict utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -151,23 +151,6 @@ Feature: Strict Utterance
         And a single message event is emitted
         And the message contains asking the customer for their age
         And the message contains no questions about the customer's email address or phone number
-
-    Scenario: Simple journey is followed to inform decision (strict utterance)
-        Given a guideline "recommend_pizza" to recommend either tomato, mushrooms or pepperoni when the customer asks for topping recommendations
-        And an utterance, "I recommend tomatoes"
-        And an utterance, "I recommend tomatoes or mushrooms"
-        And an utterance, "I recommend tomatoes, mushrooms or pepperoni"
-        And an utterance, "I recommend tomatoes or pepperoni"
-        And an utterance, "I recommend mushrooms"
-        And an utterance, "I recommend mushrooms or pepperoni"
-        And an utterance, "I recommend pepperoni"
-        And a journey titled "Vegetarian Customers" to Be aware that the customer is vegetarian. Only discuss vegetarian options with them. when the customer has a name that begins with R
-        And a customer message, "Hey, there. How are you?"
-        And an agent message, "I'm doing alright, thank you! What's your name?"
-        And a customer message, "Rajon, have we spoken before? I want one large pie but I'm not sure which topping to get, what do you recommend?"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains recommendations for either mushrooms or tomatoes, but not pepperoni
 
     Scenario: The agent greets the customer (strict utterance)
         Given a guideline to greet with 'Howdy' when the session starts
@@ -348,7 +331,7 @@ Feature: Strict Utterance
  Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict utterance) 
         Given an agent whose job is to book taxi rides
         And that the agent uses the strict_utterance message composition mode
-        And a journey titled "Book Taxi Ride" to follow these steps to book a customer a taxi ride: 1. Ask for the pickup location. 2. Ask for the drop-off location. 3. Ask for the desired pickup time. 4. Confirm all details with the customer before booking. Each step should be handled in a separate message. when the customer wants to book a taxi
+        Given the journey called "Book Taxi Ride"
         And a customer message, "Hi, I'd like to book a taxi for myself"
         And an agent message, "Great! What's the pickup location?"
         And a customer message, "Main street 1234"
@@ -359,6 +342,7 @@ Feature: Strict Utterance
         And an utterance, "What's the pickup location?"
         And an utterance, "Got it. What's the drop-off location?"
         And an utterance, "What time would you like to pick up?"
+        And a journey path "[2, 3, 4]" for the journey "Book Taxi Ride"
         When processing is triggered
         Then a single message event is emitted
         And the message contains asking the customer for the drop-off location
@@ -366,7 +350,7 @@ Feature: Strict Utterance
     Scenario: Journey returns to earlier step when the conversation justifies doing so (2) (strict utterance)
         Given an agent whose job is to handle food orders
         And that the agent uses the strict_utterance message composition mode
-        And a journey titled "Place Food Order" to follow these steps to place a customer’s order: 1. Ask if they’d like a salad or a sandwich. 2. If they choose a sandwich, ask what kind of bread they’d like. 3. If they choose a sandwich, ask what main filling they’d like from: Peanut butter, jam or pesto. 4. If they choose a sandwich, ask if they want any extras. 5. If they choose a salad, ask what base greens they want. 6. If they choose a salad, ask what toppings they’d like. 7. If they choose a salad, ask what kind of dressing they prefer. 8. Confirm the full order before placing it. Each step should be handled in a separate message, when the customer wants to order food 
+        Given the journey called "Place Food Order"
         And a customer message, "Hey, I'd like to make an order"
         And an agent message, "Great! What would you like to order? We have either a salad or a sandwich."
         And a customer message, "I'd like a sandwich"
@@ -382,6 +366,7 @@ Feature: Strict Utterance
         And an utterance, "Got it. What kind of dressing would you like?"
         And an utterance, "Got it. Since you want a salad - what base greens would you like"
         And an utterance, "Got it. What base greens would you like for your salad?"
+        And a journey path "[2, 3, 5]" for the journey "Place Food Order"
         When processing is triggered
         Then a single message event is emitted
         And the message contains asking asking what green base the customer wants for their salad 

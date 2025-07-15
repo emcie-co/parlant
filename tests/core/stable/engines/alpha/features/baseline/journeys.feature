@@ -25,6 +25,7 @@ Feature: Journeys
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
+        And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted
@@ -52,6 +53,7 @@ Feature: Journeys
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
+        And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted

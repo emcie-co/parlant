@@ -32,7 +32,7 @@ Feature: Fluid Utterance
         And the message mentions the color green
         
     Scenario: Multistep journey is partially followed 1 (fluid utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -48,7 +48,7 @@ Feature: Fluid Utterance
         And the message contains asking the customer for their username, but not for their email or phone number
 
     Scenario: Irrelevant journey is ignored (fluid utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -64,7 +64,7 @@ Feature: Fluid Utterance
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2 (fluid utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -76,6 +76,7 @@ Feature: Fluid Utterance
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
+        And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted
@@ -83,7 +84,7 @@ Feature: Fluid Utterance
         And the message contains nothing about wishing the customer a good day
 
     Scenario: Critical guideline overrides journey (fluid utterance)
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -97,6 +98,7 @@ Feature: Fluid Utterance
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
+        And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted

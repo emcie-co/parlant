@@ -5,6 +5,7 @@ import json
 import traceback
 from typing import Any, Optional, cast
 from typing_extensions import override
+from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -19,7 +20,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -227,27 +228,37 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
-        journey_conditions: Sequence[Guideline] = [],  # TODO add conditions from all calls
         step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
+
+        self._guideline_store = guideline_store
+
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
-        self._conditions = journey_conditions  # TODO work into map builder
         self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
-        self._journey_conditions: Sequence[Guideline] = journey_conditions
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        prompt = self._build_prompt(shots=await self.shots())
+        journey_conditions = list(
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(c)
+                    for c in self._examined_journey.conditions
+                ]
+            )
+        )
+
+        prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
         with self._logger.operation(f"JourneyStepSelectionBatch: {self._examined_journey.title}"):
             generation_attempt_temperatures = (
@@ -492,6 +503,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
     def _build_prompt(
         self,
+        journey_conditions: Sequence[Guideline],
         shots: Sequence[JourneyStepSelectionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
@@ -598,7 +610,7 @@ Example section is over. The following is the real data you need to use for your
                 nodes=self._node_wrappers,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
-                journey_conditions=self._journey_conditions,
+                journey_conditions=journey_conditions,
             ),
         )
         builder.add_section(

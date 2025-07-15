@@ -295,7 +295,7 @@ async def match_guidelines(
         terms=terms,
         capabilities=capabilities,
         staged_events=staged_events,
-        relevant_journeys=journeys,
+        active_journeys=journeys,
         guidelines=context.guidelines,
     )
 

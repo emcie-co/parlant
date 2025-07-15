@@ -117,7 +117,7 @@ def match_guidelines(
             terms=[],
             capabilities=capabilities,
             staged_events=[],
-            relevant_journeys=[],
+            active_journeys=[],
             guidelines=context.guidelines,
         )
     )

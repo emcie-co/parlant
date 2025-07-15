@@ -21,7 +21,7 @@ from typing_extensions import override, TypedDict, Self, Required
 
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import JSONSerializable, md5_checksum
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, to_json_dict
 from parlant.core.guidelines import GuidelineId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import (
@@ -364,23 +364,19 @@ class JourneyVectorStore(JourneyStore):
 
     def __init__(
         self,
+        id_generator: IdGenerator,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ):
+        self._id_generator = id_generator
+
         self._vector_db = vector_db
         self._document_db = document_db
-        self._allow_migration = allow_migration
-        self._embedder_factory = embedder_factory
-        self._embedder_type_provider = embedder_type_provider
-        self._embedder: Embedder
-        self._lock = ReaderWriterLock()
-
         self._vector_collection: VectorCollection[JourneyVectorDocument]
         self._collection: DocumentCollection[JourneyDocument]
-
         self._node_association_collection: DocumentCollection[JourneyNodeAssociationDocument]
         self._edge_association_collection: DocumentCollection[JourneyEdgeAssociationDocument]
 
@@ -388,6 +384,14 @@ class JourneyVectorStore(JourneyStore):
         self._condition_association_collection: DocumentCollection[
             JourneyConditionAssociationDocument
         ]
+
+        self._allow_migration = allow_migration
+
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
+        self._embedder: Embedder
+
+        self._lock = ReaderWriterLock()
 
     async def _vector_document_loader(self, doc: BaseDocument) -> Optional[JourneyVectorDocument]:
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -577,8 +581,10 @@ class JourneyVectorStore(JourneyStore):
         node: JourneyNode,
         journey_id: JourneyId,
     ) -> JourneyNodeAssociationDocument:
+        id_checksum = md5_checksum(f"{journey_id}{node.id}")
+
         return JourneyNodeAssociationDocument(
-            id=ObjectId(generate_id()),
+            id=ObjectId(self._id_generator.generate(id_checksum)),
             node_id=node.id,
             version=self.VERSION.to_string(),
             creation_utc=datetime.now(timezone.utc).isoformat(),
@@ -645,7 +651,10 @@ class JourneyVectorStore(JourneyStore):
     ) -> Journey:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            journey_id = JourneyId(generate_id())
+
+            journey_checksum = md5_checksum(f"{title}{description}{conditions}")
+
+            journey_id = JourneyId(self._id_generator.generate(journey_checksum))
 
             root = JourneyNode(
                 id=self.ROOT_NODE_ID,
@@ -678,7 +687,7 @@ class JourneyVectorStore(JourneyStore):
             await self._collection.insert_one(document=self._serialize(journey))
             await self._vector_collection.insert_one(
                 document={
-                    "id": ObjectId(generate_id()),
+                    "id": ObjectId(self._id_generator.generate(md5_checksum(content))),
                     "version": self.VERSION.to_string(),
                     "journey_id": journey.id,
                     "content": content,
@@ -686,21 +695,25 @@ class JourneyVectorStore(JourneyStore):
                 }
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{journey.id}{tag_id}")
+
                 await self._tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "journey_id": journey.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
             for condition in conditions:
+                condition_checksum = md5_checksum(f"{journey.id}{condition}")
+
                 await self._condition_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(condition_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "journey_id": journey.id,
@@ -883,9 +896,11 @@ class JourneyVectorStore(JourneyStore):
             if condition in journey.conditions:
                 return False
 
+            condition_checksum = md5_checksum(f"{journey_id}{condition}")
+
             await self._condition_association_collection.insert_one(
                 document={
-                    "id": ObjectId(generate_id()),
+                    "id": ObjectId(self._id_generator.generate(condition_checksum)),
                     "version": self.VERSION.to_string(),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "journey_id": journey_id,
@@ -926,8 +941,10 @@ class JourneyVectorStore(JourneyStore):
             if tag_id in journey.tags:
                 return False
 
+            association_checksum = md5_checksum(f"{journey_id}{tag_id}")
+
             association_document: JourneyTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "journey_id": journey_id,
@@ -999,9 +1016,11 @@ class JourneyVectorStore(JourneyStore):
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
 
+        node_checksum = md5_checksum(f"{journey_id}{action}{tools}")
+
         async with self._lock.writer_lock:
             node = JourneyNode(
-                id=JourneyNodeId(generate_id()),
+                id=JourneyNodeId(self._id_generator.generate(node_checksum)),
                 creation_utc=creation_utc,
                 action=action,
                 tools=tools,
@@ -1170,8 +1189,10 @@ class JourneyVectorStore(JourneyStore):
         condition: Optional[str] = None,
     ) -> JourneyEdge:
         async with self._lock.writer_lock:
+            edge_checksum = md5_checksum(f"{journey_id}{source}{target}{condition}")
+
             edge = JourneyEdge(
-                id=JourneyEdgeId(generate_id()),
+                id=JourneyEdgeId(self._id_generator.generate(edge_checksum)),
                 creation_utc=datetime.now(timezone.utc),
                 source=source,
                 target=target,

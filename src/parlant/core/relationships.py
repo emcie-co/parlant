@@ -22,7 +22,7 @@ from typing_extensions import override, TypedDict, Self
 import networkx  # type: ignore
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -144,7 +144,14 @@ class RelationshipDocument(TypedDict, total=False):
 class RelationshipDocumentStore(RelationshipStore):
     VERSION = Version.from_string("0.3.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
         self._database = database
         self._collection: DocumentCollection[RelationshipDocument]
         self._graphs: dict[RelationshipKind | RelationshipKind, networkx.DiGraph] = {}
@@ -290,8 +297,10 @@ class RelationshipDocumentStore(RelationshipStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            relationship_checksum = f"{source.id_to_string()}{target.id_to_string()}{kind.value}"
+
             relationship = Relationship(
-                id=RelationshipId(generate_id()),
+                id=RelationshipId(self._id_generator.generate(relationship_checksum)),
                 creation_utc=creation_utc,
                 source=source,
                 target=target,

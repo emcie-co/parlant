@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
+from collections import defaultdict
 from enum import Enum
 import asyncio
 import hashlib
@@ -144,6 +145,29 @@ class CancellationSuppressionLatch:
 
     def enable(self) -> None:
         self._suppressed = True
+
+
+class IdGenerator:
+    def __init__(self) -> None:
+        self._unique_checksums: dict[str, int] = defaultdict(int)
+        self._alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst"
+
+    def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
+        str_bytes = unique_str.encode("utf-8")
+
+        id_chars = []
+        for i in range(size):
+            byte = str_bytes[i % len(str_bytes)]
+            id_chars.append(self._alphabet[byte % len(self._alphabet)])
+
+        return "".join(id_chars)
+
+    def generate(self, content_checksum: str) -> UniqueId:
+        self._unique_checksums[content_checksum] += 1
+        unique_str = f"{content_checksum}-{self._unique_checksums[content_checksum]}"
+
+        new_id = self._generate_deterministic_id(unique_str, size=10)
+        return UniqueId(new_id)
 
 
 def generate_id() -> UniqueId:

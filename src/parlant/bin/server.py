@@ -32,6 +32,7 @@ import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
+from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.guideline_matching.generic import (
     guideline_actionable_batch,
@@ -398,6 +399,9 @@ async def setup_container() -> AsyncIterator[Container]:
     web_socket_logger = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
+
+    c[IdGenerator] = Singleton(IdGenerator)
+
     c[ShotCollection[GenericResponseAnalysisShot]] = response_analysis_batch.shot_collection
     c[ShotCollection[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot]] = (
         guideline_previously_applied_actionable_batch.shot_collection

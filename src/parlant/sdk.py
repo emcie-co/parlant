@@ -51,7 +51,7 @@ from parlant.core.agents import (
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
-from parlant.core.common import JSONSerializable, Version
+from parlant.core.common import IdGenerator, JSONSerializable, Version
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
     ContextVariableId,
@@ -1502,6 +1502,7 @@ class Server:
 
             c()[GlossaryStore] = await self._exit_stack.enter_async_context(
                 GlossaryVectorStore(
+                    id_generator=c()[IdGenerator],
                     vector_db=TransientVectorDatabase(
                         c()[Logger],
                         embedder_factory,
@@ -1515,6 +1516,7 @@ class Server:
 
             c()[UtteranceStore] = await self._exit_stack.enter_async_context(
                 UtteranceVectorStore(
+                    id_generator=c()[IdGenerator],
                     vector_db=TransientVectorDatabase(
                         c()[Logger],
                         embedder_factory,
@@ -1528,6 +1530,7 @@ class Server:
 
             c()[CapabilityStore] = await self._exit_stack.enter_async_context(
                 CapabilityVectorStore(
+                    id_generator=c()[IdGenerator],
                     vector_db=TransientVectorDatabase(
                         c()[Logger],
                         embedder_factory,
@@ -1541,6 +1544,7 @@ class Server:
 
             c()[JourneyStore] = await self._exit_stack.enter_async_context(
                 JourneyVectorStore(
+                    id_generator=c()[IdGenerator],
                     vector_db=TransientVectorDatabase(
                         c()[Logger],
                         embedder_factory,

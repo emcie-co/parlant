@@ -19,7 +19,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId, Version, generate_id
+from parlant.core.common import (
+    ItemNotFoundError,
+    JSONSerializable,
+    UniqueId,
+    Version,
+    IdGenerator,
+    md5_checksum,
+)
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -200,7 +207,14 @@ async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Opti
 class GuidelineDocumentStore(GuidelineStore):
     VERSION = Version.from_string("0.4.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
         self._database = database
         self._collection: DocumentCollection[GuidelineDocument]
         self._tag_association_collection: DocumentCollection[GuidelineTagAssociationDocument]
@@ -330,8 +344,10 @@ class GuidelineDocumentStore(GuidelineStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            guideline_checksum = md5_checksum(f"{condition}{action or ''}{enabled}{metadata}")
+
             guideline = Guideline(
-                id=GuidelineId(generate_id()),
+                id=GuidelineId(self._id_generator.generate(guideline_checksum)),
                 creation_utc=creation_utc,
                 content=GuidelineContent(
                     condition=condition,
@@ -348,14 +364,16 @@ class GuidelineDocumentStore(GuidelineStore):
                 )
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{guideline.id}{tag_id}")
+
                 await self._tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "guideline_id": guideline.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -500,8 +518,10 @@ class GuidelineDocumentStore(GuidelineStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{guideline.id}{tag_id}")
+
             association_document: GuidelineTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "guideline_id": GuidelineId(guideline_id),

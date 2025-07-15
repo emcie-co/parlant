@@ -23,7 +23,7 @@ from lagom import Container
 from pytest import fixture, mark, raises
 
 from parlant.core.agents import AgentDocumentStore, AgentId, AgentStore
-from parlant.core.common import Version
+from parlant.core.common import IdGenerator, Version
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
 )
@@ -107,7 +107,7 @@ async def test_agent_creation(
     agent_configuration: dict[str, Any],
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as agent_db:
-        async with AgentDocumentStore(agent_db) as agent_store:
+        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
             agent = await agent_store.create_agent(**agent_configuration)
 
             agents = list(await agent_store.list_agents())
@@ -193,7 +193,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Creating a guideline with JSONFileDatabase implementation",
                 action="Expecting it to show in the guidelines json file",
@@ -211,7 +211,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     assert datetime.fromisoformat(json_guideline["creation_utc"]) == guideline.creation_utc
 
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             second_guideline = await guideline_store.create_guideline(
                 condition="Second guideline creation",
                 action="Additional test entry in the JSON file",
@@ -237,7 +237,7 @@ async def test_guideline_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Test condition for loading",
                 action="Test content for loading guideline",
@@ -258,7 +258,7 @@ async def test_customer_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "Jane Doe"
             extra = {"email": "jane.doe@example.com"}
             created_customer = await customer_store.create_customer(
@@ -281,7 +281,7 @@ async def test_customer_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "John Doe"
             extra = {"email": "john.doe@example.com"}
 
@@ -297,7 +297,9 @@ async def test_context_variable_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Sample Variable",
@@ -324,7 +326,9 @@ async def test_context_variable_value_update_and_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             customer_id = CustomerId("test_customer")
             variable = await context_variable_store.create_variable(
@@ -360,7 +364,9 @@ async def test_context_variable_listing(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             var1 = await context_variable_store.create_variable(
                 name="Variable One",
@@ -401,7 +407,9 @@ async def test_context_variable_deletion(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Deletable Variable",
@@ -454,7 +462,7 @@ async def test_guideline_tool_association_creation(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("guideline-789")
             tool_id = ToolId("local", "test_tool")
@@ -481,7 +489,7 @@ async def test_guideline_tool_association_retrieval(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("test_guideline")
             tool_id = ToolId("local", "test_tool")
@@ -510,7 +518,7 @@ async def test_successful_loading_of_an_empty_json_file(
     # Create an empty file
     new_file.touch()
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Create a guideline just for testing",
                 action="Expect it to appear in the guidelines JSON file eventually",

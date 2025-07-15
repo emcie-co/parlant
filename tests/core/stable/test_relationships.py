@@ -15,6 +15,7 @@
 from typing import AsyncIterator, Sequence
 from pytest import fixture
 
+from parlant.core.common import IdGenerator
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
@@ -37,7 +38,7 @@ def underlying_database() -> DocumentDatabase:
 async def relationship_store(
     underlying_database: DocumentDatabase,
 ) -> AsyncIterator[RelationshipStore]:
-    async with RelationshipDocumentStore(database=underlying_database) as store:
+    async with RelationshipDocumentStore(IdGenerator(), database=underlying_database) as store:
         yield store
 
 
@@ -145,7 +146,9 @@ async def test_that_db_data_is_loaded_correctly(
             kind=RelationshipKind.ENTAILMENT,
         )
 
-    async with RelationshipDocumentStore(underlying_database) as new_store_with_same_db:
+    async with RelationshipDocumentStore(
+        IdGenerator(), underlying_database
+    ) as new_store_with_same_db:
         a_relationships = await new_store_with_same_db.list_relationships(
             kind=RelationshipKind.ENTAILMENT,
             source_id=a_id,

@@ -383,7 +383,7 @@ async def match_guidelines(
         terms=terms,
         capabilities=capabilities,
         staged_events=staged_events,
-        relevant_journeys=activated_journeys,
+        active_journeys=activated_journeys,
         guidelines=context.guidelines,
     )
 

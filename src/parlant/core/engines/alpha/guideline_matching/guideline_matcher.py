@@ -200,7 +200,7 @@ class GuidelineMatcher:
         terms: Sequence[Term],
         capabilities: Sequence[Capability],
         staged_events: Sequence[EmittedEvent],
-        relevant_journeys: Sequence[Journey],
+        active_journeys: Sequence[Journey],
         guidelines: Sequence[Guideline],
     ) -> GuidelineMatchingResult:
         if not guidelines:
@@ -236,7 +236,7 @@ class GuidelineMatcher:
                             terms,
                             capabilities,
                             staged_events,
-                            relevant_journeys,
+                            active_journeys,
                         ),
                     )
                     for _, (strategy, guidelines) in guideline_strategies.items()

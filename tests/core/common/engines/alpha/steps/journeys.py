@@ -16,7 +16,6 @@ from collections.abc import Sequence
 from typing import cast
 from pytest_bdd import given, parsers
 
-# from parlant.core.engines.alpha.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.journeys import Journey, JourneyStore
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
@@ -76,7 +75,6 @@ def given_the_journey_called(
     journey_store = context.container[JourneyStore]
     guideline_store = context.container[GuidelineStore]
     relationship_store = context.container[RelationshipStore]
-    # journey_guideline_projection = context.container[JourneyGuidelineProjection]
     local_tool_service = context.container[LocalToolService]
 
     def create_reset_password_journey() -> Journey:
@@ -260,10 +258,6 @@ def given_the_journey_called(
                 condition="reset_password tool returned that the password was not successfully reset, or otherwise failed",
             )
         )
-
-        # guidelines = context.sync_await(
-        #     journey_guideline_projection.project_journey_to_guidelines(journey_id=journey.id)
-        # )
 
         return journey
 
@@ -583,10 +577,6 @@ def given_the_journey_called(
             )
         )
 
-        # guidelines = context.sync_await(
-        #     journey_guideline_projection.project_journey_to_guidelines(journey_id=journey.id)
-        # )
-
         return journey
 
     def create_place_food_order_journey() -> Journey:
@@ -843,10 +833,6 @@ def given_the_journey_called(
                 condition="",
             )
         )
-
-        # guidelines = context.sync_await(
-        #     journey_guideline_projection.project_journey_to_guidelines(journey_id=journey.id)
-        # )
 
         return journey
 

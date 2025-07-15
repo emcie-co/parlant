@@ -836,11 +836,143 @@ def given_the_journey_called(
 
         return journey
 
+    def create_decrease_spending_journey() -> Journey:
+        conditions = [
+            "the customer asks about decreasing their spending ",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="decrease spending journey",
+                description="",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="ask for the customer's account number",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=JourneyStore.ROOT_NODE_ID,
+                target=node1.id,
+                condition="",
+            )
+        )
+
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for the customer's full name",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition="",
+            )
+        )
+
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="suggest capabilities based on the ones available in this prompt",
+                tools=[],
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition="",
+            )
+        )
+
+        node4 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="inform the customer that you cannot help them with their request",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=node4.id,
+                condition="No relevant capability is available",
+            )
+        )
+
+        node5 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer if they need any further help",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node4.id,
+                target=node5.id,
+                condition="",
+            )
+        )
+        return journey
+
     JOURNEYS = {
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
         "Book Taxi Ride": create_book_taxi_journey,
         "Place Food Order": create_place_food_order_journey,
+        "Decrease Spending Journey": create_decrease_spending_journey,
     }
 
     create_journey_func = JOURNEYS[journey_title]

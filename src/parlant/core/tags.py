@@ -125,7 +125,10 @@ class TagDocumentStore(TagStore):
     VERSION = Version.from_string("0.1.0")
 
     def __init__(
-        self, id_generator: IdGenerator, database: DocumentDatabase, allow_migration: bool = False
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
     ) -> None:
         self._id_generator = id_generator
 

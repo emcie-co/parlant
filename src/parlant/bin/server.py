@@ -100,6 +100,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -432,6 +433,8 @@ async def setup_container() -> AsyncIterator[Container]:
     c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
     c[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
     c[ToolRunningActionDetector] = ToolRunningActionDetector
+
+    c[JourneyGuidelineProjection] = Singleton(JourneyGuidelineProjection)
 
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)

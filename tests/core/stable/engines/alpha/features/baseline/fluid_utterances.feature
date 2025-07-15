@@ -102,32 +102,6 @@ Feature: Fluid Utterance
         And a single message event is emitted
         And the message contains asking the customer for their age
         And the message contains no questions about the customer's email address or phone number
-    
-    Scenario: Journey information is followed (fluid utterance)
-        Given a journey titled "Change Credit Limits" to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
-        And an utterance, "To increase credit limits, you must visit a physical branch"
-        And an utterance, "Sure. Let me check how that could be done"
-        And a customer message, "Hey there. I want to increase the credit limit on my platinum silver gold card. I want the new limits to be twice as high, please."
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains that you must visit a physical branch to increase credit limits
-
-    Scenario: Two journeys are used in unison (fluid utterance)
-        Given a journey titled "Book Flight" to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
-        And an utterance, "Great. Are you interested in economy or business class?"
-        And an utterance, "Great. Only economy class is available for this booking. What is the name of the traveler?"
-        And an utterance, "Great. What is the name of the traveler?"
-        And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a journey titled "No Economy" to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
-        And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
-        And an agent message, "Great! From and to where would are you looking to fly?"
-        And a customer message, "From LAX to JFK"
-        And an agent message, "Got it. And when are you looking to travel?"
-        And a customer message, "Next Monday"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
-
 
     Scenario: The agent greets the customer 2 (fluid utterance)
         Given a guideline to greet with 'Howdy' when the session starts

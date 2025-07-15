@@ -1445,15 +1445,18 @@ class Server:
             for interface, implementation in [
                 (ContextVariableStore, ContextVariableDocumentStore),
                 (CustomerStore, CustomerDocumentStore),
-                (EvaluationStore, EvaluationDocumentStore),
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
                 c()[interface] = await self._exit_stack.enter_async_context(
-                    implementation(TransientDocumentDatabase())  #  type: ignore
+                    implementation(c()[IdGenerator], TransientDocumentDatabase())  #  type: ignore
                 )
+
+            c()[EvaluationStore] = await self._exit_stack.enter_async_context(
+                EvaluationDocumentStore(TransientDocumentDatabase())
+            )
 
             def make_transient_db() -> Awaitable[DocumentDatabase]:
                 async def shim() -> DocumentDatabase:

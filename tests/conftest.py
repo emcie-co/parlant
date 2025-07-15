@@ -106,6 +106,7 @@ from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStore,
 )
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.journeys import JourneyStore, JourneyVectorStore
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -424,6 +425,8 @@ async def container(
 
         container[EntityQueries] = Singleton(EntityQueries)
         container[EntityCommands] = Singleton(EntityCommands)
+
+        container[JourneyGuidelineProjection] = Singleton(JourneyGuidelineProjection)
 
         for generation_schema in (
             GenericObservationalGuidelineMatchesSchema,

@@ -81,8 +81,7 @@ class JourneyStepSelectionShot(Shot):
 
 def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
     def _get_guideline_node_index(guideline: Guideline) -> str:
-        return cast(
-            str,
+        return str(
             cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
                 "index", "-1"
             ),
@@ -104,9 +103,8 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 incoming_edges=[],
                 outgoing_edges=[],
                 customer_dependent_action=cast(
-                    bool,
-                    g.metadata.get("is_customer_dependent"),
-                ),
+                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+                ).get("is_customer_dependent", False),
                 requires_tool_calls=cast(bool, g.metadata.get("tool_running_only")),
             )
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# TODO change few shots
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -294,7 +296,6 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer)
         builder.add_context_variables(context.context_variables)
-        builder.add_journeys(context.journeys)
 
         all_guideline_matches = list(
             chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches)
@@ -1188,7 +1189,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
-
+        with open("utterance-selector-draft-prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_draft_output_format(

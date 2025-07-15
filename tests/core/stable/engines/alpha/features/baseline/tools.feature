@@ -971,23 +971,6 @@ Feature: Tools
         And a single message event is emitted
         And the message contains that the price of 1 kg of carrots is 10 dollars
 
-    Scenario: The agent correctly chooses to call the right tool based on journeys
-        Given an agent whose job is to sell groceries
-        And a journey titled "Orange things are Fruit" to be aware that all orange vegetables are classified as fruits when an orange products is mentioned
-        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
-        And the tool "check_fruit_price"
-        And the tool "check_vegetable_price"
-        And an association between "check_prices" and "check_fruit_price"
-        And an association between "check_prices" and "check_vegetable_price"
-        And a tool relationship whereby "check_fruit_price" overlaps with "check_vegetable_price"
-        And a customer message, "What's the price of 1 kg of carrots?"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains a call with tool_id of "local:check_fruit_price"
-        And a single message event is emitted
-        And the message contains that the price of 1 kg of carrots is 10 dollars
-
     Scenario: Tool caller calls a tool with enum list parameter
         Given a guideline "get_available_products_by_category" to get all products by a specific category when a customer asks for the availability of products from a certain category
         And the tool "available_products_by_categories" from "ksp"

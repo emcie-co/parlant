@@ -20,7 +20,14 @@ from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, to_json_dict
+from parlant.core.common import (
+    ItemNotFoundError,
+    UniqueId,
+    Version,
+    IdGenerator,
+    md5_checksum,
+    to_json_dict,
+)
 from parlant.core.persistence.common import (
     ObjectId,
 )
@@ -136,7 +143,14 @@ class _AgentTagAssociationDocument(TypedDict, total=False):
 class AgentDocumentStore(AgentStore):
     VERSION = Version.from_string("0.3.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ):
+        self._id_generator = id_generator
+
         self._database = database
         self._agents_collection: DocumentCollection[_AgentDocument]
         self._tag_association_collection: DocumentCollection[_AgentTagAssociationDocument]
@@ -242,8 +256,10 @@ class AgentDocumentStore(AgentStore):
             creation_utc = creation_utc or datetime.now(timezone.utc)
             max_engine_iterations = max_engine_iterations or 1
 
+            agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+
             agent = Agent(
-                id=AgentId(generate_id()),
+                id=AgentId(self._id_generator.generate(agent_checksum)),
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
@@ -254,14 +270,16 @@ class AgentDocumentStore(AgentStore):
 
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{agent.id}{tag_id}")
+
                 await self._tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "agent_id": agent.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -351,8 +369,10 @@ class AgentDocumentStore(AgentStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{agent_id}{tag_id}")
+
             association_document: _AgentTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "agent_id": agent_id,

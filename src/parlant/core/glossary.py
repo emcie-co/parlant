@@ -21,7 +21,7 @@ from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId, md5_checksum
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -167,12 +167,15 @@ class GlossaryVectorStore(GlossaryStore):
 
     def __init__(
         self,
+        id_generator: IdGenerator,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ):
+        self._id_generator = id_generator
+
         self._vector_db = vector_db
         self._document_db = document_db
 
@@ -292,8 +295,10 @@ class GlossaryVectorStore(GlossaryStore):
                 synonyms=synonyms,
             )
 
+            term_checksum = md5_checksum(f"{name}{description}{synonyms}")
+
             term = Term(
-                id=TermId(generate_id()),
+                id=TermId(self._id_generator.generate(term_checksum)),
                 creation_utc=creation_utc,
                 name=name,
                 description=description,
@@ -309,14 +314,16 @@ class GlossaryVectorStore(GlossaryStore):
                 )
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{term.id}{tag_id}")
+
                 await self._association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "term_id": term.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
         return term
@@ -492,8 +499,10 @@ class GlossaryVectorStore(GlossaryStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{term_id}{tag_id}")
+
             association_document: TermTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "term_id": term_id,

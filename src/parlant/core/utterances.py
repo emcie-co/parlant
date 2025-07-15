@@ -36,7 +36,7 @@ from parlant.core.persistence.vector_database_helper import (
     query_chunks,
 )
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id, md5_checksum
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -185,12 +185,15 @@ class UtteranceVectorStore(UtteranceStore):
 
     def __init__(
         self,
+        id_generator: IdGenerator,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ) -> None:
+        self._id_generator = id_generator
+
         self._vector_db = vector_db
         self._database = document_db
 
@@ -295,8 +298,10 @@ class UtteranceVectorStore(UtteranceStore):
         return False
 
     def _serialize_utterance(self, utterance: Utterance, content: str) -> _UtteranceDocument:
+        doc_checksum = md5_checksum(content)
+
         return _UtteranceDocument(
-            id=ObjectId(generate_id()),
+            id=ObjectId(self._id_generator.generate(doc_checksum)),
             utterance_id=ObjectId(utterance.id),
             version=self.VERSION.to_string(),
             creation_utc=utterance.creation_utc.isoformat(),
@@ -358,8 +363,10 @@ class UtteranceVectorStore(UtteranceStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            utterance_checksum = md5_checksum(f"{value}{fields}")
+
             utterance = Utterance(
-                id=UtteranceId(generate_id()),
+                id=UtteranceId(self._id_generator.generate(utterance_checksum)),
                 value=value,
                 fields=fields or [],
                 creation_utc=creation_utc,
@@ -370,9 +377,11 @@ class UtteranceVectorStore(UtteranceStore):
             await self._insert_utterance(utterance)
 
             for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{utterance.id}{tag_id}")
+
                 await self._utterance_tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "utterance_id": utterance.id,
@@ -537,8 +546,10 @@ class UtteranceVectorStore(UtteranceStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{utterance_id}{tag_id}")
+
             association_document: UtteranceTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "utterance_id": utterance_id,

@@ -22,7 +22,7 @@ from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId, md5_checksum
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -152,21 +152,26 @@ class CapabilityVectorStore(CapabilityStore):
 
     def __init__(
         self,
+        id_generator: IdGenerator,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ):
+        self._id_generator = id_generator
+
         self._vector_db = vector_db
         self._document_db = document_db
         self._allow_migration = allow_migration
-        self._embedder_factory = embedder_factory
-        self._embedder_type_provider = embedder_type_provider
-        self._lock = ReaderWriterLock()
         self._collection: VectorCollection[_CapabilityDocument]
         self._tag_association_collection: DocumentCollection[_CapabilityTagAssociationDocument]
+
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
         self._embedder: Embedder
+
+        self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: VectorBaseDocument) -> Optional[_CapabilityDocument]:
         if doc["version"] == self.VERSION.to_string():
@@ -229,14 +234,18 @@ class CapabilityVectorStore(CapabilityStore):
         capability: Capability,
         content: str,
     ) -> _CapabilityDocument:
+        queries_str = json.dumps(list(capability.queries))
+
+        capability_doc_checksum = md5_checksum(f"{capability.id}{queries_str}")
+
         return _CapabilityDocument(
-            id=ObjectId(generate_id()),
+            id=ObjectId(self._id_generator.generate(capability_doc_checksum)),
             capability_id=ObjectId(capability.id),
             version=self.VERSION.to_string(),
             creation_utc=capability.creation_utc.isoformat(),
             title=capability.title,
             description=capability.description,
-            queries=json.dumps(list(capability.queries)),
+            queries=queries_str,
             content=content,
             checksum=md5_checksum(content),
         )
@@ -287,7 +296,9 @@ class CapabilityVectorStore(CapabilityStore):
             queries = list(queries) if queries else []
             tags = list(tags) if tags else []
 
-            capability_id = CapabilityId(generate_id())
+            capability_checksum = md5_checksum(f"{title}{description}{queries}{tags}")
+
+            capability_id = CapabilityId(self._id_generator.generate(capability_checksum))
             capability = Capability(
                 id=capability_id,
                 creation_utc=creation_utc,
@@ -299,14 +310,16 @@ class CapabilityVectorStore(CapabilityStore):
 
             await self._insert_capability(capability)
 
-            for tag in tags:
+            for tag_id in tags:
+                tag_checksum = md5_checksum(f"{capability_id}{tag_id}")
+
                 await self._tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "capability_id": capability.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -491,8 +504,10 @@ class CapabilityVectorStore(CapabilityStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            tag_checksum = md5_checksum(f"{capability_id}{tag_id}")
+
             assoc_doc: _CapabilityTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(tag_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "capability_id": capability_id,

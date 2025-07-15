@@ -467,7 +467,6 @@ async def container(
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
             JourneyStepSelectionSchema,
-            RelativeActionSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,

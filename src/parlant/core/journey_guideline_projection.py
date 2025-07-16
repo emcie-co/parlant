@@ -18,29 +18,19 @@ def format_journey_node_guideline_id(
     edge_id: Optional[JourneyEdgeId] = None,
 ) -> GuidelineId:
     if edge_id:
-        return GuidelineId(f"journey_node:{journey_id}:{node_id}:{edge_id}")
+        return GuidelineId(f"journey_node:{node_id}:{edge_id}")
 
-    return GuidelineId(f"journey_node:{journey_id}:{node_id}")
+    return GuidelineId(f"journey_node:{node_id}")
 
 
 def extract_node_id_from_journey_node_guideline_id(
     guideline_id: GuidelineId,
 ) -> JourneyNodeId:
     parts = guideline_id.split(":")
-    if len(parts) < 3 or parts[0] != "journey_node":
+    if len(parts) < 2 or parts[0] != "journey_node":
         raise ValueError(f"Invalid guideline ID format: {guideline_id}")
 
-    return JourneyNodeId(parts[2])
-
-
-def extract_journey_id_from_journey_node_guideline_id(
-    guideline_id: GuidelineId,
-) -> JourneyId:
-    parts = guideline_id.split(":")
-    if len(parts) < 3 or parts[0] != "journey_node":
-        raise ValueError(f"Invalid guideline ID format: {guideline_id}")
-
-    return JourneyId(parts[1])
+    return JourneyNodeId(parts[1])
 
 
 class JourneyGuidelineProjection:
@@ -77,7 +67,7 @@ class JourneyGuidelineProjection:
             node: JourneyNode,
             edge: JourneyEdge | None,
         ) -> Guideline:
-            if node.id not in node_indexes and node.id != JourneyStore.END_NODE_ID:
+            if node.id not in node_indexes:
                 nonlocal index
                 index += 1
                 node_indexes[node.id] = index
@@ -95,9 +85,7 @@ class JourneyGuidelineProjection:
                     **{
                         "journey_node": {
                             "follow_ups": [],
-                            "index": str(node_indexes[node.id])
-                            if node.id != JourneyStore.END_NODE_ID
-                            else "<end>",
+                            "index": str(node_indexes[node.id]),
                             "journey_id": journey_id,
                         }
                     },

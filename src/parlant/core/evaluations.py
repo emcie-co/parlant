@@ -265,7 +265,7 @@ class JourneyPayloadDocument(TypedDict):
     action: Literal["add", "update"]
 
 
-_PayloadDocument = Union[GuidelinePayloadDocument]
+_PayloadDocument = Union[GuidelinePayloadDocument, JourneyPayloadDocument]
 
 
 class _CoherenceCheckDocument(TypedDict):
@@ -621,6 +621,14 @@ class EvaluationDocumentStore(EvaluationStore):
                 ),
             )
 
+        def serialize_invoice_journey_data(
+            data: InvoiceJourneyData,
+        ) -> InvoiceJourneyDataDocument:
+            return InvoiceJourneyDataDocument(
+                node_properties_proposition=data.node_properties_proposition or {},
+                edge_properties_proposition=data.edge_properties_proposition or {},
+            )
+
         def serialize_payload(payload: Payload) -> _PayloadDocument:
             if isinstance(payload, GuidelinePayload):
                 return GuidelinePayloadDocument(
@@ -636,6 +644,11 @@ class EvaluationDocumentStore(EvaluationStore):
                     action_proposition=payload.action_proposition,
                     properties_proposition=payload.properties_proposition,
                     journey_step_propositions=payload.journey_step_proposition,
+                )
+            elif isinstance(payload, JourneyPayload):
+                return JourneyPayloadDocument(
+                    journey_id=payload.journey_id,
+                    action=payload.operation.value,
                 )
             else:
                 raise TypeError(f"Unknown payload type: {type(payload)}")
@@ -660,14 +673,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 checksum=invoice.checksum,
                 state_version=invoice.state_version,
                 approved=invoice.approved,
-                data=InvoiceJourneyDataDocument(
-                    node_properties_proposition=cast(
-                        InvoiceJourneyData, invoice.data
-                    ).node_properties_proposition,
-                    edge_properties_proposition=cast(
-                        InvoiceJourneyData, invoice.data
-                    ).edge_properties_proposition,
-                )
+                data=serialize_invoice_journey_data(cast(InvoiceJourneyData, invoice.data))
                 if invoice.data
                 else None,
                 error=invoice.error,
@@ -745,6 +751,8 @@ class EvaluationDocumentStore(EvaluationStore):
             payload_doc: _PayloadDocument,
         ) -> Payload:
             if kind == PayloadKind.GUIDELINE:
+                payload_doc = cast(GuidelinePayloadDocument, payload_doc)
+
                 return GuidelinePayload(
                     content=GuidelineContent(
                         condition=payload_doc["content"]["condition"],
@@ -758,6 +766,13 @@ class EvaluationDocumentStore(EvaluationStore):
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
                     journey_step_proposition=payload_doc["journey_step_propositions"],
+                )
+            elif kind == PayloadKind.JOURNEY:
+                payload_doc = cast(JourneyPayloadDocument, payload_doc)
+
+                return JourneyPayload(
+                    journey_id=payload_doc["journey_id"],
+                    operation=PayloadOperation(payload_doc["action"]),
                 )
             else:
                 raise ValueError(f"Unsupported payload kind: {kind}")

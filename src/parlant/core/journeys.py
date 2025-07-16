@@ -194,14 +194,12 @@ class JourneyStore(ABC):
     @abstractmethod
     async def read_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
     ) -> JourneyNode: ...
 
     @abstractmethod
     async def update_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
         params: JourneyNodeUpdateParams,
     ) -> JourneyNode: ...
@@ -209,7 +207,6 @@ class JourneyStore(ABC):
     @abstractmethod
     async def delete_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
     ) -> None: ...
 
@@ -246,14 +243,12 @@ class JourneyStore(ABC):
     @abstractmethod
     async def read_edge(
         self,
-        journey_id: JourneyId,
         edge_id: JourneyNodeId,
     ) -> JourneyEdge: ...
 
     @abstractmethod
     async def update_edge(
         self,
-        journey_id: JourneyId,
         edge_id: JourneyNodeId,
         params: JourneyEdgeUpdateParams,
     ) -> JourneyEdge: ...
@@ -745,8 +740,8 @@ class JourneyVectorStore(JourneyStore):
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
-            nodes = await self.list_nodes(journey_id)
-            edges = await self.list_edges(journey_id)
+            nodes = await self.list_nodes(journey_id=journey_id)
+            edges = await self.list_edges(journey_id=journey_id)
 
             updated = {**doc, **params}
 
@@ -1036,18 +1031,10 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def read_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
     ) -> JourneyNode:
         async with self._lock.reader_lock:
-            journey = await self.read_journey(journey_id)
-
-            if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
-
-            doc = await self._node_association_collection.find_one(
-                {"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
-            )
+            doc = await self._node_association_collection.find_one({"node_id": {"$eq": node_id}})
 
         if not doc:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1057,19 +1044,11 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def update_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
         params: JourneyNodeUpdateParams,
     ) -> JourneyNode:
         async with self._lock.writer_lock:
-            journey = await self.read_journey(journey_id)
-
-            if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
-
-            doc = await self._node_association_collection.find_one(
-                {"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}}
-            )
+            doc = await self._node_association_collection.find_one({"node_id": {"$eq": node_id}})
 
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1077,7 +1056,7 @@ class JourneyVectorStore(JourneyStore):
             updated = {**doc, **params}
 
             result = await self._node_association_collection.update_one(
-                filters={"node_id": {"$eq": node_id}, "journey_id": {"$eq": journey_id}},
+                filters={"node_id": {"$eq": node_id}},
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
 
@@ -1088,11 +1067,17 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def delete_node(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
     ) -> None:
         async with self._lock.writer_lock:
-            edges = await self.list_edges(journey_id=journey_id, node_id=node_id)
+            node_doc = await self._node_association_collection.find_one(
+                {"node_id": {"$eq": node_id}}
+            )
+
+            if not node_doc:
+                raise ItemNotFoundError(item_id=UniqueId(node_id))
+
+            edges = await self.list_edges(journey_id=node_doc["journey_id"], node_id=node_id)
 
             for edge in edges:
                 await self.delete_edge(edge.id)
@@ -1209,18 +1194,10 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def read_edge(
         self,
-        journey_id: JourneyId,
         edge_id: JourneyNodeId,
     ) -> JourneyEdge:
         async with self._lock.reader_lock:
-            journey = await self.read_journey(journey_id)
-
-            if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
-
-            doc = await self._edge_association_collection.find_one(
-                {"id": {"$eq": edge_id}, "journey_id": {"$eq": journey_id}}
-            )
+            doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
 
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(edge_id))
@@ -1230,19 +1207,11 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def update_edge(
         self,
-        journey_id: JourneyId,
         edge_id: JourneyNodeId,
         params: JourneyEdgeUpdateParams,
     ) -> JourneyEdge:
         async with self._lock.writer_lock:
-            journey = await self.read_journey(journey_id)
-
-            if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
-
-            doc = await self._edge_association_collection.find_one(
-                {"id": {"$eq": edge_id}, "journey_id": {"$eq": journey_id}}
-            )
+            doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
 
             if not doc:
                 raise ItemNotFoundError(item_id=UniqueId(edge_id))
@@ -1250,7 +1219,7 @@ class JourneyVectorStore(JourneyStore):
             updated = {**doc, **params}
 
             result = await self._edge_association_collection.update_one(
-                filters={"id": {"$eq": edge_id}, "journey_id": {"$eq": journey_id}},
+                filters={"id": {"$eq": edge_id}},
                 params=cast(JourneyEdgeAssociationDocument, to_json_dict(updated)),
             )
 
@@ -1265,12 +1234,13 @@ class JourneyVectorStore(JourneyStore):
         node_id: Optional[JourneyNodeId] = None,
     ) -> Sequence[JourneyEdge]:
         async with self._lock.reader_lock:
-            journey = await self.read_journey(journey_id)
+            if journey_id is not None:
+                journey = await self.read_journey(journey_id)
 
-            if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+                if not journey:
+                    raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
-            filters: Where = {"journey_id": {"$eq": journey_id}}
+                filters: Where = {"journey_id": {"$eq": journey_id}}
 
             if node_id is not None:
                 filters = {

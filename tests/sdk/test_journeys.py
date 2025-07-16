@@ -179,7 +179,7 @@ class Test_that_a_created_journey_is_followed(SDKTest):
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive("Hello there", recipient=self.agent)
 
-        assert nlp_test(
+        assert await nlp_test(
             context=response,
             condition="There is an offering of a Pepsi",
         )

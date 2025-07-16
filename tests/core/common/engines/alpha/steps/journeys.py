@@ -838,7 +838,7 @@ def given_the_journey_called(
 
     def create_decrease_spending_journey() -> Journey:
         conditions = [
-            "the customer asks about decreasing their spending ",
+            "the customer asks about decreasing their spending",
         ]
 
         condition_guidelines: Sequence[Guideline] = [

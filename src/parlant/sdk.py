@@ -51,8 +51,9 @@ from parlant.core.agents import (
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
-from parlant.core.common import ItemNotFoundError, JSONSerializable, Version
+from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId, Version
 from parlant.core.context_variables import (
+    ContextVariable,
     ContextVariableDocumentStore,
     ContextVariableId,
     ContextVariableStore,
@@ -353,7 +354,7 @@ class _SdkAgentStore(AgentStore):
 
     async def read_agent(self, agent_id: AgentId) -> _Agent:
         if agent_id not in self._agents:
-            raise ItemNotFoundError(agent_id, "Agent not found")
+            raise ItemNotFoundError(UniqueId(agent_id), "Agent not found")
         return self._agents[agent_id]
 
     async def update_agent(self, agent_id: AgentId, params: AgentUpdateParams) -> _Agent:
@@ -1076,9 +1077,13 @@ class Agent:
         if not id and not name:
             raise SDKError("Either id or name must be provided to find a variable.")
 
+        variable: ContextVariable | None = None
+
         if id:
             try:
-                variable = await self._container[ContextVariableStore].read_variable(id)
+                variable = await self._container[ContextVariableStore].read_variable(
+                    ContextVariableId(id)
+                )
             except ItemNotFoundError:
                 return None
         else:
@@ -1361,7 +1366,7 @@ class Server:
 
     async def find_agent(self, *, id: str) -> Agent | None:
         try:
-            agent = await self._container[AgentStore].read_agent(id)
+            agent = await self._container[AgentStore].read_agent(AgentId(id))
 
             return Agent(
                 id=agent.id,

@@ -160,7 +160,7 @@ class IdGenerator:
         id_chars = []
         for i in range(size):
             byte = str_bytes[i % len(str_bytes)]
-            id_chars.append(id_generation_alphabet[byte % len(self._alphabet)])
+            id_chars.append(id_generation_alphabet[byte % len(id_generation_alphabet)])
 
         return "".join(id_chars)
 

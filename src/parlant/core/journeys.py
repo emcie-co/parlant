@@ -659,7 +659,7 @@ class JourneyVectorStore(JourneyStore):
             root = JourneyNode(
                 id=self.ROOT_NODE_ID,
                 creation_utc=creation_utc,
-                action=JourneyStore.DEFAULT_ROOT_ACTION,
+                action=None,
                 tools=[],
                 metadata={},
             )

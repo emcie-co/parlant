@@ -823,7 +823,7 @@ class Variable:
 class Customer:
     id: CustomerId
     name: str
-    extra: Mapping[str, str]
+    metadata: Mapping[str, str]
     tags: Sequence[TagId]
 
 
@@ -1235,7 +1235,7 @@ class Server:
                         customer=Customer(
                             id=ctx.customer.id,
                             name=ctx.customer.name,
-                            extra=ctx.customer.extra,
+                            metadata=ctx.customer.extra,
                             tags=ctx.customer.tags,
                         ),
                         variables={var.id: val.data for var, val in ctx.state.context_variables},
@@ -1389,19 +1389,19 @@ class Server:
     async def create_customer(
         self,
         name: str,
-        extra: Mapping[str, str] = {},
+        metadata: Mapping[str, str] = {},
         tags: Sequence[TagId] = [],
     ) -> Customer:
         customer = await self._container[CustomerStore].create_customer(
             name=name,
-            extra=extra,
+            extra=metadata,
             tags=tags,
         )
 
         return Customer(
             id=customer.id,
             name=customer.name,
-            extra=customer.extra,
+            metadata=customer.extra,
             tags=customer.tags,
         )
 
@@ -1412,7 +1412,7 @@ class Server:
             Customer(
                 id=c.id,
                 name=c.name,
-                extra=c.extra,
+                metadata=c.extra,
                 tags=c.tags,
             )
             for c in customers
@@ -1438,7 +1438,7 @@ class Server:
             return Customer(
                 id=customer.id,
                 name=customer.name,
-                extra=customer.extra,
+                metadata=customer.extra,
                 tags=customer.tags,
             )
 
@@ -1449,7 +1449,7 @@ class Server:
                 return Customer(
                     id=customer.id,
                     name=customer.name,
-                    extra=customer.extra,
+                    metadata=customer.extra,
                     tags=customer.tags,
                 )
 
@@ -1461,7 +1461,7 @@ class Server:
         return Customer(
             id=customer.id,
             name=customer.name,
-            extra=customer.extra,
+            metadata=customer.extra,
             tags=customer.tags,
         )
 

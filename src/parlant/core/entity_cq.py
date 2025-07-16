@@ -245,10 +245,9 @@ class EntityQueries:
 
     async def find_journey_node_tool_associations(
         self,
-        journey_id: JourneyId,
         node_id: JourneyNodeId,
     ) -> Sequence[ToolId]:
-        return (await self._journey_store.read_node(journey_id=journey_id, node_id=node_id)).tools
+        return (await self._journey_store.read_node(node_id=node_id)).tools
 
     async def find_capabilities_for_agent(
         self,

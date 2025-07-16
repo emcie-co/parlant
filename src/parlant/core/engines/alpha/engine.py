@@ -58,7 +58,6 @@ from parlant.core.engines.alpha.message_event_composer import (
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
 from parlant.core.journey_guideline_projection import (
-    extract_journey_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId
@@ -1251,7 +1250,6 @@ class AlphaEngine(Engine):
                 await async_utils.safe_gather(
                     *[
                         self._entity_queries.find_journey_node_tool_associations(
-                            extract_journey_id_from_journey_node_guideline_id(g.id),
                             extract_node_id_from_journey_node_guideline_id(g.id),
                         )
                         for g in node_guidelines

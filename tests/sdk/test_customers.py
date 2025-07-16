@@ -67,3 +67,16 @@ class Test_that_a_customer_can_be_found_by_name(SDKTest):
     async def run(self, ctx: Context) -> None:
         assert self.customer is not None
         assert self.customer.id == self.c1.id
+
+
+class Test_that_a_customer_can_be_found_by_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.c1 = await server.create_customer(
+            name="John Doe",
+        )
+
+        self.customer = await server.find_customer(id=self.c1.id)
+
+    async def run(self, ctx: Context) -> None:
+        assert self.customer is not None
+        assert self.customer.id == self.c1.id

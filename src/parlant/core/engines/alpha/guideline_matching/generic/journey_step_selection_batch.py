@@ -30,6 +30,9 @@ from parlant.core.shots import Shot, ShotCollection
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 
+DEFAULT_ROOT_ACTION = (
+    "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
+)
 BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance to the next node based on the relevant transition."
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
@@ -194,12 +197,16 @@ def get_journey_transition_map_text(
     for node_index in sorted(nodes.keys(), key=step_sort_key):
         node: _JourneyNode = nodes[node_index]
         if (
-            node.id == ROOT_INDEX and node.action is None and len(node.outgoing_edges) == 1
+            node.id == ROOT_INDEX
+            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and len(node.outgoing_edges) == 1
         ):  # Don't print root node
             if not previous_path:
                 first_step_to_execute = node.outgoing_edges[0].target_node_index
         elif (
-            node.id == ROOT_INDEX and node.action is None and len(node.outgoing_edges) > 1
+            node.id == ROOT_INDEX
+            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and len(node.outgoing_edges) > 1
         ):  # Print root node
             if previous_path:
                 flags_str = ""
@@ -226,7 +233,7 @@ TRANSITIONS:
                 )
             if node.id == first_step_to_execute:
                 flags_str += "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed.\n"
-            if previous_path and node.id == previous_path[-1]:
+            elif previous_path and node.id == previous_path[-1]:
                 flags_str += (
                     "- This is the last step that was executed. Begin advancing on from this step\n"
                 )

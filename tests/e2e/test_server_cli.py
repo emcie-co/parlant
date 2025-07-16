@@ -15,6 +15,8 @@
 import asyncio
 import os
 import signal
+import pytest
+import httpx
 
 from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.services.tools.plugins import tool
@@ -30,10 +32,18 @@ REASONABLE_AMOUNT_OF_TIME = 5
 EXTENDED_AMOUNT_OF_TIME = 10
 
 
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        [],
+        ["--deploy"],
+    ],
+)
 async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(
     context: ContextOfTest,
+    extra_args: list[str],
 ) -> None:
-    with run_server(context) as server_process:
+    with run_server(context, extra_args) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
         server_process.send_signal(signal.SIGINT)
         server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
@@ -196,3 +206,19 @@ async def test_that_server_starts_with_single_module(context: ContextOfTest) -> 
             agent_replies[0]["data"]["message"],
             "laptops and chairs",
         )
+
+
+async def test_that_server_in_deployment_mode_does_not_allow_creation_calls(
+    context: ContextOfTest,
+) -> None:
+    with run_server(context, extra_args=["--deploy"]):
+        with pytest.raises(httpx.HTTPStatusError):
+            await context.api.create_guideline(
+                condition="the user asks about product categories",
+                action="tell them what product categories are available",
+            )
+        with pytest.raises(httpx.HTTPStatusError):
+            await context.api.create_term("name", "description")
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await context.api.create_agent(name="test_agent")

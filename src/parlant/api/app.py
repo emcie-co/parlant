@@ -27,6 +27,7 @@ from exceptiongroup import ExceptionGroup
 from typing_extensions import Self
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -87,9 +88,139 @@ ASGIApplication: TypeAlias = Callable[
 
 ASGIApplicationContextManager: TypeAlias = AsyncContextManager[ASGIApplication]
 
-APIConfigurationStep: TypeAlias = Callable[[FastAPI, Container], AsyncContextManager[FastAPI]]
+APIConfiguration: TypeAlias = dict[str, list[str]]
 
-APIConfigurationSteps: TypeAlias = list[APIConfigurationStep]
+
+def create_routers(container: Container) -> dict[str, APIRouter]:
+    config = container[APIConfiguration]
+
+    return {
+        "agents": agents.create_router(
+            agent_store=container[AgentStore],
+            tag_store=container[TagStore],
+        )
+        if config is None or config.get("agents", False)
+        else None,
+        "sessions": sessions.create_router(
+            logger=container[Logger],
+            application=container[Application],
+            agent_store=container[AgentStore],
+            customer_store=container[CustomerStore],
+            session_store=container[SessionStore],
+            session_listener=container[SessionListener],
+            nlp_service=container[NLPService],
+        )
+        if config is None or config.get("sessions", False)
+        else None,
+        "services": services.create_router(
+            service_registry=container[ServiceRegistry],
+        )
+        if config is None or config.get("services", False)
+        else None,
+        "tags": tags.create_router(
+            tag_store=container[TagStore],
+        )
+        if config is None or config.get("tags", False)
+        else None,
+        "terms": glossary.create_router(
+            glossary_store=container[GlossaryStore],
+            agent_store=container[AgentStore],
+            tag_store=container[TagStore],
+        )
+        if config is None or config.get("terms", False)
+        else None,
+        "customers": customers.create_router(
+            customer_store=container[CustomerStore],
+            tag_store=container[TagStore],
+            agent_store=container[AgentStore],
+        )
+        if config is None or config.get("customers", False)
+        else None,
+        "utterances": utterances.create_router(
+            utterance_store=container[UtteranceStore],
+            tag_store=container[TagStore],
+        )
+        if config is None or config.get("utterances", False)
+        else None,
+        "context-variables": variables.create_router(
+            context_variable_store=container[ContextVariableStore],
+            service_registry=container[ServiceRegistry],
+            agent_store=container[AgentStore],
+            tag_store=container[TagStore],
+        )
+        if config is None or config.get("context-variables", False)
+        else None,
+        "guidelines": guidelines.create_router(
+            guideline_store=container[GuidelineStore],
+            relationship_store=container[RelationshipStore],
+            service_registry=container[ServiceRegistry],
+            guideline_tool_association_store=container[GuidelineToolAssociationStore],
+            agent_store=container[AgentStore],
+            tag_store=container[TagStore],
+            journey_store=container[JourneyStore],
+        )
+        if config is None or config.get("guidelines", False)
+        else None,
+        "relationships": relationships.create_router(
+            guideline_store=container[GuidelineStore],
+            tag_store=container[TagStore],
+            agent_store=container[AgentStore],
+            journey_store=container[JourneyStore],
+            relationship_store=container[RelationshipStore],
+            service_registry=container[ServiceRegistry],
+        )
+        if config is None or config.get("relationships", False)
+        else None,
+        "journeys": journeys.create_router(
+            journey_store=container[JourneyStore],
+            guideline_store=container[GuidelineStore],
+        )
+        if config is None or config.get("journeys", False)
+        else None,
+        "evaluations": evaluations.create_router(
+            evaluation_service=container[BehavioralChangeEvaluator],
+            evaluation_store=container[EvaluationStore],
+            evaluation_listener=container[EvaluationListener],
+        )
+        if config is None or config.get("evaluations", False)
+        else None,
+        "capabilities": capabilities.create_router(
+            capability_store=container[CapabilityStore],
+            tag_store=container[TagStore],
+            agent_store=container[AgentStore],
+            journey_store=container[JourneyStore],
+        )
+        if config is None or config.get("capabilities", False)
+        else None,
+        "index": index.legacy_create_router(
+            evaluation_service=container[LegacyBehavioralChangeEvaluator],
+            evaluation_store=container[EvaluationStore],
+            evaluation_listener=container[EvaluationListener],
+            agent_store=container[AgentStore],
+        )
+        if config is None or config.get("index", False)
+        else None,
+    }
+
+
+def filter_router_for_deployment(router: APIRouter, allowed_operations: list[str]) -> APIRouter:
+    if allowed_operations is None:
+        return router
+
+    # Filter out design-time routes
+    filtered_routes = []
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            operation_id = route.operation_id
+            if operation_id in allowed_operations:
+                filtered_routes.append(route)
+        else:
+            # Keep non-API routes (like sub-routers)
+            filtered_routes.append(route)
+
+    router.routes = filtered_routes
+
+    return router
 
 
 class AppWrapper:
@@ -119,18 +250,41 @@ class AppWrapper:
             logger = self.container[Logger]
         except Exception:
             logger = None
-        configuration_steps = self.container[APIConfigurationSteps]
         self.stack = AsyncExitStack()
 
+        configuration_steps = [
+            configure_middlewares,
+            configure_cors_middleware,
+            configure_exception_handlers,
+            configure_static_files,
+            configure_legacy_agents,
+            configure_logs_router,
+            configure_test_router,
+        ]
+
         try:
+            all_routers = create_routers(self.container)
+
+            if self.container[APIConfiguration] is not None:
+                all_routers = {
+                    entity: filter_router_for_deployment(
+                        all_routers[entity], self.container[APIConfiguration].get(entity, [])
+                    )
+                    for entity in all_routers
+                    if all_routers[entity]
+                }
+
+            for entity in all_routers:
+                self.app.include_router(all_routers[entity], prefix=f"/{entity}")
+
             for step in configuration_steps:
                 configuration_context = step(self.app, self.container)
                 await self.stack.enter_async_context(configuration_context)
 
             return self
-        except Exception:
+        except Exception as e:
             if logger:
-                logger.error("encountered error during configuration step setup")
+                logger.error(f"encountered error during configuration step setup: {e}")
             await self.__aexit__(None, None, None)
             self.stack = None
             raise
@@ -493,28 +647,37 @@ async def configure_test_router(
     yield app
 
 
-default_configuration_steps: APIConfigurationSteps = [
-    configure_middlewares,
-    configure_cors_middleware,
-    configure_exception_handlers,
-    configure_static_files,
-    configure_legacy_agents,
-    configure_agents_router,
-    configure_sessions_router,
-    configure_index_router,
-    configure_services_router,
-    configure_tags_router,
-    configure_terms_router,
-    configure_customers_router,
-    configure_utterances_router,
-    configure_context_variables_router,
-    configure_guidelines_router,
-    configure_relationships_router,
-    configure_journeys_router,
-    configure_evaluations_router,
-    configure_logs_router,
-    configure_capabilities_router,
-]
+default_deployment_api_configuration: APIConfiguration = {
+    "agents": ["read_agent", "list_agents"],
+    "capabilities": ["list_capabilities", "read_capability"],
+    "context-variables": [
+        "list_variables",
+        "read_variable",
+        "read_variable_value",
+        "update_variable_value",
+        "delete_value",
+    ],
+    "customers": ["read_customer", "list_customers", "create_customer", "delete_customer"],
+    "evaluations": [],
+    "guidelines": ["read_guideline", "list_guidelines"],
+    "index": [],
+    "journeys": ["list_journeys", "read_journey"],
+    "relationships": ["list_relationships", "read_relationship"],
+    "services": [],
+    "sessions": [
+        "create_session",
+        "read_session",
+        "list_sessions",
+        "update_session",
+        "create_event",
+        "list_events",
+        "inspect_event",
+        "delete_events",
+    ],
+    "tags": ["list_tags", "read_tag"],
+    "terms": ["read_term", "list_terms"],
+    "utterances": ["read_utterance", "list_utterances"],
+}
 
 
 async def create_api_app(container: Container) -> ASGIApplicationContextManager:

@@ -120,11 +120,10 @@ from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.api.app import (
-    APIConfigurationSteps,
-    configure_test_router,
     create_api_app,
     ASGIApplication,
-    default_configuration_steps,
+    APIConfiguration,
+    default_deployment_api_configuration,
 )
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -253,6 +252,7 @@ class StartupParameters:
     modules: list[str]
     migrate: bool
     test_modules: list[str]
+    deploy: bool
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
 
@@ -431,8 +431,6 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[Engine] = Singleton(AlphaEngine)
     c[Application] = lambda rc: Application(rc)
-
-    c[APIConfigurationSteps] = default_configuration_steps
 
     yield c
 
@@ -734,6 +732,11 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
             actual_container, module_initializers = base_container, []
             LOGGER.info("No external modules selected")
 
+        if params.deploy:
+            actual_container[APIConfiguration] = default_deployment_api_configuration
+        else:
+            actual_container[APIConfiguration] = None
+
         if params.configure:
             actual_container = await params.configure(actual_container.clone())
 
@@ -758,9 +761,6 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         if not params.configure:
             await create_agent_if_absent(actual_container[AgentStore])
-
-        if len(params.test_modules) > 0:
-            actual_container[APIConfigurationSteps].append(configure_test_router)
 
         app_wrapper = await create_api_app(actual_container)
         async with app_wrapper as app:
@@ -978,6 +978,12 @@ def main() -> None:
         ),
     )
     @click.option(
+        "--deploy",
+        is_flag=True,
+        help="Deployment mode. Do not accept design-time API requests",
+        default=False,
+    )
+    @click.option(
         "--test",
         multiple=True,
         default=[],
@@ -1005,6 +1011,7 @@ def main() -> None:
         module: tuple[str],
         version: bool,
         migrate: bool,
+        deploy: bool,
         test: tuple[str],
     ) -> None:
         if version:
@@ -1058,6 +1065,7 @@ def main() -> None:
             log_level=log_level,
             modules=list(module),
             migrate=migrate,
+            deploy=deploy,
             test_modules=list(test),
         )
 

@@ -12,103 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from exceptiongroup import ExceptionGroup
-import pytest
-from contextlib import asynccontextmanager
+# from exceptiongroup import ExceptionGroup
 from fastapi import FastAPI
-from typing import AsyncIterator, List
 
-from parlant.api.app import APIConfigurationSteps, AppWrapper
+from parlant.api.app import APIConfiguration, AppWrapper
 from lagom import Container
 
 
-class MockLogger:
-    def __init__(self) -> None:
-        self.logs: List[str] = []
+async def test_that_custom_deployment_app_wrapper_has_only_the_expected_routes(
+    container: Container,
+) -> None:
+    original_app_wrapper = AppWrapper(FastAPI(), container)
+    async with original_app_wrapper:
+        orig_routes_number = len(original_app_wrapper.app.routes)
 
-    def log(self, message: str) -> None:
-        self.logs.append(message)
+    deploy_container = Container(container)
+    deploy_container[APIConfiguration] = {"sessions": ["read_session"]}
 
+    deploy_app_wrapper = AppWrapper(FastAPI(), deploy_container)
+    async with deploy_app_wrapper:
+        deploy_routes_number = len(deploy_app_wrapper.app.routes)
 
-@pytest.fixture
-def container() -> Container:
-    c = Container()
-    c[MockLogger] = MockLogger()
-    return c
+    assert deploy_routes_number < orig_routes_number
 
+    orig_routes_names = [r.name for r in original_app_wrapper.app.routes]
+    deploy_routes_names = [r.name for r in deploy_app_wrapper.app.routes]
+    assert "read_session" in orig_routes_names
+    assert "read_session" in deploy_routes_names
+    assert "create_session" in orig_routes_names
+    assert "create_session" not in deploy_routes_names
 
-@pytest.fixture
-def app() -> FastAPI:
-    return FastAPI()
+    orig_session_routes = [r for r in original_app_wrapper.app.routes if "session" in r.name]
+    deploy_session_routes = [r for r in deploy_app_wrapper.app.routes if "session" in r.name]
 
-
-@asynccontextmanager
-async def first_step(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
-    container[MockLogger].log("First step setup")
-    yield app
-    container[MockLogger].log("First step teardown")
-
-
-@asynccontextmanager
-async def second_step(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
-    container[MockLogger].log("Second step setup")
-    yield app
-    container[MockLogger].log("Second step teardown")
-
-
-@asynccontextmanager
-async def error_teardown_step(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
-    container[MockLogger].log("Error step setup")
-    yield app
-    raise RuntimeError("Error during teardown")
-
-
-@asynccontextmanager
-async def error_setup_step(app: FastAPI, container: Container) -> AsyncIterator[FastAPI]:
-    raise RuntimeError("Error during setup")
-    yield app
-    container[MockLogger].log("Error step teardown")
-
-
-@pytest.mark.asyncio
-async def test_configuration_step_execution_order(app: FastAPI, container: Container) -> None:
-    """Test that configuration steps are executed in the correct order."""
-    container[APIConfigurationSteps] = [first_step, second_step]
-    app_wrapper = AppWrapper(app, container)
-
-    async with app_wrapper:
-        assert container[MockLogger].logs == ["First step setup", "Second step setup"]
-
-    assert container[MockLogger].logs == [
-        "First step setup",
-        "Second step setup",
-        "Second step teardown",
-        "First step teardown",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_error_handling_during_setup(app: FastAPI, container: Container) -> None:
-    container[APIConfigurationSteps] = [first_step, error_setup_step, second_step]
-    app_wrapper = AppWrapper(app, container)
-
-    with pytest.raises(RuntimeError):
-        async with app_wrapper:
-            pass
-
-    assert "First step setup" in container[MockLogger].logs
-    assert "First step teardown" in container[MockLogger].logs
-
-
-@pytest.mark.asyncio
-async def test_error_handling_during_teardown(app: FastAPI, container: Container) -> None:
-    """Test that errors during teardown don't prevent other steps from tearing down."""
-    container[APIConfigurationSteps] = [first_step, error_teardown_step, second_step]
-    app_wrapper = AppWrapper(app, container)
-
-    with pytest.raises(ExceptionGroup):
-        async with app_wrapper:
-            pass
-
-    assert "Second step teardown" in container[MockLogger].logs
-    assert "First step teardown" in container[MockLogger].logs
+    assert len(orig_session_routes) == 6
+    assert len(deploy_session_routes) == 1

@@ -26,10 +26,9 @@ from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import (
-    APIConfigurationSteps,
+    APIConfiguration,
     create_api_app,
     ASGIApplication,
-    default_configuration_steps,
 )
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
@@ -480,7 +479,7 @@ async def container(
 
         container[Application] = Application(container)
 
-        container[APIConfigurationSteps] = default_configuration_steps
+        container[APIConfiguration] = None
 
         yield container
 

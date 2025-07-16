@@ -137,7 +137,7 @@ async def get_matched_guidelines(
 async def test_pricing_guideline_matching(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context, extra_args=["--test"]):
+    with run_server(context):
         async with context.api.make_client() as client:
             test_agent: Agent = await create_test_agent(client)
             test_customer: Customer = await create_test_customer(client)

@@ -31,7 +31,7 @@ from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
-from parlant.core.tags import TagId
+from parlant.core.tags import Tag, TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -352,24 +352,18 @@ def create_context_variable(
 
 
 async def create_journey(
-    title: str, steps: Sequence[_StepData], conditions: Sequence[str]
-) -> tuple[Journey, Sequence[Guideline], Sequence[Guideline]]:
-    # 1. Create conditions, get IDs
-    # 2. Create guidelines from step data
-    # 3. Return journey, guidelines, conditions
+    context: ContextOfTest, title: str, steps: Sequence[_StepData], conditions: Sequence[str]
+) -> tuple[Journey, Sequence[Guideline]]:
     journey_id = JourneyId("j1")
-
-    condition_guidelines: Sequence[Guideline] = [
-        Guideline(
-            id=GuidelineId(f"c-{i}"),
-            creation_utc=datetime.now(timezone.utc),
-            content=GuidelineContent(condition=condition, action=None),
-            enabled=False,
-            tags=[],
-            metadata={},
+    guideline_store = context.container[GuidelineStore]
+    condition_ids: list[GuidelineId] = []
+    for c in conditions:
+        g = await guideline_store.create_guideline(condition=c, action=None)
+        await guideline_store.upsert_tag(
+            guideline_id=g.id,
+            tag_id=Tag.for_journey_id(journey_id=journey_id),
         )
-        for i, condition in enumerate(conditions)
-    ]
+        condition_ids.append(g.id)
 
     step_guidelines: Sequence[Guideline] = [
         Guideline(
@@ -404,12 +398,12 @@ async def create_journey(
         id=journey_id,
         creation_utc=datetime.now(timezone.utc),
         description="",
-        conditions=[g.id for g in condition_guidelines],
+        conditions=condition_ids,
         title=title,
         tags=[],
     )
 
-    return journey, step_guidelines, condition_guidelines
+    return journey, step_guidelines
 
 
 async def base_test_that_correct_step_is_selected(
@@ -436,7 +430,8 @@ async def base_test_that_correct_step_is_selected(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    journey, journey_step_guidelines, condition_guidelines = await create_journey(
+    journey, journey_step_guidelines = await create_journey(
+        context=context,
         title=JOURNEYS_DICT[journey_name].title,
         steps=JOURNEYS_DICT[journey_name].steps,
         conditions=JOURNEYS_DICT[journey_name].conditions,

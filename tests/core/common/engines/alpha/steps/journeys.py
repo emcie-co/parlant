@@ -581,7 +581,7 @@ def given_the_journey_called(
 
     def create_place_food_order_journey() -> Journey:
         conditions = [
-            "the customer wants to order food ",
+            "the customer wants to order food",
         ]
 
         condition_guidelines: Sequence[Guideline] = [

@@ -654,6 +654,11 @@ class EvaluationDocumentStore(EvaluationStore):
                     journey_id=payload.journey_id,
                     action=payload.operation.value,
                 )
+            elif isinstance(payload, JourneyPayload):
+                return JourneyPayloadDocument(
+                    journey_id=payload.journey_id,
+                    action=payload.operation.value,
+                )
             else:
                 raise TypeError(f"Unknown payload type: {type(payload)}")
 
@@ -770,6 +775,13 @@ class EvaluationDocumentStore(EvaluationStore):
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
                     journey_node_proposition=payload_doc["journey_node_proposition"],
+                )
+            elif kind == PayloadKind.JOURNEY:
+                payload_doc = cast(JourneyPayloadDocument, payload_doc)
+
+                return JourneyPayload(
+                    journey_id=payload_doc["journey_id"],
+                    operation=PayloadOperation(payload_doc["action"]),
                 )
             elif kind == PayloadKind.JOURNEY:
                 payload_doc = cast(JourneyPayloadDocument, payload_doc)

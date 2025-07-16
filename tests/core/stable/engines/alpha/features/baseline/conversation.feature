@@ -108,19 +108,19 @@ Feature: Conversation
         And a customer message, "Please help me further in reaching out"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains no specific information about how to reach out, like a phone number or an exact address. 
+        And the message contains no specific information about how to reach out, like a phone number or an exact address.
 
-    Scenario: The agent follows a guideline with agent intention 
+    Scenario: The agent follows a guideline with agent intention
         Given an agent
         And an empty session
-        Given a guideline to do not provide any personal medical information even if you have it when you discusses a patient's medical record
+        Given a guideline to do not provide any personal medical information even if you have it when you discuss a patient's medical record
         And a customer named "Alex Smith"
         And an empty session with "Alex Smith"
-        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith" 
+        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith"
         And a customer message, "Hi, I need to know what medications I was prescribed during my visit last month. Can you pull up my medical record?"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains no prescription of medications 
+        And the message contains no prescription of medications
         And the message contains explanation that can't provide personal medical information
 
     Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition
@@ -138,7 +138,7 @@ Feature: Conversation
         Given an agent
         And an empty session
         Given a guideline to suggest direct flights or ground-based transportation when you recommends on travel options
-        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
+        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         When processing is triggered
         Then a single message event is emitted
@@ -152,7 +152,6 @@ Feature: Conversation
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm vegetarian."
         When processing is triggered
         Then a single message event is emitted
-        And the message contains a recommendation only on pineapple as topping  
-        And the message contains no recommendation on pepperoni pizza 
+        And the message contains a recommendation only on pineapple as topping
+        And the message contains no recommendation on pepperoni pizza
 
-    

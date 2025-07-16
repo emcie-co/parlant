@@ -59,7 +59,12 @@ from parlant.core.context_variables import (
     ContextVariableStore,
 )
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.customers import CustomerDocumentStore, CustomerId, CustomerStore
+from parlant.core.customers import (
+    Customer as _Customer,
+    CustomerDocumentStore,
+    CustomerId,
+    CustomerStore,
+)
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.loaded_context import LoadedContext, Interaction, InteractionMessage
@@ -1413,16 +1418,40 @@ class Server:
             for c in customers
         ]
 
-    async def find_customer(self, *, name: str) -> Customer | None:
-        customers = await self._container[CustomerStore].list_customers()
+    async def find_customer(
+        self,
+        *,
+        id: str | None = None,
+        name: str | None = None,
+    ) -> Customer | None:
+        if not id and not name:
+            raise SDKError("Either id or name must be provided to find a customer.")
 
-        if customer := next((c for c in customers if c.name == name), None):
+        customer: _Customer | None = None
+
+        if id:
+            try:
+                customer = await self._container[CustomerStore].read_customer(CustomerId(id))
+            except ItemNotFoundError:
+                return None
+
             return Customer(
                 id=customer.id,
                 name=customer.name,
                 extra=customer.extra,
                 tags=customer.tags,
             )
+
+        if name:
+            customers = await self._container[CustomerStore].list_customers()
+
+            if customer := next((c for c in customers if c.name == name), None):
+                return Customer(
+                    id=customer.id,
+                    name=customer.name,
+                    extra=customer.extra,
+                    tags=customer.tags,
+                )
 
         return None
 

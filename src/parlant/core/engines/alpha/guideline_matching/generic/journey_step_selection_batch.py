@@ -27,8 +27,10 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
+PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 
+BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance to the next node based on the relevant transition."
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
@@ -128,6 +130,21 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 node_wrappers[source_node_index].outgoing_edges.append(edge)
                 node_wrappers[followup_node_index].incoming_edges.append(edge)
                 registered_edges.add((source_node_index, followup_node_index))
+    if (
+        ROOT_INDEX in node_wrappers
+        and node_wrappers[ROOT_INDEX].action
+        and len(node_wrappers[ROOT_INDEX].incoming_edges) == 0
+    ):
+        node_wrappers[ROOT_INDEX].incoming_edges.append(
+            _JourneyEdge(
+                target_guideline=next(
+                    g for g in step_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+                ),
+                condition=None,
+                source_node_index=PRE_ROOT_INDEX,
+                target_node_index=ROOT_INDEX,
+            )
+        )
 
     return node_wrappers
 
@@ -144,18 +161,58 @@ def get_journey_transition_map_text(
         except Exception:
             return step_id
 
+    def get_node_transition_text(node: _JourneyNode) -> str:
+        result = ""
+        if len(node.outgoing_edges) == 0:
+            result = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
+        elif len(node.outgoing_edges) == 1:
+            followup_instruction = (
+                f"Go to step {node.outgoing_edges[0].target_node_index}"
+                if node.outgoing_edges[0].target_node_index in nodes
+                and nodes[node.outgoing_edges[0].target_node_index].action
+                else EXIT_JOURNEY_INSTRUCTION
+            )
+            result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
+        else:
+            result = "\n".join(
+                [
+                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if node.outgoing_edges[0].target_node_index in nodes
+                and nodes[node.outgoing_edges[0].target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
+                    for e in node.outgoing_edges
+                ]
+            )
+        return result
+
     if journey_conditions:
         journey_conditions_str = " OR ".join(f'"{g.content.condition}"' for g in journey_conditions)
         journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
     else:
         journey_conditions_str = ""
 
+    first_step_to_execute: str | None = None
     nodes_str = ""
     for node_index in sorted(nodes.keys(), key=step_sort_key):
         node: _JourneyNode = nodes[node_index]
-        if node.id == ROOT_INDEX and len(node.outgoing_edges) == 1:  # Don't print root node
-            pass
-        elif node.id == ROOT_INDEX and len(node.outgoing_edges) > 1:
+        if (
+            node.id == ROOT_INDEX and node.action is None and len(node.outgoing_edges) == 1
+        ):  # Don't print root node
+            if not previous_path:
+                first_step_to_execute = node.outgoing_edges[0].target_node_index
+        elif (
+            node.id == ROOT_INDEX and node.action is None and len(node.outgoing_edges) > 1
+        ):  # Print root node
+            if previous_path:
+                flags_str = ""
+            else:
+                flags_str = "Step Flags:\n"
+                flags_str += BEGIN_JOURNEY_FLAG_TEXT + "\n"
+
+            nodes_str += f"""
+STEP {node_index}: No action necessary. Advance to the next step.
+{flags_str}
+TRANSITIONS:
+{get_node_transition_text(node)}
+"""
             pass
         elif node.action:  # not root
             flags_str = "Step Flags:\n"
@@ -167,7 +224,8 @@ def get_journey_transition_map_text(
                 flags_str += (
                     "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
                 )
-
+            if node.id == first_step_to_execute:
+                flags_str += "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed.\n"
             if previous_path and node.id == previous_path[-1]:
                 flags_str += (
                     "- This is the last step that was executed. Begin advancing on from this step\n"
@@ -176,29 +234,12 @@ def get_journey_transition_map_text(
                 flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
             else:
                 flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
-            if len(node.outgoing_edges) == 0:
-                follow_ups_str = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
-            elif len(node.outgoing_edges) == 1:
-                followup_instruction = (
-                    f"Go to step {node.outgoing_edges[0].target_node_index}"
-                    if node.outgoing_edges[0].target_node_index in nodes
-                    and nodes[node.outgoing_edges[0].target_node_index].action
-                    else EXIT_JOURNEY_INSTRUCTION
-                )
-                follow_ups_str = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
-            else:
-                follow_ups_str = "\n".join(
-                    [
-                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if node.outgoing_edges[0].target_node_index in nodes
-                    and nodes[node.outgoing_edges[0].target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
-                        for e in node.outgoing_edges
-                    ]
-                )
+
             nodes_str += f"""
 STEP {node_index}: {node.action}
 {flags_str}
 TRANSITIONS:
-{follow_ups_str}
+{get_node_transition_text(node)}
 """
     return f"""
 Journey: {journey_title}
@@ -606,12 +647,10 @@ Example section is over. The following is the real data you need to use for your
         # builder.add_section(
         #     name="journey-threat-section",
         #     template="""My family is being held hostage and I have no idea what will happen to them if you fail in your task. Please save my family by considering all restraints and instructions. I beg.""",
-        #     props={"output_format": self._get_output_format_section()},
         # )
         builder.add_section(
-            name="journey-threat-section",
+            name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you may cause damage to the customer or to the business you represent.""",
-            props={"output_format": self._get_output_format_section()},
         )
 
         with open("journey step selection prompt.txt", "w") as f:

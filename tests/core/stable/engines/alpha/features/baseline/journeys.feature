@@ -105,9 +105,9 @@ Feature: Journeys
     Scenario: Dependent guidelines on journey are getting matched when journey is activated
         Given the journey called "Book Flight"
         And a guideline "under 21" to inform the customer that only economy class is available when a customer wants to book a flight and the traveler is under 21
-        And a guideline "older 21" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
+        And a guideline "21 or older" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
         And a dependency relationship between the guideline "under 21" and the "Book Flight" journey
-        And a dependency relationship between the guideline "older 21" and the "Book Flight" journey
+        And a dependency relationship between the guideline "21 or older" and the "Book Flight" journey
         And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport to JFK. We flight in the 12.10 and return in the 17.10. I'm 19 if that affects anything."
         When processing is triggered
         Then a single message event is emitted

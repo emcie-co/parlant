@@ -780,10 +780,10 @@ class Variable:
             data=value,
         )
 
-    async def set_value_for_tag(self, tag: Tag, value: JSONSerializable) -> None:
+    async def set_value_for_tag(self, tag: TagId, value: JSONSerializable) -> None:
         await self._container[ContextVariableStore].update_value(
             variable_id=self.id,
-            key=f"tag:{tag.id}",
+            key=f"tag:{tag}",
             data=value,
         )
 

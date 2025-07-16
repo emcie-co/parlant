@@ -102,7 +102,7 @@ class Test_that_a_variable_value_can_be_set_for_a_tag(SDKTest):
             description="The current subscription plan of the user.",
         )
 
-        await self.variable.set_value_for_tag(self.tag, "premium")
+        await self.variable.set_value_for_tag(self.tag.id, "premium")
 
     async def run(self, ctx: Context) -> None:
         assert "premium" == await self.variable.get_value_for_tag(self.tag.id)

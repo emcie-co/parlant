@@ -62,7 +62,7 @@ class Test_that_a_customer_can_be_found_by_name(SDKTest):
             name="Jane Smith",
         )
 
-        self.customer = await server.find_customer_by_name(name="John Doe")
+        self.customer = await server.find_customer(name="John Doe")
 
     async def run(self, ctx: Context) -> None:
         assert self.customer is not None

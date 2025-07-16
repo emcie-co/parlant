@@ -51,7 +51,7 @@ from parlant.core.agents import (
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
-from parlant.core.common import JSONSerializable, Version
+from parlant.core.common import ItemNotFoundError, JSONSerializable, Version
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
     ContextVariableId,
@@ -352,6 +352,8 @@ class _SdkAgentStore(AgentStore):
         return list(self._agents.values())
 
     async def read_agent(self, agent_id: AgentId) -> _Agent:
+        if agent_id not in self._agents:
+            raise ItemNotFoundError(agent_id, "Agent not found")
         return self._agents[agent_id]
 
     async def update_agent(self, agent_id: AgentId, params: AgentUpdateParams) -> _Agent:
@@ -641,6 +643,9 @@ class Journey:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
+        for t in list(tools):
+            await self._server._plugin_server.enable_tool(t)
+
         evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=action),
             tool_ids,
@@ -665,8 +670,6 @@ class Journey:
         )
 
         for t in list(tools):
-            await self._server._plugin_server.enable_tool(t)
-
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
                 tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
@@ -898,6 +901,9 @@ class Agent:
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
 
+        for t in list(tools):
+            await self._server._plugin_server.enable_tool(t)
+
         evaluation = await self._server._evaluator.evaluate_guideline(
             GuidelineContent(condition=condition, action=action),
             tool_ids,
@@ -911,8 +917,6 @@ class Agent:
         )
 
         for t in list(tools):
-            await self._server._plugin_server.enable_tool(t)
-
             await self._container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
                 tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
@@ -1042,6 +1046,69 @@ class Agent:
             _container=self._container,
         )
 
+    async def list_variables(self) -> Sequence[Variable]:
+        variables = await self._container[ContextVariableStore].list_variables(
+            tags=[_Tag.for_agent_id(self.id)]
+        )
+
+        return [
+            Variable(
+                id=variable.id,
+                name=variable.name,
+                description=variable.description,
+                tool=self._server._plugin_server.tools[variable.tool_id.tool_name]
+                if variable.tool_id
+                else None,
+                freshness_rules=variable.freshness_rules,
+                tags=variable.tags,
+                _server=self._server,
+                _container=self._container,
+            )
+            for variable in variables
+        ]
+
+    async def find_variable(
+        self,
+        *,
+        id: str | None = None,
+        name: str | None = None,
+    ) -> Variable | None:
+        if not id and not name:
+            raise SDKError("Either id or name must be provided to find a variable.")
+
+        if id:
+            try:
+                variable = await self._container[ContextVariableStore].read_variable(id)
+            except ItemNotFoundError:
+                return None
+        else:
+            variable = next(
+                (
+                    v
+                    for v in await self._container[ContextVariableStore].list_variables(
+                        tags=[_Tag.for_agent_id(self.id)]
+                    )
+                    if v.name == name
+                ),
+                None,
+            )
+
+            if not variable:
+                return None
+
+        return Variable(
+            id=variable.id,
+            name=variable.name,
+            description=variable.description,
+            tool=self._server._plugin_server.tools[variable.tool_id.tool_name]
+            if variable.tool_id
+            else None,
+            freshness_rules=variable.freshness_rules,
+            tags=variable.tags,
+            _server=self._server,
+            _container=self._container,
+        )
+
     async def attach_retriever(
         self,
         retriever: Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]],
@@ -1056,6 +1123,15 @@ class Agent:
         )[id] = retriever
 
         self._server._retrievers[self.id][id] = retriever
+
+
+class ToolContextAccessor:
+    def __init__(self, context: ToolContext) -> None:
+        self.context = context
+
+    @property
+    def server(self) -> Server:
+        return cast(Server, self.context.plugin_data["server"])
 
 
 class Server:
@@ -1076,8 +1152,8 @@ class Server:
         self.tool_service_port = tool_service_port
         self.log_level = log_level
         self.modules = modules
-        self.migrate = migrate
 
+        self._migrate = migrate
         self._nlp_service_func = nlp_service
         self._evaluator: _CachedEvaluator
         self._session_store = session_store
@@ -1266,6 +1342,40 @@ class Server:
             _container=self._container,
         )
 
+    async def list_agents(self) -> Sequence[Agent]:
+        agents = await self._container[AgentStore].list_agents()
+
+        return [
+            Agent(
+                id=a.id,
+                name=a.name,
+                description=a.description,
+                max_engine_iterations=a.max_engine_iterations,
+                composition_mode=a.composition_mode,
+                tags=a.tags,
+                _server=self,
+                _container=self._container,
+            )
+            for a in agents
+        ]
+
+    async def find_agent(self, *, id: str) -> Agent | None:
+        try:
+            agent = await self._container[AgentStore].read_agent(id)
+
+            return Agent(
+                id=agent.id,
+                name=agent.name,
+                description=agent.description,
+                max_engine_iterations=agent.max_engine_iterations,
+                composition_mode=agent.composition_mode,
+                tags=agent.tags,
+                _server=self,
+                _container=self._container,
+            )
+        except ItemNotFoundError:
+            return None
+
     async def create_customer(
         self,
         name: str,
@@ -1298,7 +1408,7 @@ class Server:
             for c in customers
         ]
 
-    async def find_customer_by_name(self, name: str) -> Customer | None:
+    async def find_customer(self, *, name: str) -> Customer | None:
         customers = await self._container[CustomerStore].list_customers()
 
         if customer := next((c for c in customers if c.name == name), None):
@@ -1531,6 +1641,10 @@ class Server:
                 port=port,
                 host=host,
                 hosted=True,
+                plugin_data={
+                    "server": self,
+                    "container": c,
+                },
             )
 
             await c[ServiceRegistry].update_tool_service(
@@ -1557,7 +1671,7 @@ class Server:
             nlp_service=async_nlp_service_shim,
             log_level=self.log_level,
             modules=self.modules,
-            migrate=self.migrate,
+            migrate=self._migrate,
             configure=configure,
             initialize=initialize,
         )

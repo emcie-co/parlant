@@ -124,3 +124,54 @@ class Test_that_a_variable_value_can_be_set_globally(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         assert "premium" == await self.variable.get_global_value()
+
+
+class Test_that_variables_can_be_listed(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rel Agent",
+            description="Agent for guideline relationships",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        variables = await self.agent.list_variables()
+
+        assert self.variable in variables
+
+
+class Test_that_a_variable_can_be_found_by_name(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rel Agent",
+            description="Agent for guideline relationships",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        assert await self.agent.find_variable(name="subscription_plan") == self.variable
+        assert await self.agent.find_variable(name="nonexistent") is None
+
+
+class Test_that_a_variable_can_be_found_by_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rel Agent",
+            description="Agent for guideline relationships",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        assert await self.agent.find_variable(id=self.variable.id) == self.variable

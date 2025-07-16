@@ -22,6 +22,7 @@ from parlant.core.utterances import UtteranceStore
 import parlant.sdk as p
 
 from tests.sdk.utils import Context, SDKTest
+from tests.test_utilities import nlp_test
 
 
 class Test_that_an_agent_can_be_created(SDKTest):
@@ -68,7 +69,6 @@ class Test_that_an_agent_can_be_read_by_id(SDKTest):
         self.agent = await server.create_agent(
             name="ReadById Agent",
             description="Agent to be read by ID",
-            composition_mode=p.CompositionMode.FLUID,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -82,7 +82,6 @@ class Test_that_an_agent_can_create_guideline(SDKTest):
         self.agent = await server.create_agent(
             name="Guideline Agent",
             description="Agent for guideline test",
-            composition_mode=p.CompositionMode.FLUID,
         )
         self.guideline = await self.agent.create_guideline(
             condition="Always say hello", action="Say hello to the user"
@@ -103,7 +102,6 @@ class Test_that_an_agent_can_attach_tool(SDKTest):
         self.agent = await server.create_agent(
             name="Tool Agent",
             description="Agent for tool test",
-            composition_mode=p.CompositionMode.FLUID,
         )
 
         @tool
@@ -135,7 +133,6 @@ class Test_that_an_agent_can_create_utterance(SDKTest):
         self.agent = await server.create_agent(
             name="Utterance Agent",
             description="Agent for utterance test",
-            composition_mode=p.CompositionMode.FLUID,
         )
         self.utterance_id = await self.agent.create_utterance(
             template="Hello, {user}!", tags=[Tag.for_agent_id(self.agent.id)]
@@ -148,3 +145,61 @@ class Test_that_an_agent_can_create_utterance(SDKTest):
 
         assert utterance.value == "Hello, {user}!"
         assert Tag.for_agent_id(self.agent.id) in utterance.tags
+
+
+class Test_that_agents_can_be_listed(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.a1 = await server.create_agent(
+            name="List Agent 1",
+            description="First agent for listing",
+        )
+
+        self.a2 = await server.create_agent(
+            name="List Agent 2",
+            description="Second agent for listing",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        agents = await ctx.server.list_agents()
+
+        assert self.a1 in agents
+        assert self.a2 in agents
+
+
+class Test_that_an_agent_can_be_found_by_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.a1 = await server.create_agent(
+            name="List Agent 1",
+            description="First agent for listing",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        assert await ctx.server.find_agent(id=self.a1.id) == self.a1
+        assert await ctx.server.find_agent(id="nonexistent") is None
+
+
+class Test_that_an_agent_can_be_found_using_tool_context(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Tool Context Agent",
+            description="Agent for tool context test",
+        )
+
+        @p.tool
+        async def check_what_is_spatio(context: ToolContext) -> ToolResult:
+            agent = await p.ToolContextAccessor(context).server.find_agent(id=context.agent.id)
+
+            if agent is None:
+                return ToolResult("A spatio is a special type of spaghetti spoon.")
+            else:
+                return ToolResult("Spatio is the name of a famous fictional mouse.")
+
+        await self.agent.attach_tool(check_what_is_spatio, condition="the user asks about spatio")
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="What is spatio?",
+            recipient=self.agent,
+        )
+
+        assert nlp_test(answer, "It says that spatio is the name of a mouse.")

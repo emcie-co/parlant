@@ -27,7 +27,6 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
-PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
@@ -56,9 +55,7 @@ class _JourneyNode:
 class JourneyStepAdvancement(DefaultBaseModel):
     id: str
     completed: bool
-    follow_ups: Optional[list[str]] = (
-        None  # TODO work into the journey presentation instead of an ARQ
-    )
+    follow_ups: Optional[list[str]] = None
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
@@ -111,8 +108,6 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
 
     # Build edges
     registered_edges: set[tuple[str, str]] = set()
-
-    # Build real edges
     for g in step_guidelines:
         source_node_index: str = guideline_id_to_node_index[g.id]
         for followup_id in cast(
@@ -133,19 +128,6 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 node_wrappers[source_node_index].outgoing_edges.append(edge)
                 node_wrappers[followup_node_index].incoming_edges.append(edge)
                 registered_edges.add((source_node_index, followup_node_index))
-
-    # Add pseudo-edge that goes into the root
-    if ROOT_INDEX in node_wrappers:
-        node_wrappers[ROOT_INDEX].incoming_edges.append(
-            _JourneyEdge(
-                target_guideline=next(
-                    g for g in step_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
-                ),
-                condition=None,
-                source_node_index=PRE_ROOT_INDEX,
-                target_node_index=ROOT_INDEX,
-            )
-        )
 
     return node_wrappers
 
@@ -171,7 +153,11 @@ def get_journey_transition_map_text(
     nodes_str = ""
     for node_index in sorted(nodes.keys(), key=step_sort_key):
         node: _JourneyNode = nodes[node_index]
-        if node.action:
+        if node.id == ROOT_INDEX and len(node.outgoing_edges) == 1:  # Don't print root node
+            pass
+        elif node.id == ROOT_INDEX and len(node.outgoing_edges) > 1:
+            pass
+        elif node.action:  # not root
             flags_str = "Step Flags:\n"
             if node.customer_dependent_action:
                 flags_str += "- CUSTOMER_DEPENDENT: This action is completed if the customer provided a response to this step's action\n"
@@ -649,9 +635,9 @@ OUTPUT FORMAT
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "step_advancement": [
     {{
-      "id": "<str, id of the step. First one should be either {last_step} or backtracking_target_step if it exists>",
-      "completed": <bool, whether this step was completed>
-      "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is false>"
+        "id": "<str, id of the step. First one should be either {last_step} or backtracking_target_step if it exists>",
+        "completed": <bool, whether this step was completed>,
+        "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is false>"
     }},
     ... <additional step advancements, as necessary>
   ],
@@ -779,7 +765,6 @@ example_1_expected = JourneyStepSelectionSchema(
     ],
     next_step="4",
 )
-
 
 example_2_events = [
     _make_event(
@@ -1447,7 +1432,6 @@ example_6_expected = JourneyStepSelectionSchema(
     ],
     next_step="None",
 )
-
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1 - Simple Single-Step Advancement",

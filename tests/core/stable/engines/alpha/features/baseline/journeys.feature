@@ -104,13 +104,12 @@ Feature: Journeys
 
     Scenario: Dependent guidelines on journey are getting matched when journey is activated
         Given the journey called "Book Flight"
-        And a guideline "Business Adult Only" to ensure that travelers under the age of 21 are ineligible for business class. If a traveler is under 21, they should be informed that only economy class is available. If the traveler is 21 or older, they may choose between economy and business class when a customer wants to book a flight
-        And a guideline "business_class_age_restriction" to check that the traveler is at least 21 years old before allowing business class, otherwise restrict to economy, using the class_access_validator tool when a customer wants to book a flight
-        And the tool "class_access_validator"
-        And an association between "business_class_age_restriction" and "class_access_validator"
-        And a dependency relationship between the guideline "Business Adult Only" and the "Book Flight" journey
-        And a dependency relationship between the guideline "business_class_age_restriction" and the "Book Flight" journey
+        And a guideline "under 21" to inform the customer that only economy class is available when a customer wants to book a flight and the traveler is under 21
+        And a guideline "older 21" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
+        And a dependency relationship between the guideline "under 21" and the "Book Flight" journey
+        And a dependency relationship between the guideline "older 21" and the "Book Flight" journey
         And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport to JFK. We flight in the 12.10 and return in the 17.10. I'm 19 if that affects anything."
         When processing is triggered
-        Then the tool calls event contains 2 tool call(s)
-        And the tool calls event contains a call to "class_access_validator"
+        Then a single message event is emitted
+        And the message contains informing the customer that only economy class is available  
+

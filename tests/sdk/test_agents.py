@@ -187,7 +187,7 @@ class Test_that_an_agent_can_be_found_using_tool_context(SDKTest):
 
         @p.tool
         async def check_what_is_spatio(context: ToolContext) -> ToolResult:
-            agent = await p.ToolContextAccessor(context).server.find_agent(id=context.agent.id)
+            agent = await p.ToolContextAccessor(context).server.find_agent(id=context.agent_id)
 
             if agent is None:
                 return ToolResult("A spatio is a special type of spaghetti spoon.")
@@ -202,4 +202,4 @@ class Test_that_an_agent_can_be_found_using_tool_context(SDKTest):
             recipient=self.agent,
         )
 
-        assert nlp_test(answer, "It says that spatio is the name of a mouse.")
+        assert await nlp_test(answer, "It says that spatio is the name of a mouse.")

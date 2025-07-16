@@ -94,14 +94,14 @@ Feature: Fluid Utterance
         And an utterance, "An error occurred, your password could not be reset"
         And an utterance, "Before proceeding, could you please state your age?"
         And the tool "reset_password"
-        And a guideline to ask the customer their age, and do not continue with any other process unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth
+        And a guideline to ask the customer their age, and do not continue with any other process or ask additional questions unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
         And a journey path "[2]" for the journey "Reset Password Journey"
         When processing is triggered
         Then no tool calls event is emitted
-        And a single message event is emitted
+        And a single message event is emitted   
         And the message contains asking the customer for their age
         And the message contains no questions about the customer's email address or phone number
 

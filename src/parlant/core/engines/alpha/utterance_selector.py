@@ -1325,6 +1325,8 @@ Output a JSON object with three properties:
                 "guideline_representations": guideline_representations,
             },
         )
+        with open("utterance selector selection prompy.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     async def _generate_utterance(
@@ -1374,6 +1376,9 @@ Output a JSON object with three properties:
             prompt=draft_prompt,
             hints={"temperature": temperature},
         )
+
+        with open("utterance selector draft output.txt", "w") as f:
+            f.write(draft_response.content.model_dump_json(indent=2))
 
         self._logger.trace(
             f"Utterance Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"

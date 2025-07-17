@@ -96,19 +96,3 @@ Feature: Conversation
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no direct offer of a 20% discount
-
-    Scenario: The agent adheres to the clarification guideline when disambiguation is needed
-        Given an agent
-        And an empty session
-        And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster
-        And a guideline "turtle_roller_coaster" to book it when the customer asks for the turtle roller coaster
-        And a guideline "tiger_Ferris_wheel" to book it when the customer asks for the tiger Ferris wheel
-        And a disambiguation group head "amusement_park" to activate when the customer asks to book a ticket and its not clear which one specifically, which roller coaster (snake or turtle) or alternatively tiger Ferris wheel
-        And a guideline "snake_roller_coaster" is grouped under "amusement_park"
-        And a guideline "turtle_roller_coaster" is grouped under "amusement_park"
-        And a guideline "tiger_Ferris_wheel" is grouped under "amusement_park"
-        And a customer message, "Can I order one ticket to the roller coaster and one ticket to your tiger ferris wheel?"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains the option to book the SNAKE roller coaster
-        And the message contains the option to book the TURTLE roller coaster

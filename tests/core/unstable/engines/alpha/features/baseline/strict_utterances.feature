@@ -31,7 +31,8 @@ Feature: Strict Utterance
         And the message contains appropriate veterinary services for a middle-aged dog in the {recommended_services} field
 
     Scenario: Multistep journey is aborted when the journey description requires so (strict utterance) 
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
@@ -50,12 +51,14 @@ Feature: Strict Utterance
         And the message contains either that the password could not be reset at this time
 
     Scenario: Two journeys are used in unison (strict utterance) 
-        Given a journey titled "Book Flight" to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
+        Given the journey called "Book Flight"
+        And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey
+        And a dependency relationship between the guideline "skip steps" and the "Book Flight" journey
+        And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance, "Great. Only economy class is available for this booking. What is the name of the traveler?"
         And an utterance, "Great. What is the name of the traveler?"
         And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a journey titled "No Economy" to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
         And an agent message, "Great! From and to where would are you looking to fly?"
         And a customer message, "From LAX to JFK"
@@ -66,10 +69,8 @@ Feature: Strict Utterance
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
     Scenario: Multistep journey invokes tool calls correctly (strict utterance) 
-        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
-        And the tool "reset_password"
-        And a guideline "reset_password_guideline" to reset the customer's password using the associated tool when in the process of resetting the customer's password
-        And an association between "reset_password_guideline" and "reset_password"
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"

@@ -113,3 +113,19 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains informing the customer that only economy class is available  
 
+    Scenario: Multistep journey invokes tool calls correctly 
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
+        And a customer message, "I want to reset my password"
+        And an agent message, "I can help you do just that. What's your username?"
+        And a customer message, "it's leonardo_barbosa_1982"
+        And an agent message, "Great! And what's the account's associated email address or phone number?"
+        And a customer message, "the email is leonardobarbosa@gmail.br"
+        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
+        And a customer message, "Thank you! Have a great day as well!"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
+        And a single message event is emitted
+        And the message contains that the password was reset and an email with instructions was sent to the customer

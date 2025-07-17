@@ -69,6 +69,11 @@ class RelativeActionProposer:
         if progress_report:
             await progress_report.stretch(1)
 
+        to_eval = [g for g in step_guidelines if g.content.action]
+
+        if not to_eval:
+            return RelativeActionProposition(actions=[])
+
         with self._logger.scope("RelativeActionProposer"):
             result = await self._generate_relative_action_step_proposer(
                 examined_journey,
@@ -202,6 +207,7 @@ Expected output (JSON):
         step_guidelines: Sequence[Guideline],
     ) -> str:
         node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
+        to_eval = {idx: node for idx, node in node_wrappers.items() if node.action}
         result_structure = [
             {
                 "index": idx,
@@ -212,7 +218,8 @@ Expected output (JSON):
                 "former_reference": "<information from previous steps that the definition is referring to>",
                 "rewritten_action": "<str. Full, self-contained version of the action - include only if requires_rewrite is True>",
             }
-            for idx, node in node_wrappers.items()
+            for idx, node in to_eval.items()
+            if node.action
         ]
         result = {"actions": result_structure}
         return json.dumps(result, indent=4)

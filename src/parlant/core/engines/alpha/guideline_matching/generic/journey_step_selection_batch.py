@@ -520,7 +520,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                             previous_node_follow_ups.intersection(current_node_origins)
                         )
                     else:
-                        possible_connector_nodes: list[str] = list(previous_node_follow_ups)
+                        possible_connector_nodes = list(previous_node_follow_ups)
                     if len(possible_connector_nodes) == 1:
                         indexes_to_add.append((i, possible_connector_nodes[0]))
                 journey_path = add_and_remove_list_values(

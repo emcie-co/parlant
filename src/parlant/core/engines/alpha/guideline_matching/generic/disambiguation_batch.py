@@ -48,6 +48,7 @@ class GuidelineCheck(DefaultBaseModel):
 class DisambiguationGuidelineMatchesSchema(DefaultBaseModel):
     tldr: str
     disambiguation_requested: bool
+    customer_resolved: Optional[bool] = False
     is_ambiguous: bool
     guidelines: Optional[list[GuidelineCheck]] = []
     clarification_action: Optional[str] = ""
@@ -280,12 +281,17 @@ Notes:
 - Some guidelines may turn out to be irrelevant based on the interaction. For example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or
 as a context variable) rules them out. In such cases, the ambiguity may already be resolved (only one or none option is relevant) and note that no clarification is needed in such cases.
 
-- Notice that if you've already asked for disambiguation from the customer you need to pay extra attention to if we need to re-ask for clarification or the user responded and it was resolved. 
+- Notice that if you've already asked for disambiguation from the customer you need to **pay extra attention** to if we need to re-ask for clarification or the user responded and it was resolved. 
+- **Accept brief customer responses as valid clarifications**: Customers often communicate with very short responses (single words or phrases like "return", "replace", "yes", "no"). If the customer's brief
+ response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentences.
+
 distinction is between:
-- Pending clarification (customer hasn't answered yet) - re-disambiguate (disambiguation_requested = true, is_ambiguous = true)
-- Clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, is_ambiguous = false)
+- Pending clarification (customer hasn't answered yet) - re-disambiguate (disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
+- Clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved=true, is_ambiguous = false)
 - New ambiguity (different unclear intent emerges) - do disambiguate (is_ambiguous = true)
 
+- Focus on current context: If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previous unresolved issues.
+Always prioritize the customer's current request and intent over past ambiguities.
 """,
             props={},
         )
@@ -347,8 +353,9 @@ OUTPUT FORMAT
 
     def _format_of_guideline_check_json_description(self) -> str:
         result = {
-            "tldr": "<str, Briefly state the customer's intent based on their latest input, and explain why there is or isn't an ambiguity>",
-            "disambiguation_requested": "<BOOL. Based on the interaction, whether a clarification was asked by the agent. If so, is_ambiguous will be true only if customer has not answered OR there is a new ambiguity to resolve>",
+            "tldr": "<str, Briefly state the customer's most recent intent based on their LATEST input, and explain why there is or isn't an ambiguity.>",
+            "disambiguation_requested": "<BOOL. Based on the interaction, whether a clarification was asked by the agent. If so, is_ambiguous will be true only if customer has not answered OR customer changed request OR there is a new ambiguity to resolve>",
+            "customer_resolved": "<BOOL. include if disambiguation_requested=true, whether the latest ambiguity that was requested was resolved by the user",
             "is_ambiguous": "<BOOL>",
             "guidelines (include only if is_ambiguous is True)": [
                 {
@@ -552,28 +559,29 @@ example_4_expected = DisambiguationGuidelineMatchesSchema(
     is_ambiguous=False,
 )
 
+
 example_5_events = [
     _make_event(
         "11",
         EventSource.CUSTOMER,
-        "I received the wrong item in my order",
+        "Hey, can you book me an appointment? I need a prescription",
     ),
     _make_event(
         "14",
         EventSource.AI_AGENT,
-        "I'm sorry to hear that. We can either offer you a return with a refund or send you the correct item instead. What would you prefer?",
+        "You can have a doctor’s session either in person or online. Which do you prefer?",
     ),
     _make_event(
-        "22",
+        "17",
         EventSource.CUSTOMER,
-        "I'm not sure yet. Let me think for a moment",
+        "I can do it online. Also, I need to book an appointment for my daughter.",
     ),
 ]
 
-example_5__disambiguation_targets = [
+example_5_disambiguation_targets = [
     GuidelineContent(
-        condition="The customer asks to return an item for a refund",
-        action="refund the order",
+        condition="The customer asks to book an appointment with a doctor",
+        action="book the appointment",
     ),
     GuidelineContent(
         condition="The customer asks to book a session with a psychologist",
@@ -586,12 +594,12 @@ example_5__disambiguation_targets = [
 ]
 
 example_5_disambiguation_condition = GuidelineContent(
-    condition="The customer received a wrong or damaged item",
+    condition="The customer wants to book an appointment, but it’s unclear whether it’s with a doctor or a psychologist, and whether it should be online or in-person.",
     action="-",
 )
 
 example_5_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="There is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in person",
+    tldr="Based on latest message, there is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in person",
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -611,7 +619,7 @@ example_5_expected = DisambiguationGuidelineMatchesSchema(
             requires_disambiguation=True,
         ),
     ],
-    clarification_action="Ask the customer if they need a doctor or psychologist appointment and if they prefer an online or in person session",
+    clarification_action="Ask the customer if they need a doctor or psychologist appointment and if they prefer an online or in person session for their daughter",
 )
 
 
@@ -648,7 +656,7 @@ example_6_disambiguation_condition = GuidelineContent(
 )
 
 example_6_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer asked to book two appointments. For the first appointment there is an ambiguity between doctor or psychologist, and online or in-person.",
+    tldr="The customer asked to book two appointments. For the first appointment there is an ambiguity between doctor or psychologist, and online or in-person. The second one is clear.",
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -691,7 +699,7 @@ example_7_events = [
     _make_event(
         "3",
         EventSource.CUSTOMER,
-        "I'd like a replacement please.",
+        "replace",
     ),
 ]
 
@@ -712,8 +720,9 @@ example_7_disambiguation_condition = GuidelineContent(
 )
 
 example_7_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer received a wrong item but has already clarified they want a replacement after being asked.",
+    tldr="The customer received a wrong item and was asked whether they wanted a replacement or refund. They responded with 'replace', which clearly indicates their choice and resolves the ambiguity.",
     disambiguation_requested=True,
+    customer_resolved=True,
     is_ambiguous=False,
 )
 
@@ -752,8 +761,9 @@ example_8_disambiguation_condition = GuidelineContent(
 )
 
 example_8_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer received a wrong item and clarification was asked. The customer didn't answer so need to re-disambiguate",
+    tldr="The customer received a wrong item and clarification was asked. The customer only said that they need to think so ambiguity still apply",
     disambiguation_requested=True,
+    customer_resolved=False,
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
@@ -802,7 +812,7 @@ _baseline_shots: Sequence[DisambiguationGuidelineMatchingShot] = [
     DisambiguationGuidelineMatchingShot(
         description="New ambiguous request",
         interaction_events=example_5_events,
-        disambiguation_targets=example_5__disambiguation_targets,
+        disambiguation_targets=example_5_disambiguation_targets,
         disambiguation_condition=example_5_disambiguation_condition,
         expected_result=example_5_expected,
     ),

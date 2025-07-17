@@ -1223,7 +1223,7 @@ def create_router(
     )
     async def create_session(
         params: SessionCreationParamsDTO,
-        allow_greeting: AllowGreetingQuery = True,
+        allow_greeting: AllowGreetingQuery = False,
     ) -> SessionDTO:
         """Creates a new session between an agent and customer.
 

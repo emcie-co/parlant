@@ -912,7 +912,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
-                action="suggest capabilities based on the ones available in this prompt",
+                action="suggest all relevant capabilities available in this prompt",
                 tools=[],
             )
         )

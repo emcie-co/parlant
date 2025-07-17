@@ -41,7 +41,7 @@ Feature: Journeys
         And an agent message, "Great! And what's the account's associated email address or phone number?"
         And a customer message, "the email is leonardobarbosa@gmail.br"
         And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
-        And a customer message, "What? Just reset my password please"
+        And a customer message, "What that does have to do with anything?"
         When processing is triggered
         Then no tool calls event is emitted
         And a single message event is emitted

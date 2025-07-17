@@ -523,9 +523,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         possible_connector_nodes = list(previous_node_follow_ups)
                     if len(possible_connector_nodes) == 1:
                         indexes_to_add.append((i, possible_connector_nodes[0]))
-                journey_path = add_and_remove_list_values(
-                    journey_path, indexes_to_add, indexes_to_delete
-                )
+        journey_path = add_and_remove_list_values(journey_path, indexes_to_add, indexes_to_delete)
 
         if (
             journey_path and journey_path[-1] not in self._node_wrappers

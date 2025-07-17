@@ -1118,8 +1118,8 @@ EXAMPLES
 MISSING REQUIRED DATA FOR TOOL CALLS:
 -------------------------------------
 The following is a description of missing data that has been deemed necessary
-in order to run tools. The tools would have run, if they only had this data available.
-If it makes sense in the current state of the interaction, you may choose to inform the user about this missing data: ###
+in order to run tools. The tools needed to run at this stage would have run if they only had this data available.
+If it makes sense in the current state of the interaction, inform the user about this missing data: ###
 {formatted_missing_data}
 ###
 """,

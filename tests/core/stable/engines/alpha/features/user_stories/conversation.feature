@@ -134,6 +134,7 @@ Feature: Conversation
         And a customer message, "Roller coaster"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains a suggestion to book snake roller coaster or turtle roller coaster
+        And the message contains the option to book the SNAKE roller coaster
+        And the message contains the option to book the TURTLE roller coaster
 
 

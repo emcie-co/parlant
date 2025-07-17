@@ -26,7 +26,7 @@ from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import (
-    APIConfiguration,
+    ApiMode,
     create_api_app,
     ASGIApplication,
 )
@@ -479,7 +479,7 @@ async def container(
 
         container[Application] = Application(container)
 
-        container[APIConfiguration] = None
+        container[ApiMode] = ApiMode.DEVELOPMENT
 
         yield container
 

@@ -36,7 +36,7 @@ EXTENDED_AMOUNT_OF_TIME = 10
     "extra_args",
     [
         [],
-        ["--deploy"],
+        ["--api-mode", "deployment"],
     ],
 )
 async def test_that_the_server_starts_and_shuts_down_cleanly_on_interrupt(

@@ -28,6 +28,7 @@ from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDo
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.api.app import ApiMode
 from parlant.core.agents import (
     Agent as _Agent,
     AgentId,
@@ -671,6 +672,7 @@ class Server:
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
+        api_mode: ApiMode = ApiMode.DEVELOPMENT,
         configure_hooks: Callable[[EngineHooks], Awaitable[EngineHooks]] | None = None,
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,
         initialize: Callable[[Container], Awaitable[None]] | None = None,
@@ -680,6 +682,7 @@ class Server:
         self.log_level = log_level
         self.modules = modules
         self.migrate = migrate
+        self.api_mode = api_mode
 
         self._nlp_service_func = nlp_service
         self._evaluator: _CachedEvaluator
@@ -938,6 +941,7 @@ class Server:
             log_level=self.log_level,
             modules=self.modules,
             migrate=self.migrate,
+            api_mode=self.api_mode,
             test_modules=[],
             configure=configure,
             initialize=initialize,

@@ -18,6 +18,7 @@ import os
 from typing import (
     AsyncContextManager,
     AsyncIterator,
+    Mapping,
     Awaitable,
     Callable,
     Optional,
@@ -25,9 +26,10 @@ from typing import (
 )
 from exceptiongroup import ExceptionGroup
 from typing_extensions import Self
+from enum import Enum
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, BaseRoute  # type: ignore[attr-defined]
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -86,13 +88,20 @@ ASGIApplication: TypeAlias = Callable[
     Awaitable[None],
 ]
 
+
+class ApiMode(Enum):
+    DEVELOPMENT = "Development"
+    DEPLOYMENT = "Deployment"
+    CUSTOM = "Custom"
+
+
 ASGIApplicationContextManager: TypeAlias = AsyncContextManager[ASGIApplication]
 
-APIConfiguration: TypeAlias = dict[str, list[str]]
+APIConfiguration: TypeAlias = Mapping[str, list[str]]
 
 
-def create_routers(container: Container) -> dict[str, APIRouter]:
-    config = container[APIConfiguration]
+def create_routers(container: Container) -> dict[str, APIRouter | None]:
+    config = api_configurations[container[ApiMode]]
 
     return {
         "agents": agents.create_router(
@@ -203,12 +212,14 @@ def create_routers(container: Container) -> dict[str, APIRouter]:
     }
 
 
-def filter_router_for_deployment(router: APIRouter, allowed_operations: list[str]) -> APIRouter:
-    if allowed_operations is None:
+def filter_router_for_deployment(
+    router: Optional[APIRouter], allowed_operations: list[str]
+) -> Optional[APIRouter]:
+    if allowed_operations is None or router is None:
         return router
 
     # Filter out design-time routes
-    filtered_routes = []
+    filtered_routes: list[BaseRoute] = []
     for route in router.routes:
         if isinstance(route, APIRoute):
             operation_id = route.operation_id
@@ -265,17 +276,19 @@ class AppWrapper:
         try:
             all_routers = create_routers(self.container)
 
-            if self.container[APIConfiguration] is not None:
+            api_config = api_configurations[self.container[ApiMode]]
+            if api_config is not None:
                 all_routers = {
                     entity: filter_router_for_deployment(
-                        all_routers[entity], self.container[APIConfiguration].get(entity, [])
+                        all_routers[entity], api_config.get(entity, [])
                     )
                     for entity in all_routers
                     if all_routers[entity]
                 }
 
-            for entity in all_routers:
-                self.app.include_router(all_routers[entity], prefix=f"/{entity}")
+            for entity, router in all_routers.items():
+                if router is not None:
+                    self.app.include_router(router, prefix=f"/{entity}")
 
             for step in configuration_steps:
                 configuration_context = step(self.app, self.container)
@@ -647,7 +660,7 @@ async def configure_test_router(
     yield app
 
 
-default_deployment_api_configuration: APIConfiguration = {
+deployment_api_configuration: APIConfiguration = {
     "agents": ["read_agent", "list_agents"],
     "capabilities": ["list_capabilities", "read_capability"],
     "context-variables": [
@@ -677,6 +690,14 @@ default_deployment_api_configuration: APIConfiguration = {
     "tags": ["list_tags", "read_tag"],
     "terms": ["read_term", "list_terms"],
     "utterances": ["read_utterance", "list_utterances"],
+}
+
+custom_api_configuration: APIConfiguration = {}
+
+api_configurations: dict[ApiMode, APIConfiguration | None] = {
+    ApiMode.DEVELOPMENT: None,
+    ApiMode.DEPLOYMENT: deployment_api_configuration,
+    ApiMode.CUSTOM: custom_api_configuration,
 }
 
 

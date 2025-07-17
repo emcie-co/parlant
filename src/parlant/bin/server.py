@@ -120,10 +120,9 @@ from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.api.app import (
+    ApiMode,
     create_api_app,
     ASGIApplication,
-    APIConfiguration,
-    default_deployment_api_configuration,
 )
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -252,7 +251,7 @@ class StartupParameters:
     modules: list[str]
     migrate: bool
     test_modules: list[str]
-    deploy: bool
+    api_mode: ApiMode
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
 
@@ -732,13 +731,10 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
             actual_container, module_initializers = base_container, []
             LOGGER.info("No external modules selected")
 
-        if params.deploy:
-            actual_container[APIConfiguration] = default_deployment_api_configuration
-        else:
-            actual_container[APIConfiguration] = None
-
         if params.configure:
             actual_container = await params.configure(actual_container.clone())
+
+        actual_container[ApiMode] = params.api_mode
 
         await initialize_container(
             actual_container,
@@ -978,10 +974,13 @@ def main() -> None:
         ),
     )
     @click.option(
-        "--deploy",
-        is_flag=True,
-        help="Deployment mode. Do not accept design-time API requests",
-        default=False,
+        "--api-mode",
+        default=ApiMode.DEVELOPMENT,
+        type=click.Choice(
+            [ApiMode.DEPLOYMENT, ApiMode.DEVELOPMENT, ApiMode.CUSTOM],
+            case_sensitive=False,
+        ),
+        help="API mode: Development, Deployment or Custom",
     )
     @click.option(
         "--test",
@@ -1011,7 +1010,7 @@ def main() -> None:
         module: tuple[str],
         version: bool,
         migrate: bool,
-        deploy: bool,
+        api_mode: ApiMode,
         test: tuple[str],
     ) -> None:
         if version:
@@ -1065,7 +1064,7 @@ def main() -> None:
             log_level=log_level,
             modules=list(module),
             migrate=migrate,
-            deploy=deploy,
+            api_mode=api_mode,
             test_modules=list(test),
         )
 

@@ -211,7 +211,7 @@ async def test_that_server_starts_with_single_module(context: ContextOfTest) -> 
 async def test_that_server_in_deployment_mode_does_not_allow_creation_calls(
     context: ContextOfTest,
 ) -> None:
-    with run_server(context, extra_args=["--deploy"]):
+    with run_server(context, extra_args=["--api-mode", "deployment"]):
         with pytest.raises(httpx.HTTPStatusError):
             await context.api.create_guideline(
                 condition="the user asks about product categories",

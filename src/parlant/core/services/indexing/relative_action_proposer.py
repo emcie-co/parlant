@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selection_batch import (
@@ -8,12 +9,13 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selectio
     build_node_wrappers,
     get_journey_transition_map_text,
 )
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
@@ -52,10 +54,13 @@ class RelativeActionProposer:
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[RelativeActionSchema],
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
+
         self._schematic_generator = schematic_generator
         self._service_registry = service_registry
 
@@ -75,25 +80,44 @@ class RelativeActionProposer:
             return RelativeActionProposition(actions=[])
 
         with self._logger.scope("RelativeActionProposer"):
-            result = await self._generate_relative_action_step_proposer(
-                examined_journey,
-                step_guidelines,
-                journey_conditions,
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
             )
 
-        if progress_report:
-            await progress_report.increment(1)
+            last_generation_exception: Exception | None = None
 
-        rewritten_actions = []
-        for a in result.actions:
-            if a.needs_rewrite:
-                rewritten_actions.append(
-                    RewrittenActionResult(
-                        index=a.index,
-                        rewritten_actions=a.rewritten_action,
+            for generation_attempt in range(3):
+                try:
+                    result = await self._generate_relative_action_step_proposer(
+                        examined_journey,
+                        step_guidelines,
+                        journey_conditions,
+                        temperature=generation_attempt_temperatures[generation_attempt],
                     )
-                )
-        return RelativeActionProposition(actions=rewritten_actions)
+
+                    if progress_report:
+                        await progress_report.increment(1)
+
+                    rewritten_actions = []
+                    for a in result.actions:
+                        if a.needs_rewrite:
+                            rewritten_actions.append(
+                                RewrittenActionResult(
+                                    index=a.index,
+                                    rewritten_actions=a.rewritten_action,
+                                )
+                            )
+                    return RelativeActionProposition(actions=rewritten_actions)
+                except Exception as exc:
+                    self._logger.warning(
+                        f"RelativeActionProposer attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise EvaluationErrorError() from last_generation_exception
 
     def get_journey_text(
         self,
@@ -229,6 +253,7 @@ Expected output (JSON):
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
         journey_conditions: Sequence[Guideline],
+        temperature: float,
     ) -> RelativeActionSchema:
         prompt = await self._build_prompt(
             examined_journey,
@@ -239,10 +264,9 @@ Expected output (JSON):
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.0},
+            hints={"temperature": temperature},
         )
-        with open("output_relative_action", "w") as f:
-            f.write(response.content.model_dump_json(indent=2))
+
         return response.content
 
     def _format_shots(

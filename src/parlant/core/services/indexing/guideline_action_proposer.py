@@ -15,14 +15,16 @@
 from __future__ import annotations
 
 import json
+import traceback
 from typing import Any, Optional, Sequence
 
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.common import DefaultBaseModel
-from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
 
@@ -41,10 +43,13 @@ class GuidelineActionProposer:
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GuidelineActionPropositionSchema],
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
+
         self._schematic_generator = schematic_generator
         self._service_registry = service_registry
 
@@ -61,24 +66,47 @@ class GuidelineActionProposer:
             await progress_report.stretch(1)
 
         with self._logger.scope("GuidelineActionProposer"):
-            tools: list[Tool] = []
-            for tid in tool_ids:
-                service = await self._service_registry.read_tool_service(tid.service_name)
-                tool = await service.read_tool(tid.tool_name)
-                tools.append(tool)
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
+            )
 
-            proposition = await self._generate_action(guideline, tools, tool_ids)
+            last_generation_exception: Exception | None = None
 
-            if progress_report:
-                await progress_report.increment()
+            for generation_attempt in range(3):
+                try:
+                    tools: list[Tool] = []
+                    for tid in tool_ids:
+                        service = await self._service_registry.read_tool_service(tid.service_name)
+                        tool = await service.read_tool(tid.tool_name)
+                        tools.append(tool)
 
-        return GuidelineActionProposition(
-            content=GuidelineContent(
-                condition=guideline.condition,
-                action=proposition.action,
-            ),
-            rationale=proposition.rationale,
-        )
+                    proposition = await self._generate_action(
+                        guideline,
+                        tools,
+                        tool_ids,
+                        generation_attempt_temperatures[generation_attempt],
+                    )
+
+                    if progress_report:
+                        await progress_report.increment()
+
+                    return GuidelineActionProposition(
+                        content=GuidelineContent(
+                            condition=guideline.condition,
+                            action=proposition.action,
+                        ),
+                        rationale=proposition.rationale,
+                    )
+                except Exception as exc:
+                    self._logger.warning(
+                        f"GuidelineActionProposition attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise EvaluationErrorError() from last_generation_exception
 
     def _add_tool_definitions_section(
         self,
@@ -293,12 +321,13 @@ Expected output (JSON):
         guideline: GuidelineContent,
         tools: Sequence[Tool],
         tool_ids: Sequence[ToolId],
+        temperature: float,
     ) -> GuidelineActionPropositionSchema:
         prompt = await self._build_prompt(guideline, tools, tool_ids)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.0},
+            hints={"temperature": temperature},
         )
 
         return response.content

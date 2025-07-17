@@ -14,13 +14,15 @@
 
 from dataclasses import dataclass
 import json
+import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
@@ -48,10 +50,13 @@ class CustomerDependentActionDetector:
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[CustomerDependentActionSchema],
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
+
         self._schematic_generator = schematic_generator
         self._service_registry = service_registry
 
@@ -64,16 +69,37 @@ class CustomerDependentActionDetector:
             await progress_report.stretch(1)
 
         with self._logger.scope("CustomerDependentActionDetector"):
-            proposition = await self._generate_customer_dependent(guideline)
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
+            )
 
-        if progress_report:
-            await progress_report.increment(1)
+            last_generation_exception: Exception | None = None
 
-        return CustomerDependentActionProposition(
-            is_customer_dependent=proposition.is_customer_dependent,
-            customer_action=proposition.customer_action,
-            agent_action=proposition.agent_action,
-        )
+            for generation_attempt in range(3):
+                try:
+                    proposition = await self._generate_customer_dependent(
+                        guideline, temperature=generation_attempt_temperatures[generation_attempt]
+                    )
+
+                    if progress_report:
+                        await progress_report.increment(1)
+
+                    return CustomerDependentActionProposition(
+                        is_customer_dependent=proposition.is_customer_dependent,
+                        customer_action=proposition.customer_action,
+                        agent_action=proposition.agent_action,
+                    )
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"CustomerDependentActionDetector attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise EvaluationErrorError() from last_generation_exception
 
     async def _build_prompt(
         self, guideline: GuidelineContent, shots: Sequence[CustomerDependentActionShot]
@@ -161,12 +187,13 @@ Expected output (JSON):
     async def _generate_customer_dependent(
         self,
         guideline: GuidelineContent,
+        temperature: float,
     ) -> CustomerDependentActionSchema:
         prompt = await self._build_prompt(guideline, _baseline_shots)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.0},
+            hints={"temperature": temperature},
         )
 
         return response.content

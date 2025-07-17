@@ -492,7 +492,12 @@ you don't need to specifically double-check if you followed or broke any guideli
 
         for i, p in enumerate(all_matches, start=1):
             if guideline_representations[p.guideline.id].action:
-                guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                if guideline_representations[p.guideline.id].condition:
+                    guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                else:
+                    guideline = (
+                        f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
+                    )
                 guideline += f"\n   Rationale: {p.rationale}"
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)

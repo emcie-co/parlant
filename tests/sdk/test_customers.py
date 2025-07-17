@@ -20,7 +20,7 @@ from tests.sdk.utils import Context, SDKTest
 class Test_that_a_customer_can_be_read(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.customer = await server.create_customer(
-            name="John Doe", extra={"email": "john.doe@example.com"}
+            name="John Doe", metadata={"email": "john.doe@example.com"}
         )
 
     async def run(self, ctx: Context) -> None:

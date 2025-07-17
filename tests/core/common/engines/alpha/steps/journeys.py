@@ -103,6 +103,14 @@ def given_the_journey_called(
             )
         )
 
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
@@ -277,6 +285,14 @@ def given_the_journey_called(
                 tags=[],
             )
         )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
 
         node1 = context.sync_await(
             journey_store.create_node(
@@ -457,6 +473,14 @@ def given_the_journey_called(
             )
         )
 
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
@@ -595,6 +619,14 @@ def given_the_journey_called(
                 tags=[],
             )
         )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
 
         node1 = context.sync_await(
             journey_store.create_node(
@@ -852,6 +884,14 @@ def given_the_journey_called(
                 tags=[],
             )
         )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
 
         node1 = context.sync_await(
             journey_store.create_node(

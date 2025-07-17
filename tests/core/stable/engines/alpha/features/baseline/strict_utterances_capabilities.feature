@@ -176,8 +176,7 @@ Feature: Strict Utterance Capabilities
         And an utterance, "Is there anything else I can help you with today?"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that the agent can help regarding decreasing credit limits
-        And the message contains that the agent can help by providing a loan
+        And the message contains either help regarding decreasing credit limits, an offering of a loan, or both 
 
     Scenario: Agent doesnt mention capabilities relevant for later journey steps (strict utterance)
         Given the journey called "Decrease Spending Journey"

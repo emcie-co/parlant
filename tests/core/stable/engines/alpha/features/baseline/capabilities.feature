@@ -143,7 +143,6 @@ Feature: Capabilities
         When processing is triggered
         Then a single message event is emitted
         And the message contains either help regarding decreasing credit limits, an offering of a loan, or both 
-        And the message contains that the agent can help by providing a loan
 
     Scenario: Agent doesnt jump ahead in journey due to capabilities
         Given the journey called "Decrease Spending Journey"

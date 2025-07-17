@@ -345,7 +345,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                             GuidelineMatch(
                                 guideline=matched_guideline,
                                 score=10,
-                                rationale=inference.content.rationale,
+                                rationale="NA",
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                                 metadata={
                                     "journey_path": journey_path,

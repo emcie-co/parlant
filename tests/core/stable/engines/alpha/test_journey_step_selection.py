@@ -193,7 +193,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             ),
             _StepData(
                 id="4",
-                condition=None,
+                condition="The customer did not immediately wish you a good day in return",
                 action=None,
                 follow_up_ids=[],
             ),

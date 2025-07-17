@@ -201,13 +201,6 @@ def given_the_journey_called(
                 kind=RelationshipKind.REEVALUATION,
             )
         )
-        none_node = context.sync_await(
-            journey_store.create_node(
-                journey_id=journey.id,
-                action=None,
-                tools=[],
-            )
-        )
 
         context.sync_await(
             journey_store.create_edge(
@@ -215,15 +208,6 @@ def given_the_journey_called(
                 source=node3.id,
                 target=node4.id,
                 condition="The customer wished you a good day in return",
-            )
-        )
-
-        context.sync_await(
-            journey_store.create_edge(
-                journey_id=journey.id,
-                source=node3.id,
-                target=none_node.id,
-                condition=None,
             )
         )
 
@@ -242,6 +226,14 @@ def given_the_journey_called(
             )
         )
 
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=node6.id,
+                condition="The customer did not immediately wish you a good day in return",
+            )
+        )
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,

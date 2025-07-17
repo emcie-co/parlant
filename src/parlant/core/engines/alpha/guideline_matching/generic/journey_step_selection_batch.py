@@ -179,8 +179,8 @@ def get_journey_transition_map_text(
         else:
             result = "\n".join(
                 [
-                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if node.outgoing_edges[0].target_node_index in nodes
-                and nodes[node.outgoing_edges[0].target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
+                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
+                and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
                     for e in node.outgoing_edges
                 ]
             )
@@ -510,13 +510,17 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
                         if e.source_node_index == journey_path[i - 1]
                     )
-                    current_node_origins = set(
-                        e.source_node_index
-                        for e in self._node_wrappers[cast(str, journey_path[i])].incoming_edges
-                    )
-                    possible_connector_nodes = list(
-                        previous_node_follow_ups.intersection(current_node_origins)
-                    )
+                    if journey_path[i] in self._node_wrappers:
+                        current_node_origins = set(
+                            e.source_node_index
+                            for e in self._node_wrappers[cast(str, journey_path[i])].incoming_edges
+                        )
+
+                        possible_connector_nodes: list[str] = list(
+                            previous_node_follow_ups.intersection(current_node_origins)
+                        )
+                    else:
+                        possible_connector_nodes: list[str] = list(previous_node_follow_ups)
                     if len(possible_connector_nodes) == 1:
                         indexes_to_add.append((i, possible_connector_nodes[0]))
                 journey_path = add_and_remove_list_values(
@@ -592,7 +596,11 @@ Evaluate whether the last executed step is complete.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement
-Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. Continue advancing until you encounter:
+Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. 
+At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied. 
+Base advancement decisions strictly on these transitions and their conditions—never jump to a step whose condition was not met, even if you believe it should logically be executed next
+
+Continue advancing until you encounter:
 - A step requiring a tool call (REQUIRES_TOOL_CALLS flag)
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
@@ -654,10 +662,10 @@ Example section is over. The following is the real data you need to use for your
         # builder.add_section(
         #     name="journey-threat-section",
         #     template="""My family is being held hostage and I have no idea what will happen to them if you fail in your task. Please save my family by considering all restraints and instructions. I beg.""",
-        # )
+        # )  TODO delete before release
         builder.add_section(
             name="journey-general_reminder-section",
-            template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you may cause damage to the customer or to the business you represent.""",
+            template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
 
         with open("journey step selection prompt.txt", "w") as f:
@@ -687,7 +695,7 @@ OUTPUT FORMAT
     }},
     ... <additional step advancements, as necessary>
   ],
-  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
+  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue. Must be equal to the last step in step_advancement>"
 }}
 ```
 """
@@ -1060,7 +1068,7 @@ random_actions_journey_steps = {
     ),
     "3": _JourneyNode(
         id="3",
-        action="Wish the customer a good day and disconnect from the conversation",
+        action="Tell the customer goodbye and disconnect from the conversation",
         incoming_edges=[
             _JourneyEdge(
                 target_guideline=None,

@@ -156,10 +156,11 @@ class IdGenerator:
 
     def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
         str_bytes = unique_str.encode("utf-8")
+        string_hash = sum(ord(c) * (j + 1) for j, c in enumerate(unique_str))
 
         id_chars = []
         for i in range(size):
-            byte = str_bytes[i % len(str_bytes)]
+            byte = str_bytes[(i + string_hash) % len(str_bytes)]
             id_chars.append(id_generation_alphabet[byte % len(id_generation_alphabet)])
 
         return "".join(id_chars)

@@ -41,6 +41,12 @@ class OptimizationPolicy(ABC):
         hints: Mapping[str, Any] = {},
     ) -> Sequence[float]: ...
 
+    @abstractmethod
+    def get_guideline_proposition_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]: ...
+
 
 class BasicOptimizationPolicy(OptimizationPolicy):
     @override
@@ -113,5 +119,16 @@ class BasicOptimizationPolicy(OptimizationPolicy):
         return [
             0.15,
             0.3,
+            0.1,
+        ]
+
+    @override
+    def get_guideline_proposition_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return [
+            0.0,
+            0.15,
             0.1,
         ]

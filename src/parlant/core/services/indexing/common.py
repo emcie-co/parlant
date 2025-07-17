@@ -16,6 +16,11 @@ import asyncio
 from typing import Awaitable, Callable
 
 
+class EvaluationErrorError(Exception):
+    def __init__(self, message: str = "Evaluation failed") -> None:
+        super().__init__(message)
+
+
 class ProgressReport:
     def __init__(self, progress_callback: Callable[[float], Awaitable[None]]) -> None:
         self._total = 0

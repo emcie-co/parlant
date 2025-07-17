@@ -36,8 +36,10 @@ from typing import (
     cast,
 )
 from lagom import Container
+from pymongo import AsyncMongoClient
 
 from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
+from parlant.adapters.db.mongo_db import MongoDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
@@ -1150,7 +1152,7 @@ class Server:
         port: int = 8800,
         tool_service_port: int = 8818,
         nlp_service: Callable[[Container], NLPService] = _load_openai,
-        session_store: Literal["transient", "local"] | SessionStore = "transient",
+        session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -1564,17 +1566,45 @@ class Server:
             if isinstance(self._session_store, SessionStore):
                 c()[SessionStore] = self._session_store
             else:
-                c()[SessionStore] = await self._exit_stack.enter_async_context(
-                    SessionDocumentStore(
-                        await cast(
-                            dict[str, Callable[[], Awaitable[DocumentDatabase]]],
-                            {
-                                "transient": lambda: make_transient_db(),
-                                "local": lambda: make_json_db(PARLANT_HOME_DIR / "sessions.json"),
-                            },
-                        )[self._session_store](),
+                if self._session_store in ["transient", "local"]:
+                    c()[SessionStore] = await self._exit_stack.enter_async_context(
+                        SessionDocumentStore(
+                            await cast(
+                                dict[str, Callable[[], Awaitable[DocumentDatabase]]],
+                                {
+                                    "transient": lambda: make_transient_db(),
+                                    "local": lambda: make_json_db(
+                                        PARLANT_HOME_DIR / "sessions.json"
+                                    ),
+                                },
+                            )[self._session_store](),
+                            allow_migration=self._migrate,
+                        )
                     )
-                )
+                elif self._session_store.startswith("mongodb://"):
+                    mongo_client = await self._exit_stack.enter_async_context(
+                        AsyncMongoClient[Any](self._session_store)
+                    )
+
+                    mongo_doc_db = await self._exit_stack.enter_async_context(
+                        MongoDocumentDatabase(
+                            mongo_client=mongo_client,
+                            database_name="parlant_sessions",
+                            logger=c()[Logger],
+                        )
+                    )
+
+                    c()[SessionStore] = await self._exit_stack.enter_async_context(
+                        SessionDocumentStore(
+                            database=mongo_doc_db,
+                            allow_migration=self._migrate,
+                        )
+                    )
+                else:
+                    raise SDKError(
+                        f"Invalid session store type: {self._session_store}. "
+                        "Expected 'transient', 'local', or a MongoDB connection string."
+                    )
 
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(

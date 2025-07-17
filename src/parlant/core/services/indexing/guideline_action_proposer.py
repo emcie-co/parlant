@@ -53,12 +53,9 @@ class GuidelineActionProposer:
         guideline: GuidelineContent,
         tool_ids: Sequence[ToolId],
         progress_report: Optional[ProgressReport] = None,
-    ) -> GuidelineActionProposition:
+    ) -> Optional[GuidelineActionProposition]:
         if not tool_ids or guideline.action:
-            return GuidelineActionProposition(
-                content=guideline,
-                rationale="No action proposed",
-            )
+            return None
 
         if progress_report:
             await progress_report.stretch(1)

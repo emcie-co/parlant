@@ -569,7 +569,7 @@ class JourneyEvaluator:
             invoice_data = InvoiceJourneyData(
                 node_properties_proposition={
                     index_to_node_ids[journey_id][r.index]: {
-                        "rewritten_actions": r.rewritten_actions
+                        "internal_action": r.rewritten_actions,
                     }
                     for r in proposition.actions
                 },
@@ -778,7 +778,7 @@ class GuidelineEvaluator:
         payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineActionProposition]]:
-        tasks: list[asyncio.Task[GuidelineActionProposition]] = []
+        tasks: list[asyncio.Task[Optional[GuidelineActionProposition]]] = []
         indices: list[int] = []
 
         for i, p in enumerate(payloads):

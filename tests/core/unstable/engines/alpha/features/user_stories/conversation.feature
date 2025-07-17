@@ -103,7 +103,7 @@ Feature: Conversation
         And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster
         And a guideline "turtle_roller_coaster" to book it when the customer asks for the turtle roller coaster
         And a guideline "tiger_Ferris_wheel" to book it when the customer asks for the tiger Ferris wheel
-        And a disambiguation group head "amusement_park" to activate when the customer asks to book a ticket to an amusement ride or attraction, and its not clear which one specifically, snake or turtle roller coaster or tiger Ferris wheel
+        And a disambiguation group head "amusement_park" to activate when the customer asks to book a ticket and its not clear which one specifically, which roller coaster (snake or turtle) or alternatively tiger Ferris wheel
         And a guideline "snake_roller_coaster" is grouped under "amusement_park"
         And a guideline "turtle_roller_coaster" is grouped under "amusement_park"
         And a guideline "tiger_Ferris_wheel" is grouped under "amusement_park"

@@ -29,7 +29,7 @@ from typing_extensions import Self
 from enum import Enum
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from fastapi.routing import APIRoute, BaseRoute  # type: ignore[attr-defined]
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -218,18 +218,11 @@ def filter_router_for_deployment(
     if allowed_operations is None or router is None:
         return router
 
-    # Filter out design-time routes
-    filtered_routes: list[BaseRoute] = []
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            operation_id = route.operation_id
-            if operation_id in allowed_operations:
-                filtered_routes.append(route)
-        else:
-            # Keep non-API routes (like sub-routers)
-            filtered_routes.append(route)
-
-    router.routes = filtered_routes
+    router.routes = [
+        route
+        for route in router.routes
+        if not isinstance(route, APIRoute) or route.operation_id in allowed_operations
+    ]
 
     return router
 

@@ -404,3 +404,44 @@ class Test_that_journey_node_can_connect_to_end_node(SDKTest):
     async def run(self, ctx: Context) -> None:
         assert self.edge_to_end in self.journey.edges
         assert self.edge_to_end.target.id == JourneyStore.END_NODE_ID
+
+
+class Test_that_journey_node_can_be_created_with_internal_action(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Calzone Seller Agent",
+            description="Agent for selling calzones",
+            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Deliver Calzone Journey",
+            conditions=["the customer wants to order a calzone"],
+            description="A journey to deliver calzones",
+        )
+
+        self.edge = await self.journey.root.connect(
+            action="Welcome the customer to the Low Cal Calzone Zone",
+        )
+
+        self.edge_2 = await self.edge.target.connect(
+            action="Ask them how many they want",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        assert self.edge in self.journey.edges
+        assert self.edge_2 in self.journey.edges
+
+        assert self.edge.target.action == "Welcome the customer to the Low Cal Calzone Zone"
+        assert self.edge_2.target.action == "Ask them how many they want"
+
+        second_target = await ctx.container[JourneyStore].read_node(
+            node_id=self.edge_2.target.id,
+        )
+
+        assert second_target.action == "Ask them how many they want"
+        assert (
+            "internal_action" in second_target.metadata
+            and second_target.metadata["internal_action"]
+            and second_target.action != second_target.metadata["internal_action"]
+        )

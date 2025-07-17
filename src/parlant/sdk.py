@@ -1471,7 +1471,9 @@ class Server:
                 ).node_properties.items():
                     node = await self._container[JourneyStore].read_node(node_id)
                     properties_to_add = {
-                        k: v for k, v in properties.items() if k not in node.metadata
+                        k: v
+                        for k, v in properties.items()
+                        if k not in node.metadata or node.metadata[k] is None
                     }
 
                     for key, value in properties_to_add.items():

@@ -481,6 +481,8 @@ def legacy_create_router(
         params: LegacyEvaluationCreationParamsDTO,
     ) -> LegacyEvaluationDTO:
         """
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE.
+
         Creates a new evaluation task for the specified agent.
 
         An evaluation analyzes proposed changes (payloads) to an agent's guidelines
@@ -532,7 +534,8 @@ def legacy_create_router(
         evaluation_id: LegacyEvaluationIdPath,
         wait_for_completion: LegacyWaitForCompletionQuery = 60,
     ) -> LegacyEvaluationDTO:
-        """Retrieves the current state of an evaluation.
+        """DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE:
+        Retrieves the current state of an evaluation.
 
         * If wait_for_completion == 0, returns current state immediately.
         * If wait_for_completion > 0, waits for completion/failure or timeout. Defaults to 60.

@@ -848,7 +848,8 @@ async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
 
     if "PARLANT_HOME" not in os.environ and DEFAULT_HOME_DIR == "runtime-data":
         LOGGER.warning(
-            "'runtime-data' is deprecated as the name of the default PARLANT_HOME directory"
+            "'runtime-data' as the default PARLANT_HOME directory is deprecated "
+            "and will be removed in a future release. "
         )
         LOGGER.warning(
             "Please rename 'runtime-data' to 'parlant-data' to avoid this warning in the future."

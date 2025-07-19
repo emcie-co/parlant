@@ -355,7 +355,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Creates a new context variable for tracking customer-specific or tag-specific data.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Example uses:
         - Track subscription tiers to control feature access
@@ -414,7 +415,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Updates an existing context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Only provided fields will be updated; others remain unchanged.
         """
@@ -483,7 +485,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes all context variables and their values for the provided agent ID.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -518,7 +521,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes a specific context variable and all its values.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -557,7 +561,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Lists all context variables set for the provided agent.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -605,7 +610,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Updates the value of a context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The `key` represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
         If `key="DEFAULT"`, the update applies to all customers.
@@ -654,7 +660,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves the value of a context variable for a specific customer or tag.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The key should be a customer identifier or a customer tag in the format `tag:{tag_id}`.
         """
@@ -706,7 +713,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves a context variable's details and optionally its values.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Can return all customer or tag values for this variable type if include_values=True.
         """
@@ -777,7 +785,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes a specific customer's or tag's value for this context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The key should be a customer identifier or a customer tag in the format `tag:{tag_id}`.
         Removes only the value for the specified key while keeping the variable's configuration.

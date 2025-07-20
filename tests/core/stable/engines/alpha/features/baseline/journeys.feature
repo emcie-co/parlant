@@ -129,3 +129,18 @@ Feature: Journeys
         And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
         And a single message event is emitted
         And the message contains that the password was reset and an email with instructions was sent to the customer
+
+    Scenario: Journey reconfirms previously provided details
+        Given the journey called "Request Loan Journey"
+        And a journey path "[2]" for the journey "Request Loan Journey"
+        And a customer message, "Hi there, i need a loan for 15k for a pizza restaurant and my account is 1234"
+        And an agent message, "Got it!"
+        And an agent message, "Could you let me know what type of loan you're interested in? For example, are you looking for a business loan?"
+        And a customer message, "personal/business one"
+        And an agent message, "Alright."
+        And an agent message, "Since you're considering both personal and business options, let's clarify which one suits your needs better. For a business loan, we can proceed with the application for your pizza restaurant. If you're leaning towards a personal loan, we can discuss that too. Let me know how you'd like to proceed!"
+        And a customer message, "personal"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains either confirming that the loan is for 15k, or asking for the purpose of the loan, or asking for the account number
+        And the message contains no mention of any questions other than potentially these three - 1. confirming that the loan is for 15k 2. asking for the purpose of the loan 3. asking for the account number 

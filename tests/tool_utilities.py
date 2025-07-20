@@ -510,3 +510,9 @@ def availability_check() -> ToolResult:
 
 def check_customer_location() -> ToolResult:
     return ToolResult(data="Spain!!")
+
+
+def check_eligibility(account_id: int, amount: int) -> ToolResult:
+    return ToolResult(
+        data=f"Account {account_id} is eligible for a loan of {amount} over 24 months at a rate of 6.5% interest per month."
+    )

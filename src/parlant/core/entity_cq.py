@@ -385,8 +385,10 @@ class EntityQueries:
         relationships = list(chain.from_iterable(await async_utils.safe_gather(*tasks)))
 
         for relationship in relationships:
-            if relationship.target.id in available_guidelines:
-                guideline = available_guidelines[cast(GuidelineId, relationship.target.id)]
+            if g_id := next(
+                iter(g for g in available_guidelines if g.startswith(relationship.target.id)), None
+            ):
+                guideline = available_guidelines[g_id]
 
                 if guideline.metadata.get("journey_node") is not None:
                     # If the guideline is a journey node, we add all the journey nodes of this journey

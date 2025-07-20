@@ -899,7 +899,7 @@ book_taxi_shot_journey_steps = {
         outgoing_edges=[
             _JourneyEdge(
                 target_guideline=None,
-                condition="the desired pick up location is in NYC",
+                condition=None,
                 source_node_index="3",
                 target_node_index="5",
             )

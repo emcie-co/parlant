@@ -510,7 +510,6 @@ def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuide
         return InvoiceGuidelineData(
             coherence_checks=coherence_checks,
             entailment_propositions=connection_propositions,
-            action_proposition=None,
             properties_proposition=None,
         )
     except Exception:
@@ -661,7 +660,7 @@ def create_legacy_router(
     guideline_tool_association_store: GuidelineToolAssociationStore,
 ) -> APIRouter:
     """
-    DEPRECATED: This router uses agent-based paths which are being phased out.
+    DEPRECATED: This router uses agent-based paths which are being phased out, and will be removed in a future release.
     Use the tag-based API instead.
     """
     router = APIRouter()
@@ -689,7 +688,7 @@ def create_legacy_router(
         params: LegacyGuidelineCreationParamsDTO,
     ) -> LegacyGuidelineCreationResult:
         """
-        DEPRECATED: Use the tag-based API instead.
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE: Use the tag-based API instead.
 
         Creates new guidelines from the provided invoices.
 
@@ -784,7 +783,7 @@ def create_legacy_router(
         guideline_id: GuidelineIdPath,
     ) -> LegacyGuidelineWithConnectionsAndToolAssociationsDTO:
         """
-        DEPRECATED: Use the tag-based API instead.
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE: Use the tag-based API instead.
 
         Retrieves a specific guideline with all its connections and tool associations.
 
@@ -863,7 +862,7 @@ def create_legacy_router(
         agent_id: agents.AgentIdPath,
     ) -> Sequence[LegacyGuidelineDTO]:
         """
-        DEPRECATED: Use the tag-based API instead.
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE: Use the tag-based API instead.
 
         Lists all guidelines for the specified agent.
 
@@ -910,7 +909,7 @@ def create_legacy_router(
         params: LegacyGuidelineUpdateParamsDTO,
     ) -> LegacyGuidelineWithConnectionsAndToolAssociationsDTO:
         """
-        DEPRECATED: Use the tag-based API instead.
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE: Use the tag-based API instead.
 
         Updates a guideline's connections and tool associations.
 
@@ -1096,7 +1095,7 @@ def create_legacy_router(
         guideline_id: GuidelineIdPath,
     ) -> None:
         """
-        DEPRECATED: Use the tag-based API instead.
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE: Use the tag-based API instead.
 
         Deletes a guideline from the agent.
 

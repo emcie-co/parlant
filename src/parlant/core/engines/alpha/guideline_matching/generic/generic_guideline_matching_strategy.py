@@ -58,7 +58,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -70,6 +70,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         self,
         logger: Logger,
         optimization_policy: OptimizationPolicy,
+        guideline_store: GuidelineStore,
         relationship_store: RelationshipStore,
         entity_queries: EntityQueries,
         observational_guideline_schematic_generator: SchematicGenerator[
@@ -91,6 +92,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         report_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
+        self._guideline_store = guideline_store
+
         self._optimization_policy = optimization_policy
         self._relationship_store = relationship_store
         self._entity_queries = entity_queries
@@ -129,11 +132,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         active_journeys_mapping = {journey.id: journey for journey in context.relevant_journeys}
 
         for g in guidelines:
-            if g.metadata.get("journey_step") is not None:
-                # If the guideline is associated with a journey step, we add the journey steps
+            if g.metadata.get("journey_node") is not None:
+                # If the guideline is associated with a journey node, we add the journey steps
                 # to the list of journeys that need reevaluation.
                 if journey_id := cast(
-                    Mapping[str, JSONSerializable], g.metadata["journey_step"]
+                    Mapping[str, JSONSerializable], g.metadata.get("journey_node", {})
                 ).get("journey_id"):
                     journey_id = cast(JourneyId, journey_id)
 
@@ -141,6 +144,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         journey_step_selection_journeys[active_journeys_mapping[journey_id]].append(
                             g
                         )
+
             elif not g.content.action:
                 if targets := await self._try_get_disambiguation_group_targets(g, guidelines):
                     disambiguation_groups.append((g, targets))
@@ -227,16 +231,18 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         matches: Sequence[GuidelineMatch],
     ) -> Sequence[GuidelineMatch]:
         result: list[GuidelineMatch] = []
-        guidelines_to_skip: list[GuidelineId] = []
+        guidelines_to_skip: set[GuidelineId] = set()
 
         for m in matches:
             if disambiguation := m.metadata.get("disambiguation"):
-                guidelines_to_skip.extend(
+                guidelines_to_skip.update(
                     cast(
                         list[GuidelineId],
                         cast(dict[str, JSONSerializable], disambiguation).get("targets"),
                     )
                 )
+
+                guidelines_to_skip.add(m.guideline.id)
 
                 result.append(
                     GuidelineMatch(
@@ -262,11 +268,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                     )
                 )
 
-        for m in matches:
-            if m.metadata.get("disambiguation") or m.guideline.id in guidelines_to_skip:
-                continue
-
-            result.append(m)
+        result.extend(m for m in matches if m.guideline.id not in guidelines_to_skip)
 
         return result
 
@@ -560,10 +562,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericJourneyStepSelectionBatch:
         return GenericJourneyStepSelectionBatch(
             logger=self._logger,
+            guideline_store=self._guideline_store,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._journey_step_selection_schematic_generator,
             examined_journey=examined_journey,
-            step_guidelines=step_guidelines,
             context=GuidelineMatchingContext(
                 agent=context.agent,
                 session=context.session,
@@ -575,6 +577,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 staged_events=context.staged_events,
                 relevant_journeys=context.relevant_journeys,
             ),
+            step_guidelines=step_guidelines,
             journey_path=context.session.agent_states[-1]["journey_paths"].get(
                 examined_journey.id, []
             )

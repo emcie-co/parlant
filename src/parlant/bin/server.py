@@ -32,6 +32,7 @@ import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
+from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.guideline_matching.generic import (
     guideline_actionable_batch,
@@ -100,6 +101,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -117,6 +119,7 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
 )
+from parlant.core.services.indexing.relative_action_proposer import RelativeActionSchema
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionSchema,
@@ -396,6 +399,9 @@ async def setup_container() -> AsyncIterator[Container]:
     web_socket_logger = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
+
+    c[IdGenerator] = Singleton(IdGenerator)
+
     c[ShotCollection[GenericResponseAnalysisShot]] = response_analysis_batch.shot_collection
     c[ShotCollection[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot]] = (
         guideline_previously_applied_actionable_batch.shot_collection
@@ -431,6 +437,8 @@ async def setup_container() -> AsyncIterator[Container]:
     c[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
     c[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
     c[ToolRunningActionDetector] = ToolRunningActionDetector
+
+    c[JourneyGuidelineProjection] = Singleton(JourneyGuidelineProjection)
 
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
@@ -655,6 +663,7 @@ async def initialize_container(
         AgentIntentionProposerSchema,
         DisambiguationGuidelineMatchesSchema,
         JourneyStepSelectionSchema,
+        RelativeActionSchema,
     ):
         try_define(
             SchematicGenerator[schema],  # type: ignore
@@ -839,7 +848,8 @@ async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
 
     if "PARLANT_HOME" not in os.environ and DEFAULT_HOME_DIR == "runtime-data":
         LOGGER.warning(
-            "'runtime-data' is deprecated as the name of the default PARLANT_HOME directory"
+            "'runtime-data' as the default PARLANT_HOME directory is deprecated "
+            "and will be removed in a future release. "
         )
         LOGGER.warning(
             "Please rename 'runtime-data' to 'parlant-data' to avoid this warning in the future."

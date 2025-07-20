@@ -28,12 +28,13 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.guidelines import (
     Guideline,
     GuidelineId,
     GuidelineStore,
 )
-from parlant.core.journeys import Journey, JourneyId, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.relationships import (
     RelationshipKind,
     RelationshipEntityKind,
@@ -74,6 +75,7 @@ class EntityQueries:
         service_registry: ServiceRegistry,
         utterance_store: UtteranceStore,
         capability_store: CapabilityStore,
+        journey_guideline_projection: JourneyGuidelineProjection,
     ) -> None:
         self._agent_store = agent_store
         self._session_store = session_store
@@ -87,6 +89,7 @@ class EntityQueries:
         self._capability_store = capability_store
         self._service_registry = service_registry
         self._utterance_store = utterance_store
+        self._journey_guideline_projection = journey_guideline_projection
 
         self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
@@ -129,22 +132,29 @@ class EntityQueries:
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 
+        tasks = [
+            self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
+            for journey in journeys
+        ]
+        projected_journey_guidelines = await async_utils.safe_gather(*tasks)
+
         all_guidelines = set(
             chain(
                 agent_guidelines,
                 global_guidelines,
                 guidelines_for_agent_tags,
                 guidelines_for_journeys,
+                *projected_journey_guidelines,
             )
         )
 
         return list(all_guidelines)
 
-    async def find_journey_dependent_guidelines(
+    async def find_journey_related_guidelines(
         self,
         journey: Journey,
     ) -> Sequence[GuidelineId]:
-        """Return guidelines that are dependent on the specified journey."""
+        """Return guidelines that are dependent or derived on the specified journey."""
         iterated_relationships = set()
 
         guideline_ids = set()
@@ -183,6 +193,13 @@ class EntityQueries:
             journeys.append(journey)
 
             self.find_journeys_on_which_this_guideline_depends[id] = journeys
+
+        guideline_ids.update(
+            g.id
+            for g in await self._journey_guideline_projection.project_journey_to_guidelines(
+                journey.id
+            )
+        )
 
         return list(guideline_ids)
 
@@ -225,6 +242,12 @@ class EntityQueries:
         self,
     ) -> Sequence[GuidelineToolAssociation]:
         return await self._guideline_tool_association_store.list_associations()
+
+    async def find_journey_node_tool_associations(
+        self,
+        node_id: JourneyNodeId,
+    ) -> Sequence[ToolId]:
+        return (await self._journey_store.read_node(node_id=node_id)).tools
 
     async def find_capabilities_for_agent(
         self,
@@ -347,13 +370,8 @@ class EntityQueries:
         tool_call_ids: Sequence[ToolId],
     ) -> Sequence[Guideline]:
         # Find guidelines that need reevaluation based on the tool calls made.
-        #
-        # TODO:
-        # - If a guideline associated with a journey requires reevaluation,
-        #   we return the journey steps, but not the guideline itself.
-        # - In the future, we may want to support multiple journeys for the same guideline.
         active_journeys_mapping = {journey.id: journey for journey in active_journeys}
-        guidelines = []
+        guidelines: list[Guideline] = []
 
         tasks = [
             self._relationship_store.list_relationships(
@@ -367,22 +385,35 @@ class EntityQueries:
         relationships = list(chain.from_iterable(await async_utils.safe_gather(*tasks)))
 
         for relationship in relationships:
-            if relationship.target.id in available_guidelines:
-                guideline = available_guidelines[cast(GuidelineId, relationship.target.id)]
+            if g_id := next(
+                iter(g for g in available_guidelines if g.startswith(relationship.target.id)), None
+            ):
+                guideline = available_guidelines[g_id]
 
-                if guideline.metadata.get("journey_step") is not None:
-                    # If the guideline is associated with a journey step, we add the journey steps
-                    if journey_id := cast(
-                        Mapping[str, JSONSerializable], guideline.metadata["journey_step"]
-                    ).get("journey_id"):
-                        journey_id = cast(JourneyId, journey_id)
+                if guideline.metadata.get("journey_node") is not None:
+                    # If the guideline is a journey node, we add all the journey nodes of this journey
+                    journey_id = cast(
+                        JourneyId,
+                        cast(
+                            Mapping[str, JSONSerializable], guideline.metadata["journey_node"]
+                        ).get("journey_id"),
+                    )
 
-                        guidelines.extend(
-                            [
-                                available_guidelines[cast(GuidelineId, step)]
-                                for step in active_journeys_mapping[journey_id].steps
-                            ]
+                    if journey_id in active_journeys_mapping:
+                        projected_journey_guidelines = (
+                            await self._journey_guideline_projection.project_journey_to_guidelines(
+                                journey_id
+                            )
                         )
+
+                        guidelines.extend(projected_journey_guidelines)
+
+                        journey_conditions = [
+                            available_guidelines[c]
+                            for c in active_journeys_mapping[journey_id].conditions
+                        ]
+
+                        guidelines.extend(journey_conditions)
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.

@@ -30,4 +30,7 @@ def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:
     if agent_intention_condition := g.metadata.get("agent_intention_condition"):
         condition = cast(str, agent_intention_condition) or condition
 
+    if internal_action := g.metadata.get("internal_action"):
+        action = cast(str, internal_action) or action
+
     return GuidelineInternalRepresentation(condition, action)

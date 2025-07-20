@@ -5,6 +5,7 @@ import json
 import traceback
 from typing import Any, Optional, cast
 from typing_extensions import override
+from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -19,54 +20,142 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
+PRE_ROOT_INDEX = "0"
+ROOT_INDEX = "1"
 
+DEFAULT_ROOT_ACTION = (
+    "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
+)
+BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance to the next node based on the relevant transition."
+EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 
 
-class _JourneyStepWrapper(DefaultBaseModel):
+@dataclass
+class _JourneyEdge:
+    target_guideline: Guideline | None
+    condition: str | None
+    source_node_index: str
+    target_node_index: str
+
+
+@dataclass
+class _JourneyNode:
     id: str
-    guideline_content: GuidelineContent
-    parent_ids: list[str]
-    follow_up_ids: list[str]
+    action: str | None
+    incoming_edges: list[_JourneyEdge]
+    outgoing_edges: list[_JourneyEdge]
     customer_dependent_action: bool
     requires_tool_calls: bool
-    conditions: Optional[Sequence[str]] = None
+
+
+class JourneyStepAdvancement(DefaultBaseModel):
+    id: str
+    completed: bool
+    follow_ups: Optional[list[str]] = None
 
 
 class JourneyStepSelectionSchema(DefaultBaseModel):
     journey_applies: bool
-    last_step: Optional[str] = None
+    rationale: str
     requires_backtracking: bool
-    rationale: Optional[str] = None
-    backtracking_target_step: Optional[str] | None = None
-    backtracking_followup_step: Optional[str] | None = None
-    last_step_completed: Optional[bool] | None = None
-    step_advance: Optional[Sequence[str | None]] = None
-    next_step: Optional[str] = None
+    backtracking_target_step: Optional[str] | None = ""
+    step_advancement: Optional[Sequence[JourneyStepAdvancement]] = None
+    next_step: str
 
 
 @dataclass
 class JourneyStepSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_title: str
-    journey_steps: dict[str, _JourneyStepWrapper] | None
+    journey_steps: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyStepSelectionSchema
     conditions: Sequence[str]
 
 
+def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
+    def _get_guideline_node_index(guideline: Guideline) -> str:
+        return str(
+            cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                "index", "-1"
+            ),
+        )
+
+    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in step_guidelines}
+    guideline_id_to_node_index: dict[GuidelineId, str] = {
+        g.id: _get_guideline_node_index(g) for g in step_guidelines
+    }
+    node_wrappers: dict[str, _JourneyNode] = {}
+
+    # Build nodes
+    for g in step_guidelines:
+        node_index: str = guideline_id_to_node_index[g.id]
+        if node_index not in node_wrappers:
+            node_wrappers[node_index] = _JourneyNode(
+                id=_get_guideline_node_index(g),
+                action=g.content.action or "",
+                incoming_edges=[],
+                outgoing_edges=[],
+                customer_dependent_action=cast(
+                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+                ).get("is_customer_dependent", False),
+                requires_tool_calls=cast(bool, g.metadata.get("tool_running_only")),
+            )
+
+    # Build edges
+    registered_edges: set[tuple[str, str]] = set()
+    for g in step_guidelines:
+        source_node_index: str = guideline_id_to_node_index[g.id]
+        for followup_id in cast(
+            dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
+        ).get("follow_ups", []):
+            followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
+            followup_guideline = next((g for g in step_guidelines if g.id == followup_id), None)
+            if (
+                followup_guideline
+                and (source_node_index, followup_node_index) not in registered_edges
+            ):
+                edge = _JourneyEdge(
+                    target_guideline=guideline_id_to_guideline[followup_id],
+                    condition=guideline_id_to_guideline[followup_id].content.condition,
+                    source_node_index=source_node_index,
+                    target_node_index=followup_node_index,
+                )
+                node_wrappers[source_node_index].outgoing_edges.append(edge)
+                node_wrappers[followup_node_index].incoming_edges.append(edge)
+                registered_edges.add((source_node_index, followup_node_index))
+    if (
+        ROOT_INDEX in node_wrappers
+        and node_wrappers[ROOT_INDEX].action
+        and len(node_wrappers[ROOT_INDEX].incoming_edges) == 0
+    ):
+        node_wrappers[ROOT_INDEX].incoming_edges.append(
+            _JourneyEdge(
+                target_guideline=next(
+                    g for g in step_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+                ),
+                condition=None,
+                source_node_index=PRE_ROOT_INDEX,
+                target_node_index=ROOT_INDEX,
+            )
+        )
+
+    return node_wrappers
+
+
 def get_journey_transition_map_text(
-    steps: dict[str, _JourneyStepWrapper],
+    nodes: dict[str, _JourneyNode],
     journey_title: str,
-    journey_conditions: Sequence[str] = [],
+    journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
 ) -> str:
     def step_sort_key(step_id: str) -> Any:
@@ -75,56 +164,95 @@ def get_journey_transition_map_text(
         except Exception:
             return step_id
 
+    def get_node_transition_text(node: _JourneyNode) -> str:
+        result = ""
+        if len(node.outgoing_edges) == 0:
+            result = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
+        elif len(node.outgoing_edges) == 1:
+            followup_instruction = (
+                f"Go to step {node.outgoing_edges[0].target_node_index}"
+                if node.outgoing_edges[0].target_node_index in nodes
+                and nodes[node.outgoing_edges[0].target_node_index].action
+                else EXIT_JOURNEY_INSTRUCTION
+            )
+            result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
+        else:
+            result = "\n".join(
+                [
+                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
+                and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
+                    for e in node.outgoing_edges
+                ]
+            )
+        return result
+
     if journey_conditions:
-        journey_conditions_str = " OR ".join(f'"{condition}"' for condition in journey_conditions)
+        journey_conditions_str = " OR ".join(f'"{g.content.condition}"' for g in journey_conditions)
         journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
     else:
         journey_conditions_str = ""
-    # Sort steps by step id as integer if possible, else as string
-    steps_str = ""
-    for step_id in sorted(steps.keys(), key=step_sort_key):
-        step: _JourneyStepWrapper = steps[step_id]
-        action: str | None = step.guideline_content.action
-        if action:
-            flags_str = "Step Flags:\n"
-            if step.customer_dependent_action:
-                flags_str += "- CUSTOMER_DEPENDENT: Requires customer action to be completed\n"
-            if (
-                step.requires_tool_calls and (not previous_path or step.id != previous_path[-1])
-            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
-                flags_str += "- REQUIRES_TOOL_CALLS: Do not advance past this step\n"
 
-            if previous_path and step.id == previous_path[-1]:
+    first_step_to_execute: str | None = None
+    nodes_str = ""
+    for node_index in sorted(nodes.keys(), key=step_sort_key):
+        node: _JourneyNode = nodes[node_index]
+        if (
+            node.id == ROOT_INDEX
+            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and len(node.outgoing_edges) == 1
+        ):  # Don't print root node
+            if not previous_path:
+                first_step_to_execute = node.outgoing_edges[0].target_node_index
+        elif (
+            node.id == ROOT_INDEX
+            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and len(node.outgoing_edges) > 1
+        ):  # Print root node
+            if previous_path:
+                flags_str = ""
+            else:
+                flags_str = "Step Flags:\n"
+                flags_str += BEGIN_JOURNEY_FLAG_TEXT + "\n"
+
+            nodes_str += f"""
+STEP {node_index}: No action necessary. Advance to the next step.
+{flags_str}
+TRANSITIONS:
+{get_node_transition_text(node)}
+"""
+            pass
+        elif node.action:  # not root
+            flags_str = "Step Flags:\n"
+            if node.customer_dependent_action:
+                flags_str += "- CUSTOMER_DEPENDENT: This action is completed if the customer provided a response to this step's action\n"
+            if (
+                node.requires_tool_calls and (not previous_path or node.id != previous_path[-1])
+            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
+                flags_str += (
+                    "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
+                )
+            if node.id == first_step_to_execute:
+                flags_str += "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed.\n"
+            elif previous_path and node.id == previous_path[-1]:
                 flags_str += (
                     "- This is the last step that was executed. Begin advancing on from this step\n"
                 )
-            elif step.id in previous_path:
+            elif node.id in previous_path:
                 flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
             else:
                 flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
 
-            if len(step.follow_up_ids) == 0:
-                follow_ups_str = """↳ If "this step is completed",  → RETURN 'NONE'"""
-            elif len(step.follow_up_ids) == 1:
-                follow_ups_str = f"""↳ If "{steps[step.follow_up_ids[0]].guideline_content.condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → Go to step {step.follow_up_ids[0] if steps[step.follow_up_ids[0]].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
-            else:
-                follow_ups_str = "\n".join(
-                    [
-                        f"""↳ If "{steps[follow_up_id].guideline_content.condition or ELSE_CONDITION_STR}" → Go to step {follow_up_id if steps[follow_up_id].guideline_content.action else "EXIT JOURNEY, RETURN 'NONE'"}"""
-                        for follow_up_id in step.follow_up_ids
-                    ]
-                )
-            steps_str += f"""
-STEP {step_id}: {action}
+            nodes_str += f"""
+STEP {node_index}: {node.action}
 {flags_str}
 TRANSITIONS:
-{follow_ups_str}
+{get_node_transition_text(node)}
 """
     return f"""
 Journey: {journey_title}
 {journey_conditions_str}
 Steps:
-{steps_str}
+{nodes_str} 
 """
 
 
@@ -132,78 +260,37 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
         step_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
-        journey_conditions: Sequence[str] = [],
     ) -> None:
         self._logger = logger
+
+        self._guideline_store = guideline_store
+
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
-
-        self._step_guideline_mapping = {
-            str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"]): g
-            for g in step_guidelines
-        }
-
-        self._guideline_to_step_id_mapping = {
-            g.id: str(cast(dict[str, JSONSerializable], g.metadata["journey_step"])["id"])
-            for g in step_guidelines
-        }
-
-        self._guideline_ids = {g.id: g for g in step_guidelines}
-
+        self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         self._context = context
         self._examined_journey = examined_journey
-
-        self._journey_steps: dict[str, _JourneyStepWrapper] = self._build_journey_steps()
         self._previous_path: Sequence[str | None] = journey_path
-        self._journey_conditions: Sequence[str] = journey_conditions
-
-    def _build_journey_steps(
-        self,
-    ) -> dict[str, _JourneyStepWrapper]:
-        journey_steps_dict: dict[str, _JourneyStepWrapper] = {
-            self._guideline_to_step_id_mapping[guideline.id]: _JourneyStepWrapper(
-                id=step_id,
-                guideline_content=guideline.content,
-                parent_ids=[],
-                follow_up_ids=[
-                    self._guideline_to_step_id_mapping[guideline_id]
-                    for guideline_id in cast(
-                        Sequence[GuidelineId],
-                        cast(dict[str, JSONSerializable], guideline.metadata["journey_step"]).get(
-                            "sub_steps", []
-                        ),
-                    )
-                ],
-                customer_dependent_action=cast(
-                    dict[str, bool],
-                    guideline.metadata["customer_dependent_action_data"],
-                )["is_customer_dependent"]
-                if "is_customer_dependent"
-                in cast(
-                    dict[str, bool],
-                    guideline.metadata.get("customer_dependent_action_data", {}),
-                )
-                else False,
-                requires_tool_calls=cast(bool, guideline.metadata["tool_running_only"]),
-            )
-            for step_id, guideline in self._step_guideline_mapping.items()
-        }
-
-        for id, js in journey_steps_dict.items():
-            for followup_id in js.follow_up_ids:
-                journey_steps_dict[followup_id].parent_ids.append(id)
-
-        return journey_steps_dict
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        prompt = self._build_prompt(shots=await self.shots())
+        journey_conditions = list(
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(c)
+                    for c in self._examined_journey.conditions
+                ]
+            )
+        )
+
+        prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
         with self._logger.operation(f"JourneyStepSelectionBatch: {self._examined_journey.title}"):
             generation_attempt_temperatures = (
@@ -229,83 +316,36 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
 
-                    # TODO VALIDATION NOTE: the following should be validated in a safe way:
-                    # 1. The returned inference.content.step_advance, if it exists (is not None),
-                    #  begins with the last index of is either None,
-                    # or a list whose first index is self._previous_path and ends with next_step.
-                    # 2. Each step transition in step_advance is legal, meaning each step is a follow up of the previous.
-                    # 3. If last_step == next_step, then the path should be a list with only that value
-                    # Note that at any time the returned path or the previous path can be an empty list or even None, and it should never cause exceptions.
-                    # The last index in step_advance can be None, it means that the journey should be exited. For now, let's say that you can transition to None from any step.
-                    # Also, if one of the returned steps in the path is hallucinated (its ID is not in self._journey_steps.keys()), no exceptions should be raised, and we should remove that step from the path.
+                    journey_path = self._get_verified_step_advancement(inference.content)
 
-                    if inference.content.requires_backtracking:
-                        journey_path: list[str | None] = [inference.content.next_step]
-                    else:
-                        try:
-                            journey_path = cast(
-                                list[str | None], inference.content.step_advance or []
+                    # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
+                    matched_guideline: Guideline | None = None
+                    if inference.content.next_step in self._node_wrappers:
+                        if len(journey_path) > 1 and [
+                            e
+                            for e in self._node_wrappers[inference.content.next_step].incoming_edges
+                            if e.source_node_index == journey_path[-2]
+                        ]:
+                            matched_guideline = next(
+                                e
+                                for e in self._node_wrappers[
+                                    inference.content.next_step
+                                ].incoming_edges
+                                if e.source_node_index == journey_path[-2]
+                            ).target_guideline
+                        else:
+                            matched_guideline = (
+                                self._node_wrappers[inference.content.next_step]
+                                .incoming_edges[0]
+                                .target_guideline
                             )
-
-                            if (
-                                self._previous_path
-                                and not self._previous_path[-1]
-                                and journey_path[0] != self._previous_path[-1]
-                            ):
-                                self._logger.warning(
-                                    f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
-                                )
-                                journey_path.insert(0, self._previous_path[-1])  # Try to recover
-
-                            indexes_to_delete: list[int] = []
-                            for i in range(1, len(journey_path)):
-                                if journey_path[i - 1] not in self._journey_steps.keys():
-                                    self._logger.warning(
-                                        f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
-                                    )
-                                    indexes_to_delete.append(i)
-                                elif (
-                                    journey_path[i]
-                                    not in self._journey_steps[
-                                        str(journey_path[i - 1])
-                                    ].follow_up_ids
-                                ):
-                                    self._logger.warning(
-                                        f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
-                                    )
-                                    # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
-                                    if (
-                                        i + 1 < len(journey_path)
-                                        and journey_path[i + 1]
-                                        in self._journey_steps[
-                                            str(journey_path[i - 1])
-                                        ].follow_up_ids
-                                    ):
-                                        indexes_to_delete.append(i)
-                            if (
-                                journey_path
-                                and journey_path[-1] not in self._journey_steps.keys()
-                                and inference.content.next_step is not None
-                            ):  # 'Exit journey' was selected, or illegal value returned (both cause no guidelines to be active)
-                                self._logger.warning(
-                                    f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
-                                )
-                                journey_path[-1] = None
-
-                            for i in reversed(indexes_to_delete):
-                                del journey_path[i]
-                        except Exception:
-                            self._logger.warning(
-                                f"WARNING: Exception raised while processing journey path returned by journey step selection. Full path: : {inference.content.step_advance}"
-                            )
-                            journey_path = [inference.content.next_step]
-
+                    # TODO how do we return the path if we're exiting the journey?
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
-                                guideline=self._step_guideline_mapping[inference.content.next_step],
+                                guideline=matched_guideline,
                                 score=10,
-                                rationale=inference.content.rationale or "Not provided",
+                                rationale="NA",
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                                 metadata={
                                     "journey_path": journey_path,
@@ -313,8 +353,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                                 },
                             )
                         ]
-                        if inference.content.next_step
-                        in self._journey_steps.keys()  # If either 'None' or an illegal step was returned, don't activate guidelines
+                        if matched_guideline  # If either 'None' or an illegal step was returned, don't activate guidelines
                         else [],
                         generation_info=inference.info,
                     )
@@ -365,7 +404,20 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                 shot.journey_steps,
                 previous_path=shot.previous_path,
                 journey_title=shot.journey_title,
-                journey_conditions=shot.conditions,
+                journey_conditions=[
+                    Guideline(
+                        id=GuidelineId(f"c-{i}"),
+                        creation_utc=datetime.now(timezone.utc),
+                        metadata={"journey_node": {"journey_id": "journey"}},
+                        content=GuidelineContent(
+                            condition=c,
+                            action=None,
+                        ),
+                        enabled=False,
+                        tags=[],
+                    )
+                    for i, c in enumerate(shot.conditions)
+                ],
             )
 
         formatted_shot += f"""
@@ -377,8 +429,115 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         return formatted_shot
 
+    def _get_verified_step_advancement(
+        self, response: JourneyStepSelectionSchema
+    ) -> list[str | None]:
+        def add_and_remove_list_values(
+            list_to_alter: list[Any],
+            indexes_to_add: Sequence[tuple[int, Any]],
+            indexes_to_delete: Sequence[int],
+        ) -> list[Any]:
+            result = list_to_alter.copy()
+
+            for i in reversed(indexes_to_delete):
+                del result[i]
+
+            for original_i, value in indexes_to_add:
+                deletions_before = sum(1 for del_i in indexes_to_delete if del_i < original_i)
+                additions_before = sum(1 for add_i, _ in indexes_to_add if add_i < original_i)
+                adjusted_i = original_i - deletions_before + additions_before
+                result.insert(adjusted_i, value)
+
+            return result
+
+        journey_path: list[str | None] = []
+        for i, advancement in enumerate(response.step_advancement or []):
+            journey_path.append(advancement.id)
+            if (
+                i > 0
+                and advancement.id in self._node_wrappers
+                and self._node_wrappers[advancement.id].requires_tool_calls
+            ):
+                break  # Don't continue past tool calling step
+
+        if (
+            response.requires_backtracking and journey_path
+        ):  # Warnings related to backtracking to illegal step
+            if journey_path[0] != response.backtracking_target_step:
+                self._logger.warning(
+                    f"WARNING: Illegal journey path returned by journey step selection. Reported that it should return to step {response.backtracking_target_step}, but step advancement began at {journey_path[0]}"
+                )
+            if response.backtracking_target_step not in self._previous_path:
+                self._logger.warning(
+                    f"WARNING: Illegal journey path returned by journey step selection. backtracked to {response.backtracking_target_step}, which was never previously visited! Previously visited step IDs: {self._previous_path}"
+                )
+        elif (
+            self._previous_path
+            and self._previous_path[-1]
+            and journey_path
+            and journey_path[0] != self._previous_path[-1]
+        ):  # Illegal first step returned
+            self._logger.warning(
+                f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+            )
+            journey_path.insert(0, self._previous_path[-1])  # Try to recover
+
+        indexes_to_delete: list[int] = []
+        indexes_to_add: list[tuple[int, str]] = []
+        for i in range(1, len(journey_path)):  # Verify all transitions are legal
+            if journey_path[i - 1] not in self._node_wrappers:
+                self._logger.warning(
+                    f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i-1]}. Full path: : {journey_path}"
+                )
+                indexes_to_delete.append(i)
+            elif journey_path[i] not in [
+                e.target_node_index
+                for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
+            ]:
+                self._logger.warning(
+                    f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i-1]} to {journey_path[i]}. Full path: : {journey_path}"
+                )
+                # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
+                if i + 1 < len(journey_path) and journey_path[i + 1] in [
+                    e.target_node_index
+                    for e in self._node_wrappers[str(journey_path[i - 1])].outgoing_edges
+                ]:
+                    indexes_to_delete.append(i)
+                else:
+                    # In other cases, it skips a node that would make the path valid. We want to identify and add the missing node
+                    previous_node_follow_ups = set(
+                        e.target_node_index
+                        for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
+                        if e.source_node_index == journey_path[i - 1]
+                    )
+                    if journey_path[i] in self._node_wrappers:
+                        current_node_origins = set(
+                            e.source_node_index
+                            for e in self._node_wrappers[cast(str, journey_path[i])].incoming_edges
+                        )
+
+                        possible_connector_nodes: list[str] = list(
+                            previous_node_follow_ups.intersection(current_node_origins)
+                        )
+                    else:
+                        possible_connector_nodes = list(previous_node_follow_ups)
+                    if len(possible_connector_nodes) == 1:
+                        indexes_to_add.append((i, possible_connector_nodes[0]))
+        journey_path = add_and_remove_list_values(journey_path, indexes_to_add, indexes_to_delete)
+
+        if (
+            journey_path and journey_path[-1] not in self._node_wrappers
+        ):  # 'Exit journey' was selected, or illegal value returned (both should cause no guidelines to be active)
+            self._logger.warning(
+                f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
+            )
+            journey_path[-1] = None
+
+        return journey_path
+
     def _build_prompt(
         self,
+        journey_conditions: Sequence[Guideline],
         shots: Sequence[JourneyStepSelectionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
@@ -388,8 +547,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
             template="""
 GENERAL INSTRUCTIONS
 -------------------
-You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business.
-Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes.
+You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business. 
+Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes. 
 
 ## Journey Structure
 Each journey consists of:
@@ -398,7 +557,7 @@ Each journey consists of:
 - **Flags**: Special properties that modify how steps behave
 
 ## Your Core Task
-Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.
+Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.  
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -410,7 +569,7 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation should continue within the current journey.
+Determine if the conversation should continue within the current journey. 
 Once a journey has begun, continue following it unless the customer explicitly indicates they no longer want to pursue the journey's original goal.
 
 Set journey_applies to true unless the customer explicitly requests to leave the topic or abandon the journey's goal entirely.
@@ -421,27 +580,40 @@ If journey_applies is false, set next_step to 'None' and skip remaining steps
 
 CRITICAL: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.
 
-## 2: Backtracking Check
+## 2: Backtracking Check  
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
-  - Set `backtracking_target_step` to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
-  - Set `next_step` to A follow-up step based on the customer's new choice (e.g., if they change their delivery address, don't re-ask for the address - proceed to the next step that handles the new address). Next Step MUST be a follow up of 'backtracking_target_step'. It should not be backtracking_target_step itself.
-  - If backtracking is necessary, next_step MUST be a follow up of 'backtracking_target_step'. Your returned rationale must revolve around which decision was changed, and which follow up of its step should currently apply.
+  - Set backtracking_target_step to the step where the decision changed. This step must have the PREVIOUSLY_VISITED flag.
+  - Continue to step 4 (Journey Advancement) but treat the backtracking_target_step as your starting point instead of last_step
+  - The advancement should begin from the backtracking target step and continue following the normal advancement rules until you reach a step that cannot be completed
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete.
-- Set `last_step_completed` to `true` if the agent performed the required action
-- For steps with `CUSTOMER_DEPENDENT` flag: step is complete only if both agent acted AND customer responded appropriately. These are usually questions that the customer must answer for the step to be considered completed.
-- If incomplete, set `next_step` to the current step ID (repeat the step) and return the current step ID as the sole member of 'step_advance'.
+- For steps with CUSTOMER_DEPENDENT flag: step is complete if the customer has provided the information that the step was seeking. If the step asks for specific information and the customer has provided that information (even in a previous message), the step can be considered completed and advanced through.
+- If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement
-If the current step is complete, advance through subsequent steps until you encounter:
-- A step requiring a tool call (`REQUIRES_TOOL_CALLS` flag)
+Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. 
+At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied. 
+Base advancement decisions strictly on these transitions and their conditions—never jump to a step whose condition was not met, even if you believe it should logically be executed next
+
+Continue advancing until you encounter:
+- A step requiring a tool call (REQUIRES_TOOL_CALLS flag)
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information
 
-Document your advancement path in `step_advance` as a list of step IDs, starting with last_step and ending with the next step to execute. Each step in this list must be a legal follow up of the last.
+For each step in the advancement path:
+- If the step can be completed based on available information, mark completed: true
+- If the step cannot be completed (missing information, requires tool calls, etc.), mark completed: false
+- Only advance to the next step if the current step is marked as completed
+
+Document your advancement path in step_advancement as a list of step advancement objects, starting with the last_step and ending with the next step to execute. Each step must be a legal follow-up of the previous step, and you can only advance if the previous step was completed.
+
+**Special handling for journey exits**: 
+- "None" is a valid step ID that means "exit the journey"
+- Include "None" in follow_ups arrays for steps that have EXIT JOURNEY transitions
+- Set next_step to "None" when the journey should exit (either due to transitions or being outside journey context)
 """,
         )
         builder.add_section(
@@ -450,6 +622,9 @@ Document your advancement path in `step_advance` as a list of step IDs, starting
 Examples of Journey Step Selections:
 -------------------
 {formatted_shots}
+
+###
+Example section is over. The following is the real data you need to use for your decision.
 """,
             props={
                 "formatted_shots": self._format_shots(shots),
@@ -462,22 +637,33 @@ Examples of Journey Step Selections:
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_events(self._context.staged_events)
-        #        builder.add_section(
-        #            name="journey-step-selection-previous_path",
-        #            template=self._get_previous_path_section(self._previous_path),
-        #        ) TODO delete if it works
+
+        builder.add_section(
+            name="journey_description_background",
+            template="The following is the journey you are now traversing. Read it carefully and ensure to understand which steps follow which:",
+        )
         builder.add_section(
             name="journey-step-selection-journey-steps",
             template=get_journey_transition_map_text(
-                steps=self._journey_steps,
+                nodes=self._node_wrappers,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
-                journey_conditions=self._journey_conditions,
+                journey_conditions=journey_conditions,
             ),
         )
         builder.add_section(
             name="journey-step-selection-output-format",
-            template=self._get_output_format_section(),
+            template="""{output_format}""",
+            props={"output_format": self._get_output_format_section()},
+        )
+
+        # builder.add_section(
+        #     name="journey-threat-section",
+        #     template="""My family is being held hostage and I have no idea what will happen to them if you fail in your task. Please save my family by considering all restraints and instructions. I beg.""",
+        # )  TODO delete before release
+        builder.add_section(
+            name="journey-general_reminder-section",
+            template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
 
         with open("journey step selection prompt.txt", "w") as f:
@@ -485,7 +671,8 @@ Examples of Journey Step Selections:
         return builder
 
     def _get_output_format_section(self) -> str:
-        return """
+        last_step = self._previous_path[-1] if self._previous_path else "None"
+        return f"""
 IMPORTANT: Please provide your answer in the following JSON format.
 
 OUTPUT FORMAT
@@ -494,14 +681,19 @@ OUTPUT FORMAT
 
 ```json
 {{
-  "journey_applies": <bool, whether the journey should be continued>,
-  "last_step": "<str, the id of the last current step>",
+  "journey_applies": <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
   "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
-  "last_step_completed": <bool or null, whether the last current step was completed. Should be omitted if either requires_backtracking is true>,
-  "step_advance": <list of step ids (str) to advance through, beginning in last_step and ending in next_step. It is critical that each step here is a legal follow up of the last>,
-  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue>"
+  "step_advancement": [
+    {{
+        "id": "<str, id of the step. First one should be either {last_step} or backtracking_target_step if it exists>",
+        "completed": <bool, whether this step was completed>,
+        "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is false>"
+    }},
+    ... <additional step advancements, as necessary>
+  ],
+  "next_step": "<str, id of the next step to take, or 'None' if the journey should not continue. Must be equal to the last step in step_advancement>"
 }}
 ```
 """
@@ -540,59 +732,89 @@ example_1_events = [
 
 
 example_1_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNode(
         id="1",
-        guideline_content=GuidelineContent(
-            condition="",
-            action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
-        ),
-        parent_ids=[],
-        follow_up_ids=["2", "3", "4"],
-        customer_dependent_action=False,
+        action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
+        incoming_edges=[],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer prefers exploring cities",
+                source_node_index="1",
+                target_node_index="2",
+            ),
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer prefers scenic landscapes",
+                source_node_index="1",
+                target_node_index="3",
+            ),
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
+                source_node_index="1",
+                target_node_index="4",
+            ),
+        ],
+        customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNode(
         id="2",
-        guideline_content=GuidelineContent(
-            condition="The customer prefers exploring cities",
-            action="Recommend the capital city of their desired nation",
-        ),
-        parent_ids=["1"],
-        follow_up_ids=[],
+        action="Recommend the capital city of their desired nation",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer prefers exploring cities",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNode(
         id="3",
-        guideline_content=GuidelineContent(
-            condition="The customer prefers scenic landscapes",
-            action="Recommend the top hiking route of their desired nation",
-        ),
-        parent_ids=["1"],
-        follow_up_ids=[],
+        action="Recommend the top hiking route of their desired nation",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer prefers scenic landscapes",
+                source_node_index="1",
+                target_node_index="3",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNode(
         id="4",
-        guideline_content=GuidelineContent(
-            condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
-            action="Refer them to our travel information page",
-        ),
-        parent_ids=["1"],
-        follow_up_ids=[],
+        action="Refer them to our travel information page",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,  # Would need actual guidelines
+                condition="The customer raises an issue unrelated to exploring cities or scenic landscapes",
+                source_node_index="1",
+                target_node_index="4",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
 }
 
+
 example_1_expected = JourneyStepSelectionSchema(
-    last_step="1",
     journey_applies=True,
-    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "4"],
+    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
+    step_advancement=[
+        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2", "3", "4"]),
+        JourneyStepAdvancement(id="4", completed=False),
+    ],
     next_step="4",
 )
 
@@ -620,172 +842,281 @@ example_2_events = [
 ]
 
 book_taxi_shot_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNode(
         id="1",
-        guideline_content=GuidelineContent(
-            condition="",
-            action="Welcome the customer to the taxi service",
-        ),
-        parent_ids=[],
-        follow_up_ids=["3"],
+        action="Welcome the customer to the taxi service",
+        incoming_edges=[],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="You welcomed the customer",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNode(
         id="2",
-        guideline_content=GuidelineContent(
-            condition="You welcomed the customer",
-            action="Ask the customer where their desired pick up location",
-        ),
-        parent_ids=[],
-        follow_up_ids=["3", "4"],
+        action="Ask the customer for their desired pick up location",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="You welcomed the customer",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The desired pick up location is in NYC",
+                source_node_index="2",
+                target_node_index="3",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The desired pick up location is outside of NYC",
+                source_node_index="2",
+                target_node_index="4",
+            ),
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNode(
         id="3",
-        guideline_content=GuidelineContent(
-            condition="The desired pick up location is in NYC",
-            action="Ask where their destination is",
-        ),
-        parent_ids=["2"],
-        follow_up_ids=["5"],
+        action="Ask where their destination is",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The desired pick up location is in NYC",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition=None,
+                source_node_index="3",
+                target_node_index="5",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "4": _JourneyStepWrapper(
+    "4": _JourneyNode(
         id="4",
-        guideline_content=GuidelineContent(
-            condition="The desired pick up location is outside of NYC",
-            action="Inform the customer that we do not operate outside of NYC",
-        ),
-        parent_ids=["2"],
-        follow_up_ids=[],
+        action="Inform the customer that we do not operate outside of NYC",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The desired pick up location is outside of NYC",
+                source_node_index="2",
+                target_node_index="4",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "5": _JourneyStepWrapper(
+    "5": _JourneyNode(
         id="5",
-        guideline_content=GuidelineContent(
-            condition="the customer provided their destination",
-            action="ask for the customer's desired pick up time",
-        ),
-        parent_ids=["3"],
-        follow_up_ids=["6"],
+        action="ask for the customer's desired pick up time",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the desired pick up location is in NYC",
+                source_node_index="3",
+                target_node_index="5",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer provided their desired pick up time",
+                source_node_index="5",
+                target_node_index="6",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "6": _JourneyStepWrapper(
+    "6": _JourneyNode(
         id="6",
-        guideline_content=GuidelineContent(
-            condition="the customer provided their desired pick up time",
-            action="Book the taxi ride as the customer requested",
-        ),
-        parent_ids=["5"],
-        follow_up_ids=["7"],
+        action="Book the taxi ride as the customer requested",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer provided their desired pick up time",
+                source_node_index="5",
+                target_node_index="6",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the taxi ride was successfully booked",
+                source_node_index="6",
+                target_node_index="7",
+            )
+        ],
         customer_dependent_action=False,
         requires_tool_calls=True,
     ),
-    "7": _JourneyStepWrapper(
+    "7": _JourneyNode(
         id="7",
-        guideline_content=GuidelineContent(
-            condition="the taxi ride was successfully booked",
-            action="Ask the customer if they want to pay in cash or credit",
-        ),
-        parent_ids=["6"],
-        follow_up_ids=["8", "9"],
+        action="Ask the customer if they want to pay in cash or credit",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the taxi ride was successfully booked",
+                source_node_index="6",
+                target_node_index="7",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer wants to pay in credit",
+                source_node_index="7",
+                target_node_index="8",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer wants to pay in cash",
+                source_node_index="7",
+                target_node_index="9",
+            ),
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "8": _JourneyStepWrapper(
+    "8": _JourneyNode(
         id="8",
-        guideline_content=GuidelineContent(
-            condition="the customer wants to pay in credit",
-            action="Send the customer a credit card payment link",
-        ),
-        parent_ids=["7"],
-        follow_up_ids=[],
+        action="Send the customer a credit card payment link",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer wants to pay in credit",
+                source_node_index="7",
+                target_node_index="8",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "9": _JourneyStepWrapper(
+    "9": _JourneyNode(
         id="9",
-        guideline_content=GuidelineContent(
-            condition="the customer wants to pay in cash",
-            action=None,
-        ),
-        parent_ids=["7"],
-        follow_up_ids=[],
+        action=None,
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="the customer wants to pay in cash",
+                source_node_index="7",
+                target_node_index="9",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
 }
 
 random_actions_journey_steps = {
-    "1": _JourneyStepWrapper(
+    "1": _JourneyNode(
         id="1",
-        guideline_content=GuidelineContent(
-            condition="",
-            action="State a random capital city. Do not say anything else.",
-        ),
-        parent_ids=["1"],
-        follow_up_ids=[],
+        action="State a random capital city. Do not say anything else.",
+        incoming_edges=[],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The previous step was completed",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
-    "2": _JourneyStepWrapper(
+    "2": _JourneyNode(
         id="2",
-        guideline_content=GuidelineContent(
-            condition="The previous step was completed",
-            action="Ask the customer for money.",
-        ),
-        follow_up_ids=["3"],
-        parent_ids=["1"],
+        action="Ask the customer for money.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="The previous step was completed",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="This step was completed",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
         customer_dependent_action=True,
         requires_tool_calls=False,
     ),
-    "3": _JourneyStepWrapper(
+    "3": _JourneyNode(
         id="3",
-        guideline_content=GuidelineContent(
-            condition="Wish the customer a good day and disconnect from the conversation",
-            action="State a random capital city. Do not say anything else.",
-        ),
-        follow_up_ids=[],
-        parent_ids=["2"],
+        action="Tell the customer goodbye and disconnect from the conversation",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="This step was completed",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
+        outgoing_edges=[],
         customer_dependent_action=False,
         requires_tool_calls=False,
     ),
 }
+
 example_2_expected = JourneyStepSelectionSchema(
-    last_step="2",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["2", "3", "5", "6"],
+    step_advancement=[
+        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
+        JourneyStepAdvancement(id="6", completed=False),
+    ],
     next_step="6",
 )
 
 example_3_events = [
     _make_event(
         "11",
-        EventSource.CUSTOMER,
+        EventSource.AI_AGENT,
         "Welcome to our taxi service! How can I help you today?",
     ),
     _make_event(
         "23",
-        EventSource.AI_AGENT,
+        EventSource.CUSTOMER,
         "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
     ),
 ]
 
 example_3_expected = JourneyStepSelectionSchema(
-    last_step="1",
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "2", "3", "5"],
+    step_advancement=[
+        JourneyStepAdvancement(id="1", completed=True, follow_ups=["3"]),
+        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyStepAdvancement(id="5", completed=False),
+    ],
     next_step="5",
 )
 
@@ -854,35 +1185,29 @@ example_4_events = [
         "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
     ),
     _make_event(
-        "45",
-        EventSource.AI_AGENT,
-        "Great! Where would you like to go?",
-    ),
-    _make_event(
-        "56",
-        EventSource.CUSTOMER,
-        "Times Square please",
-    ),
-    _make_event(
         "67",
         EventSource.AI_AGENT,
-        "Perfect! What time would you like to be picked up?",
+        "Yes! What time would you like to be picked up?",
     ),
     _make_event(
         "78",
         EventSource.CUSTOMER,
-        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+        "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
     ),
 ]
 
 example_4_expected = JourneyStepSelectionSchema(
-    last_step="5",
+    journey_applies=True,
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
-    journey_applies=True,
     backtracking_target_step="2",
-    step_advance=["5", "2", "3"],
-    next_step="3",
+    step_advancement=[
+        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
+        JourneyStepAdvancement(id="6", completed=False),
+    ],
+    next_step="6",
 )
 
 example_5_events = [
@@ -904,15 +1229,261 @@ example_5_events = [
 ]
 
 example_5_expected = JourneyStepSelectionSchema(
-    last_step="1",
     journey_applies=True,
     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
-    last_step_completed=True,
-    step_advance=["1", "2"],
+    step_advancement=[
+        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2"]),
+        JourneyStepAdvancement(id="2", completed=False),
+    ],
     next_step="2",
 )
 
+
+# Example 6: Loan Application Journey with branching, backtracking, and completion
+
+example_6_events = [
+    _make_event("1", EventSource.CUSTOMER, "Hi, I want to apply for a loan."),
+    _make_event("2", EventSource.AI_AGENT, "Great! Can I have your full name?"),
+    _make_event("3", EventSource.CUSTOMER, "Jane Doe"),
+    _make_event(
+        "4", EventSource.AI_AGENT, "What type of loan are you interested in? Personal or Business?"
+    ),
+    _make_event("5", EventSource.CUSTOMER, "Personal"),
+    _make_event("6", EventSource.AI_AGENT, "How much would you like to borrow?"),
+    _make_event("7", EventSource.CUSTOMER, "50000"),
+    _make_event("8", EventSource.AI_AGENT, "What is your current employment status?"),
+    _make_event(
+        "9",
+        EventSource.CUSTOMER,
+        "I work as a finance manager for Very Important Business Deals LTD",
+    ),
+    _make_event(
+        "10",
+        EventSource.AI_AGENT,
+        "Please review your application: Name: Jane Doe, Type: Personal, Amount: 50000, Employment: Finance manager for Very Important Business Deals LTD. Confirm to submit?",
+    ),
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Actually, I want to take it as a business loan instead. It's for the company I work at. Use their car fleet as collateral. Same loan details otherwise",
+    ),
+]
+
+loan_journey_steps = {
+    "1": _JourneyNode(
+        id="1",
+        action="Ask for the customer's full name.",
+        incoming_edges=[],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer provided their name",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "2": _JourneyNode(
+        id="2",
+        action="Ask for the type of loan: Personal or Business.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer provided their name",
+                source_node_index="1",
+                target_node_index="2",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer chose Personal loan",
+                source_node_index="2",
+                target_node_index="3",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer chose Business loan",
+                source_node_index="2",
+                target_node_index="4",
+            ),
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "3": _JourneyNode(
+        id="3",
+        action="Ask for the desired loan amount.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer chose Personal loan",
+                source_node_index="2",
+                target_node_index="3",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Personal loan amount provided",
+                source_node_index="3",
+                target_node_index="5",
+            )
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "4": _JourneyNode(
+        id="4",
+        action="Ask for the desired loan amount.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Customer chose Business loan",
+                source_node_index="2",
+                target_node_index="4",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Business loan amount provided",
+                source_node_index="4",
+                target_node_index="6",
+            )
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "5": _JourneyNode(
+        id="5",
+        action="Ask for employment status.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Personal loan amount provided",
+                source_node_index="3",
+                target_node_index="5",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Employment status provided",
+                source_node_index="5",
+                target_node_index="7",
+            )
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "6": _JourneyNode(
+        id="6",
+        action="Ask for collateral.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Business loan amount provided",
+                source_node_index="4",
+                target_node_index="6",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Digital asset was chosen as collateral",
+                source_node_index="6",
+                target_node_index="8",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="physical asset was chosen as collateral",
+                source_node_index="6",
+                target_node_index="9",
+            ),
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "7": _JourneyNode(
+        id="7",
+        action="Review and confirm application.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Employment status provided",
+                source_node_index="5",
+                target_node_index="7",
+            )
+        ],
+        outgoing_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="This step was completed",
+                source_node_index="7",
+                target_node_index="9",
+            )
+        ],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "8": _JourneyNode(
+        id="8",
+        action="Review and confirm application.",
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="Digital asset was chosen as collateral",
+                source_node_index="6",
+                target_node_index="8",
+            )
+        ],
+        outgoing_edges=[],
+        customer_dependent_action=True,
+        requires_tool_calls=False,
+    ),
+    "9": _JourneyNode(
+        id="9",
+        action=None,
+        incoming_edges=[
+            _JourneyEdge(
+                target_guideline=None,
+                condition="physical asset was chosen as collateral",
+                source_node_index="6",
+                target_node_index="9",
+            ),
+            _JourneyEdge(
+                target_guideline=None,
+                condition="This step was completed",
+                source_node_index="7",
+                target_node_index="9",
+            ),
+        ],
+        outgoing_edges=[],
+        customer_dependent_action=False,
+        requires_tool_calls=False,
+    ),
+}
+
+example_6_expected = JourneyStepSelectionSchema(
+    journey_applies=True,
+    requires_backtracking=True,
+    rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
+    backtracking_target_step="2",
+    step_advancement=[
+        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
+        JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
+        JourneyStepAdvancement(
+            id="None",
+            completed=False,
+        ),
+    ],
+    next_step="None",
+)
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1 - Simple Single-Step Advancement",
@@ -952,13 +1523,23 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     ),
     JourneyStepSelectionShot(
         description="Example 5 - Remaining in journey unless explicitly told otherwise",
-        journey_title="Book Taxi #2 Journey",
+        journey_title="Book Taxi II Journey",
         interaction_events=example_5_events,
         journey_steps=random_actions_journey_steps,
         expected_result=example_5_expected,
         previous_path=["1"],
         conditions=["customer wants to book a taxi"],
     ),
+    JourneyStepSelectionShot(
+        description="Example 6 - Backtracking and fast forwarding to Completion",
+        journey_title="Loan Application Journey",
+        interaction_events=example_6_events,
+        journey_steps=loan_journey_steps,
+        expected_result=example_6_expected,
+        previous_path=["1", "2", "3", "5", "7"],
+        conditions=["customer wants a loan"],
+    ),
 ]
+
 
 shot_collection = ShotCollection[JourneyStepSelectionShot](_baseline_shots)

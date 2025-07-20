@@ -47,8 +47,8 @@ from parlant.core.evaluations import (
     EvaluationStatus,
     EvaluationStore,
     GuidelinePayload,
-    GuidelinePayloadOperation,
-    InvoiceData,
+    InvoiceGuidelineData,
+    PayloadOperation,
     Payload,
     PayloadDescriptor,
     PayloadKind,
@@ -104,11 +104,11 @@ def _payload_from_dto(dto: LegacyPayloadDTO) -> Payload:
 
 
 def _operation_to_operation_dto(
-    operation: GuidelinePayloadOperation,
+    operation: PayloadOperation,
 ) -> GuidelinePayloadOperationDTO:
     if dto := {
-        GuidelinePayloadOperation.ADD: GuidelinePayloadOperationDTO.ADD,
-        GuidelinePayloadOperation.UPDATE: GuidelinePayloadOperationDTO.UPDATE,
+        PayloadOperation.ADD: GuidelinePayloadOperationDTO.ADD,
+        PayloadOperation.UPDATE: GuidelinePayloadOperationDTO.UPDATE,
     }.get(operation):
         return dto
 
@@ -121,13 +121,17 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> LegacyPayloadDT
             kind=PayloadKindDTO.GUIDELINE,
             guideline=LegacyGuidelinePayloadDTO(
                 content=GuidelineContentDTO(
-                    condition=descriptor.payload.content.condition,
-                    action=descriptor.payload.content.action,
+                    condition=cast(GuidelinePayload, descriptor.payload).content.condition,
+                    action=cast(GuidelinePayload, descriptor.payload).content.action,
                 ),
-                operation=_operation_to_operation_dto(descriptor.payload.operation),
-                updated_id=descriptor.payload.updated_id,
-                coherence_check=descriptor.payload.coherence_check,
-                connection_proposition=descriptor.payload.connection_proposition,
+                operation=_operation_to_operation_dto(
+                    cast(GuidelinePayload, descriptor.payload).operation
+                ),
+                updated_id=cast(GuidelinePayload, descriptor.payload).updated_id,
+                coherence_check=cast(GuidelinePayload, descriptor.payload).coherence_check,
+                connection_proposition=cast(
+                    GuidelinePayload, descriptor.payload
+                ).connection_proposition,
             ),
         )
 
@@ -157,7 +161,9 @@ def _connection_proposition_kind_to_dto(
             return ConnectionPropositionKindDTO.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
 
 
-def _invoice_data_to_dto(kind: PayloadKind, invoice_data: InvoiceData) -> LegacyInvoiceDataDTO:
+def _invoice_data_to_dto(
+    kind: PayloadKind, invoice_data: InvoiceGuidelineData
+) -> LegacyInvoiceDataDTO:
     if kind == PayloadKind.GUIDELINE:
         return LegacyInvoiceDataDTO(
             guideline=LegacyGuidelineInvoiceDataDTO(
@@ -475,6 +481,8 @@ def legacy_create_router(
         params: LegacyEvaluationCreationParamsDTO,
     ) -> LegacyEvaluationDTO:
         """
+        DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE.
+
         Creates a new evaluation task for the specified agent.
 
         An evaluation analyzes proposed changes (payloads) to an agent's guidelines
@@ -526,7 +534,8 @@ def legacy_create_router(
         evaluation_id: LegacyEvaluationIdPath,
         wait_for_completion: LegacyWaitForCompletionQuery = 60,
     ) -> LegacyEvaluationDTO:
-        """Retrieves the current state of an evaluation.
+        """DEPRECATED AND WILL REMOVED IN A FUTURE RELEASE:
+        Retrieves the current state of an evaluation.
 
         * If wait_for_completion == 0, returns current state immediately.
         * If wait_for_completion > 0, waits for completion/failure or timeout. Defaults to 60.
@@ -562,7 +571,11 @@ def legacy_create_router(
                     ),
                     checksum=invoice.checksum,
                     approved=invoice.approved,
-                    data=_invoice_data_to_dto(invoice.kind, invoice.data) if invoice.data else None,
+                    data=_invoice_data_to_dto(
+                        invoice.kind, cast(InvoiceGuidelineData, invoice.data)
+                    )
+                    if invoice.data
+                    else None,
                     error=invoice.error,
                 )
                 for invoice in evaluation.invoices

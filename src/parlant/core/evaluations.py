@@ -39,13 +39,17 @@ from parlant.core.common import (
     generate_id,
 )
 from parlant.core.guidelines import GuidelineContent, GuidelineId
+from parlant.core.journeys import JourneyEdgeId, JourneyId, JourneyNodeId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
     DocumentCollection,
 )
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
+    DocumentStoreMigrationHelper,
+)
 from parlant.core.tags import TagId
 from parlant.core.tools import ToolId
 
@@ -61,6 +65,7 @@ class EvaluationStatus(Enum):
 
 class PayloadKind(Enum):
     GUIDELINE = auto()
+    JOURNEY = auto()
 
 
 class CoherenceCheckKind(Enum):
@@ -77,7 +82,7 @@ class EntailmentRelationshipPropositionKind(Enum):
     CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE = "connection_with_another_evaluated_guideline"
 
 
-class GuidelinePayloadOperation(Enum):
+class PayloadOperation(Enum):
     ADD = "add"
     UPDATE = "update"
 
@@ -86,7 +91,7 @@ class GuidelinePayloadOperation(Enum):
 class GuidelinePayload:
     content: GuidelineContent
     tool_ids: Sequence[ToolId]
-    operation: GuidelinePayloadOperation
+    operation: PayloadOperation
     coherence_check: bool  # Legacy and will be removed in the future
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
@@ -98,7 +103,13 @@ class GuidelinePayload:
         return f"condition: {self.content.condition}, action: {self.content.action}"
 
 
-Payload: TypeAlias = Union[GuidelinePayload]
+@dataclass(frozen=True)
+class JourneyPayload:
+    journey_id: JourneyId
+    operation: PayloadOperation
+
+
+Payload: TypeAlias = Union[GuidelinePayload, JourneyPayload]
 
 
 class PayloadDescriptor(NamedTuple):
@@ -126,12 +137,18 @@ class EntailmentRelationshipProposition:
 class InvoiceGuidelineData:
     coherence_checks: Optional[Sequence[CoherenceCheck]]
     entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
-    action_proposition: Optional[str]
     properties_proposition: Optional[dict[str, JSONSerializable]]
     _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
 
 
-InvoiceData: TypeAlias = Union[InvoiceGuidelineData]
+@dataclass(frozen=True)
+class InvoiceJourneyData:
+    node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]]
+    edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+    _type: Literal["journey"] = "journey"  # Union discriminator for Pydantic
+
+
+InvoiceData: TypeAlias = Union[InvoiceGuidelineData, InvoiceJourneyData]
 
 
 @dataclass(frozen=True)
@@ -243,7 +260,12 @@ class GuidelinePayloadDocument(TypedDict):
     journey_step_propositions: bool
 
 
-_PayloadDocument = Union[GuidelinePayloadDocument]
+class JourneyPayloadDocument(TypedDict):
+    journey_id: JourneyId
+    action: Literal["add", "update"]
+
+
+_PayloadDocument = Union[GuidelinePayloadDocument, JourneyPayloadDocument]
 
 
 class _CoherenceCheckDocument(TypedDict):
@@ -265,14 +287,38 @@ class _InvoiceGuidelineDataDocument_v0_1_0(TypedDict):
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
 
 
-class InvoiceGuidelineDataDocument(TypedDict):
+class InvoiceGuidelineDataDocument_v0_2_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     action_proposition: Optional[str]
     properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
-_InvoiceDataDocument = Union[InvoiceGuidelineDataDocument]
+_InvoiceDataDocument_v0_2_0 = Union[InvoiceGuidelineDataDocument_v0_2_0]
+
+
+class InvoiceGuidelineDataDocument_v0_3_0(TypedDict):
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
+    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
+    action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument_v0_3_0 = Union[InvoiceGuidelineDataDocument_v0_3_0]
+
+
+class InvoiceGuidelineDataDocument(TypedDict):
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
+    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
+
+
+class InvoiceJourneyDataDocument(TypedDict):
+    node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]]
+    edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument = Union[InvoiceGuidelineDataDocument, InvoiceJourneyDataDocument]
 
 
 class InvoiceDocument_v0_1_0(TypedDict, total=False):
@@ -291,7 +337,17 @@ class InvoiceDocument_v0_2_0(TypedDict, total=False):
     checksum: str
     state_version: str
     approved: bool
-    data: Optional[_InvoiceDataDocument]
+    data: Optional[_InvoiceDataDocument_v0_2_0]
+    error: Optional[str]
+
+
+class InvoiceDocument_v0_3_0(TypedDict, total=False):
+    kind: str
+    payload: _PayloadDocument
+    checksum: str
+    state_version: str
+    approved: bool
+    data: Optional[_InvoiceDataDocument_v0_3_0]
     error: Optional[str]
 
 
@@ -327,6 +383,16 @@ class EvaluationDocument_v0_2_0(TypedDict, total=False):
     progress: float
 
 
+class EvaluationDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    status: str
+    error: Optional[str]
+    invoices: Sequence[InvoiceDocument_v0_3_0]
+    progress: float
+
+
 class EvaluationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -346,7 +412,7 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
 
 
 class EvaluationDocumentStore(EvaluationStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
         self._database = database
@@ -359,12 +425,12 @@ class EvaluationDocumentStore(EvaluationStore):
     async def tag_association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[EvaluationTagAssociationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        elif doc["version"] == "0.2.0":
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(EvaluationTagAssociationDocument, doc)
 
             return EvaluationTagAssociationDocument(
@@ -375,28 +441,43 @@ class EvaluationDocumentStore(EvaluationStore):
                 tag_id=TagId(doc["tag_id"]),
             )
 
-        elif doc["version"] == "0.3.0":
-            return cast(EvaluationTagAssociationDocument, doc)
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationTagAssociationDocument, doc)
 
-        return None
+            return EvaluationTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.4.0"),
+                creation_utc=doc["creation_utc"],
+                evaluation_id=EvaluationId(doc["evaluation_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        return await DocumentMigrationHelper[EvaluationTagAssociationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
+            },
+        ).migrate(doc)
 
     async def document_loader(self, doc: BaseDocument) -> Optional[EvaluationDocument]:
-        if doc["version"] == "0.1.0":
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        if doc["version"] == "0.2.0":
-            doc = cast(EvaluationDocument, doc)
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationDocument_v0_2_0, doc)
 
-            return EvaluationDocument(
+            return EvaluationDocument_v0_3_0(
                 id=ObjectId(doc["id"]),
                 version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 status=doc["status"],
                 error=doc.get("error"),
                 invoices=[
-                    InvoiceDocument(
+                    InvoiceDocument_v0_3_0(
                         kind=inv["kind"],
                         payload=GuidelinePayloadDocument(
                             content=GuidelineContentDocument(
@@ -416,6 +497,44 @@ class EvaluationDocumentStore(EvaluationStore):
                         state_version=inv["state_version"],
                         approved=inv["approved"],
                         data=inv["data"],
+                    )
+                    for inv in doc["invoices"]
+                ],
+                progress=doc["progress"],
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationDocument_v0_3_0, doc)
+
+            return EvaluationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.4.0"),
+                creation_utc=doc["creation_utc"],
+                status=doc["status"],
+                error=doc.get("error"),
+                invoices=[
+                    InvoiceDocument(
+                        kind=inv["kind"],
+                        payload=inv["payload"],
+                        checksum=inv["checksum"],
+                        state_version=inv["state_version"],
+                        approved=inv["approved"],
+                        data=InvoiceGuidelineDataDocument(
+                            coherence_checks=inv["data"].get("coherence_checks"),
+                            connection_propositions=inv["data"].get("connection_propositions"),
+                            properties_proposition={
+                                **cast(
+                                    dict[str, JSONSerializable],
+                                    inv["data"].get("properties_proposition", {}),
+                                ),
+                                **({"internal_action": inv["data"].get("action_proposition", {})}),
+                            }
+                            if inv["data"].get("properties_proposition")
+                            or inv["data"].get("action_proposition")
+                            else None,
+                        )
+                        if inv["data"]
+                        else None,
                     )
                     for inv in doc["invoices"]
                 ],
@@ -497,12 +616,17 @@ class EvaluationDocumentStore(EvaluationStore):
                     if data.entailment_propositions
                     else None
                 ),
-                action_proposition=(
-                    data.action_proposition if data.action_proposition is not None else None
-                ),
                 properties_proposition=(
                     data.properties_proposition if data.properties_proposition is not None else None
                 ),
+            )
+
+        def serialize_invoice_journey_data(
+            data: InvoiceJourneyData,
+        ) -> InvoiceJourneyDataDocument:
+            return InvoiceJourneyDataDocument(
+                node_properties_proposition=data.node_properties_proposition or {},
+                edge_properties_proposition=data.edge_properties_proposition or {},
             )
 
         def serialize_payload(payload: Payload) -> _PayloadDocument:
@@ -521,6 +645,11 @@ class EvaluationDocumentStore(EvaluationStore):
                     properties_proposition=payload.properties_proposition,
                     journey_step_propositions=payload.journey_step_proposition,
                 )
+            elif isinstance(payload, JourneyPayload):
+                return JourneyPayloadDocument(
+                    journey_id=payload.journey_id,
+                    action=payload.operation.value,
+                )
             else:
                 raise TypeError(f"Unknown payload type: {type(payload)}")
 
@@ -532,7 +661,21 @@ class EvaluationDocumentStore(EvaluationStore):
                 checksum=invoice.checksum,
                 state_version=invoice.state_version,
                 approved=invoice.approved,
-                data=serialize_invoice_guideline_data(invoice.data) if invoice.data else None,
+                data=serialize_invoice_guideline_data(cast(InvoiceGuidelineData, invoice.data))
+                if invoice.data
+                else None,
+                error=invoice.error,
+            )
+        elif kind == "JOURNEY":
+            return InvoiceDocument(
+                kind=kind,
+                payload=serialize_payload(invoice.payload),
+                checksum=invoice.checksum,
+                state_version=invoice.state_version,
+                approved=invoice.approved,
+                data=serialize_invoice_journey_data(cast(InvoiceJourneyData, invoice.data))
+                if invoice.data
+                else None,
                 error=invoice.error,
             )
         else:
@@ -596,11 +739,6 @@ class EvaluationDocumentStore(EvaluationStore):
                     if data_doc["connection_propositions"] is not None
                     else None
                 ),
-                action_proposition=(
-                    data_doc["action_proposition"]
-                    if data_doc["action_proposition"] is not None
-                    else None
-                ),
                 properties_proposition=(
                     data_doc["properties_proposition"]
                     if data_doc["properties_proposition"] is not None
@@ -613,19 +751,28 @@ class EvaluationDocumentStore(EvaluationStore):
             payload_doc: _PayloadDocument,
         ) -> Payload:
             if kind == PayloadKind.GUIDELINE:
+                payload_doc = cast(GuidelinePayloadDocument, payload_doc)
+
                 return GuidelinePayload(
                     content=GuidelineContent(
                         condition=payload_doc["content"]["condition"],
                         action=payload_doc["content"]["action"] or None,
                     ),
                     tool_ids=payload_doc["tool_ids"],
-                    operation=GuidelinePayloadOperation(payload_doc["action"]),
+                    operation=PayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],
                     coherence_check=payload_doc["coherence_check"],
                     connection_proposition=payload_doc["connection_proposition"],
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
                     journey_step_proposition=payload_doc["journey_step_propositions"],
+                )
+            elif kind == PayloadKind.JOURNEY:
+                payload_doc = cast(JourneyPayloadDocument, payload_doc)
+
+                return JourneyPayload(
+                    journey_id=payload_doc["journey_id"],
+                    operation=PayloadOperation(payload_doc["action"]),
                 )
             else:
                 raise ValueError(f"Unsupported payload kind: {kind}")
@@ -637,7 +784,19 @@ class EvaluationDocumentStore(EvaluationStore):
 
             data_doc = invoice_doc.get("data")
             if data_doc is not None:
-                data = deserialize_invoice_guideline_data(data_doc)
+                if kind == PayloadKind.GUIDELINE:
+                    data: Optional[InvoiceData] = deserialize_invoice_guideline_data(
+                        cast(InvoiceGuidelineDataDocument, data_doc)
+                    )
+                elif kind == PayloadKind.JOURNEY:
+                    data = InvoiceJourneyData(
+                        node_properties_proposition=cast(InvoiceJourneyDataDocument, data_doc)[
+                            "node_properties_proposition"
+                        ],
+                        edge_properties_proposition=cast(InvoiceJourneyDataDocument, data_doc)[
+                            "edge_properties_proposition"
+                        ],
+                    )
             else:
                 data = None
 

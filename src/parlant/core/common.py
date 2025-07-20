@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
+from collections import defaultdict
 from enum import Enum
 import asyncio
 import hashlib
@@ -146,11 +147,34 @@ class CancellationSuppressionLatch:
         self._suppressed = True
 
 
+id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+class IdGenerator:
+    def __init__(self) -> None:
+        self._unique_checksums: dict[str, int] = defaultdict(int)
+
+    def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
+        str_bytes = unique_str.encode("utf-8")
+        string_hash = sum(ord(c) * (j + 1) for j, c in enumerate(unique_str))
+
+        id_chars = []
+        for i in range(size):
+            byte = str_bytes[(i + string_hash) % len(str_bytes)]
+            id_chars.append(id_generation_alphabet[byte % len(id_generation_alphabet)])
+
+        return "".join(id_chars)
+
+    def generate(self, content_checksum: str) -> UniqueId:
+        self._unique_checksums[content_checksum] += 1
+        unique_str = f"{content_checksum}-{self._unique_checksums[content_checksum]}"
+
+        new_id = self._generate_deterministic_id(unique_str, size=10)
+        return UniqueId(new_id)
+
+
 def generate_id() -> UniqueId:
-    while True:
-        new_id = nanoid.generate(size=10)
-        if "-" not in (new_id[0], new_id[-1]) and "_" not in new_id:
-            return UniqueId(new_id)
+    return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 
 
 def md5_checksum(input: str) -> str:

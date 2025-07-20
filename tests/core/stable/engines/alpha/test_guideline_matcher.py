@@ -53,7 +53,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, GuidelinePayloadOperation
+from parlant.core.evaluations import GuidelinePayload, PayloadOperation
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
@@ -133,6 +133,26 @@ OBSERVATIONAL_GUIDELINES_DICT = {
     },
     "unsupported_capability": {
         "condition": "When a customer asks about a capability that is not supported",
+        "observation": "-",
+    },
+    "reset_password": {
+        "condition": "The customer currently wants to reset their password",
+        "observation": "-",
+    },
+    "lost_card": {
+        "condition": "The customer said that they lost their card",
+        "observation": "-",
+    },
+    "business_class": {
+        "condition": "The customer is currently saying that they want a business class",
+        "observation": "-",
+    },
+    "book_flight": {
+        "condition": "The customer wants to book a flight",
+        "observation": "-",
+    },
+    "book_flight_2": {
+        "condition": "The conversation is about flight booking",
         "observation": "-",
     },
 }
@@ -359,7 +379,7 @@ async def match_guidelines(
         terms=terms,
         capabilities=capabilities,
         staged_events=staged_events,
-        relevant_journeys=activated_journeys,
+        active_journeys=activated_journeys,
         guidelines=context.guidelines,
     )
 
@@ -383,7 +403,7 @@ async def create_guideline(
                         action=action,
                     ),
                     tool_ids=[],
-                    operation=GuidelinePayloadOperation.ADD,
+                    operation=PayloadOperation.ADD,
                     coherence_check=False,
                     connection_proposition=False,
                     action_proposition=True,
@@ -2175,7 +2195,198 @@ async def test_that_observational_guidelines_are_matched_based_on_old_messages(
         ),
     ]
     conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
-    relevant_guideline_names = ["lock_card_request_1", "lock_card_request_2"]
+    relevant_guideline_names: list[str] = ["lock_card_request_2", "lock_card_request_1"]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        new_session.id,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+async def test_that_observational_guidelines_are_not_matched_based_when_topic_was_shifted(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I forgot my password. Can you help me reset it?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Of course, I'd be happy to help. Can you please provide your account name?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, it's jenny_the_cat89",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thanks! Now, could you share the email address or phone number associated with your account?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Sure, it's jenny@example.com",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great. I hope you're having a lovely day!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thanks, you too!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you! Resetting your password now...",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Your password has been successfully reset. Please check your email for further instructions.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thanks! Also, I'd like to change my credit limit.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'd be glad to help with that. Could you tell me what you'd like your new credit limit to be?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'd like to increase it to $5,000.",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["reset_password", "credit_limits_discussion"]
+    relevant_guideline_names = ["credit_limits_discussion"]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        new_session.id,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+async def test_that_observational_guidelines_are_not_matched_based_when_topic_was_shifted_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, I need to book a flight.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure! Can you please tell me your departure and destination airports?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Flying from JFK to LAX.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it. What date would you like to travel?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "July 18th.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "And would you prefer economy or business class?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Business class, please.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Perfect. Lastly, can I have the name of the traveler?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Jennifer Morales.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thanks, Jennifer. I’ll go ahead and book your business class flight from JFK to LAX on July 18th.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Your flight has been booked! A confirmation has been sent to your email.",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["business_class"]
+    relevant_guideline_names: list[str] = []
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        customer,
+        new_session.id,
+        conversation_context,
+        conversation_guideline_names,
+        relevant_guideline_names,
+    )
+
+
+async def test_that_observational_guidelines_are_matched_when_conversation_is_on_sub_topic(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, I need to book a flight.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure! Can you please tell me your departure and destination airports?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Flying from JFK to LAX.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it. What date would you like to travel?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "July 18th.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "And would you prefer economy or business class?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Business class, please.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Perfect. Lastly, can I have the name of the traveler?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Jennifer Morales.",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["book_flight", "book_flight_2"]
+    relevant_guideline_names: list[str] = ["book_flight", "book_flight_2"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,

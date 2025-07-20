@@ -27,7 +27,11 @@ from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
     EvaluationId,
-    GuidelinePayloadOperation,
+    GuidelinePayload,
+    InvoiceData,
+    InvoiceJourneyData,
+    JourneyPayload,
+    PayloadOperation,
     Invoice,
     InvoiceGuidelineData,
     Payload,
@@ -35,7 +39,12 @@ from parlant.core.evaluations import (
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.journey_guideline_projection import (
+    JourneyGuidelineProjection,
+    extract_node_id_from_journey_node_guideline_id,
+)
+from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
@@ -61,6 +70,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.services.indexing.relative_action_proposer import (
+    RelativeActionProposer,
+    RelativeActionProposition,
+)
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionProposition,
@@ -112,9 +125,9 @@ class LegacyGuidelineEvaluator:
         ] = None
 
         coherence_checks_task = asyncio.create_task(
-            self._check_payloads_coherence(
+            self._check_guideline_payloads_coherence(
                 agent,
-                payloads,
+                cast(Sequence[GuidelinePayload], payloads),
                 existing_guidelines,
                 progress_report,
             )
@@ -122,9 +135,9 @@ class LegacyGuidelineEvaluator:
         tasks.append(coherence_checks_task)
 
         connection_propositions_task = asyncio.create_task(
-            self._propose_payloads_connections(
+            self._propose_guideline_payloads_connections(
                 agent,
-                payloads,
+                cast(Sequence[GuidelinePayload], payloads),
                 existing_guidelines,
                 progress_report,
             )
@@ -149,7 +162,6 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=payload_coherence_checks,
                     entailment_propositions=None,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for payload_coherence_checks in coherence_checks
@@ -160,7 +172,6 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=[],
                     entailment_propositions=payload_connection_propositions,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for payload_connection_propositions in connection_propositions
@@ -171,16 +182,15 @@ class LegacyGuidelineEvaluator:
                 InvoiceGuidelineData(
                     coherence_checks=[],
                     entailment_propositions=None,
-                    action_proposition=None,
                     properties_proposition=None,
                 )
                 for _ in payloads
             ]
 
-    async def _check_payloads_coherence(
+    async def _check_guideline_payloads_coherence(
         self,
         agent: Agent,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         existing_guidelines: Sequence[Guideline],
         progress_report: ProgressReport,
     ) -> Optional[Iterable[Sequence[CoherenceCheck]]]:
@@ -191,7 +201,7 @@ class LegacyGuidelineEvaluator:
         updated_ids = {
             cast(GuidelineId, p.updated_id)
             for p in payloads
-            if p.operation == GuidelinePayloadOperation.UPDATE
+            if p.operation == PayloadOperation.UPDATE
         }
 
         remaining_existing_guidelines = []
@@ -273,10 +283,10 @@ class LegacyGuidelineEvaluator:
 
         return coherence_checks_by_guideline_payload.values()
 
-    async def _propose_payloads_connections(
+    async def _propose_guideline_payloads_connections(
         self,
         agent: Agent,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         existing_guidelines: Sequence[Guideline],
         progress_report: ProgressReport,
     ) -> Optional[Iterable[Sequence[EntailmentRelationshipProposition]]]:
@@ -284,9 +294,7 @@ class LegacyGuidelineEvaluator:
 
         guidelines_to_skip = [(p.content, False) for p in payloads if not p.connection_proposition]
 
-        updated_ids = {
-            p.updated_id for p in payloads if p.operation == GuidelinePayloadOperation.UPDATE
-        }
+        updated_ids = {p.updated_id for p in payloads if p.operation == PayloadOperation.UPDATE}
 
         remaining_existing_guidelines = [
             (GuidelineContent(condition=g.content.condition, action=g.content.action), True)
@@ -386,7 +394,9 @@ class LegacyBehavioralChangeEvaluator:
         if not payload_descriptors:
             raise EvaluationValidationError("No payloads provided for the evaluation task.")
 
-        guideline_payloads = [p for k, p in payload_descriptors if k == PayloadKind.GUIDELINE]
+        guideline_payloads = [
+            cast(GuidelinePayload, p) for k, p in payload_descriptors if k == PayloadKind.GUIDELINE
+        ]
 
         if guideline_payloads:
 
@@ -519,6 +529,141 @@ class LegacyBehavioralChangeEvaluator:
             raise
 
 
+class JourneyEvaluator:
+    def __init__(
+        self,
+        logger: Logger,
+        guideline_store: GuidelineStore,
+        journey_store: JourneyStore,
+        journey_guideline_projection: JourneyGuidelineProjection,
+        relative_action_proposer: RelativeActionProposer,
+    ) -> None:
+        self._logger = logger
+
+        self._guideline_store = guideline_store
+        self._journey_store = journey_store
+        self._journey_guideline_projection = journey_guideline_projection
+
+        self._relative_action_proposer = relative_action_proposer
+
+    async def _build_invoice_data(
+        self,
+        relative_action_propositions: Sequence[RelativeActionProposition],
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+    ) -> Sequence[InvoiceJourneyData]:
+        index_to_node_ids = {
+            journey_id: {
+                cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
+                    "index"
+                ]: extract_node_id_from_journey_node_guideline_id(g.id)
+                for g in journey_projections[journey_id][1]
+            }
+            for journey_id in journey_projections
+        }
+
+        result = []
+
+        for proposition, journey_id in zip(
+            relative_action_propositions, journey_projections.keys()
+        ):
+            invoice_data = InvoiceJourneyData(
+                node_properties_proposition={
+                    index_to_node_ids[journey_id][r.index]: {
+                        "internal_action": r.rewritten_actions,
+                    }
+                    for r in proposition.actions
+                },
+                edge_properties_proposition={},
+            )
+
+            result.append(invoice_data)
+
+        return result
+
+    async def evaluate(
+        self,
+        payloads: Sequence[JourneyPayload],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[InvoiceJourneyData]:
+        journeys: dict[JourneyId, Journey] = {
+            j.id: j
+            for j in await async_utils.safe_gather(
+                *[
+                    self._journey_store.read_journey(journey_id=payload.journey_id)
+                    for payload in payloads
+                ]
+            )
+        }
+
+        journey_conditions = [
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(guideline_id=condition)
+                    for condition in journey.conditions
+                ]
+            )
+            for journey in journeys.values()
+        ]
+
+        journey_projections = {
+            payload.journey_id: (journeys[payload.journey_id], projection, conditions)
+            for payload, projection, conditions in zip(
+                payloads,
+                await async_utils.safe_gather(
+                    *[
+                        self._journey_guideline_projection.project_journey_to_guidelines(
+                            journey_id=payload.journey_id
+                        )
+                        for payload in payloads
+                    ]
+                ),
+                journey_conditions,
+            )
+        }
+
+        relative_action_propositions = await self._propose_relative_actions(
+            journey_projections,
+            progress_report,
+        )
+
+        invoices = await self._build_invoice_data(
+            relative_action_propositions,
+            journey_projections,
+        )
+
+        return invoices
+
+    async def _propose_relative_actions(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[RelativeActionProposition]:
+        tasks: list[asyncio.Task[RelativeActionProposition]] = []
+
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            if not step_guidelines:
+                continue
+
+            tasks.append(
+                asyncio.create_task(
+                    self._relative_action_proposer.propose_relative_action(
+                        examined_journey=journey,
+                        step_guidelines=step_guidelines,
+                        journey_conditions=journey_conditions,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = list(await async_utils.safe_gather(*tasks))
+
+        return sparse_results
+
+
 class GuidelineEvaluator:
     def __init__(
         self,
@@ -562,8 +707,6 @@ class GuidelineEvaluator:
             agent_intention_propositions,
             tool_running_action_propositions,
         ):
-            action_prop = payload_action.content.action if payload_action else None
-
             properties_prop: dict[str, JSONSerializable] = {
                 **{
                     "continuous": payload_continuous.is_continuous if payload_continuous else None,
@@ -575,6 +718,7 @@ class GuidelineEvaluator:
                     and agent_intention.rewritten_condition
                     and agent_intention.is_agent_intention
                     else None,
+                    "internal_action": payload_action.content.action if payload_action else None,
                 },
                 **(
                     {"tool_running_only": tool_running_action.is_tool_running_only}
@@ -586,7 +730,6 @@ class GuidelineEvaluator:
             invoice_data = InvoiceGuidelineData(
                 coherence_checks=None,
                 entailment_propositions=None,
-                action_proposition=action_prop,
                 properties_proposition=properties_prop,
             )
 
@@ -596,7 +739,7 @@ class GuidelineEvaluator:
 
     async def evaluate(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[InvoiceGuidelineData]:
         action_propositions = await self._propose_actions(
@@ -632,10 +775,10 @@ class GuidelineEvaluator:
 
     async def _propose_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineActionProposition]]:
-        tasks: list[asyncio.Task[GuidelineActionProposition]] = []
+        tasks: list[asyncio.Task[Optional[GuidelineActionProposition]]] = []
         indices: list[int] = []
 
         for i, p in enumerate(payloads):
@@ -660,7 +803,7 @@ class GuidelineEvaluator:
 
     async def _detect_customer_dependant_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[CustomerDependentActionProposition]]:
@@ -693,7 +836,7 @@ class GuidelineEvaluator:
 
     async def _propose_continuous(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         proposed_actions: Sequence[Optional[GuidelineActionProposition]],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[GuidelineContinuousProposition]]:
@@ -730,7 +873,7 @@ class GuidelineEvaluator:
 
     async def _propose_agent_intention(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[AgentIntentionProposition]]:
         tasks: list[asyncio.Task[AgentIntentionProposition]] = []
@@ -763,7 +906,7 @@ class GuidelineEvaluator:
 
     async def _detect_tool_running_actions(
         self,
-        payloads: Sequence[Payload],
+        payloads: Sequence[GuidelinePayload],
         progress_report: Optional[ProgressReport] = None,
     ) -> Sequence[Optional[ToolRunningActionProposition]]:
         tasks: list[asyncio.Task[ToolRunningActionProposition]] = []
@@ -799,19 +942,26 @@ class BehavioralChangeEvaluator:
         logger: Logger,
         background_task_service: BackgroundTaskService,
         agent_store: AgentStore,
+        guideline_store: GuidelineStore,
+        journey_store: JourneyStore,
         evaluation_store: EvaluationStore,
         entity_queries: EntityQueries,
+        journey_guideline_projection: JourneyGuidelineProjection,
         guideline_action_proposer: GuidelineActionProposer,
         guideline_continuous_proposer: GuidelineContinuousProposer,
         customer_dependent_action_detector: CustomerDependentActionDetector,
         agent_intention_proposer: AgentIntentionProposer,
         tool_running_action_detector: ToolRunningActionDetector,
+        relative_action_proposer: RelativeActionProposer,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
+
         self._agent_store = agent_store
+
         self._evaluation_store = evaluation_store
         self._entity_queries = entity_queries
+
         self._guideline_evaluator = GuidelineEvaluator(
             logger=logger,
             entity_queries=entity_queries,
@@ -820,6 +970,14 @@ class BehavioralChangeEvaluator:
             customer_dependent_action_detector=customer_dependent_action_detector,
             agent_intention_proposer=agent_intention_proposer,
             tool_running_action_detector=tool_running_action_detector,
+        )
+
+        self._journey_evaluator = JourneyEvaluator(
+            logger=logger,
+            guideline_store=guideline_store,
+            journey_store=journey_store,
+            journey_guideline_projection=journey_guideline_projection,
+            relative_action_proposer=relative_action_proposer,
         )
 
     async def validate_payloads(
@@ -874,17 +1032,31 @@ class BehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
-            guideline_evaluation_data = await self._guideline_evaluator.evaluate(
-                payloads=[
-                    invoice.payload
-                    for invoice in evaluation.invoices
-                    if invoice.kind == PayloadKind.GUIDELINE
-                ],
-                progress_report=progress_report,
+            guideline_evaluation_data, journey_evaluation_data = await async_utils.safe_gather(
+                self._guideline_evaluator.evaluate(
+                    payloads=[
+                        cast(GuidelinePayload, invoice.payload)
+                        for invoice in evaluation.invoices
+                        if invoice.kind == PayloadKind.GUIDELINE
+                    ],
+                    progress_report=progress_report,
+                ),
+                self._journey_evaluator.evaluate(
+                    payloads=[
+                        cast(JourneyPayload, invoice.payload)
+                        for invoice in evaluation.invoices
+                        if invoice.kind == PayloadKind.JOURNEY
+                    ],
+                    progress_report=progress_report,
+                ),
+            )
+
+            evaluation_data: Sequence[InvoiceData] = list(guideline_evaluation_data) + list(
+                journey_evaluation_data
             )
 
             invoices: list[Invoice] = []
-            for i, result in enumerate(guideline_evaluation_data):
+            for i, result in enumerate(evaluation_data):
                 invoice_checksum = md5_checksum(str(evaluation.invoices[i].payload))
                 state_version = str(hash("Temporarily"))
 

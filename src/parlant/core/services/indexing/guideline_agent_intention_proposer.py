@@ -14,13 +14,15 @@
 
 from dataclasses import dataclass
 import json
+import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
@@ -46,10 +48,13 @@ class AgentIntentionProposer:
     def __init__(
         self,
         logger: Logger,
+        optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[AgentIntentionProposerSchema],
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
+        self._optimization_policy = optimization_policy
+
         self._schematic_generator = schematic_generator
         self._service_registry = service_registry
 
@@ -62,15 +67,35 @@ class AgentIntentionProposer:
             await progress_report.stretch(1)
 
         with self._logger.scope("AgentIntentionProposer"):
-            proposition = await self._generate_agent_intention(guideline)
+            generation_attempt_temperatures = (
+                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                    hints={"type": self.__class__.__name__}
+                )
+            )
 
-        if progress_report:
-            await progress_report.increment(1)
+            last_generation_exception: Exception | None = None
 
-        return AgentIntentionProposition(
-            is_agent_intention=proposition.is_agent_intention,
-            rewritten_condition=proposition.rewritten_condition,
-        )
+            for generation_attempt in range(3):
+                try:
+                    proposition = await self._generate_agent_intention(
+                        guideline, generation_attempt_temperatures[generation_attempt]
+                    )
+
+                    if progress_report:
+                        await progress_report.increment(1)
+
+                    return AgentIntentionProposition(
+                        is_agent_intention=proposition.is_agent_intention,
+                        rewritten_condition=proposition.rewritten_condition,
+                    )
+                except Exception as exc:
+                    self._logger.warning(
+                        f"AgentIntentionProposer attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+
+                    last_generation_exception = exc
+
+            raise EvaluationErrorError() from last_generation_exception
 
     async def _build_prompt(
         self, guideline: GuidelineContent, shots: Sequence[AgentIntentionProposerShot]
@@ -155,17 +180,16 @@ Expected output (JSON):
     async def _generate_agent_intention(
         self,
         guideline: GuidelineContent,
+        temperature: float,
     ) -> AgentIntentionProposerSchema:
         prompt = await self._build_prompt(guideline, _baseline_shots)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"temperature": 0.0},
+            hints={"temperature": temperature},
         )
         if not response.content:
             self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-        else:
-            self._logger.debug(f"Completion:\n{response.content.model_dump_json(indent=2)}")
 
         return response.content
 

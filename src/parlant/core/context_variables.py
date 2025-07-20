@@ -25,7 +25,8 @@ from parlant.core.common import (
     JSONSerializable,
     UniqueId,
     Version,
-    generate_id,
+    IdGenerator,
+    md5_checksum,
 )
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -203,7 +204,14 @@ class ContextVariableTagAssociationDocument(TypedDict, total=False):
 class ContextVariableDocumentStore(ContextVariableStore):
     VERSION = Version.from_string("0.2.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ):
+        self._id_generator = id_generator
+
         self._database = database
         self._variable_collection: DocumentCollection[_ContextVariableDocument]
         self._variable_tag_association_collection: DocumentCollection[
@@ -370,8 +378,12 @@ class ContextVariableDocumentStore(ContextVariableStore):
         tags: Optional[Sequence[TagId]] = None,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
+            context_variable_checksum = md5_checksum(
+                f"{name}{description}{tool_id}{freshness_rules}{tags}"
+            )
+
             context_variable = ContextVariable(
-                id=ContextVariableId(generate_id()),
+                id=ContextVariableId(self._id_generator.generate(context_variable_checksum)),
                 name=name,
                 description=description,
                 tool_id=tool_id,
@@ -383,14 +395,16 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 self._serialize_context_variable(context_variable)
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{context_variable.id}{tag_id}")
+
                 await self._variable_tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": datetime.now(timezone.utc).isoformat(),
                         "variable_id": context_variable.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -539,8 +553,10 @@ class ContextVariableDocumentStore(ContextVariableStore):
         async with self._lock.writer_lock:
             last_modified = datetime.now(timezone.utc)
 
+            value_checksum = md5_checksum(f"{variable_id}{key}{data}")
+
             value = ContextVariableValue(
-                id=ContextVariableValueId(generate_id()),
+                id=ContextVariableValueId(self._id_generator.generate(value_checksum)),
                 last_modified=last_modified,
                 data=data,
             )
@@ -625,8 +641,10 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{variable_id}{tag_id}")
+
             association_document: ContextVariableTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "variable_id": variable_id,

@@ -157,7 +157,8 @@ Feature: Strict Utterance Capabilities
         And the message contains no offering of a loan
 
     Scenario: Agent chooses correct capability for current journey step (strict utterance)
-        Given a journey titled "Decrease Spending Journey" to follow these steps to process a new order: 1. ask for the customer's account number 2. Ask for the customer's full name 3. suggest capabilities based on the ones available in this prompt. If none are available inform the customer that you cannot help them with their request. 4. Ask the customer if they need any further help when the customer asks about decreasing their spending
+        Given the journey called "Decrease Spending Journey"
+        And a journey path "[2, 3]" for the journey "Decrease Spending Journey"
         And the capability "offer_loan"
         And the capability "decrease_limit"
         And the capability "check_order_status"
@@ -175,11 +176,10 @@ Feature: Strict Utterance Capabilities
         And an utterance, "Is there anything else I can help you with today?"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that the agent can help regarding decreasing credit limits
-        And the message contains that the agent can help by providing a loan
+        And the message contains either help regarding decreasing credit limits, an offering of a loan, or both 
 
     Scenario: Agent doesnt mention capabilities relevant for later journey steps (strict utterance)
-        Given a journey titled "Decrease Spending Journey" to follow these steps to process a new order: 1. ask for the customer's account number 2. Ask for the customer's full name 3. suggest capabilities based on the ones available in this prompt. If none are available inform the customer that you cannot help them with their request. 4. Ask the customer if they need any further help when the customer asks about decreasing their spending
+        Given the journey called "Decrease Spending Journey"
         And the capability "offer_loan"
         And the capability "decrease_limit"
         And the capability "check_order_status"

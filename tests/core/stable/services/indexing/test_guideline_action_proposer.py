@@ -62,6 +62,7 @@ async def test_that_no_action_is_proposed_when_guideline_already_contains_action
         tool_ids=[],
     )
 
+    assert result
     assert result.content == guideline
     assert result.rationale == "No action proposed"
 
@@ -94,6 +95,7 @@ async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are
     )
 
     # Assertions: an action was proposed and it references the tool name
+    assert result
     assert result.content.action is not None
     assert result.content.condition == guideline_without_action.condition
 
@@ -302,6 +304,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         tool_ids=[ToolId(service_name="local", tool_name=tool.name) for tool in tools],
     )
 
+    assert result
     guideline_with_action = await create_guideline(
         context=context,
         condition=guideline_without_action.condition,
@@ -328,7 +331,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         terms=[],
         capabilities=[],
         staged_events=[],
-        relevant_journeys=[],
+        active_journeys=[],
         guidelines=context.guidelines,
     )
 

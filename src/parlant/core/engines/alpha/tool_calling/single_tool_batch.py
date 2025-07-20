@@ -181,6 +181,8 @@ class SingleToolBatch(ToolCallBatch):
             staged_events,
             self._get_shot_collection_for_tools(await self.shots(), bool(reference_tools)),
         )
+        with open("tool calling prompt.txt", "w") as f:
+            f.write(inference_prompt.build())
 
         tool_id, tool, _ = candidate_descriptor
 
@@ -458,7 +460,6 @@ EXAMPLES
                 status=SectionStatus.ACTIVE,
             )
         builder.add_interaction_history(interaction_event_list)
-        builder.add_journeys(journeys)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._add_guideline_matches_section(

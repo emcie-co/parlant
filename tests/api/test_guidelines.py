@@ -1455,7 +1455,6 @@ async def test_that_a_guideline_can_be_created_with_tags(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
         conditions=[],
-        steps=[],
     )
     journey_tag = Tag.for_journey_id(journey.id)
 
@@ -1758,7 +1757,6 @@ async def test_that_a_journey_tag_can_be_added_to_guideline(
         title="test_journey",
         description="test_description",
         conditions=[],
-        steps=[],
     )
     journey_tag = Tag.for_journey_id(journey.id)
 
@@ -1993,7 +1991,6 @@ async def test_that_condition_association_is_deleted_when_a_guideline_is_deleted
         title="test_journey",
         description="test_description",
         conditions=[guideline.id],
-        steps=[],
     )
 
     response = await async_client.delete(f"/guidelines/{guideline.id}")

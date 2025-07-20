@@ -20,7 +20,7 @@ from typing_extensions import override, TypedDict, Self
 
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, generate_id, UniqueId
+from parlant.core.common import ItemNotFoundError, IdGenerator, UniqueId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -61,6 +61,17 @@ class Tag:
     @staticmethod
     def extract_journey_id(tag_id: TagId) -> Optional[str]:
         if not tag_id.startswith("journey:"):
+            return None
+
+        return str(tag_id.split(":")[1])
+
+    @staticmethod
+    def for_journey_node_id(journey_node_id: str) -> TagId:
+        return TagId(f"journey_node:{journey_node_id}")
+
+    @staticmethod
+    def extract_journey_node_id(tag_id: TagId) -> Optional[str]:
+        if not tag_id.startswith("journey_node:"):
             return None
 
         return str(tag_id.split(":")[1])
@@ -113,7 +124,14 @@ class _TagDocument(TypedDict, total=False):
 class TagDocumentStore(TagStore):
     VERSION = Version.from_string("0.1.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
         self._database = database
         self._collection: DocumentCollection[_TagDocument]
         self._allow_migration = allow_migration
@@ -173,7 +191,13 @@ class TagDocumentStore(TagStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            tag = Tag(id=TagId(generate_id()), creation_utc=creation_utc, name=name)
+            tag_checksum = f"{name}"
+
+            tag = Tag(
+                id=TagId(self._id_generator.generate(tag_checksum)),
+                creation_utc=creation_utc,
+                name=name,
+            )
             await self._collection.insert_one(self._serialize(tag))
 
         return tag

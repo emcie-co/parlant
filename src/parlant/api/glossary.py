@@ -168,7 +168,7 @@ def create_legacy_router(
         """
         [DEPRECATED] Creates a new term in the agent's glossary.
 
-        This endpoint uses the deprecated agent_id approach instead of tags.
+        This endpoint uses the deprecated agent_id approach instead of tags, and will be removed in a future release.
         Consider using the new tag-based endpoints instead.
 
         This endpoint will be removed in a future release.
@@ -221,7 +221,7 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves details of a specific term by ID for a given agent.
 
-        This endpoint uses the deprecated agent_id approach instead of tags.
+        This endpoint uses the deprecated agent_id approach instead of tags, and will be removed in a future release.
         Consider using the new tag-based endpoints instead.
 
         This endpoint will be removed in a future release.
@@ -265,7 +265,7 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves a list of all terms in the agent's glossary.
 
-        This endpoint uses the deprecated agent_id approach instead of tags.
+        This endpoint uses the deprecated agent_id approach instead of tags, and will be removed in a future release.
         Consider using the new tag-based endpoints instead.
 
         This endpoint will be removed in a future release.
@@ -313,7 +313,7 @@ def create_legacy_router(
             """
             [DEPRECATED] Updates an existing term's attributes in the agent's glossary.
 
-            This endpoint uses the deprecated agent_id approach instead of tags.
+            This endpoint uses the deprecated agent_id approach instead of tags, and will be removed in a future release.
             Consider using the new tag-based endpoints instead.
 
             This endpoint will be removed in a future release.
@@ -376,7 +376,7 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes a term from the agent.
 
-        This endpoint uses the deprecated agent_id approach instead of tags.
+        This endpoint uses the deprecated agent_id approach instead of tags, and will be removed in a future release.
         Consider using the new tag-based endpoints instead.
 
         This endpoint will be removed in a future release.

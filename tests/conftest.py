@@ -29,6 +29,7 @@ from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
+from parlant.core.common import IdGenerator
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -106,6 +107,7 @@ from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStore,
 )
+from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.journeys import JourneyStore, JourneyVectorStore
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -122,6 +124,10 @@ from parlant.core.services.indexing.guideline_agent_intention_proposer import (
 from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
+)
+from parlant.core.services.indexing.relative_action_proposer import (
+    RelativeActionProposer,
+    RelativeActionSchema,
 )
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
@@ -307,6 +313,8 @@ async def container(
     container[Logger] = logger
     container[WebSocketLogger] = WebSocketLogger(container[ContextualCorrelator])
 
+    container[IdGenerator] = Singleton(IdGenerator)
+
     async with AsyncExitStack() as stack:
         container[BackgroundTaskService] = await stack.enter_async_context(
             BackgroundTaskService(container[Logger])
@@ -317,28 +325,30 @@ async def container(
         )
 
         container[AgentStore] = await stack.enter_async_context(
-            AgentDocumentStore(TransientDocumentDatabase())
+            AgentDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[GuidelineStore] = await stack.enter_async_context(
-            GuidelineDocumentStore(TransientDocumentDatabase())
+            GuidelineDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[RelationshipStore] = await stack.enter_async_context(
-            RelationshipDocumentStore(TransientDocumentDatabase())
+            RelationshipDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[SessionStore] = await stack.enter_async_context(
             SessionDocumentStore(TransientDocumentDatabase())
         )
         container[ContextVariableStore] = await stack.enter_async_context(
-            ContextVariableDocumentStore(TransientDocumentDatabase())
+            ContextVariableDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[TagStore] = await stack.enter_async_context(
-            TagDocumentStore(TransientDocumentDatabase())
+            TagDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[CustomerStore] = await stack.enter_async_context(
-            CustomerDocumentStore(TransientDocumentDatabase())
+            CustomerDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[GuidelineToolAssociationStore] = await stack.enter_async_context(
-            GuidelineToolAssociationDocumentStore(TransientDocumentDatabase())
+            GuidelineToolAssociationDocumentStore(
+                container[IdGenerator], TransientDocumentDatabase()
+            )
         )
         container[SessionListener] = PollingSessionListener
         container[EvaluationStore] = await stack.enter_async_context(
@@ -376,8 +386,11 @@ async def container(
 
         container[JourneyStore] = await stack.enter_async_context(
             JourneyVectorStore(
+                container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger],
+                    embedder_factory,
+                    lambda: embedding_cache,
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -387,8 +400,11 @@ async def container(
 
         container[GlossaryStore] = await stack.enter_async_context(
             GlossaryVectorStore(
+                container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger],
+                    embedder_factory,
+                    lambda: embedding_cache,
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -398,6 +414,7 @@ async def container(
 
         container[UtteranceStore] = await stack.enter_async_context(
             UtteranceVectorStore(
+                container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger], embedder_factory, lambda: embedding_cache
                 ),
@@ -409,8 +426,11 @@ async def container(
 
         container[CapabilityStore] = await stack.enter_async_context(
             CapabilityVectorStore(
+                container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger],
+                    embedder_factory,
+                    lambda: embedding_cache,
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -420,6 +440,8 @@ async def container(
 
         container[EntityQueries] = Singleton(EntityQueries)
         container[EntityCommands] = Singleton(EntityCommands)
+
+        container[JourneyGuidelineProjection] = Singleton(JourneyGuidelineProjection)
 
         for generation_schema in (
             GenericObservationalGuidelineMatchesSchema,
@@ -445,6 +467,7 @@ async def container(
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
             JourneyStepSelectionSchema,
+            RelativeActionSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -482,6 +505,7 @@ async def container(
         container[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
         container[AgentIntentionProposer] = Singleton(AgentIntentionProposer)
         container[ToolRunningActionDetector] = Singleton(ToolRunningActionDetector)
+        container[RelativeActionProposer] = Singleton(RelativeActionProposer)
         container[LocalToolService] = cast(
             LocalToolService,
             await container[ServiceRegistry].update_tool_service(

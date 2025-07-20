@@ -91,10 +91,10 @@ from parlant.core.persistence.document_database import (
 )
 from parlant.core.persistence.document_database_helper import MetadataDocument
 from parlant.core.tags import Tag
-from parlant.core.utterances import (
-    UtteranceTagAssociationDocument,
+from parlant.core.canned_responses import (
+    CannedResponseTagAssociationDocument,
     UtteranceDocument_v0_1_0,
-    UtteranceVectorStore,
+    CannedResponseVectorStore,
 )
 
 DEFAULT_HOME_DIR = "runtime-data" if Path("runtime-data").exists() else "parlant-data"
@@ -245,7 +245,7 @@ async def get_component_versions() -> list[tuple[str, str]]:
                     "utterances",
                     chroma_db_metadata.get(
                         VectorDocumentStoreMigrationHelper.get_store_version_key(
-                            UtteranceVectorStore.__name__
+                            CannedResponseVectorStore.__name__
                         ),
                         chroma_db_metadata.get(
                             "version", "0.1.0"
@@ -759,8 +759,8 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     async def _association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[UtteranceTagAssociationDocument]:
-        return cast(UtteranceTagAssociationDocument, doc)
+    ) -> Optional[CannedResponseTagAssociationDocument]:
+        return cast(CannedResponseTagAssociationDocument, doc)
 
     utterances_json_file = PARLANT_HOME_DIR / "utterances.json"
 
@@ -781,7 +781,7 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     utterance_tags_collection = await utterances_db.get_or_create_collection(
         "utterance_tag_associations",
-        UtteranceTagAssociationDocument,
+        CannedResponseTagAssociationDocument,
         _association_document_loader,
     )
 
@@ -809,7 +809,7 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     new_utterance_tags_collection = await utterance_tags_db.get_or_create_collection(
         "utterance_tags",
-        UtteranceTagAssociationDocument,
+        CannedResponseTagAssociationDocument,
         _association_document_loader,
     )
 
@@ -853,7 +853,9 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
     chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
     await db.upsert_metadata(
-        VectorDocumentStoreMigrationHelper.get_store_version_key(UtteranceVectorStore.__name__),
+        VectorDocumentStoreMigrationHelper.get_store_version_key(
+            CannedResponseVectorStore.__name__
+        ),
         Version.String("0.2.0"),
     )
     await upgrade_document_database_metadata(utterance_tags_db, Version.String("0.2.0"))

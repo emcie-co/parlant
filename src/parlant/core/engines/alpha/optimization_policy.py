@@ -76,7 +76,7 @@ class BasicOptimizationPolicy(OptimizationPolicy):
         self,
         hints: Mapping[str, Any] = {},
     ) -> Sequence[float]:
-        if hints.get("type") == "utterance-selection":
+        if hints.get("type") == "canned_response-selection":
             return [
                 0.1,
                 0.05,

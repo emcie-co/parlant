@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 from parlant.core.common import generate_id
 from parlant.core.engines.alpha.message_generator import MessageSchema
-from parlant.core.utterances import UtteranceStore
+from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolResult
@@ -84,7 +84,7 @@ async def strict_agent_id(
     agent = await agent_store.create_agent(name="strict_test_agent")
     await agent_store.update_agent(
         agent.id,
-        params=AgentUpdateParams(composition_mode=CompositionMode.STRICT_UTTERANCE),
+        params=AgentUpdateParams(composition_mode=CompositionMode.STRICT_CANNED_RESPONSE),
     )
     return agent.id
 
@@ -1072,7 +1072,7 @@ async def test_that_an_agent_message_can_be_regenerated(
     assert "cold" in events[0]["data"]["message"].lower()
 
 
-async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
+async def test_that_an_agent_message_can_be_generated_from_can_rep_requests(
     async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
@@ -1115,12 +1115,12 @@ async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
     assert "thinking" in events[0]["data"]["message"].lower()
 
 
-async def test_that_an_event_with_utterances_can_be_generated(
+async def test_that_an_event_with_canned_responses_can_be_generated(
     async_client: httpx.AsyncClient,
     container: Container,
     strict_agent_id: AgentId,
 ) -> None:
-    utterance_store = container[UtteranceStore]
+    can_rep_store = container[CannedResponseStore]
 
     customer = await create_customer(
         container=container,
@@ -1133,7 +1133,7 @@ async def test_that_an_event_with_utterances_can_be_generated(
         customer_id=customer.id,
     )
 
-    utterance = await utterance_store.create_utterance(value="Hello, how can I assist?", fields=[])
+    can_rep = await can_rep_store.create_response(value="Hello, how can I assist?", fields=[])
 
     customer_event = await post_message(
         container=container,
@@ -1160,9 +1160,9 @@ async def test_that_an_event_with_utterances_can_be_generated(
     assert len(events) == 1
 
     event = events[0]
-    assert event["data"].get("utterances")
+    assert event["data"].get("canned_responses")
 
-    assert any(utterance.id == id for id, _ in event["data"]["utterances"])
+    assert any(can_rep.id == id for id, _ in event["data"]["canned_responses"])
 
 
 async def test_that_agent_state_is_deleted_when_deleting_events(

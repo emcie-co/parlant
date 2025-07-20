@@ -19,7 +19,7 @@ import json
 from typing import Optional
 
 
-from parlant.core.utterances import Utterance
+from parlant.core.canned_responses import CannedResponse
 from parlant.core.tools import ToolResult
 
 
@@ -88,14 +88,14 @@ def add(first_number: int, second_number: int) -> ToolResult:
 def multiply(first_number: int, second_number: int) -> ToolResult:
     return ToolResult(
         first_number * second_number,
-        utterances=[
-            Utterance(
-                id=Utterance.TRANSIENT_ID,
+        canned_responses=[
+            CannedResponse(
+                id=CannedResponse.TRANSIENT_ID,
                 creation_utc=datetime.now(),
                 value="asd",
                 fields=[],
                 tags=[],
-                queries=[],
+                signals=[],
             )
         ],
     )
@@ -280,7 +280,7 @@ def get_bookings(customer_id: str) -> ToolResult:
 def get_qualification_info() -> ToolResult:
     return ToolResult(
         data={"qualification_info": "5+ years of experience"},
-        utterance_fields={"qualification_info": "5+ years of experience"},
+        canned_response_fields={"qualification_info": "5+ years of experience"},
     )
 
 

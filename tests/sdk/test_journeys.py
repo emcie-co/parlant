@@ -54,10 +54,6 @@ class Test_that_condition_guidelines_are_tagged_for_created_journey(SDKTest):
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Greeting the customer",
             conditions=["the customer greets you", "the customer says 'Howdy'"],
             description="1. Offer the customer a Pepsi",
         )

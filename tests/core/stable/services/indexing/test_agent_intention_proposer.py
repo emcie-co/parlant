@@ -555,7 +555,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_1(
             creation_utc=datetime.now(timezone.utc),
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
-            queries=["reset password", "password"],
+            signals=["reset password", "password"],
             tags=[],
         )
     ]

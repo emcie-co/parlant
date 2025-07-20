@@ -32,7 +32,7 @@ def list_categories(context: ToolContext) -> ToolResult:
 @tool
 async def consult_expert(context: ToolContext, user_query: str) -> ToolResult:
     """
-    This is an example for using the utterances feature
+    This is an example for using the canned responses feature
     """
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:

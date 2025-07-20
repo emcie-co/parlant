@@ -37,7 +37,7 @@ from parlant.api import services
 from parlant.api import tags
 from parlant.api import customers
 from parlant.api import logs
-from parlant.api import utterances
+from parlant.api import canned_responses
 from parlant.core.capabilities import CapabilityStore
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -46,7 +46,7 @@ from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
 from parlant.core.journeys import JourneyStore
-from parlant.core.utterances import UtteranceStore
+from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
@@ -106,7 +106,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     relationship_store = container[RelationshipStore]
     guideline_tool_association_store = container[GuidelineToolAssociationStore]
     context_variable_store = container[ContextVariableStore]
-    utterance_store = container[UtteranceStore]
+    canned_response_store = container[CannedResponseStore]
     journey_store = container[JourneyStore]
     capability_store = container[CapabilityStore]
     service_registry = container[ServiceRegistry]
@@ -259,9 +259,9 @@ async def create_api_app(container: Container) -> ASGIApplication:
     )
 
     api_app.include_router(
-        prefix="/utterances",
-        router=utterances.create_router(
-            utterance_store=utterance_store,
+        prefix="/canned_responses",
+        router=canned_responses.create_router(
+            canned_response_store=canned_response_store,
             tag_store=tag_store,
         ),
     )

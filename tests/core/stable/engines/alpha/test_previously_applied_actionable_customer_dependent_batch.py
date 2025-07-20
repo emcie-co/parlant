@@ -533,7 +533,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             creation_utc=datetime.now(timezone.utc),
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
-            queries=["reset password", "password"],
+            signals=["reset password", "password"],
             tags=[],
         )
     ]
@@ -576,7 +576,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             creation_utc=datetime.now(timezone.utc),
             title="Increase Credit Limit",
             description="The ability to increase the customer's credit limit",
-            queries=["increase credit limit", "credit limit"],
+            signals=["increase credit limit", "credit limit"],
             tags=[],
         ),
         Capability(
@@ -584,7 +584,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             creation_utc=datetime.now(timezone.utc),
             title="Decrease Credit Limit",
             description="The ability to decrease the customer's credit limit",
-            queries=["decrease credit limit", "credit limit"],
+            signals=["decrease credit limit", "credit limit"],
             tags=[],
         ),
     ]

@@ -53,7 +53,7 @@ from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.tags import Tag
-from parlant.core.utterances import Utterance, UtteranceId, UtteranceStore
+from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseStore
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -74,10 +74,10 @@ from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
-DEFAULT_NO_MATCH_UTTERANCE = "Not sure I understand. Could you please say that another way?"
+DEFAULT_NO_MATCH_CANNED_RESPONSE = "Not sure I understand. Could you please say that another way?"
 
 
-class UtteranceDraftSchema(DefaultBaseModel):
+class CannedResponseDraftSchema(DefaultBaseModel):
     last_message_of_user: Optional[str]
     guidelines: list[str]
     insights: Optional[list[str]] = None
@@ -85,43 +85,43 @@ class UtteranceDraftSchema(DefaultBaseModel):
     response_body: Optional[str] = None
 
 
-class UtteranceSelectionSchema(DefaultBaseModel):
+class CannedResponseSelectionSchema(DefaultBaseModel):
     tldr: Optional[str] = None
     chosen_template_id: Optional[str] = None
     match_quality: Optional[str] = None
 
 
-class UtterancePreambleSchema(DefaultBaseModel):
+class CannedResponsePreambleSchema(DefaultBaseModel):
     preamble: str
 
 
-class UtteranceRevisionSchema(DefaultBaseModel):
-    revised_utterance: str
+class CannedResponseRevisionSchema(DefaultBaseModel):
+    revised_canned_response: str
 
 
 @dataclass
-class UtteranceSelectorDraftShot(Shot):
+class CannedResponseSelectorDraftShot(Shot):
     composition_modes: list[CompositionMode]
-    expected_result: UtteranceDraftSchema
+    expected_result: CannedResponseDraftSchema
 
 
 @dataclass(frozen=True)
-class _UtteranceSelectionResult:
+class _CannedResponseSelectionResult:
     @staticmethod
-    def no_match(draft: Optional[str] = None) -> _UtteranceSelectionResult:
-        return _UtteranceSelectionResult(
-            message=DEFAULT_NO_MATCH_UTTERANCE,
+    def no_match(draft: Optional[str] = None) -> _CannedResponseSelectionResult:
+        return _CannedResponseSelectionResult(
+            message=DEFAULT_NO_MATCH_CANNED_RESPONSE,
             draft=draft or "N/A",
-            utterances=[],
+            responses=[],
         )
 
     message: str
     draft: str
-    utterances: list[tuple[UtteranceId, str]]
+    responses: list[tuple[CannedResponseId, str]]
 
 
 @dataclass
-class UtteranceContext:
+class CannedResponseContext:
     event_emitter: EventEmitter
     agent: Agent
     customer: Customer
@@ -140,26 +140,26 @@ class UtteranceContext:
         return [*self.ordinary_guideline_matches, *self.tool_enabled_guideline_matches.keys()]
 
 
-class UtteranceFieldExtractionMethod(ABC):
+class CannedResponseFieldExtractionMethod(ABC):
     @abstractmethod
     async def extract(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> tuple[bool, JSONSerializable]: ...
 
 
-class StandardFieldExtraction(UtteranceFieldExtractionMethod):
+class StandardFieldExtraction(CannedResponseFieldExtractionMethod):
     def __init__(self, logger: Logger) -> None:
         self._logger = logger
 
     @override
     async def extract(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> tuple[bool, JSONSerializable]:
         if field_name != "std":
             return False, None
@@ -191,13 +191,13 @@ class StandardFieldExtraction(UtteranceFieldExtractionMethod):
         }
 
 
-class ToolBasedFieldExtraction(UtteranceFieldExtractionMethod):
+class ToolBasedFieldExtraction(CannedResponseFieldExtractionMethod):
     @override
     async def extract(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> tuple[bool, JSONSerializable]:
         tool_calls_in_order_of_importance: list[ToolCall] = []
 
@@ -216,22 +216,22 @@ class ToolBasedFieldExtraction(UtteranceFieldExtractionMethod):
         )
 
         for tool_call in tool_calls_in_order_of_importance:
-            if value := tool_call["result"]["utterance_fields"].get(field_name, None):
+            if value := tool_call["result"]["canned_response_fields"].get(field_name, None):
                 return True, value
 
         return False, None
 
 
-class UtteranceFieldExtractionSchema(DefaultBaseModel):
+class CannedResponseFieldExtractionSchema(DefaultBaseModel):
     field_name: Optional[str] = None
     field_value: Optional[str] = None
 
 
-class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
+class GenerativeFieldExtraction(CannedResponseFieldExtractionMethod):
     def __init__(
         self,
         logger: Logger,
-        generator: SchematicGenerator[UtteranceFieldExtractionSchema],
+        generator: SchematicGenerator[CannedResponseFieldExtractionSchema],
     ) -> None:
         self._logger = logger
         self._generator = generator
@@ -239,21 +239,21 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
     @override
     async def extract(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> tuple[bool, JSONSerializable]:
         if field_name != "generative":
             return False, None
 
-        generative_fields = set(re.findall(r"\{\{(generative\.[a-zA-Z0-9_]+)\}\}", utterance))
+        generative_fields = set(re.findall(r"\{\{(generative\.[a-zA-Z0-9_]+)\}\}", canned_response))
 
         if not generative_fields:
             return False, None
 
         tasks = {
             field[len("generative.") :]: asyncio.create_task(
-                self._generate_field(utterance, field, context)
+                self._generate_field(canned_response, field, context)
             )
             for field in generative_fields
         }
@@ -269,9 +269,9 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
 
     async def _generate_field(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> Optional[str]:
         def _get_field_extraction_guidelines_text(
             all_matches: Sequence[GuidelineMatch],
@@ -296,7 +296,7 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
         builder = PromptBuilder()
 
         builder.add_section(
-            "utterance-generative-field-extraction-instructions",
+            "canned-response-generative-field-extraction-instructions",
             "Your only job is to extract a particular value in the most suitable way from the following context.",
         )
 
@@ -331,68 +331,68 @@ The guidelines are not necessarily intended to aid your current task of field ge
         builder.add_staged_events(context.staged_events)
 
         builder.add_section(
-            "utterance-generative-field-extraction-field-name",
+            "canned-response-generative-field-extraction-field-name",
             """\
-We're now working on rendering an utterance template as a reply to the user.
+We're now working on rendering a canned response template as a reply to the user.
 
-The utterance template we're rendering is this: ###
-{utterance}
+The canned response template we're rendering is this: ###
+{canned_response}
 ###
 
-We're rendering one field at a time out of this utterance.
-Your job now is to take all of the context above and extract out of it the value for the field '{field_name}' within the utterance template.
+We're rendering one field at a time out of this canned response.
+Your job now is to take all of the context above and extract out of it the value for the field '{field_name}' within the canned response template.
 
-Output a JSON object containing the extracted field such that it neatly renders (substituting the field variable) into the utterance template.
+Output a JSON object containing the extracted field such that it neatly renders (substituting the field variable) into the canned response template.
 
 When applicable, if the field is substituted by a list or dict, consider rendering the value in Markdown format.
 
 A few examples:
 ---------------
-1) Utterance is "Hello {{{{generative.name}}}}, how may I help you today?"
+1) Canned response is "Hello {{{{generative.name}}}}, how may I help you today?"
 Example return value: ###
 {{ "field_name": "name", "field_value": "John" }}
 ###
 
-2) Utterance is "Hello {{{{generative.names}}}}, how may I help you today?"
+2) Canned response is "Hello {{{{generative.names}}}}, how may I help you today?"
 Example return value: ###
 {{ "field_name": "names", "field_value": "John and Katie" }}
 ###
 
-3) Utterance is "Next flights are {{{{generative.flight_list}}}}
+3) Canned response is "Next flights are {{{{generative.flight_list}}}}
 Example return value: ###
 {{ "field_name": "flight_list", "field_value": "- <FLIGHT_1>\\n- <FLIGHT_2>\\n" }}
 ###
 
-4) Utterance is "It seems that {{{{generative.customer_issue}}}} might be caused by a different issue."
+4) Canned response is "It seems that {{{{generative.customer_issue}}}} might be caused by a different issue."
 Example return value: ###
 {{ "field_name": "customer_issue", "field_value": "the red light you're seeing" }}
 ###
 
-5) Utterance is "I could suggest {{{{generative.way_to_help}}}} as a potential solution."
+5) Canned response is "I could suggest {{{{generative.way_to_help}}}} as a potential solution."
 Example return value: ###
 {{ "field_name": "way_to_help", "field_value": "that you restart your router" }}
 ###
 """,
-            props={"utterance": utterance, "field_name": field_name},
+            props={"canned_response": canned_response, "field_name": field_name},
         )
 
         result = await self._generator.generate(builder)
 
         self._logger.trace(
-            f"Utterance GenerativeFieldExtraction Completion:\n{result.content.model_dump_json(indent=2)}"
+            f"Canned response GenerativeFieldExtraction Completion:\n{result.content.model_dump_json(indent=2)}"
         )
 
         return result.content.field_value
 
 
-class UtteranceFieldExtractor(ABC):
+class CannedResponseFieldExtractor(ABC):
     def __init__(
         self,
         standard: StandardFieldExtraction,
         tool_based: ToolBasedFieldExtraction,
         generative: GenerativeFieldExtraction,
     ) -> None:
-        self.methods: list[UtteranceFieldExtractionMethod] = [
+        self.methods: list[CannedResponseFieldExtractionMethod] = [
             standard,
             tool_based,
             generative,
@@ -400,13 +400,13 @@ class UtteranceFieldExtractor(ABC):
 
     async def extract(
         self,
-        utterance: str,
+        canned_response: str,
         field_name: str,
-        context: UtteranceContext,
+        context: CannedResponseContext,
     ) -> tuple[bool, JSONSerializable]:
         for method in self.methods:
             success, extracted_value = await method.extract(
-                utterance,
+                canned_response,
                 field_name,
                 context,
             )
@@ -417,45 +417,45 @@ class UtteranceFieldExtractor(ABC):
         return False, None
 
 
-def _get_utterance_template_fields(template: str) -> set[str]:
+def _get_response_template_fields(template: str) -> set[str]:
     env = jinja2.Environment()
     parse_result = env.parse(template)
     return jinja2.meta.find_undeclared_variables(parse_result)
 
 
-class UtteranceSelector(MessageEventComposer):
+class CannedResponseSelector(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
         optimization_policy: OptimizationPolicy,
-        utterance_draft_generator: SchematicGenerator[UtteranceDraftSchema],
-        utterance_selection_generator: SchematicGenerator[UtteranceSelectionSchema],
-        utterance_composition_generator: SchematicGenerator[UtteranceRevisionSchema],
-        utterance_preamble_generator: SchematicGenerator[UtterancePreambleSchema],
+        can_rep_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
+        can_rep_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
+        can_rep_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
+        can_rep_fluid_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
         perceived_performance_policy: PerceivedPerformancePolicy,
-        utterance_store: UtteranceStore,
-        field_extractor: UtteranceFieldExtractor,
+        canned_response_store: CannedResponseStore,
+        field_extractor: CannedResponseFieldExtractor,
         message_generator: MessageGenerator,
         entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._correlator = correlator
         self._optimization_policy = optimization_policy
-        self._utterance_draft_generator = utterance_draft_generator
-        self._utterance_selection_generator = utterance_selection_generator
-        self._utterance_composition_generator = utterance_composition_generator
-        self._utterance_preamble_generator = utterance_preamble_generator
-        self._utterance_store = utterance_store
+        self._can_rep_draft_generator = can_rep_draft_generator
+        self._can_rep_selection_generator = can_rep_selection_generator
+        self._can_rep_composition_generator = can_rep_composition_generator
+        self._can_rep_fluid_preamble_generator = can_rep_fluid_preamble_generator
+        self._canned_response_store = canned_response_store
         self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
         self._message_generator = message_generator
-        self._cached_utterance_fields: dict[UtteranceId, set[str]] = {}
+        self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
         self._entity_queries = entity_queries
 
     async def shots(
         self, composition_mode: CompositionMode
-    ) -> Sequence[UtteranceSelectorDraftShot]:
+    ) -> Sequence[CannedResponseSelectorDraftShot]:
         shots = await shot_collection.list()
         supported_shots = [s for s in shots if composition_mode in s.composition_modes]
         return supported_shots
@@ -476,7 +476,7 @@ class UtteranceSelector(MessageEventComposer):
         tool_insights: ToolInsights,
         staged_events: Sequence[EmittedEvent],
     ) -> Sequence[MessageEventComposition]:
-        context = UtteranceContext(
+        context = CannedResponseContext(
             event_emitter=event_emitter,
             agent=agent,
             customer=customer,
@@ -492,15 +492,17 @@ class UtteranceSelector(MessageEventComposer):
         )
 
         prompt_builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"Utterance Preamble Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(
+                f"Canned response Preamble Prompt:\n{prompt}"
+            )
         )
 
         prompt_builder.add_agent_identity(agent)
 
-        preamble_utterances: Sequence[Utterance] = []
+        preamble_responses: Sequence[CannedResponse] = []
         preamble_choices: list[str] = []
 
-        if agent.composition_mode != CompositionMode.STRICT_UTTERANCE:
+        if agent.composition_mode != CompositionMode.STRICT_CANNED_RESPONSE:
             preamble_choices = [
                 "Hey there!",
                 "Just a moment.",
@@ -525,9 +527,9 @@ We leave that later response to another agent. Make sure you understand this.
 You must generate the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string.
 """
         else:
-            preamble_utterances = [
+            preamble_responses = [
                 u
-                for u in await self._entity_queries.find_utterances_for_context(
+                for u in await self._entity_queries.find_canned_responses_for_context(
                     agent_id=agent.id,
                     journeys=journeys,
                 )
@@ -536,20 +538,20 @@ You must generate the preamble message. You must produce a JSON object with a si
 
             preamble_choices = []
 
-            for u in preamble_utterances:
+            for u in preamble_responses:
                 try:
-                    rendered_utterance = await self._render_utterance(
+                    rendered_response = await self._render_response(
                         context=context,
-                        utterance=u.value,
+                        response=u.value,
                     )
 
-                    preamble_choices.append(rendered_utterance)
+                    preamble_choices.append(rendered_response)
                 except Exception as exc:
                     self._logger.error(
-                        f"Failed to pre-render preamble utterance for matching '{u.id}' ('{u.value}')"
+                        f"Failed to pre-render preamble response for matching '{u.id}' ('{u.value}')"
                     )
                     self._logger.error(
-                        f"Preamble utterance rendering failed: {traceback.format_exception(exc)}"
+                        f"Preamble response rendering failed: {traceback.format_exception(exc)}"
                     )
 
             if not preamble_choices:
@@ -580,7 +582,7 @@ EXACTLY as it is given (pay attention to subtleties like punctuation and copy yo
 """
 
         prompt_builder.add_section(
-            name="utterance-fluid-preamble-instructions",
+            name="canned-response-fluid-preamble-instructions",
             template="""\
 You are an AI agent that is expected to generate a preamble message for the customer.
 
@@ -610,29 +612,29 @@ You will now be given the current state of the interaction to which you must gen
             },
         )
 
-        response = await self._utterance_preamble_generator.generate(
+        can_rep = await self._can_rep_fluid_preamble_generator.generate(
             prompt=prompt_builder, hints={"temperature": 0.1}
         )
 
         self._logger.trace(
-            f"Utterance Preamble Completion:\n{response.content.model_dump_json(indent=2)}"
+            f"Canned Response Preamble Completion:\n{can_rep.content.model_dump_json(indent=2)}"
         )
 
-        if agent.composition_mode == CompositionMode.STRICT_UTTERANCE:
-            if response.content.preamble not in preamble_choices:
+        if agent.composition_mode == CompositionMode.STRICT_CANNED_RESPONSE:
+            if can_rep.content.preamble not in preamble_choices:
                 self._logger.error(
-                    f"Selected preamble '{response.content.preamble}' is not in the list of available preamble utterances."
+                    f"Selected preamble '{can_rep.content.preamble}' is not in the list of available preamble canned_responses."
                 )
                 return []
 
         emitted_event = await event_emitter.emit_message_event(
             correlation_id=f"{self._correlator.correlation_id}.preamble",
-            data=response.content.preamble,
+            data=can_rep.content.preamble,
         )
 
         return [
             MessageEventComposition(
-                generation_info={"message": response.info},
+                generation_info={"message": can_rep.info},
                 events=[emitted_event],
             )
         ]
@@ -655,8 +657,8 @@ You will now be given the current state of the interaction to which you must gen
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
-            with self._logger.scope("UtteranceSelector"):
-                with self._logger.operation("Utterance selection and rendering"):
+            with self._logger.scope("CannedResponseSelector"):
+                with self._logger.operation("Canned response selection and rendering"):
                     return await self._do_generate_events(
                         event_emitter=event_emitter,
                         agent=agent,
@@ -673,41 +675,41 @@ You will now be given the current state of the interaction to which you must gen
                         latch=latch,
                     )
 
-    async def _get_relevant_utterances(
+    async def _get_relevant_canned_responses(
         self,
-        context: UtteranceContext,
-    ) -> list[Utterance]:
-        stored_utterances = [
+        context: CannedResponseContext,
+    ) -> list[CannedResponse]:
+        stored_responses = [
             u
-            for u in await self._entity_queries.find_utterances_for_context(
+            for u in await self._entity_queries.find_canned_responses_for_context(
                 agent_id=context.agent.id,
                 journeys=context.journeys,
             )
             if Tag.preamble() not in u.tags
         ]
 
-        # Add utterances from staged tool events (transient)
-        utterances_by_staged_event: list[Utterance] = []
+        # Add responses from staged tool events (transient)
+        responses_by_staged_event: list[CannedResponse] = []
         for event in context.staged_events:
             if event.kind == EventKind.TOOL:
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
                 tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
                 for tool_call in tool_calls:
-                    utterances_by_staged_event.extend(
-                        Utterance(
-                            id=Utterance.TRANSIENT_ID,
+                    responses_by_staged_event.extend(
+                        CannedResponse(
+                            id=CannedResponse.TRANSIENT_ID,
                             value=f.value,
                             fields=f.fields,
                             creation_utc=datetime.now(),
                             tags=[],
-                            queries=[],
+                            signals=[],
                         )
-                        for f in tool_call["result"].get("utterances", [])
+                        for f in tool_call["result"].get("canned_responses", [])
                     )
 
-        all_candidates = [*stored_utterances, *utterances_by_staged_event]
+        all_candidates = [*stored_responses, *responses_by_staged_event]
 
-        # Filter out utterances that contain references to tool-based data
+        # Filter out responses that contain references to tool-based data
         # if that data does not exist in the session's context.
         all_tool_calls = chain.from_iterable(
             [
@@ -725,21 +727,21 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         all_available_fields = list(
-            chain.from_iterable(tc["result"]["utterance_fields"] for tc in all_tool_calls)
+            chain.from_iterable(tc["result"]["canned_response_fields"] for tc in all_tool_calls)
         )
 
         all_available_fields.extend(("std", "generative"))
 
-        relevant_utterances = []
+        relevant_responses = []
 
         for u in all_candidates:
-            if u.id not in self._cached_utterance_fields:
-                self._cached_utterance_fields[u.id] = _get_utterance_template_fields(u.value)
+            if u.id not in self._cached_response_fields:
+                self._cached_response_fields[u.id] = _get_response_template_fields(u.value)
 
-            if all(field in all_available_fields for field in self._cached_utterance_fields[u.id]):
-                relevant_utterances.append(u)
+            if all(field in all_available_fields for field in self._cached_response_fields[u.id]):
+                relevant_responses.append(u)
 
-        return relevant_utterances
+        return relevant_responses
 
     async def _do_generate_events(
         self,
@@ -767,7 +769,7 @@ You will now be given the current state of the interaction to which you must gen
             self._logger.info("Skipping response; interaction is empty and there are no guidelines")
             return []
 
-        context = UtteranceContext(
+        context = CannedResponseContext(
             event_emitter=event_emitter,
             agent=agent,
             customer=customer,
@@ -782,11 +784,11 @@ You will now be given the current state of the interaction to which you must gen
             staged_events=staged_events,
         )
 
-        utterances = await self._get_relevant_utterances(context)
+        responses = await self._get_relevant_canned_responses(context)
 
         generation_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "utterance-selection"}
+                hints={"type": "canned-response-selection"}
             )
         )
 
@@ -794,9 +796,9 @@ You will now be given the current state of the interaction to which you must gen
 
         for generation_attempt in range(3):
             try:
-                generation_info, result = await self._generate_utterance(
+                generation_info, result = await self._generate_response(
                     context,
-                    utterances,
+                    responses,
                     agent.composition_mode,
                     temperature=generation_attempt_temperatures[generation_attempt],
                 )
@@ -817,7 +819,7 @@ You will now be given the current state of the interaction to which you must gen
                                 message=m,
                                 participant=Participant(id=agent.id, display_name=agent.name),
                                 draft=result.draft,
-                                utterances=result.utterances,
+                                canned_responses=result.responses,
                             ),
                         )
 
@@ -950,7 +952,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
 
     def _format_shots(
         self,
-        shots: Sequence[UtteranceSelectorDraftShot],
+        shots: Sequence[CannedResponseSelectorDraftShot],
     ) -> str:
         return "\n".join(
             f"""
@@ -963,7 +965,7 @@ Example {i} - {shot.description}: ###
 
     def _format_shot(
         self,
-        shot: UtteranceSelectorDraftShot,
+        shot: CannedResponseSelectorDraftShot,
     ) -> str:
         return f"""
 - **Expected Result**:
@@ -984,8 +986,8 @@ Example {i} - {shot.description}: ###
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
-        utterances: Sequence[Utterance],
-        shots: Sequence[UtteranceSelectorDraftShot],
+        responses: Sequence[CannedResponse],
+        shots: Sequence[CannedResponseSelectorDraftShot],
     ) -> PromptBuilder:
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
@@ -993,11 +995,11 @@ Example {i} - {shot.description}: ###
         }
 
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"Utterance Draft Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Canned response Draft Prompt:\n{prompt}")
         )
 
         builder.add_section(
-            name="utterance-selector-draft-general-instructions",
+            name="canned-response-selector-draft-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -1013,7 +1015,7 @@ Later in this prompt, you'll be provided with behavioral guidelines and other co
         builder.add_agent_identity(agent)
         builder.add_customer_identity(customer)
         builder.add_section(
-            name="utterance-selector-draft-task-description",
+            name="canned-response-selector-draft-task-description",
             template="""
 TASK DESCRIPTION:
 -----------------
@@ -1032,10 +1034,10 @@ Always abide by the following general principles (note these are not the "guidel
             [event.kind != EventKind.MESSAGE for event in interaction_history]
         ):
             builder.add_section(
-                name="utterance-selector-draft-initial-message-instructions",
+                name="canned-response-selector-draft-initial-message-instructions",
                 template="""
 The interaction with the user has just began, and no messages were sent by either party.
-If told so by a guideline or some other contextual condition, send the first message. Otherwise, do not produce a reply (utterance is null).
+If told so by a guideline or some other contextual condition, send the first message. Otherwise, do not produce a reply (canned response is null).
 If you decide not to emit a message, output the following:
 {{
     "last_message_of_user": "<user's last message>",
@@ -1051,7 +1053,7 @@ Otherwise, follow the rest of this prompt to choose the content of your response
 
         else:
             builder.add_section(
-                name="utterance-selector-draft-ongoing-interaction-instructions",
+                name="canned-response-selector-draft-ongoing-interaction-instructions",
                 template="""
 Since the interaction with the user is already ongoing, always produce a reply to the user's last message.
 The only exception where you may not produce a reply (i.e., setting message = null) is if the user explicitly asked you not to respond to their message.
@@ -1061,7 +1063,7 @@ In all other cases, even if the user is indicating that the conversation is over
             )
 
         builder.add_section(
-            name="utterance-selector-draft-revision-mechanism",
+            name="canned-response-selector-draft-revision-mechanism",
             template="""
 RESPONSE MECHANISM
 ------------------
@@ -1100,7 +1102,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
 """,
         )
         builder.add_section(
-            name="utterance-selector-draft-examples",
+            name="canned-response-selector-draft-examples",
             template="""
 EXAMPLES
 -----------------
@@ -1124,7 +1126,7 @@ EXAMPLES
 
         if tool_insights.missing_data:
             builder.add_section(
-                name="utterance-selector-draft-missing-data-for-tools",
+                name="canned-response-selector-draft-missing-data-for-tools",
                 template="""
 MISSING REQUIRED DATA FOR TOOL CALLS:
 -------------------------------------
@@ -1152,7 +1154,7 @@ If it makes sense in the current state of the interaction, inform the user about
 
         if tool_insights.invalid_data:
             builder.add_section(
-                name="utterance-selector-invalid-data-for-tools",
+                name="canned-response-selector-invalid-data-for-tools",
                 template="""
 INVALID DATA FOR TOOL CALLS:
 -------------------------------------
@@ -1179,7 +1181,7 @@ You should inform the user about this invalid data: ###
             )
 
         builder.add_section(
-            name="utterance-selector-output-format",
+            name="canned-response-selector-output-format",
             template="""
 Produce a valid JSON object according to the following spec. Use the values provided as follows, and only replace those in <angle brackets> with appropriate values: ###
 
@@ -1199,7 +1201,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
-
         return builder
 
     def _get_draft_output_format(
@@ -1258,9 +1259,9 @@ Produce a valid JSON object according to the following spec. Use the values prov
 
     def _build_selection_prompt(
         self,
-        context: UtteranceContext,
+        context: CannedResponseContext,
         draft_message: str,
-        utterances: Sequence[tuple[UtteranceId, str]],
+        responses: Sequence[tuple[CannedResponseId, str]],
     ) -> PromptBuilder:
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
@@ -1270,7 +1271,9 @@ Produce a valid JSON object according to the following spec. Use the values prov
         }
 
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"Utterance Selection Prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(
+                f"Canned Response Selection Prompt:\n{prompt}"
+            )
         )
 
         if context.guidelines:
@@ -1285,12 +1288,12 @@ Produce a valid JSON object according to the following spec. Use the values prov
         else:
             formatted_guidelines = ""
 
-        formatted_utterances = "\n".join(
-            [f'Template ID: {u[0]} """\n{u[1]}\n"""' for u in utterances]
+        formatted_canned_responses = "\n".join(
+            [f'Template ID: {u[0]} """\n{u[1]}\n"""' for u in responses]
         )
 
         builder.add_section(
-            name="utterance-selector-selection-task-description",
+            name="canned-response-selector-selection-task-description",
             template="""
 1. You are an AI agent who is part of a system that interacts with a user.
 2. A draft reply to the user has been generated by a human operator.
@@ -1305,10 +1308,10 @@ Produce a valid JSON object according to the following spec. Use the values prov
         builder.add_interaction_history(context.interaction_history)
 
         builder.add_section(
-            name="utterance-selector-selection-inputs",
+            name="canned-response-selector-selection-inputs",
             template="""
 Pre-approved reply templates: ###
-{formatted_utterances}
+{formatted_canned_responses}
 ###
 
 {formatted_guidelines}
@@ -1327,8 +1330,8 @@ Output a JSON object with three properties:
 """,
             props={
                 "draft_message": draft_message,
-                "utterances": utterances,
-                "formatted_utterances": formatted_utterances,
+                "canned_responses": responses,
+                "formatted_canned_responses": formatted_canned_responses,
                 "guidelines": [
                     g for g in context.guidelines if internal_representation(g.guideline).action
                 ],
@@ -1339,20 +1342,21 @@ Output a JSON object with three properties:
         )
         return builder
 
-    async def _generate_utterance(
+    async def _generate_response(
         self,
-        context: UtteranceContext,
-        utterances: Sequence[Utterance],
+        context: CannedResponseContext,
+        responses: Sequence[CannedResponse],
         composition_mode: CompositionMode,
         temperature: float,
-    ) -> tuple[Mapping[str, GenerationInfo], Optional[_UtteranceSelectionResult]]:
+    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         # This will be needed throughout the process for emitting status events
         last_known_event_offset = (
             context.interaction_history[-1].offset if context.interaction_history else -1
         )
 
         direct_draft_output_mode = (
-            not utterances and context.agent.composition_mode != CompositionMode.STRICT_UTTERANCE
+            not responses
+            and context.agent.composition_mode != CompositionMode.STRICT_CANNED_RESPONSE
         )
 
         # Step 1: Generate the draft message
@@ -1368,7 +1372,7 @@ Output a JSON object with three properties:
             tool_enabled_guideline_matches=context.tool_enabled_guideline_matches,
             staged_events=context.staged_events,
             tool_insights=context.tool_insights,
-            utterances=utterances,
+            responses=responses,
             shots=await self.shots(context.agent.composition_mode),
         )
 
@@ -1382,13 +1386,13 @@ Output a JSON object with three properties:
                 },
             )
 
-        draft_response = await self._utterance_draft_generator.generate(
+        draft_response = await self._can_rep_draft_generator.generate(
             prompt=draft_prompt,
             hints={"temperature": temperature},
         )
 
         self._logger.trace(
-            f"Utterance Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
+            f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
 
         if not draft_response.content.response_body:
@@ -1397,10 +1401,10 @@ Output a JSON object with three properties:
         if direct_draft_output_mode:
             return {
                 "draft": draft_response.info,
-            }, _UtteranceSelectionResult(
+            }, _CannedResponseSelectionResult(
                 message=draft_response.content.response_body,
                 draft=draft_response.content.response_body,
-                utterances=[],
+                responses=[],
             )
 
         await context.event_emitter.emit_status_event(
@@ -1412,55 +1416,57 @@ Output a JSON object with three properties:
             },
         )
 
-        # Step 2: Select the most relevant utterance templates based on the draft message
-        with self._logger.operation("Retrieving top relevant utterance templates"):
-            top_relevant_utterances = await self._utterance_store.find_relevant_utterances(
+        # Step 2: Select the most relevant canned response templates based on the draft message
+        with self._logger.operation("Retrieving top relevant canned response templates"):
+            top_relevant_responses = await self._canned_response_store.find_relevant_responses(
                 query=draft_response.content.response_body,
-                available_utterances=utterances,
+                available_responses=responses,
                 max_count=10,
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        rendered_utterances: list[tuple[UtteranceId, str]] = []
+        rendered_responses: list[tuple[CannedResponseId, str]] = []
 
-        for u in top_relevant_utterances:
+        for u in top_relevant_responses:
             try:
-                rendered_utterances.append((u.id, await self._render_utterance(context, u.value)))
+                rendered_responses.append((u.id, await self._render_response(context, u.value)))
             except Exception as exc:
                 self._logger.error(
-                    f"Failed to pre-render utterance for matching '{u.id}' ('{u.value}')"
+                    f"Failed to pre-render canned response for matching '{u.id}' ('{u.value}')"
                 )
-                self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
+                self._logger.error(
+                    f"Canned Response rendering failed: {traceback.format_exception(exc)}"
+                )
 
-        # Step 4.1: In composited mode, recompose the draft message with the style of the rendered utterances
-        if composition_mode == CompositionMode.COMPOSITED_UTTERANCE:
+        # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
+        if composition_mode == CompositionMode.COMPOSITED_CANNED_RESPONSE:
             recomposition_generation_info, composited_message = await self._recompose(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                reference_messages=[u[1] for u in rendered_utterances],
+                reference_messages=[u[1] for u in rendered_responses],
             )
 
             return {
                 "draft": draft_response.info,
                 "composition": recomposition_generation_info,
-            }, _UtteranceSelectionResult(
+            }, _CannedResponseSelectionResult(
                 message=composited_message,
                 draft=draft_response.content.response_body,
-                utterances=[],
+                responses=[],
             )
 
-        # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered utterances
-        selection_response = await self._utterance_selection_generator.generate(
+        # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
+        selection_response = await self._can_rep_selection_generator.generate(
             prompt=self._build_selection_prompt(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                utterances=rendered_utterances,
+                responses=rendered_responses,
             ),
             hints={"temperature": 0.1},
         )
 
         self._logger.trace(
-            f"Utterance Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
+            f"Canned Response Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
         )
 
         # Step 5: Respond based on the match quality
@@ -1470,74 +1476,76 @@ Output a JSON object with three properties:
             selection_response.content.match_quality not in ["partial", "high"]
             or not selection_response.content.chosen_template_id
         ):
-            if composition_mode == CompositionMode.STRICT_UTTERANCE:
+            if composition_mode == CompositionMode.STRICT_CANNED_RESPONSE:
                 # Return a no-match message
                 self._logger.warning(
-                    "Failed to find relevant utterances. Please review utterance selection prompt and completion."
+                    "Failed to find relevant canned responses. Please review canned response selection prompt and completion."
                 )
 
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
-                }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
+                }, _CannedResponseSelectionResult.no_match(
+                    draft=draft_response.content.response_body
+                )
             else:
                 # Return the draft message as the response
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
-                }, _UtteranceSelectionResult(
+                }, _CannedResponseSelectionResult(
                     message=draft_response.content.response_body,
                     draft=draft_response.content.response_body,
-                    utterances=[],
+                    responses=[],
                 )
 
         # Step 5.2: Assuming a partial match in non-strict mode
         if (
             selection_response.content.match_quality == "partial"
-            and composition_mode != CompositionMode.STRICT_UTTERANCE
+            and composition_mode != CompositionMode.STRICT_CANNED_RESPONSE
         ):
             # Return the draft message as the response
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _UtteranceSelectionResult(
+            }, _CannedResponseSelectionResult(
                 message=draft_response.content.response_body,
                 draft=draft_response.content.response_body,
-                utterances=[],
+                responses=[],
             )
 
         # Step 5.3: Assuming a high-quality match or a partial match in strict mode
-        utterance_id = UtteranceId(selection_response.content.chosen_template_id)
-        rendered_utterance = next(
-            (value for uid, value in rendered_utterances if uid == utterance_id),
+        response_id = CannedResponseId(selection_response.content.chosen_template_id)
+        rendered_canned_response = next(
+            (value for uid, value in rendered_responses if uid == response_id),
             None,
         )
 
-        if not rendered_utterance:
+        if not rendered_canned_response:
             self._logger.error(
-                "Invalid utterance ID choice. Please review utterance selection prompt and completion."
+                "Invalid canned response ID choice. Please review canned response selection prompt and completion."
             )
 
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _UtteranceSelectionResult.no_match(draft=draft_response.content.response_body)
+            }, _CannedResponseSelectionResult.no_match(draft=draft_response.content.response_body)
 
         return {
             "draft": draft_response.info,
             "selection": selection_response.info,
-        }, _UtteranceSelectionResult(
-            message=rendered_utterance,
+        }, _CannedResponseSelectionResult(
+            message=rendered_canned_response,
             draft=draft_response.content.response_body,
-            utterances=[(utterance_id, rendered_utterance)],
+            responses=[(response_id, rendered_canned_response)],
         )
 
-    async def _render_utterance(self, context: UtteranceContext, utterance: str) -> str:
+    async def _render_response(self, context: CannedResponseContext, response: str) -> str:
         args = {}
 
-        for field_name in _get_utterance_template_fields(utterance):
+        for field_name in _get_response_template_fields(response):
             success, value = await self._field_extractor.extract(
-                utterance,
+                response,
                 field_name,
                 context,
             )
@@ -1545,14 +1553,14 @@ Output a JSON object with three properties:
             if success:
                 args[field_name] = value
             else:
-                self._logger.error(f"Utterance field extraction: missing '{field_name}'")
-                raise KeyError(f"Missing field '{field_name}' in utterance")
+                self._logger.error(f"CannedResponse field extraction: missing '{field_name}'")
+                raise KeyError(f"Missing field '{field_name}' in canned response")
 
-        return jinja2.Template(utterance).render(**args)
+        return jinja2.Template(response).render(**args)
 
     async def _recompose(
         self,
-        context: UtteranceContext,
+        context: CannedResponseContext,
         draft_message: str,
         reference_messages: list[str],
     ) -> tuple[GenerationInfo, str]:
@@ -1567,7 +1575,7 @@ Output a JSON object with three properties:
         builder.add_agent_identity(context.agent)
 
         builder.add_section(
-            name="utterance-selector-composition",
+            name="canned-response-selector-composition",
             template="""\
 Task Description
 ----------------
@@ -1595,7 +1603,7 @@ Style reference messages: ###
 {reference_messages_text}
 ###
 
-Respond with a JSON object {{ "revised_utterance": "<message_with_points_separated_by_double_newlines>" }}
+Respond with a JSON object {{ "revised_canned_response": "<message_with_points_separated_by_double_newlines>" }}
 """,
             props={
                 "draft_message": draft_message,
@@ -1604,21 +1612,21 @@ Respond with a JSON object {{ "revised_utterance": "<message_with_points_separat
             },
         )
 
-        result = await self._utterance_composition_generator.generate(
+        result = await self._can_rep_composition_generator.generate(
             builder,
             hints={"temperature": 1},
         )
 
         self._logger.trace(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")
 
-        return result.info, result.content.revised_utterance
+        return result.info, result.content.revised_canned_response
 
 
-def shot_utterance_id(number: int) -> str:
-    return f"<example-only-utterance--{number}--do-not-use-in-your-completion>"
+def shot_canned_response_id(number: int) -> str:
+    return f"<example-only-canned-response--{number}--do-not-use-in-your-completion>"
 
 
-example_1_expected = UtteranceDraftSchema(
+example_1_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi, I'd like an onion cheeseburger please.",
     guidelines=[
         "When the user chooses and orders a burger, then provide it",
@@ -1632,14 +1640,14 @@ example_1_expected = UtteranceDraftSchema(
     response_body="Unfortunately we're out of cheese. Would you like anything else instead?",
 )
 
-example_1_shot = UtteranceSelectorDraftShot(
-    composition_modes=[CompositionMode.FLUID_UTTERANCE],
+example_1_shot = CannedResponseSelectorDraftShot(
+    composition_modes=[CompositionMode.FLUID_CANNED_RESPONSE],
     description="A reply where one instruction was prioritized over another",
     expected_result=example_1_expected,
 )
 
 
-example_2_expected = UtteranceDraftSchema(
+example_2_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
     insights=[
@@ -1650,17 +1658,18 @@ example_2_expected = UtteranceDraftSchema(
     response_body="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
 )
 
-example_2_shot = UtteranceSelectorDraftShot(
+example_2_shot = CannedResponseSelectorDraftShot(
     composition_modes=[
-        CompositionMode.STRICT_UTTERANCE,
-        CompositionMode.COMPOSITED_UTTERANCE,
-        CompositionMode.FLUID_UTTERANCE,
+        CompositionMode.STRICT_CANNED_RESPONSE,
+        CompositionMode.COMPOSITED_CANNED_RESPONSE,
+        CompositionMode.FLUID_CANNED_RESPONSE,
     ],
     description="Non-adherence to guideline due to missing data",
     expected_result=example_2_expected,
 )
 
-example_3_expected = UtteranceDraftSchema(
+
+example_3_expected = CannedResponseDraftSchema(
     last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
     insights=[
@@ -1670,21 +1679,21 @@ example_3_expected = UtteranceDraftSchema(
     response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
-example_3_shot = UtteranceSelectorDraftShot(
+example_3_shot = CannedResponseSelectorDraftShot(
     composition_modes=[
-        CompositionMode.STRICT_UTTERANCE,
-        CompositionMode.COMPOSITED_UTTERANCE,
-        CompositionMode.FLUID_UTTERANCE,
+        CompositionMode.STRICT_CANNED_RESPONSE,
+        CompositionMode.COMPOSITED_CANNED_RESPONSE,
+        CompositionMode.FLUID_CANNED_RESPONSE,
     ],
     description="An insight is derived and followed on not offering to help with something you don't know about",
     expected_result=example_3_expected,
 )
 
 
-_baseline_shots: Sequence[UtteranceSelectorDraftShot] = [
+_baseline_shots: Sequence[CannedResponseSelectorDraftShot] = [
     example_1_shot,
     example_2_shot,
     example_3_shot,
 ]
 
-shot_collection = ShotCollection[UtteranceSelectorDraftShot](_baseline_shots)
+shot_collection = ShotCollection[CannedResponseSelectorDraftShot](_baseline_shots)

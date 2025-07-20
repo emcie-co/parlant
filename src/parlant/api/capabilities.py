@@ -56,10 +56,10 @@ CapabilityDescriptionField: TypeAlias = Annotated[
     ),
 ]
 
-CapabilityQueriesField: TypeAlias = Annotated[
+CapabilitySignalsField: TypeAlias = Annotated[
     Sequence[str],
     Field(
-        description="Example queries that this capability can handle",
+        description="Example signals that this capability can handle",
         examples=[["I thought I remembered my password", "My phone just broke"]],
     ),
 ]
@@ -77,7 +77,7 @@ capability_example: ExampleJson = {
     "id": "cap_123abc",
     "title": "Provide Replacement Phone",
     "description": "Provide a replacement phone when a customer needs repair for their phone.",
-    "queries": ["My phone is broken", "I need a replacement while my phone is being repaired"],
+    "signals": ["My phone is broken", "I need a replacement while my phone is being repaired"],
     "tags": ["tag1", "tag2"],
 }
 
@@ -93,7 +93,7 @@ class CapabilityDTO(
     id: CapabilityIdPath
     title: CapabilityTitleField
     description: CapabilityDescriptionField
-    queries: CapabilityQueriesField
+    signals: CapabilitySignalsField
     tags: CapabilityTagsField
 
 
@@ -107,7 +107,7 @@ class CapabilityCreationParamsDTO(
 
     title: CapabilityTitleField
     description: CapabilityDescriptionField
-    queries: CapabilityQueriesField
+    signals: CapabilitySignalsField
     tags: Optional[CapabilityTagsField] = None
 
 
@@ -158,7 +158,7 @@ class CapabilityUpdateParamsDTO(
 
     title: Optional[CapabilityTitleField] = None
     description: Optional[CapabilityDescriptionField] = None
-    queries: Optional[CapabilityQueriesField] = None
+    signals: Optional[CapabilitySignalsField] = None
     tags: Optional[CapabilityTagUpdateParamsDTO] = None
 
 
@@ -201,11 +201,11 @@ def create_router(
         """
         Creates a new capability in the system.
 
-        The capability will be initialized with the provided title, description, queries, and optional tags.
+        The capability will be initialized with the provided title, description, signals, and optional tags.
         A unique identifier will be automatically generated.
 
         Default behaviors:
-        - `queries` defaults to an empty list if not provided
+        - `signals` defaults to an empty list if not provided
         """
         if params.tags:
             for tag_id in params.tags:
@@ -219,7 +219,7 @@ def create_router(
         capability = await capability_store.create_capability(
             title=params.title,
             description=params.description,
-            queries=params.queries,
+            signals=params.signals,
             tags=params.tags if params.tags else None,
         )
 
@@ -227,7 +227,7 @@ def create_router(
             id=capability.id,
             title=capability.title,
             description=capability.description,
-            queries=capability.queries,
+            signals=capability.signals,
             tags=capability.tags,
         )
 
@@ -264,7 +264,7 @@ def create_router(
                 id=capability.id,
                 title=capability.title,
                 description=capability.description,
-                queries=capability.queries,
+                signals=capability.signals,
                 tags=capability.tags,
             )
             for capability in capabilities
@@ -298,7 +298,7 @@ def create_router(
             id=capability.id,
             title=capability.title,
             description=capability.description,
-            queries=capability.queries,
+            signals=capability.signals,
             tags=capability.tags,
         )
 
@@ -335,8 +335,8 @@ def create_router(
             update_params["title"] = params.title
         if params.description:
             update_params["description"] = params.description
-        if params.queries:
-            update_params["queries"] = params.queries
+        if params.signals:
+            update_params["signals"] = params.signals
 
         if update_params:
             capability = await capability_store.update_capability(
@@ -368,7 +368,7 @@ def create_router(
             id=capability.id,
             title=capability.title,
             description=capability.description,
-            queries=capability.queries,
+            signals=capability.signals,
             tags=capability.tags,
         )
 

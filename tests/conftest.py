@@ -92,14 +92,14 @@ from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
-from parlant.core.engines.alpha.utterance_selector import (
-    UtteranceDraftSchema,
-    UtteranceFieldExtractionSchema,
-    UtteranceFieldExtractor,
-    UtterancePreambleSchema,
-    UtteranceSelector,
-    UtteranceSelectionSchema,
-    UtteranceRevisionSchema,
+from parlant.core.engines.alpha.canned_response_selector import (
+    CannedResponseDraftSchema,
+    CannedResponseFieldExtractionSchema,
+    CannedResponseFieldExtractor,
+    CannedResponsePreambleSchema,
+    CannedResponseSelector,
+    CannedResponseSelectionSchema,
+    CannedResponseRevisionSchema,
 )
 from parlant.core.evaluations import (
     EvaluationListener,
@@ -133,7 +133,7 @@ from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionSchema,
 )
-from parlant.core.utterances import UtteranceStore, UtteranceVectorStore
+from parlant.core.canned_responses import CannedResponseStore, CannedResponseVectorStore
 from parlant.core.nlp.embedding import (
     BasicEmbeddingCache,
     Embedder,
@@ -412,8 +412,8 @@ async def container(
             )
         )
 
-        container[UtteranceStore] = await stack.enter_async_context(
-            UtteranceVectorStore(
+        container[CannedResponseStore] = await stack.enter_async_context(
+            CannedResponseVectorStore(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger], embedder_factory, lambda: embedding_cache
@@ -449,11 +449,11 @@ async def container(
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
             GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
             MessageSchema,
-            UtteranceDraftSchema,
-            UtteranceSelectionSchema,
-            UtterancePreambleSchema,
-            UtteranceRevisionSchema,
-            UtteranceFieldExtractionSchema,
+            CannedResponseDraftSchema,
+            CannedResponseSelectionSchema,
+            CannedResponsePreambleSchema,
+            CannedResponseRevisionSchema,
+            CannedResponseFieldExtractionSchema,
             single_tool_batch.SingleToolBatchSchema,
             overlapping_tools_batch.OverlappingToolsBatchSchema,
             ConditionsEntailmentTestsSchema,
@@ -536,8 +536,8 @@ async def container(
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
         container[ToolCaller] = Singleton(ToolCaller)
         container[RelationalGuidelineResolver] = Singleton(RelationalGuidelineResolver)
-        container[UtteranceSelector] = Singleton(UtteranceSelector)
-        container[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
+        container[CannedResponseSelector] = Singleton(CannedResponseSelector)
+        container[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
         container[PerceivedPerformancePolicy] = Singleton(NullPerceivedPerformancePolicy)
@@ -629,48 +629,48 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceDraftSchema]],
+        container[SchematicGenerator[CannedResponseDraftSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceDraftSchema],
-            container[SchematicGenerator[UtteranceDraftSchema]],
+            CachedSchematicGenerator[CannedResponseDraftSchema],
+            container[SchematicGenerator[CannedResponseDraftSchema]],
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceSelectionSchema]],
+        container[SchematicGenerator[CannedResponseSelectionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceSelectionSchema],
-            container[SchematicGenerator[UtteranceSelectionSchema]],
+            CachedSchematicGenerator[CannedResponseSelectionSchema],
+            container[SchematicGenerator[CannedResponseSelectionSchema]],
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtterancePreambleSchema]],
+        container[SchematicGenerator[CannedResponsePreambleSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtterancePreambleSchema],
-            container[SchematicGenerator[UtterancePreambleSchema]],
+            CachedSchematicGenerator[CannedResponsePreambleSchema],
+            container[SchematicGenerator[CannedResponsePreambleSchema]],
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceRevisionSchema]],
+        container[SchematicGenerator[CannedResponseRevisionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceRevisionSchema],
-            container[SchematicGenerator[UtteranceRevisionSchema]],
+            CachedSchematicGenerator[CannedResponseRevisionSchema],
+            container[SchematicGenerator[CannedResponseRevisionSchema]],
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceFieldExtractionSchema]],
+        container[SchematicGenerator[CannedResponseFieldExtractionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceFieldExtractionSchema],
-            container[SchematicGenerator[UtteranceFieldExtractionSchema]],
+            CachedSchematicGenerator[CannedResponseFieldExtractionSchema],
+            container[SchematicGenerator[CannedResponseFieldExtractionSchema]],
         ).use_cache = False
 
     if isinstance(

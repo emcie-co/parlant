@@ -54,7 +54,7 @@ class Capability:
     creation_utc: datetime
     title: str
     description: str
-    queries: Sequence[str]
+    signals: Sequence[str]
     tags: list[TagId]
 
     def __hash__(self) -> int:
@@ -64,7 +64,7 @@ class Capability:
 class CapabilityUpdateParams(TypedDict, total=False):
     title: str
     description: str
-    queries: Sequence[str]
+    signals: Sequence[str]
 
 
 class CapabilityStore:
@@ -74,7 +74,7 @@ class CapabilityStore:
         title: str,
         description: str,
         creation_utc: Optional[datetime] = None,
-        queries: Optional[Sequence[str]] = None,
+        signals: Optional[Sequence[str]] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Capability: ...
 
@@ -223,10 +223,10 @@ class CapabilityVectorStore(CapabilityStore):
         pass
 
     @staticmethod
-    def assemble_content(title: str, description: str, queries: Sequence[str]) -> str:
+    def assemble_content(title: str, description: str, signals: Sequence[str]) -> str:
         content = f"{title}: {description}"
-        if queries:
-            content += "\nQueries: " + "; ".join(queries)
+        if signals:
+            content += "\Signals: " + "; ".join(signals)
         return content
 
     def _serialize(
@@ -234,7 +234,7 @@ class CapabilityVectorStore(CapabilityStore):
         capability: Capability,
         content: str,
     ) -> _CapabilityDocument:
-        queries_str = json.dumps(list(capability.queries))
+        queries_str = json.dumps(list(capability.signals))
 
         capability_doc_checksum = md5_checksum(f"{capability.id}{queries_str}")
 
@@ -263,12 +263,12 @@ class CapabilityVectorStore(CapabilityStore):
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
             title=doc["title"],
             description=doc["description"],
-            queries=json.loads(doc["queries"]),
+            signals=json.loads(doc["queries"]),
             tags=tags,
         )
 
     def _list_capability_contents(self, capability: Capability) -> list[str]:
-        return [f"{capability.title}: {capability.description}"] + list(capability.queries)
+        return [f"{capability.title}: {capability.description}"] + list(capability.signals)
 
     async def _insert_capability(self, capability: Capability) -> _CapabilityDocument:
         insertion_tasks = []
@@ -287,16 +287,16 @@ class CapabilityVectorStore(CapabilityStore):
         title: str,
         description: str,
         creation_utc: Optional[datetime] = None,
-        queries: Optional[Sequence[str]] = None,
+        signals: Optional[Sequence[str]] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> Capability:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            queries = list(queries) if queries else []
+            signals = list(signals) if signals else []
             tags = list(tags) if tags else []
 
-            capability_checksum = md5_checksum(f"{title}{description}{queries}{tags}")
+            capability_checksum = md5_checksum(f"{title}{description}{signals}{tags}")
 
             capability_id = CapabilityId(self._id_generator.generate(capability_checksum))
             capability = Capability(
@@ -304,7 +304,7 @@ class CapabilityVectorStore(CapabilityStore):
                 creation_utc=creation_utc,
                 title=title,
                 description=description,
-                queries=queries,
+                signals=signals,
                 tags=tags,
             )
 
@@ -344,14 +344,14 @@ class CapabilityVectorStore(CapabilityStore):
 
             title = params.get("title", doc["title"])
             description = params.get("description", doc["description"])
-            queries = params.get("queries", cast(Sequence[str], list(json.loads(doc["queries"]))))
+            signals = params.get("signals", cast(Sequence[str], list(json.loads(doc["queries"]))))
 
             capability = Capability(
                 id=capability_id,
                 creation_utc=datetime.fromisoformat(all_docs[0]["creation_utc"]),
                 title=title,
                 description=description,
-                queries=queries,
+                signals=signals,
                 tags=[],
             )
 

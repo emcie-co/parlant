@@ -37,12 +37,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
-from parlant.core.engines.alpha.utterance_selector import (
-    UtteranceSelector,
+from parlant.core.engines.alpha.canned_response_selector import (
+    CannedResponseSelector,
 )
 from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.types import Context, UtteranceReason, UtteranceRequest
+from parlant.core.engines.types import Context, CannedResponseReason, CannedResponseRequest
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.entity_cq import EntityCommands, EntityQueries
 from parlant.core.glossary import Term
@@ -77,22 +77,22 @@ def given_a_faulty_message_production_mechanism(
 
 @step(
     given,
-    parsers.parse('an utterance request "{action}", to {do_something}'),
+    parsers.parse('a canned response request "{action}", to {do_something}'),
 )
-def given_a_follow_up_utterance_request(
+def given_a_follow_up_canned_response_request(
     context: ContextOfTest, action: str, do_something: str
-) -> UtteranceRequest:
-    utterance_request = UtteranceRequest(
+) -> CannedResponseRequest:
+    canned_response_request = CannedResponseRequest(
         action=action,
         reason={
-            "follow up with the customer": UtteranceReason.FOLLOW_UP,
-            "buy time": UtteranceReason.BUY_TIME,
+            "follow up with the customer": CannedResponseReason.FOLLOW_UP,
+            "buy time": CannedResponseReason.BUY_TIME,
         }[do_something],
     )
 
-    context.actions.append(utterance_request)
+    context.actions.append(canned_response_request)
 
-    return utterance_request
+    return canned_response_request
 
 
 @step(when, "processing is triggered", target_fixture="emitted_events")
@@ -344,11 +344,11 @@ def when_messages_are_emitted(
         case CompositionMode.FLUID:
             message_event_composer = context.container[MessageGenerator]
         case (
-            CompositionMode.STRICT_UTTERANCE
-            | CompositionMode.COMPOSITED_UTTERANCE
-            | CompositionMode.FLUID_UTTERANCE
+            CompositionMode.STRICT_CANNED_RESPONSE
+            | CompositionMode.COMPOSITED_CANNED_RESPONSE
+            | CompositionMode.FLUID_CANNED_RESPONSE
         ):
-            message_event_composer = context.container[UtteranceSelector]
+            message_event_composer = context.container[CannedResponseSelector]
 
     result = context.sync_await(
         message_event_composer.generate_response(

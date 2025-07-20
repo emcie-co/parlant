@@ -47,9 +47,9 @@ AgentId = NewType("AgentId", str)
 
 class CompositionMode(Enum):
     FLUID = "fluid"
-    FLUID_UTTERANCE = "fluid_utterance"
-    STRICT_UTTERANCE = "strict_utterance"
-    COMPOSITED_UTTERANCE = "composited_utterance"
+    FLUID_CANNED_RESPONSE = "fluid_canned_response"
+    STRICT_CANNED_RESPONSE = "strict_canned_response"
+    COMPOSITED_CANNED_RESPONSE = "composited_canned_response"
 
 
 class AgentUpdateParams(TypedDict, total=False):

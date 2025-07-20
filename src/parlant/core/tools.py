@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from typing_extensions import override, TypedDict
 
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
-from parlant.core.utterances import Utterance
+from parlant.core.canned_responses import CannedResponse
 
 ToolParameterType = Literal[
     "string",
@@ -120,22 +120,22 @@ class ToolResult:
     data: Any
     metadata: Mapping[str, Any]
     control: ControlOptions
-    utterances: Sequence[Utterance]
-    utterance_fields: Mapping[str, Any]
+    canned_responses: Sequence[CannedResponse]
+    canned_response_fields: Mapping[str, Any]
 
     def __init__(
         self,
         data: Any,
         metadata: Optional[Mapping[str, Any]] = None,
         control: Optional[ControlOptions] = None,
-        utterances: Optional[Sequence[Utterance]] = None,
-        utterance_fields: Optional[Mapping[str, Any]] = None,
+        canned_responses: Optional[Sequence[CannedResponse]] = None,
+        canned_response_fields: Optional[Mapping[str, Any]] = None,
     ) -> None:
         object.__setattr__(self, "data", data)
         object.__setattr__(self, "metadata", metadata or {})
         object.__setattr__(self, "control", control or ControlOptions())
-        object.__setattr__(self, "utterances", utterances or [])
-        object.__setattr__(self, "utterance_fields", utterance_fields or {})
+        object.__setattr__(self, "canned_responses", canned_responses or [])
+        object.__setattr__(self, "canned_response_fields", canned_response_fields or {})
 
 
 class ToolParameterOptions(DefaultBaseModel):

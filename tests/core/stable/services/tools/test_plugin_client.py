@@ -40,7 +40,7 @@ from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.sessions import SessionId, EventKind
 from parlant.core.tools import ToolExecutionError
 from tests.test_utilities import run_service_server
-from parlant.core.utterances import Utterance, UtteranceId, UtteranceField
+from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseField
 
 
 class SessionBuffers(EventEmitterFactory):
@@ -760,48 +760,48 @@ async def test_that_a_plugin_raises_tool_error_for_type_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_that_a_plugin_tool_can_return_utterances(
+async def test_that_a_plugin_tool_can_return_canned_responses(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
-    utterances = [
-        Utterance(
-            id=UtteranceId("<test-utterance-1>"),
+    canned_responses = [
+        CannedResponse(
+            id=CannedResponseId("<test-canned-response-1>"),
             creation_utc=datetime.now(),
-            value="This is a test utterance with {field_name}",
+            value="This is a test canned response with {field_name}",
             fields=[
-                UtteranceField(
+                CannedResponseField(
                     name="field_name",
                     description="A sample field",
                     examples=["sample value"],
                 )
             ],
             tags=[],
-            queries=[],
+            signals=[],
         ),
-        Utterance(
-            id=UtteranceId("<test-utterance-2>"),
+        CannedResponse(
+            id=CannedResponseId("<test-canned-response-2>"),
             creation_utc=datetime.now(),
-            value="Another utterance for testing",
+            value="Another canned response for testing",
             fields=[],
             tags=[],
-            queries=[],
+            signals=[],
         ),
     ]
 
     @tool
-    async def utterance_tool(context: ToolContext) -> ToolResult:
-        return ToolResult({"message": "Executed successfully"}, utterances=utterances)
+    async def can_rep_tool(context: ToolContext) -> ToolResult:
+        return ToolResult({"message": "Executed successfully"}, canned_responses=canned_responses)
 
-    async with run_service_server([utterance_tool]) as server:
+    async with run_service_server([can_rep_tool]) as server:
         async with create_client(server, container[EventBufferFactory]) as client:
-            result = await client.call_tool(utterance_tool.tool.name, tool_context, arguments={})
+            result = await client.call_tool(can_rep_tool.tool.name, tool_context, arguments={})
 
-            assert result.utterances
-            assert len(result.utterances) == 2
+            assert result.canned_responses
+            assert len(result.canned_responses) == 2
 
-            assert utterances[0] in result.utterances
-            assert utterances[1] in result.utterances
+            assert canned_responses[0] in result.canned_responses
+            assert canned_responses[1] in result.canned_responses
 
 
 async def test_that_tool_decorator_has_default_overlap_auto() -> None:

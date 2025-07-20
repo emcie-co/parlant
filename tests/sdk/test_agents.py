@@ -18,7 +18,7 @@ from parlant.core.guidelines import GuidelineStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolResult
-from parlant.core.utterances import UtteranceStore
+from parlant.core.canned_responses import CannedResponseStore
 import parlant.sdk as p
 
 from tests.sdk.utils import Context, SDKTest
@@ -48,7 +48,7 @@ class Test_that_a_capability_can_be_created(SDKTest):
         self.capability = await self.agent.create_capability(
             title="Test Capability",
             description="Some Description",
-            queries=["First Query", "Second Query"],
+            signals=["First Query", "Second Query"],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -60,7 +60,7 @@ class Test_that_a_capability_can_be_created(SDKTest):
         assert capability.id == self.capability.id
         assert capability.title == self.capability.title
         assert capability.description == self.capability.description
-        assert capability.queries == self.capability.queries
+        assert capability.signals == self.capability.signals
 
 
 class Test_that_an_agent_can_be_read_by_id(SDKTest):
@@ -127,23 +127,23 @@ class Test_that_an_agent_can_attach_tool(SDKTest):
         assert association.guideline_id == guideline.id
 
 
-class Test_that_an_agent_can_create_utterance(SDKTest):
+class Test_that_an_agent_can_create_canned_response(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Utterance Agent",
-            description="Agent for utterance test",
+            name="Canned Response Agent",
+            description="Agent for canned response test",
         )
-        self.utterance_id = await self.agent.create_utterance(
+        self.can_rep_id = await self.agent.create_canned_response(
             template="Hello, {user}!", tags=[Tag.for_agent_id(self.agent.id)]
         )
 
     async def run(self, ctx: Context) -> None:
-        utterance_store = ctx.container[UtteranceStore]
+        can_rep_store = ctx.container[CannedResponseStore]
 
-        utterance = await utterance_store.read_utterance(utterance_id=self.utterance_id)
+        can_rep = await can_rep_store.read_response(response_id=self.can_rep_id)
 
-        assert utterance.value == "Hello, {user}!"
-        assert Tag.for_agent_id(self.agent.id) in utterance.tags
+        assert can_rep.value == "Hello, {user}!"
+        assert Tag.for_agent_id(self.agent.id) in can_rep.tags
 
 
 class Test_that_agents_can_be_listed(SDKTest):

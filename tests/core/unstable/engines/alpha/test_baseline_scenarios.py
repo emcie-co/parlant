@@ -23,7 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
-    "utterances",
+    "canned_responses",
     "sessions",
     "terms",
     "tools",
@@ -40,8 +40,8 @@ scenarios(
             "supervision",
             "glossary",
             "tools",
-            "fluid_utterances",
-            "strict_utterances",
+            "fluid_canned_responses",
+            "strict_canned_responses",
             "conversation",
         )
     )

@@ -52,7 +52,7 @@ from parlant.core.sessions import (
     SessionListener,
     SessionStore,
 )
-from parlant.core.engines.types import Context, Engine, UtteranceRequest
+from parlant.core.engines.types import Context, Engine, CannedResponseRequest
 from parlant.core.loggers import Logger
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
@@ -157,7 +157,7 @@ class Application:
     async def utter(
         self,
         session: Session,
-        requests: Sequence[UtteranceRequest],
+        requests: Sequence[CannedResponseRequest],
     ) -> str:
         with self._correlator.correlation_scope(generate_id()):
             event_emitter = await self._event_emitter_factory.create_event_emitter(

@@ -1256,6 +1256,7 @@ class AlphaEngine(Engine):
                     ]
                 ),
             )
+            if tools
         }
 
         tools_for_guidelines.update(node_tools_associations)

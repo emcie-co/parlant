@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO change few shots
+# TODO change few shots to not rely on journeys
 
 from __future__ import annotations
 
@@ -80,7 +80,6 @@ DEFAULT_NO_MATCH_UTTERANCE = "Not sure I understand. Could you please say that a
 class UtteranceDraftSchema(DefaultBaseModel):
     last_message_of_user: Optional[str]
     guidelines: list[str]
-    journey_state: Optional[str] = None
     insights: Optional[list[str]] = None
     response_preamble_that_was_already_sent: Optional[str] = None
     response_body: Optional[str] = None
@@ -1028,7 +1027,6 @@ If you decide not to emit a message, output the following:
 {{
     "last_message_of_user": "<user's last message>",
     "guidelines": [<list of strings- a re-statement of all guidelines>],
-    "journey_state": "<current state of the journey(s), if any>",
     "insights": [<list of strings- up to 3 original insights>],
     "response_preamble_that_was_already_sent": null,
     "response_body": null
@@ -1103,7 +1101,6 @@ EXAMPLES
         builder.add_glossary(terms)
         builder.add_context_variables(context_variables)
         builder.add_capabilities_for_message_generation(capabilities)
-        builder.add_journeys(journeys)
         builder.add_guidelines_for_message_generation(
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
@@ -1241,7 +1238,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
 {{
     "last_message_of_user": "{last_user_message}",
     "guidelines": [{guidelines_list_text}],
-    "journey_state": "<current state of the journey(s), if any>",
     "insights": [<Up to 3 original insights to adhere to>],
     "response_preamble_that_was_already_sent": "{agent_preamble}",
     "response_body": "<response message text (that would immediately follow the preamble)>"

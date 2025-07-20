@@ -460,7 +460,6 @@ EXAMPLES
                 status=SectionStatus.ACTIVE,
             )
         builder.add_interaction_history(interaction_event_list)
-        builder.add_journeys(journeys)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._add_guideline_matches_section(

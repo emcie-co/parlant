@@ -109,7 +109,6 @@ class MessageSchema(DefaultBaseModel):
     produced_reply: Optional[bool] = None
     produced_reply_rationale: Optional[str] = None
     guidelines: Optional[list[str]] = None
-    current_journey_step: Optional[str] = None
     context_evaluation: Optional[ContextEvaluation] = None
     insights: Optional[list[str]] = None
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
@@ -239,7 +238,6 @@ class MessageGenerator(MessageEventComposer):
             terms=terms,
             ordinary_guideline_matches=ordinary_guideline_matches,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-            journeys=journeys,
             capabilities=capabilities,
             staged_events=staged_events,
             tool_insights=tool_insights,
@@ -323,7 +321,6 @@ class MessageGenerator(MessageEventComposer):
         capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
-        journeys: Sequence[Journey],
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
         shots: Sequence[MessageGeneratorShot],
@@ -414,7 +411,6 @@ To generate an optimal response that aligns with all guidelines and the current 
 1. INSIGHT GATHERING (Pre-Revision)
    - Before starting revisions, identify up to three key insights from:
      * Explicit or implicit customer requests
-     * Relevant parts of an active journey
      * Relevant principles from this prompt
      * Observations that you find particularly important
      * Notable patterns or conclusions from the interaction
@@ -426,7 +422,6 @@ To generate an optimal response that aligns with all guidelines and the current 
    - Draft an initial response based on:
      * Primary customer needs
      * Applicable guidelines
-     * The relevant journey step, if there is one
      * Gathered insights
    - Focus on addressing the core request first
 
@@ -477,9 +472,6 @@ However, remember that the guidelines reflect the explicit wishes of the busines
 For instance, if a guideline explicitly prohibits a specific action (e.g., "never do X"), you must not perform that action, even if requested by the customer or supported by an insight.
 
 In cases of conflict, prioritize the business's values and ensure your decisions align with their overarching goals.
-
-Journeys are unlike guidelines and insights - you may only follow them if you find it useful, unless they explicitly dictate an action you must take at this moment.
-Prioritize guidelines over journeys, in cases of conflict.
 
 """,  # noqa
         )
@@ -672,7 +664,6 @@ Produce a valid JSON object in the following format: ###
     "produced_reply": "<BOOL, should be true unless the customer explicitly asked you not to respond>",
     "produced_reply_rationale": "<str, optional. required only if produced_reply is false>",
     "guidelines": [{guidelines_list_text}],
-    "current_journey_step": <STR, the next step to take according to the active journey/s, if there are ones. Otherwise, this field can be omitted>
     "context_evaluation": {{
         "most_recent_customer_inquiries_or_needs": "<fill out accordingly>",
         "parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs": "<fill out accordingly>",

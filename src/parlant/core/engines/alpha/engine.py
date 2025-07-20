@@ -1397,12 +1397,15 @@ class AlphaEngine(Engine):
         all_stored_guidelines: dict[GuidelineId, Guideline],
         activated_journeys: Sequence[Journey],
     ) -> Optional[GuidelineMatchingResult]:
-        related_guidelines = chain.from_iterable(
-            [
-                await self._entity_queries.find_journey_related_guidelines(j)
-                for j in [activated_journey for activated_journey in activated_journeys]
-            ]
-        )
+        related_guidelines = {
+            id
+            for id in chain.from_iterable(
+                [
+                    await self._entity_queries.find_journey_related_guidelines(j)
+                    for j in [activated_journey for activated_journey in activated_journeys]
+                ]
+            )
+        }
 
         if related_guidelines:
             journey_conditions = chain.from_iterable(

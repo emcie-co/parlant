@@ -226,6 +226,15 @@ def given_the_journey_called(
                 tools=[],
             )
         )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node4.id,
+                target=node5.id,
+                condition="reset_password tool returned that the password was successfully reset",
+            )
+        )
+
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
@@ -240,14 +249,6 @@ def given_the_journey_called(
                 source=node3.id,
                 target=node6.id,
                 condition="The customer did not immediately wish you a good day in return",
-            )
-        )
-        context.sync_await(
-            journey_store.create_edge(
-                journey_id=journey.id,
-                source=node4.id,
-                target=node5.id,
-                condition="reset_password tool returned that the password was successfully reset",
             )
         )
         context.sync_await(
@@ -999,12 +1000,279 @@ def given_the_journey_called(
         )
         return journey
 
+    def create_request_loan_journey() -> Journey:
+        conditions = [
+            "the customer is interested in applying for a loan",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Loan Application Request",
+                description="",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="ask what type of loan the customer is interested in",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=JourneyStore.ROOT_NODE_ID,
+                target=node1.id,
+                condition="",
+            )
+        )
+
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for the loan amount",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition="the customer requested a personal loan",
+            )
+        )
+
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for the purpose of the loan",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition=None,
+            )
+        )
+
+        node4 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for account number for validation",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=node4.id,
+                condition=None,
+            )
+        )
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["check_eligibility"]))
+
+        node5 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Validate the customer's eligibility",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node5.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": False,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node5.id,
+                "tool_running_only",
+                True,
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node4.id,
+                target=node5.id,
+                condition=None,
+            )
+        )
+
+        node6 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Confirm eligibility with terms and ask to proceed with application",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node6.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node5.id,
+                target=node6.id,
+                condition="If the account is eligible",
+            )
+        )
+
+        node6 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Confirm eligibility with terms and ask to proceed with application",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node6.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node5.id,
+                target=node6.id,
+                condition="If the account is eligible",
+            )
+        )
+
+        node7 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Explain the denied request for a loan due to ineligibility",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node7.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": False,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node5.id,
+                target=node7.id,
+                condition="Account is not eligible",
+            )
+        )
+
+        return journey
+
     JOURNEYS = {
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
         "Book Taxi Ride": create_book_taxi_journey,
         "Place Food Order": create_place_food_order_journey,
         "Decrease Spending Journey": create_decrease_spending_journey,
+        "Request Loan Journey": create_request_loan_journey,
     }
 
     create_journey_func = JOURNEYS[journey_title]

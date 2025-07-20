@@ -813,6 +813,20 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {},
         "required": [],
     },
+    "check_eligibility": {
+        "name": "check_eligibility",
+        "description": "Check the customer's eligibility for a loan",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "account_id": {
+                "type": "int",
+            },
+            "amount": {
+                "type": "int",
+            },
+        },
+        "required": ["account_id", "amount"],
+    },
 }
 
 

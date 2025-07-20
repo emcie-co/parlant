@@ -267,8 +267,8 @@ class ToolCaller:
                     "data": result.data,
                     "metadata": result.metadata,
                     "control": result.control,
-                    "utterances": result.utterances,
-                    "utterance_fields": result.utterance_fields,
+                    "canned_responses": result.canned_responses,
+                    "canned_response_fields": result.canned_response_fields,
                 },
             )
         except Exception as e:
@@ -286,8 +286,8 @@ class ToolCaller:
                     "data": "Tool call error",
                     "metadata": {"error_details": str(e)},
                     "control": {},
-                    "utterances": [],
-                    "utterance_fields": {},
+                    "canned_responses": [],
+                    "canned_response_fields": {},
                 },
             )
 

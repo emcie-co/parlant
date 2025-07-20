@@ -54,7 +54,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.glossary import TermId
-from parlant.core.utterances import Utterance, UtteranceId
+from parlant.core.canned_responses import CannedResponse, CannedResponseId
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
@@ -117,7 +117,7 @@ class MessageEventData(TypedDict):
     flagged: NotRequired[bool]
     tags: NotRequired[Sequence[str]]
     draft: NotRequired[str]
-    utterances: NotRequired[Sequence[tuple[UtteranceId, str]]]
+    canned_responses: NotRequired[Sequence[tuple[CannedResponseId, str]]]
 
 
 class ControlOptions(TypedDict, total=False):
@@ -129,8 +129,8 @@ class ToolResult(TypedDict):
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable]
     control: ControlOptions
-    utterances: Sequence[Utterance]
-    utterance_fields: Mapping[str, JSONSerializable]
+    canned_responses: Sequence[CannedResponse]
+    canned_response_fields: Mapping[str, JSONSerializable]
 
 
 class ToolCall(TypedDict):
@@ -669,7 +669,7 @@ class SessionDocumentStore(SessionStore):
                         generation_names=[
                             "selection"
                             if mg["generation"]["schema_name"]
-                            in ["UtteranceCompositionSchema", "UtteranceSelectionSchema"]
+                            in ["CannedResponseCompositionSchema", "CannedResponseSelectionSchema"]
                             else "message_generation"
                         ],
                         messages=mg["messages"],

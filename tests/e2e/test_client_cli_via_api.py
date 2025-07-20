@@ -135,7 +135,7 @@ async def test_that_an_agent_can_be_updated(
             "--max-engine-iterations",
             str(new_max_engine_iterations),
             "--composition-mode",
-            "strict-utterance",
+            "strict-canned-response",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             address=context.api.server_address,
@@ -149,7 +149,7 @@ async def test_that_an_agent_can_be_updated(
         assert agent["name"] == new_name
         assert agent["description"] == new_description
         assert agent["max_engine_iterations"] == new_max_engine_iterations
-        assert agent["composition_mode"] == "strict_utterance"
+        assert agent["composition_mode"] == "strict_canned_response"
 
 
 async def test_that_an_agent_can_be_deleted(
@@ -1540,7 +1540,7 @@ async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
         assert updated_tag["name"] == new_name
 
 
-async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> None:
+async def test_that_canned_responses_can_be_initialized(context: ContextOfTest) -> None:
     with run_server(context):
         tmp_file = tempfile.NamedTemporaryFile(delete=False)
         tmp_file_path = tmp_file.name
@@ -1548,7 +1548,7 @@ async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> Non
 
         assert (
             await run_cli_and_get_exit_status(
-                "utterance",
+                "canned_response",
                 "init",
                 tmp_file_path,
                 address=context.api.server_address,
@@ -1559,19 +1559,19 @@ async def test_that_utterances_can_be_initialized(context: ContextOfTest) -> Non
         with open(tmp_file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        assert len(data.get("utterances", [])) > 0
-        assert all("value" in f for f in data["utterances"])
+        assert len(data.get("canned_responses", [])) > 0
+        assert all("value" in f for f in data["canned_responses"])
 
         os.remove(tmp_file_path)
 
 
-async def test_that_utterances_can_be_loaded(context: ContextOfTest) -> None:
+async def test_that_canned_responses_can_be_loaded(context: ContextOfTest) -> None:
     with run_server(context):
         await context.api.create_tag("testTag1")
         await context.api.create_tag("testTag2")
 
-        test_utterances = {
-            "utterances": [
+        test_canned_responses = {
+            "canned_responses": [
                 {
                     "value": "Hello, {{username}}!",
                     "fields": [
@@ -1602,20 +1602,20 @@ async def test_that_utterances_can_be_loaded(context: ContextOfTest) -> None:
 
         tmp_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
         tmp_file_path = tmp_file.name
-        json.dump(test_utterances, tmp_file, indent=2)
+        json.dump(test_canned_responses, tmp_file, indent=2)
         tmp_file.close()
 
         assert (
             await run_cli_and_get_exit_status(
-                "utterance", "load", tmp_file_path, address=context.api.server_address
+                "canned_response", "load", tmp_file_path, address=context.api.server_address
             )
             == os.EX_OK
         )
 
-        utterances_in_system = await context.api.list_utterances()
-        assert len(utterances_in_system) == 3
+        canned_responses_in_system = await context.api.list_canned_responses()
+        assert len(canned_responses_in_system) == 3
 
-        first = utterances_in_system[0]
+        first = canned_responses_in_system[0]
         assert first["value"] == "Hello, {{username}}!"
         assert "tags" in first
         assert "fields" in first

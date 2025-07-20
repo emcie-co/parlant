@@ -103,14 +103,14 @@ from parlant.core.engines.alpha.relational_guideline_resolver import RelationalG
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
 )
-from parlant.core.engines.alpha.utterance_selector import (
-    UtteranceDraftSchema,
-    UtteranceFieldExtractionSchema,
-    UtteranceFieldExtractor,
-    UtterancePreambleSchema,
-    UtteranceSelectionSchema,
-    UtteranceRevisionSchema,
-    UtteranceSelector,
+from parlant.core.engines.alpha.canned_response_selector import (
+    CannedResponseDraftSchema,
+    CannedResponseFieldExtractionSchema,
+    CannedResponseFieldExtractor,
+    CannedResponsePreambleSchema,
+    CannedResponseSelectionSchema,
+    CannedResponseRevisionSchema,
+    CannedResponseSelector,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
@@ -135,7 +135,7 @@ from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionSchema,
 )
-from parlant.core.utterances import UtteranceStore, UtteranceVectorStore
+from parlant.core.canned_responses import CannedResponseStore, CannedResponseVectorStore
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
@@ -436,8 +436,8 @@ async def setup_container() -> AsyncIterator[Container]:
     c[EntityCommands] = Singleton(EntityCommands)
 
     c[ToolEventGenerator] = Singleton(ToolEventGenerator)
-    c[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
-    c[UtteranceSelector] = Singleton(UtteranceSelector)
+    c[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)
+    c[CannedResponseSelector] = Singleton(CannedResponseSelector)
     c[MessageGenerator] = Singleton(MessageGenerator)
     c[PerceivedPerformancePolicy] = Singleton(BasicPerceivedPerformancePolicy)
     c[OptimizationPolicy] = Singleton(BasicOptimizationPolicy)
@@ -640,7 +640,7 @@ async def initialize_container(
 
         for store_type, store_class, document_db_filename in [
             (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
-            (UtteranceStore, UtteranceVectorStore, "utterance_tags.json"),
+            (CannedResponseStore, CannedResponseVectorStore, "canned_response_tags.json"),
             (JourneyStore, JourneyVectorStore, "journey_associations.json"),
             (CapabilityStore, CapabilityVectorStore, "capability_tags.json"),
         ]:
@@ -670,11 +670,11 @@ async def initialize_container(
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
         GenericObservationalGuidelineMatchesSchema,
         MessageSchema,
-        UtteranceDraftSchema,
-        UtteranceSelectionSchema,
-        UtterancePreambleSchema,
-        UtteranceRevisionSchema,
-        UtteranceFieldExtractionSchema,
+        CannedResponseDraftSchema,
+        CannedResponseSelectionSchema,
+        CannedResponsePreambleSchema,
+        CannedResponseRevisionSchema,
+        CannedResponseFieldExtractionSchema,
         SingleToolBatchSchema,
         ConditionsEntailmentTestsSchema,
         ActionsContradictionTestsSchema,

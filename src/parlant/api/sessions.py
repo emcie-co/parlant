@@ -27,7 +27,7 @@ from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.engines.types import UtteranceReason, UtteranceRequest
+from parlant.core.engines.types import CannedResponseReason, CannedResponseRequest
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import ModerationService
@@ -47,7 +47,7 @@ from parlant.core.sessions import (
     SessionUpdateParams,
     ToolEventData,
 )
-from parlant.core.utterances import UtteranceId
+from parlant.core.canned_responses import CannedResponseId
 
 API_GROUP = "sessions"
 
@@ -247,16 +247,16 @@ event_creation_params_example: ExampleJson = {
 }
 
 
-class UtteranceReasonDTO(Enum):
+class CannedResponseReasonDTO(Enum):
     """Defines the reason for the action"""
 
     BUY_TIME = "buy_time"
     FOLLOW_UP = "follow_up"
 
 
-class UtteranceRequestDTO(DefaultBaseModel):
+class CannedResponseRequestDTO(DefaultBaseModel):
     action: SessionEventCreationParamsActionField
-    reason: UtteranceReasonDTO
+    reason: CannedResponseReasonDTO
 
 
 class EventCreationParamsDTO(
@@ -268,7 +268,7 @@ class EventCreationParamsDTO(
     kind: EventKindDTO
     source: EventSourceDTO
     message: Optional[SessionEventCreationParamsMessageField] = None
-    actions: Optional[list[UtteranceRequestDTO]] = None
+    actions: Optional[list[CannedResponseRequestDTO]] = None
 
 
 EventIdPath: TypeAlias = Annotated[
@@ -709,10 +709,10 @@ MessageEventDataTagsField: TypeAlias = Annotated[
     ),
 ]
 
-MessageEventDataUtterancesField: TypeAlias = Annotated[
-    Optional[Sequence[UtteranceId]],
+MessageEventDataCannedResponsesField: TypeAlias = Annotated[
+    Optional[Sequence[CannedResponseId]],
     Field(
-        description="List of associated utterance references, if any",
+        description="List of associated canned response references, if any",
         examples=[["frag_123xyz", "frag_789abc"]],
     ),
 ]
@@ -722,7 +722,7 @@ message_event_data_example = {
     "participant": participant_example,
     "flagged": False,
     "tags": ["greeting", "help-request"],
-    "utterances": ["frag_123xyz", "frag_789abc"],
+    "canned_responses": ["frag_123xyz", "frag_789abc"],
 }
 
 
@@ -738,7 +738,7 @@ class MessageEventDataDTO(
     participant: ParticipantDTO
     flagged: MessageEventDataFlaggedField = None
     tags: MessageEventDataTagsField = None
-    utterances: MessageEventDataUtterancesField = None
+    canned_responses: MessageEventDataCannedResponsesField = None
 
 
 message_generation_inspection_example = {
@@ -760,7 +760,7 @@ message_generation_inspection_example = {
             "participant": participant_example,
             "flagged": False,
             "tags": ["order-status"],
-            "utterances": ["frag_987abc"],
+            "canned_responses": ["frag_987abc"],
         },
     ],
 }
@@ -1133,13 +1133,15 @@ def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
     return LakeraGuard(logger)
 
 
-def utterance_request_dto_to_utterance_request(utter: UtteranceRequestDTO) -> UtteranceRequest:
+def canned_response_request_dto_to_canned_response_request(
+    utter: CannedResponseRequestDTO,
+) -> CannedResponseRequest:
     reason_dto_to_reason = {
-        UtteranceReasonDTO.BUY_TIME: UtteranceReason.BUY_TIME,
-        UtteranceReasonDTO.FOLLOW_UP: UtteranceReason.FOLLOW_UP,
+        CannedResponseReasonDTO.BUY_TIME: CannedResponseReason.BUY_TIME,
+        CannedResponseReasonDTO.FOLLOW_UP: CannedResponseReason.FOLLOW_UP,
     }
 
-    return UtteranceRequest(action=utter.action, reason=reason_dto_to_reason[utter.reason])
+    return CannedResponseRequest(action=utter.action, reason=reason_dto_to_reason[utter.reason])
 
 
 def _event_kind_dto_to_event_kind(dto: EventKindDTO) -> EventKind:
@@ -1544,7 +1546,9 @@ def create_router(
         session = await session_store.read_session(session_id)
 
         if params.actions:
-            actions = [utterance_request_dto_to_utterance_request(a) for a in params.actions]
+            actions = [
+                canned_response_request_dto_to_canned_response_request(a) for a in params.actions
+            ]
             correlation_id = await application.utter(session, actions)
             event, *_ = await session_store.list_events(
                 session_id=session_id,

@@ -20,7 +20,7 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import JSONSerializable
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.utterance_selector import DEFAULT_NO_MATCH_UTTERANCE
+from parlant.core.engines.alpha.canned_response_selector import DEFAULT_NO_MATCH_CANNED_RESPONSE
 from parlant.core.nlp.moderation import ModerationTag
 
 from parlant.core.sessions import (
@@ -312,31 +312,31 @@ def then_the_message_mentions(
 
 @step(
     then,
-    parsers.parse('the message uses the utterance "{utterance_text}"'),
+    parsers.parse('the message uses the canned response "{can_rep_text}"'),
 )
-def then_the_message_uses_the_utterance(
+def then_the_message_uses_the_canned_response(
     emitted_events: list[EmittedEvent],
-    utterance_text: str,
+    can_rep_text: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
-    assert message_data["utterances"]
+    assert message_data["canned_responses"]
 
-    assert any(utterance_text in utterance for _, utterance in message_data["utterances"])
+    assert any(can_rep_text in can_rep for _, can_rep in message_data["canned_responses"])
 
 
 @step(
     then,
-    parsers.parse('the message doesn\'t use the utterance "{utterance_text}"'),
+    parsers.parse('the message doesn\'t use the canned response "{can_rep_text}"'),
 )
-def then_the_message_does_not_use_the_utterance(
+def then_the_message_does_not_use_the_canned_response(
     emitted_events: list[EmittedEvent],
-    utterance_text: str,
+    can_rep_text: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
 
-    assert all(utterance_text not in utterance for _, utterance in message_data["utterances"])
+    assert all(can_rep_text not in can_rep for _, can_rep in message_data["canned_responses"])
 
 
 @step(then, "no events are emitted")
@@ -361,8 +361,8 @@ def then_a_no_match_message_is_emitted(
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
-        message == DEFAULT_NO_MATCH_UTTERANCE
-    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_UTTERANCE}'"
+        message == DEFAULT_NO_MATCH_CANNED_RESPONSE
+    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_CANNED_RESPONSE}'"
 
 
 def _has_status_event(

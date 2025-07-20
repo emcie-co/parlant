@@ -1,13 +1,13 @@
-Feature: Strict Utterance
+Feature: Strict Canned Response
     Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And an empty session
 
-    Scenario: The agent fills multiple fields in a veterinary appointment system (strict utterance)
+    Scenario: The agent fills multiple fields in a veterinary appointment system (strict canned response)
         Given an agent whose job is to schedule veterinary appointments and provide pet care information
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And a customer named "Joanna"
         And a context variable "next_available_date" set to "May 22" for "Joanna"
         And a context variable "vet_name" set to "Dr. Happypaws" for "Joanna"
@@ -15,11 +15,11 @@ Feature: Strict Utterance
         And an empty session with "Joanna"
         And a guideline to provide the next available appointment details when a customer requests a checkup for their pet
         And a customer message, "I need to schedule a routine checkup for my dog Max. He's a 5-year-old golden retriever."
-        And an utterance, "Our next available appointment for {{generative.pet_name}} with {{generative.vet_name}} is on the {{generative.appointment_date}} at our clinic located at {{generative.clinic_address}}. For a {{generative.pet_age}}-year-old {{generative.pet_breed}}, we recommend {{generative.recommended_services}}."
-        And an utterance, "We're fully booked at the moment. Please call back next week."
-        And an utterance, "What symptoms is your dog experiencing?"
-        And an utterance, "Would you prefer a morning or afternoon appointment?"
-        And an utterance, "Our next available appointment is next Tuesday. Does that work for you?"
+        And a canned response, "Our next available appointment for {{generative.pet_name}} with {{generative.vet_name}} is on the {{generative.appointment_date}} at our clinic located at {{generative.clinic_address}}. For a {{generative.pet_age}}-year-old {{generative.pet_breed}}, we recommend {{generative.recommended_services}}."
+        And a canned response, "We're fully booked at the moment. Please call back next week."
+        And a canned response, "What symptoms is your dog experiencing?"
+        And a canned response, "Would you prefer a morning or afternoon appointment?"
+        And a canned response, "Our next available appointment is next Tuesday. Does that work for you?"
         When processing is triggered
         Then a single message event is emitted
         And the message contains "Max" in the {pet_name} field
@@ -30,13 +30,13 @@ Feature: Strict Utterance
         And the message contains "golden retriever" in the {pet_breed} field
         And the message contains appropriate veterinary services for a middle-aged dog in the {recommended_services} field
 
-    Scenario: Multistep journey is aborted when the journey description requires so (strict utterance) 
+    Scenario: Multistep journey is aborted when the journey description requires so (strict canned response) 
         Given the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
-        And an utterance, "What is the name of your account?"
-        And an utterance, "can you please provide the email address or phone number attached to this account?"
-        And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And an utterance, "Your password could not be reset at this time. Please try again later."
+        And a canned response, "What is the name of your account?"
+        And a canned response, "can you please provide the email address or phone number attached to this account?"
+        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
+        And a canned response, "Your password could not be reset at this time. Please try again later."
         And the tool "reset_password"
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
@@ -50,8 +50,49 @@ Feature: Strict Utterance
         And a single message event is emitted
         And the message contains either that the password could not be reset at this time
 
+    Scenario: Two journeys are used in unison (strict canned response) 
+        Given the journey called "Book Flight"
+        And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey
+        And a dependency relationship between the guideline "skip steps" and the "Book Flight" journey
+        And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
+        And a canned response, "Great. Are you interested in economy or business class?"
+        And a canned response, "Great. Only economy class is available for this booking. What is the name of the traveler?"
+        And a canned response, "Great. What is the name of the traveler?"
+        And a canned response, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
+        And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
+        And an agent message, "Great! From and to where would are you looking to fly?"
+        And a customer message, "From LAX to JFK"
+        And an agent message, "Got it. And when are you looking to travel?"
+        And a customer message, "Next Monday"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
-    Scenario: The agent follows response guidelines without looping out (strict utterance)
+    Scenario: Multistep journey invokes tool calls correctly (strict canned response) 
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
+        And a customer message, "I want to reset my password"
+        And an agent message, "I can help you do just that. What's your username?"
+        And a customer message, "it's leonardo_barbosa_1982"
+        And an agent message, "Great! And what's the account's associated email address or phone number?"
+        And a customer message, "the email is leonardobarbosa@gmail.br"
+        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
+        And a customer message, "Thank you! Have a great day as well!"
+        And a canned response, "What is the name of your account?"
+        And a canned response, "can you please provide the email address or phone number attached to this account?"
+        And a canned response, "Thank you, have a good day!"
+        And a canned response, "I'm sorry but I have no information about that"
+        And a canned response, "Is there anything else I could help you with?"
+        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
+        And a canned response, "An error occurred, your password could not be reset"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
+        And a single message event is emitted
+        And the message contains that the password was reset and an email with instructions was sent to the customer
+
+    Scenario: The agent follows response guidelines without looping out (strict canned response)
         Given a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
         And a guideline "answer_rudely" to rudely answer to go away when a user asks any information aside from Mobileye for the third time
         And a customer message, "what is Mobileye"
@@ -73,55 +114,55 @@ Feature: Strict Utterance
         And a customer message, "you see so i feel caught you! i've been trying to get information about car breaks and how they insult me and ask me to go away"
         And an agent message, "I apologize for any confusion. I aim to provide helpful information, but I may not have access to specific details about car brakes. If there's anything else I can assist you with, please let me know."
         And a customer message, "what are the best car breaks out there?"
-        And an utterance, "Go away! I've told you multiple times I don't answer questions about car brakes!"
-        And an utterance, "I apologize, but I don't have specific information about car brake brands or models. I'd be happy to help with questions about Mobileye or redirect you to someone who can better assist with your brake inquiries."
-        And an utterance, "Please stop asking about irrelevant topics like car brakes."
-        And an utterance, "Would you like to know more about Mobileye's collision prevention technology instead?"
-        And an utterance, "For top performance, Brembo and EBC are great for sports and track use, while Akebono and PowerStop offer excellent daily driving and towing options. The best choice depends on your vehicle and driving style."
+        And a canned response, "Go away! I've told you multiple times I don't answer questions about car brakes!"
+        And a canned response, "I apologize, but I don't have specific information about car brake brands or models. I'd be happy to help with questions about Mobileye or redirect you to someone who can better assist with your brake inquiries."
+        And a canned response, "Please stop asking about irrelevant topics like car brakes."
+        And a canned response, "Would you like to know more about Mobileye's collision prevention technology instead?"
+        And a canned response, "For top performance, Brembo and EBC are great for sports and track use, while Akebono and PowerStop offer excellent daily driving and towing options. The best choice depends on your vehicle and driving style."
         And a previously applied guideline "answer_politely"
         And a previously applied guideline "answer_rudely"
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no rudeness to tell the user to go away
 
-    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (strict utterance)
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (strict canned response)
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
-        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
-        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
         When processing is triggered
         Then a single message event is emitted
         And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
-    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (strict utterance)
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (strict canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when the customer asks for pizza topping recommendation and they are from India
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
-        And an utterance, "I recommend on {{generative.answer}}."
+        And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered
         Then a single message event is emitted
         And the message contains the text "I recommend on pineapple."
 
-    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict utterance) 
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict canned response) 
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
-        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
-        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
         When processing is triggered
         Then a single message event is emitted
         And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
-    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (strict utterance)
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (strict canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
-        And that the agent uses the strict_utterance message composition mode
+        And that the agent uses the strict_canned_response message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
-        And an utterance, "I recommend on {{generative.answer}}."
+        And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered
         Then a single message event is emitted
         And the message contains the text "I recommend on pineapple."

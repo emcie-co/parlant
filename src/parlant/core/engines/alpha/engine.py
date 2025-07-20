@@ -51,7 +51,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     InvalidToolData,
     ProblematicToolData,
 )
-from parlant.core.engines.alpha.utterance_selector import UtteranceSelector
+from parlant.core.engines.alpha.canned_response_selector import CannedResponseSelector
 from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
 )
@@ -86,7 +86,7 @@ from parlant.core.engines.alpha.tool_event_generator import (
     ToolPreexecutionState,
 )
 from parlant.core.engines.alpha.utils import context_variables_to_json
-from parlant.core.engines.types import Context, Engine, UtteranceReason, UtteranceRequest
+from parlant.core.engines.types import Context, Engine, CannedResponseReason, CannedResponseRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.loggers import Logger
@@ -130,7 +130,7 @@ class AlphaEngine(Engine):
         relational_guideline_resolver: RelationalGuidelineResolver,
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
-        utterance_selector: UtteranceSelector,
+        canned_response_selector: CannedResponseSelector,
         perceived_performance_policy: PerceivedPerformancePolicy,
         hooks: EngineHooks,
     ) -> None:
@@ -144,7 +144,7 @@ class AlphaEngine(Engine):
         self._relational_guideline_resolver = relational_guideline_resolver
         self._tool_event_generator = tool_event_generator
         self._fluid_message_generator = fluid_message_generator
-        self._utterance_selector = utterance_selector
+        self._canned_response_selector = canned_response_selector
         self._perceived_performance_policy = perceived_performance_policy
 
         self._hooks = hooks
@@ -187,9 +187,9 @@ class AlphaEngine(Engine):
         self,
         context: Context,
         event_emitter: EventEmitter,
-        requests: Sequence[UtteranceRequest],
+        requests: Sequence[CannedResponseRequest],
     ) -> bool:
-        """Produces a new message into a session, guided by specific utterance requests"""
+        """Produces a new message into a session, guided by specific canned response requests"""
 
         # Load the full relevant information from storage.
         loaded_context = await self._load_context(
@@ -341,20 +341,20 @@ class AlphaEngine(Engine):
     async def _do_utter(
         self,
         context: LoadedContext,
-        requests: Sequence[UtteranceRequest],
+        requests: Sequence[CannedResponseRequest],
     ) -> None:
         try:
             await self._initialize_response_state(context)
 
-            # Only use the specified utterance requests as guidelines here.
+            # Only use the specified canned response requests as guidelines here.
             context.state.ordinary_guideline_matches.extend(
-                # Utterance requests are reduced to guidelines, to take advantage
+                # Canned response requests are reduced to guidelines, to take advantage
                 # of the engine's ability to consistently adhere to guidelines.
-                await self._utterance_requests_to_guideline_matches(requests)
+                await self._can_rep_requests_to_guideline_matches(requests)
             )
 
             # Money time: communicate with the customer given the
-            # specified utterance requests.
+            # specified canned response requests.
             with CancellationSuppressionLatch() as latch:
                 message_generation_inspections = await self._generate_messages(context, latch)
 
@@ -909,11 +909,11 @@ class AlphaEngine(Engine):
             case CompositionMode.FLUID:
                 return self._fluid_message_generator
             case (
-                CompositionMode.STRICT_UTTERANCE
-                | CompositionMode.COMPOSITED_UTTERANCE
-                | CompositionMode.FLUID_UTTERANCE
+                CompositionMode.STRICT_CANNED_RESPONSE
+                | CompositionMode.COMPOSITED_CANNED_RESPONSE
+                | CompositionMode.FLUID_CANNED_RESPONSE
             ):
-                return self._utterance_selector
+                return self._canned_response_selector
 
         raise Exception("Unsupported agent composition mode")
 
@@ -1612,41 +1612,41 @@ class AlphaEngine(Engine):
 
         return result, tool_events, result.insights
 
-    async def _utterance_requests_to_guideline_matches(
+    async def _can_rep_requests_to_guideline_matches(
         self,
-        requests: Sequence[UtteranceRequest],
+        requests: Sequence[CannedResponseRequest],
     ) -> Sequence[GuidelineMatch]:
-        # Utterance requests are reduced to guidelines, to take advantage
+        # Canned response requests are reduced to guidelines, to take advantage
         # of the engine's ability to consistently adhere to guidelines.
 
-        def utterance_to_match(i: int, utterance: UtteranceRequest) -> GuidelineMatch:
+        def can_rep_to_match(i: int, can_rep: CannedResponseRequest) -> GuidelineMatch:
             rationales = {
-                UtteranceReason.BUY_TIME: "An external module has determined that this response is necessary, and you must adhere to it.",
-                UtteranceReason.FOLLOW_UP: "An external module has determined that this response is necessary, and you must adhere to it.",
+                CannedResponseReason.BUY_TIME: "An external module has determined that this response is necessary, and you must adhere to it.",
+                CannedResponseReason.FOLLOW_UP: "An external module has determined that this response is necessary, and you must adhere to it.",
             }
 
             conditions = {
-                UtteranceReason.BUY_TIME: "-- RIGHT NOW!",
-                UtteranceReason.FOLLOW_UP: "-- RIGHT NOW!",
+                CannedResponseReason.BUY_TIME: "-- RIGHT NOW!",
+                CannedResponseReason.FOLLOW_UP: "-- RIGHT NOW!",
             }
 
             return GuidelineMatch(
                 guideline=Guideline(
-                    id=GuidelineId(f"<utterance-request-{i}>"),
+                    id=GuidelineId(f"<can_rep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
-                        condition=conditions[utterance.reason],
-                        action=utterance.action,
+                        condition=conditions[can_rep.reason],
+                        action=can_rep.action,
                     ),
                     enabled=True,
                     tags=[],
                     metadata={},
                 ),
-                rationale=rationales[utterance.reason],
+                rationale=rationales[can_rep.reason],
                 score=10,
             )
 
-        return [utterance_to_match(i, request) for i, request in enumerate(requests, start=1)]
+        return [can_rep_to_match(i, request) for i, request in enumerate(requests, start=1)]
 
     async def _load_context_variable_value(
         self,

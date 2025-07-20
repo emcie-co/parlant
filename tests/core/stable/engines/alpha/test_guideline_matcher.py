@@ -3349,7 +3349,7 @@ async def test_that_observational_guidelines_are_matched_based_on_capabilities_1
             creation_utc=datetime.now(timezone.utc),
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
-            queries=["reset password", "password"],
+            signals=["reset password", "password"],
             tags=[],
         )
     ]
@@ -3381,7 +3381,7 @@ async def test_that_observational_guidelines_are_not_falsely_matched_based_on_ca
             creation_utc=datetime.now(timezone.utc),
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
-            queries=["reset password", "password"],
+            signals=["reset password", "password"],
             tags=[],
         )
     ]

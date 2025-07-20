@@ -57,7 +57,7 @@ from parlant.core.sessions import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolId, ToolService
-from parlant.core.utterances import Utterance, UtteranceStore
+from parlant.core.canned_responses import CannedResponse, CannedResponseStore
 
 
 class EntityQueries:
@@ -73,7 +73,7 @@ class EntityQueries:
         glossary_store: GlossaryStore,
         journey_store: JourneyStore,
         service_registry: ServiceRegistry,
-        utterance_store: UtteranceStore,
+        canned_response_store: CannedResponseStore,
         capability_store: CapabilityStore,
         journey_guideline_projection: JourneyGuidelineProjection,
     ) -> None:
@@ -88,7 +88,7 @@ class EntityQueries:
         self._journey_store = journey_store
         self._capability_store = capability_store
         self._service_registry = service_registry
-        self._utterance_store = utterance_store
+        self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
 
         self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
@@ -333,35 +333,35 @@ class EntityQueries:
             max_journeys=len(available_journeys),
         )
 
-    async def find_utterances_for_context(
+    async def find_canned_responses_for_context(
         self,
         agent_id: AgentId,
         journeys: Sequence[Journey],
-    ) -> Sequence[Utterance]:
-        agent_utterances = await self._utterance_store.list_utterances(
+    ) -> Sequence[CannedResponse]:
+        agent_canned_responses = await self._canned_response_store.list_responses(
             tags=[Tag.for_agent_id(agent_id)],
         )
-        global_utterances = await self._utterance_store.list_utterances(tags=[])
+        global_canned_responses = await self._canned_response_store.list_responses(tags=[])
 
         agent = await self._agent_store.read_agent(agent_id)
-        utterances_for_agent_tags = await self._utterance_store.list_utterances(
+        canned_responses_for_agent_tags = await self._canned_response_store.list_responses(
             tags=[tag for tag in agent.tags]
         )
 
-        journey_utterances = await self._utterance_store.list_utterances(
+        journey_canned_responses = await self._canned_response_store.list_responses(
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 
-        all_utterances = set(
+        all_canned_responses = set(
             chain(
-                agent_utterances,
-                global_utterances,
-                utterances_for_agent_tags,
-                journey_utterances,
+                agent_canned_responses,
+                global_canned_responses,
+                canned_responses_for_agent_tags,
+                journey_canned_responses,
             )
         )
 
-        return list(all_utterances)
+        return list(all_canned_responses)
 
     async def find_guidelines_that_need_reevaluation(
         self,

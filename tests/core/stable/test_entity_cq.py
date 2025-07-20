@@ -25,7 +25,7 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipEntityKind,
 )
-from parlant.core.utterances import UtteranceStore
+from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.tags import Tag, TagId, TagStore
@@ -203,51 +203,51 @@ async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_
     assert len(result) == 0
 
 
-async def test_that_find_utterances_for_agent_returns_global_utterances(
+async def test_that_find_can_reps_for_agent_returns_global_can_reps(
     container: Container, agent: Agent
 ) -> None:
-    utterance_store: UtteranceStore = container[UtteranceStore]
+    can_rep_store: CannedResponseStore = container[CannedResponseStore]
     entity_queries = container[EntityQueries]
 
-    untagged_utterance = await utterance_store.create_utterance(
+    untagged_can_rep = await can_rep_store.create_response(
         value="Hello world",
         fields=[],
     )
 
-    results = await entity_queries.find_utterances_for_context(
+    results = await entity_queries.find_canned_responses_for_context(
         agent_id=agent.id,
         journeys=[],
     )
     assert len(results) == 1
-    assert results[0].id == untagged_utterance.id
+    assert results[0].id == untagged_can_rep.id
 
 
-async def test_that_find_utterances_for_agent_returns_none_for_non_matching_tag(
+async def test_that_find_can_reps_for_agent_returns_none_for_non_matching_tag(
     container: Container, agent: Agent
 ) -> None:
-    utterance_store: UtteranceStore = container[UtteranceStore]
+    can_rep_store: CannedResponseStore = container[CannedResponseStore]
     entity_queries = container[EntityQueries]
 
     tag1 = TagId("tag1")
-    await utterance_store.create_utterance(
-        value="Tagged utterance",
+    await can_rep_store.create_response(
+        value="Tagged canned response",
         fields=[],
         tags=[tag1],
     )
 
     await container[AgentStore].upsert_tag(agent_id=agent.id, tag_id=TagId("non_matching_tag"))
 
-    results = await entity_queries.find_utterances_for_context(
+    results = await entity_queries.find_canned_responses_for_context(
         agent_id=agent.id,
         journeys=[],
     )
     assert len(results) == 0
 
 
-async def test_that_find_utterances_for_agent_and_journey_returns_journey_utterances(
+async def test_that_find_can_reps_for_agent_and_journey_returns_journey_can_reps(
     container: Container, agent: Agent
 ) -> None:
-    utterance_store: UtteranceStore = container[UtteranceStore]
+    can_rep_store: CannedResponseStore = container[CannedResponseStore]
     journey_store = container[JourneyStore]
     entity_queries = container[EntityQueries]
 
@@ -258,18 +258,18 @@ async def test_that_find_utterances_for_agent_and_journey_returns_journey_uttera
     )
 
     journey_tag = Tag.for_journey_id(journey.id)
-    journey_utterance = await utterance_store.create_utterance(
-        value="Journey utterance",
+    journey_can_rep = await can_rep_store.create_response(
+        value="Journey can_rep",
         fields=[],
         tags=[journey_tag],
     )
 
-    results = await entity_queries.find_utterances_for_context(
+    results = await entity_queries.find_canned_responses_for_context(
         agent_id=agent.id,
         journeys=[journey],
     )
     assert len(results) == 1
-    assert results[0].id == journey_utterance.id
+    assert results[0].id == journey_can_rep.id
 
 
 async def test_that_find_glossary_terms_for_agent_returns_all_when_no_tags(
@@ -333,13 +333,13 @@ async def test_that_find_capabilities_for_agent_returns_unique_capabilities(
         capability = {
             "title": random_unicode_string(),
             "description": random_unicode_string(),
-            "queries": [random_unicode_string() for _ in range(5)],
+            "signals": [random_unicode_string() for _ in range(5)],
         }
 
         await capability_store.create_capability(
             title=str(capability["title"]),
             description=str(capability["description"]),
-            queries=capability["queries"],
+            signals=capability["signals"],
         )
 
     relevant_capabilities = await entity_queries.find_capabilities_for_agent(

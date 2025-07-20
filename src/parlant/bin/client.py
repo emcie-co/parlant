@@ -74,8 +74,8 @@ from parlant.client.types import (
     CustomerTagUpdateParams,
     Tag,
     ConsumptionOffsetsUpdateParams,
-    Utterance,
-    UtteranceField,
+    CannedResponse,
+    CannedResponseField,
 )
 from websocket import WebSocketConnectionClosedException, create_connection
 
@@ -1172,51 +1172,51 @@ class Actions:
             )
 
     @staticmethod
-    def list_utterances(ctx: click.Context) -> list[Utterance]:
+    def list_canned_responses(ctx: click.Context) -> list[CannedResponse]:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.utterances.list()
+        return client.canned_responses.list()
 
     @staticmethod
-    def view_utterance(ctx: click.Context, utterance_id: str) -> Utterance:
+    def view_canned_response(ctx: click.Context, canned_response_id: str) -> CannedResponse:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.utterances.retrieve(utterance_id=utterance_id)
+        return client.canned_responses.retrieve(canned_response_id=canned_response_id)
 
     @staticmethod
-    def load_utterances(ctx: click.Context, path: Path) -> list[Utterance]:
+    def load_canned_responses(ctx: click.Context, path: Path) -> list[CannedResponse]:
         with open(path, "r") as file:
             data = json.load(file)
 
         client = cast(ParlantClient, ctx.obj.client)
 
-        for utterance in client.utterances.list():
-            client.utterances.delete(utterance_id=utterance.id)
+        for canned_response in client.canned_responses.list():
+            client.canned_responses.delete(canned_response_id=canned_response.id)
 
-        utterances = []
+        canned_responses = []
         tag_ids = {tag.name: tag.id for tag in client.tags.list()}
 
-        for utterance_data in data.get("utterances", []):
-            value = utterance_data["value"]
+        for canned_response_data in data.get("canned_responses", []):
+            value = canned_response_data["value"]
             assert value
 
             fields = [
-                UtteranceField(**utterance_field)
-                for utterance_field in utterance_data.get("fields", [])
+                CannedResponseField(**canned_response_field)
+                for canned_response_field in canned_response_data.get("fields", [])
             ]
 
-            tag_names = utterance_data.get("tags", [])
+            tag_names = canned_response_data.get("tags", [])
 
-            queries = utterance_data.get("queries", [])
+            signals = canned_response_data.get("signals", [])
 
-            utterance = client.utterances.create(
+            canned_response = client.canned_responses.create(
                 value=value,
                 fields=fields,
                 tags=[tag_ids[tag_name] for tag_name in tag_names if tag_name in tag_ids] or None,
-                queries=queries,
+                signals=signals,
             )
 
-            utterances.append(utterance)
+            canned_responses.append(canned_response)
 
-        return utterances
+        return canned_responses
 
     @staticmethod
     def list_journeys(
@@ -1344,7 +1344,7 @@ class Actions:
         ctx: click.Context,
         title: str,
         description: str,
-        queries: list[str],
+        signals: list[str],
         tags: list[str],
     ) -> Capability:
         client = cast(ParlantClient, ctx.obj.client)
@@ -1353,7 +1353,7 @@ class Actions:
         return client.capabilities.create(
             title=title,
             description=description,
-            queries=queries,
+            signals=signals,
             tags=tags,
         )
 
@@ -1363,7 +1363,7 @@ class Actions:
         capability_id: str,
         title: Optional[str],
         description: Optional[str],
-        queries: Optional[list[str]],
+        signals: Optional[list[str]],
     ) -> Capability:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -1371,7 +1371,7 @@ class Actions:
             capability_id=capability_id,
             title=title,
             description=description,
-            queries=queries,
+            signals=signals,
         )
 
     @staticmethod
@@ -2976,8 +2976,8 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def _render_utterances(utterances: list[Utterance]) -> None:
-        utterance_items = [
+    def _render_canned_responses(canned_responses: list[CannedResponse]) -> None:
+        canned_response_items = [
             {
                 "ID": f.id,
                 "Value": f.value,
@@ -2989,40 +2989,42 @@ class Interface:
                 "Tags": ", ".join(f.tags),
                 "Creation Date": reformat_datetime(f.creation_utc),
             }
-            for f in utterances
+            for f in canned_responses
         ]
 
-        Interface._print_table(utterance_items)
+        Interface._print_table(canned_response_items)
 
     @staticmethod
-    def load_utterances(ctx: click.Context, path: Path) -> None:
+    def load_canned_responses(ctx: click.Context, path: Path) -> None:
         try:
-            utterances = Actions.load_utterances(ctx, path)
+            canned_responses = Actions.load_canned_responses(ctx, path)
 
-            Interface._write_success(f"Loaded {len(utterances)} utterances from {path}")
-            Interface._render_utterances(utterances)
+            Interface._write_success(f"Loaded {len(canned_responses)} canned_responses from {path}")
+            Interface._render_canned_responses(canned_responses)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def list_utterances(ctx: click.Context) -> None:
+    def list_canned_responses(ctx: click.Context) -> None:
         try:
-            utterances = Actions.list_utterances(ctx)
-            if not utterances:
-                rich.print("No utterances found")
+            canned_responses = Actions.list_canned_responses(ctx)
+            if not canned_responses:
+                rich.print("No canned responses found")
                 return
 
-            Interface._render_utterances(utterances)
+            Interface._render_canned_responses(canned_responses)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def view_utterance(ctx: click.Context, utterance_id: str) -> None:
+    def view_canned_response(ctx: click.Context, canned_response_id: str) -> None:
         try:
-            utterance = Actions.view_utterance(ctx, utterance_id=utterance_id)
-            Interface._render_utterances([utterance])
+            canned_response = Actions.view_canned_response(
+                ctx, canned_response_id=canned_response_id
+            )
+            Interface._render_canned_responses([canned_response])
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -3163,7 +3165,7 @@ class Interface:
                 "ID": c.id,
                 "Title": c.title,
                 "Description": c.description,
-                "Queries": ", ".join(c.queries),
+                "Signals": ", ".join(c.signals),
                 "Tags": ", ".join(c.tags or []),
             }
             for c in capabilities
@@ -3175,11 +3177,11 @@ class Interface:
         ctx: click.Context,
         title: str,
         description: str,
-        queries: list[str],
+        signals: list[str],
         tags: list[str],
     ) -> None:
         try:
-            capability = Actions.create_capability(ctx, title, description, queries, tags)
+            capability = Actions.create_capability(ctx, title, description, signals, tags)
 
             Interface._write_success(f"Added capability (id: {getattr(capability, 'id', '')})")
 
@@ -3194,10 +3196,10 @@ class Interface:
         capability_id: str,
         title: Optional[str],
         description: Optional[str],
-        queries: Optional[list[str]],
+        signals: Optional[list[str]],
     ) -> None:
         try:
-            capability = Actions.update_capability(ctx, capability_id, title, description, queries)
+            capability = Actions.update_capability(ctx, capability_id, title, description, signals)
 
             Interface._write_success(f"Updated capability (id: {getattr(capability, 'id', '')})")
 
@@ -3361,7 +3363,14 @@ async def async_main() -> None:
     )
     @click.option(
         "--composition-mode",
-        type=click.Choice(["fluid", "strict-utterance", "composited-utterance", "fluid-utterance"]),
+        type=click.Choice(
+            [
+                "fluid",
+                "strict-canned-response",
+                "composited-canned-response",
+                "fluid-canned-response",
+            ]
+        ),
         help="Composition mode",
         required=False,
     )
@@ -3428,7 +3437,14 @@ async def async_main() -> None:
     @click.option(
         "--composition-mode",
         "-c",
-        type=click.Choice(["fluid", "strict-utterance", "composited-utterance", "fluid-utterance"]),
+        type=click.Choice(
+            [
+                "fluid",
+                "strict-canned-response",
+                "composited-canned-response",
+                "fluid-canned-response",
+            ]
+        ),
         help="Composition mode",
         required=False,
     )
@@ -4474,15 +4490,15 @@ async def async_main() -> None:
     def tag_delete(ctx: click.Context, tag: str) -> None:
         Interface.delete_tag(ctx, tag)
 
-    @cli.group(help="Manage utterances")
-    def utterance() -> None:
+    @cli.group(help="Manage canned responses")
+    def canned_response() -> None:
         pass
 
-    @utterance.command("init", help="Initialize a sample utterances JSON file.")
+    @canned_response.command("init", help="Initialize a sample canned responses JSON file.")
     @click.argument("file", type=click.Path(dir_okay=False, writable=True))
-    def utterance_init(file: str) -> None:
+    def canned_response_init(file: str) -> None:
         sample_data = {
-            "utterances": [
+            "canned_responses": [
                 {
                     "value": "Hello, {{std.customer.name}}!",
                 },
@@ -4499,24 +4515,24 @@ async def async_main() -> None:
         with path.open("w", encoding="utf-8") as f:
             json.dump(sample_data, f, indent=2)
 
-        Interface._write_success(f"Created sample utterance data at {path}")
+        Interface._write_success(f"Created sample canned response data at {path}")
 
-    @utterance.command("load", help="Load utterances from a JSON file.")
+    @canned_response.command("load", help="Load canned responses from a JSON file.")
     @click.argument("file", type=click.Path(exists=True, dir_okay=False))
     @click.pass_context
-    def utterance_load(ctx: click.Context, file: str) -> None:
-        Interface.load_utterances(ctx, Path(file))
+    def canned_response_load(ctx: click.Context, file: str) -> None:
+        Interface.load_canned_responses(ctx, Path(file))
 
-    @utterance.command("list", help="List utterances")
+    @canned_response.command("list", help="List canned responses")
     @click.pass_context
-    def utterance_list(ctx: click.Context) -> None:
-        Interface.list_utterances(ctx)
+    def canned_response_list(ctx: click.Context) -> None:
+        Interface.list_canned_responses(ctx)
 
-    @utterance.command("view", help="View an utterance")
-    @click.option("--id", type=str, metavar="ID", help="Utterance ID", required=True)
+    @canned_response.command("view", help="View an canned_response")
+    @click.option("--id", type=str, metavar="ID", help="Canned Response ID", required=True)
     @click.pass_context
-    def utterance_view(ctx: click.Context, id: str) -> None:
-        Interface.view_utterance(ctx, id)
+    def canned_response_view(ctx: click.Context, id: str) -> None:
+        Interface.view_canned_response(ctx, id)
 
     @cli.group(help="Manage journeys")
     def journey() -> None:
@@ -4665,15 +4681,15 @@ async def async_main() -> None:
 
     @capability.command(
         "update",
-        help="Update a capability. If --query is provided, it will override all existing queries for this capability.",
+        help="Update a capability. If --query is provided, it will override all existing signals for this capability.",
     )
     @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
     @click.option("--title", type=str, help="Capability title", required=False)
     @click.option("--description", type=str, help="Capability description", required=False)
     @click.option(
-        "--query",
+        "--signal",
         type=str,
-        help="Query for the capability. May be specified multiple times. If provided, overrides all existing queries.",
+        help="Signal for the capability. May be specified multiple times. If provided, overrides all existing signals.",
         multiple=True,
         required=False,
     )

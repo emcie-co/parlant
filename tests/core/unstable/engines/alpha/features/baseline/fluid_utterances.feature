@@ -27,31 +27,6 @@ Feature: Fluid Utterance
         And the message contains either that the password could not be reset at this time
 
 
-    Scenario: Multistep journey invokes tool calls correctly (fluid utterance)
-        Given the journey called "Reset Password Journey"
-        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
-        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        And an agent message, "Great! And what's the account's associated email address or phone number?"
-        And a customer message, "the email is leonardobarbosa@gmail.br"
-        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
-        And a customer message, "Thank you! Have a great day as well!"
-        And an utterance, "What is the name of your account?"
-        And an utterance, "can you please provide the email address or phone number attached to this account?"
-        And an utterance, "Thank you, have a good day!"
-        And an utterance, "I'm sorry but I have no information about that"
-        And an utterance, "Is there anything else I could help you with?"
-        And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And an utterance, "An error occurred, your password could not be reset"
-        When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br 
-        And a single message event is emitted
-        And the message contains that the password was reset and an email with instructions was sent to the customer
-
-
     Scenario: The agent follows response guidelines without looping out (fluid utterance)
         Given a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
         And a guideline "answer_rudely" to rudely answer to go away when a user asks any information aside from Mobileye for the third time

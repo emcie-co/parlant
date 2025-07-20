@@ -69,7 +69,8 @@ Feature: Journeys
         And an agent message, "Great! From and to where would are you looking to fly?"
         And a customer message, "From LAX to JFK"
         And an agent message, "Got it. And when are you looking to travel?"
-        And a customer message, "Next Monday"
+        And a customer message, "Next Monday until Friday"
+        And a journey path "[2, 3]" for the journey "Book Flight"
         When processing is triggered
         Then a single message event is emitted
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
@@ -144,3 +145,33 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains either confirming that the loan is for 15k, or asking for the purpose of the loan, or asking for the account number
         And the message contains no mention of any questions other than potentially these three - 1. confirming that the loan is for 15k 2. asking for the purpose of the loan 3. asking for the account number 
+
+
+    Scenario: Dependent guidelines on journey are getting matched when journey is activated
+        Given the journey called "Book Flight"
+        And a guideline "under 21" to inform the customer that only economy class is available when a customer wants to book a flight and the traveler is under 21
+        And a guideline "21 or older" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
+        And a dependency relationship between the guideline "under 21" and the "Book Flight" journey
+        And a dependency relationship between the guideline "21 or older" and the "Book Flight" journey
+        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport to JFK. We flight in the 12.10 and return in the 17.10. I'm 19 if that affects anything."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains informing the customer that only economy class is available  
+
+    Scenario: Multiple step advancement of a journey stopped by lacking info
+        Given the journey called "Book Flight"
+        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. We flight in the 12.10 and return in the 17.10."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains asking what is the destination 
+
+    Scenario: Previously answered journey steps are skipped 
+        Given the journey called "Book Flight"
+        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. We flight in the 12.10 and return in the 17.10."
+        And an agent message, "Hi John, thanks for reaching out! I see you're planning to fly from Ben Gurion airport. Could you please let me know your destination airport?"
+        And a customer message, "Suvarnabhumi Airport, please"
+        And a journey path "[2]" for the journey "Book Flight"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains asking whether they want economy or business class
+

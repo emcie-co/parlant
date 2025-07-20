@@ -1608,9 +1608,8 @@ example_1_expected = UtteranceDraftSchema(
         "When the user chooses and orders a burger, then provide it",
         "When the user chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order",
     ],
-    journey_state="Journey 1. Still need to stay in step 2 (choose ingredients for burger), as the user's choice is not available and I need to inform them about it",
     insights=[
-        "All of our cheese has expired and is currently out of stock",
+        "As appears in the tool results, all of our cheese has expired and is currently out of stock",
         "The user is a long-time user and we should treat him with extra respect",
     ],
     response_preamble_that_was_already_sent="Let me check",
@@ -1627,7 +1626,6 @@ example_1_shot = UtteranceSelectorDraftShot(
 example_2_expected = UtteranceDraftSchema(
     last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
-    journey_state="Journey 2. Still stuck in step 1 (take initial order), as I don't have the menu yet so I can't proceed from here",
     insights=[
         "According to contextual information about the user, this is their first time here",
         "There's no menu information in my context",
@@ -1646,14 +1644,14 @@ example_2_shot = UtteranceSelectorDraftShot(
     expected_result=example_2_expected,
 )
 
-
 example_3_expected = UtteranceDraftSchema(
-    last_message_of_user="Sure, I'll take the Pepsi",
+    last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
-    journey_state="Journey 1. Moving from step 4 (offer drinks) to step 5 (order confirmation)",
-    insights=[],
-    response_preamble_that_was_already_sent="Great!",
-    response_body="So just to confirm, you'll have a cheeseburger with onions and a Pepsi, right?",
+    insights=[
+        "When I cannot help with a topic, I should tell the user I can't help with it",
+    ],
+    response_preamble_that_was_already_sent="Hello",
+    response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
 example_3_shot = UtteranceSelectorDraftShot(
@@ -1662,30 +1660,8 @@ example_3_shot = UtteranceSelectorDraftShot(
         CompositionMode.COMPOSITED_UTTERANCE,
         CompositionMode.FLUID_UTTERANCE,
     ],
-    description="Avoiding repetitive responses—in this case, given that the previous response by the agent was 'I am sorry, could you please clarify your request?'",
-    expected_result=example_3_expected,
-)
-
-
-example_4_expected = UtteranceDraftSchema(
-    last_message_of_user=("Hey, how can I contact customer support?"),
-    guidelines=[],
-    journey_state=None,
-    insights=[
-        "When I cannot help with a topic, I should tell the user I can't help with it",
-    ],
-    response_preamble_that_was_already_sent="Hello",
-    response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
-)
-
-example_4_shot = UtteranceSelectorDraftShot(
-    composition_modes=[
-        CompositionMode.STRICT_UTTERANCE,
-        CompositionMode.COMPOSITED_UTTERANCE,
-        CompositionMode.FLUID_UTTERANCE,
-    ],
     description="An insight is derived and followed on not offering to help with something you don't know about",
-    expected_result=example_4_expected,
+    expected_result=example_3_expected,
 )
 
 
@@ -1693,7 +1669,6 @@ _baseline_shots: Sequence[UtteranceSelectorDraftShot] = [
     example_1_shot,
     example_2_shot,
     example_3_shot,
-    example_4_shot,
 ]
 
 shot_collection = ShotCollection[UtteranceSelectorDraftShot](_baseline_shots)

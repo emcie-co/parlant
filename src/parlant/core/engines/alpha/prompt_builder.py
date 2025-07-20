@@ -449,9 +449,16 @@ you don't need to specifically double-check if you followed or broke any guideli
 
         guidelines = []
         agent_intention_guidelines = []
+        customer_dependent_guideline_indices = []
 
         for i, p in enumerate(all_matches, start=1):
             if guideline_representations[p.guideline.id].action:
+                if cast(
+                    dict[str, bool],
+                    p.guideline.metadata.get("customer_dependent_action_data", dict()),
+                ).get("is_customer_dependent", False):
+                    customer_dependent_guideline_indices.append(i)
+
                 if guideline_representations[p.guideline.id].condition:
                     guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
                 else:
@@ -482,10 +489,19 @@ You should only follow these guidelines if you are actually going to produce a m
             guideline_instruction += f"""
 
 For any other guidelines, do not disregard a guideline because you believe its 'when' condition or rationale does not apply—this filtering has already been handled.
+
 - **Guidelines**:
     {guideline_list}
 
     """
+
+        if customer_dependent_guideline_indices:
+            customer_dependent_guideline_indices_str = ", ".join(
+                [str(i) for i in customer_dependent_guideline_indices]
+            )
+            guideline_instruction += f"""
+Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response. 
+"""
         guideline_instruction += """
 
 You may choose not to follow a guideline only in the following cases:

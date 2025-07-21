@@ -1647,30 +1647,6 @@ def given_a_node_with_an_action_in_journey(
 
 @step(
     given,
-    parsers.parse('a terminating node "{node_name}" in "{journey_title}" journey'),
-)
-def given_a_terminating_node(
-    context: ContextOfTest,
-    node_name: str,
-    journey_title: str,
-) -> None:
-    journey_store = context.container[JourneyStore]
-
-    journey = context.journeys[journey_title]
-
-    node = context.sync_await(
-        journey_store.create_node(
-            journey_id=journey.id,
-            action=None,
-            tools=[],
-        )
-    )
-
-    context.nodes[node_name] = node
-
-
-@step(
-    given,
     parsers.parse('the node "{node_name}" uses the tool "{tool_name}"'),
 )
 def given_the_node_uses_the_tool(
@@ -1693,7 +1669,7 @@ def given_the_node_uses_the_tool(
 
 @step(
     given,
-    parsers.parse("the node {node_name} requires customer input"),
+    parsers.parse('the node "{node_name}" requires customer input'),
 )
 def given_the_node_requires_customer_input(
     context: ContextOfTest,
@@ -1718,7 +1694,7 @@ def given_the_node_requires_customer_input(
 
 @step(
     given,
-    parsers.parse("the node {node_name} is tool running only"),
+    parsers.parse('the node "{node_name}" is tool running only'),
 )
 def given_the_node_is_tool_running_only(
     context: ContextOfTest,
@@ -1756,7 +1732,7 @@ def given_the_node_is_tool_running_only(
 @step(
     given,
     parsers.parse(
-        'a transition from the root to {node_name} when {condition} in "{journey_title}" journey'
+        'a transition from the root to "{node_name}" when {condition} in "{journey_title}" journey'
     ),
 )
 def given_a_transition_from_to_the_node_when_in_journey(
@@ -1795,7 +1771,7 @@ def given_a_transition_from_root_to_the_node_in_journey(
     context.sync_await(
         journey_store.create_edge(
             journey_id=journey.id,
-            source=JourneyStore.ROOT_NODE_ID,
+            source=journey.root_id,
             target=node.id,
             condition=None,
         )
@@ -1857,3 +1833,60 @@ def given_a_transition_from_to_in_journey(
             condition=None,
         )
     )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a transition from "{node_name}" to end when {condition} in "{journey_title}" journey'
+    ),
+)
+def given_a_transition_from_to_end_when_in_journey(
+    context: ContextOfTest,
+    node_name: str,
+    journey_title: str,
+    condition: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+
+    journey = context.journeys[journey_title]
+
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=node.id,
+            target=journey_store.END_NODE_ID,
+            condition=condition,
+        )
+    )
+
+    context.nodes[node_name] = node
+
+
+@step(
+    given,
+    parsers.parse('a transition from "{node_name}" to end in "{journey_title}" journey'),
+)
+def given_a_transition_from_to_end_in_journey(
+    context: ContextOfTest,
+    node_name: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+
+    journey = context.journeys[journey_title]
+
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=node.id,
+            target=journey_store.END_NODE_ID,
+            condition=None,
+        )
+    )
+
+    context.nodes[node_name] = node

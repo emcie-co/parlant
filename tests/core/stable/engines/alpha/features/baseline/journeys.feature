@@ -209,7 +209,7 @@ Feature: Journeys
         And a single message event is emitted
         And the message contains asking for account number
 
-            Scenario: reset password journey is created with new steps
+    Scenario: reset password journey is created with new steps
         Given a journey "reset_password"
         And the journey "reset_password" is triggered when the customer wants to reset their password
         And the journey "reset_password" is triggered when the customer can't remember their password

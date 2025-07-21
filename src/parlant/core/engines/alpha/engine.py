@@ -996,9 +996,9 @@ class AlphaEngine(Engine):
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [
-            j for j in sorted_journeys_by_relevance if set(j.conditions).intersection(match_ids)
-        ]
+        journeys = self._filter_activated_journeys(
+            context.session, match_ids, sorted_journeys_by_relevance
+        )
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
         # have in fact been activated, run an additional matching pass for the guidelines
@@ -1100,7 +1100,9 @@ class AlphaEngine(Engine):
         # If a journey was already active in a previous iteration, we still retrieve its steps
         # to support cases where multiple steps should be processed in a single engine run.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        activated_journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
+        activated_journeys = self._filter_activated_journeys(
+            context.session, match_ids, all_journeys
+        )
 
         # Step 6: If any of the journeys have been activated,
         # run an additional matching pass for the guidelines
@@ -1108,6 +1110,7 @@ class AlphaEngine(Engine):
         if second_match_result := await self._match_dependent_guidelines_and_active_journeys(
             context=context,
             all_stored_guidelines=all_stored_guidelines,
+            already_examined_guidelines={g.id for g in guidelines_to_reevaluate},
             activated_journeys=activated_journeys,
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
@@ -1147,6 +1150,42 @@ class AlphaEngine(Engine):
             matches_guidelines=list(matching_result.matches),
             resolved_guidelines=list(all_relevant_guidelines),
             journeys=activated_journeys,
+        )
+
+    def _filter_activated_journeys(
+        self,
+        session: Session,
+        match_ids: set[GuidelineId],
+        all_journeys: Sequence[Journey],
+    ) -> list[Journey]:
+        # We consider a journey to be activated if either:
+        # 1. The journey was already active in the previous message.
+        # 2. The journey’s conditions match any of the currently matched guideline IDs.
+        #
+        # FIXME: The current logic for reactivating journeys based on the previous message isn't ideal.
+        # Ideally, it should be only based on the conditions of the matched journey and the journey itself.
+        # However, since our guideline matcher is not aware of the full journey,
+        # It would falsely deactivate the journey in cases where some of the journey steps leave the context of the journey conditions.
+        # Fixing this properly would require the guideline matcher to be aware of the full journey when evaluating journey conditions.
+        active_journeys_by_conditions = [
+            j for j in all_journeys if set(j.conditions).intersection(match_ids)
+        ]
+
+        last_interaction_active_journeys = (
+            {
+                j_id
+                for j_id in session.agent_states[-1]["journey_paths"]
+                if session.agent_states[-1]["journey_paths"][j_id][-1] is not None
+            }
+            if session.agent_states
+            else set([])
+        )
+
+        return list(
+            set(
+                active_journeys_by_conditions
+                + [j for j in all_journeys if j.id in last_interaction_active_journeys]
+            )
         )
 
     async def _build_matched_guidelines(
@@ -1398,6 +1437,7 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
         all_stored_guidelines: dict[GuidelineId, Guideline],
+        already_examined_guidelines: set[GuidelineId],
         activated_journeys: Sequence[Journey],
     ) -> Optional[GuidelineMatchingResult]:
         related_guidelines = {
@@ -1411,18 +1451,16 @@ class AlphaEngine(Engine):
         }
 
         if related_guidelines:
-            journey_conditions = chain.from_iterable(
-                [j.conditions for j in activated_journeys if j.conditions]
-            )
-
             self._logger.operation(
                 "Second-pass: matching guidelines dependent on activated journeys"
             )
 
             additional_matching_guidelines = [
-                g
-                for id, g in all_stored_guidelines.items()
-                if id in related_guidelines or id in journey_conditions
+                g for id, g in all_stored_guidelines.items() if id in related_guidelines
+            ]
+
+            filtered_guidelines = [
+                g for g in additional_matching_guidelines if g.id not in already_examined_guidelines
             ]
 
             return await self._guideline_matcher.match_guidelines(
@@ -1435,7 +1473,7 @@ class AlphaEngine(Engine):
                 capabilities=context.state.capabilities,
                 staged_events=context.state.tool_events,
                 active_journeys=activated_journeys,
-                guidelines=additional_matching_guidelines,
+                guidelines=filtered_guidelines,
             )
 
         return None

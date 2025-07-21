@@ -1687,6 +1687,7 @@ class AlphaEngine(Engine):
             and not match.guideline.metadata.get("continuous", False)
             and match.guideline.content.action
             and "journey_node" not in match.guideline.metadata  # Exclude journey node guidelines
+            and not match.guideline.id.startswith("<transient")  # Exclude transient guidelines
         ]
 
         self._todo_add_associated_guidelines(matches_to_analyze)

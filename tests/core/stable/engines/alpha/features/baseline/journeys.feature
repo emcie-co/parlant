@@ -175,7 +175,7 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains asking whether they want economy or business class
 
-    Scenario: reset password journey is created with new steps
+    Scenario: reset password journey is created with steps
         Given a journey "reset_password"
         And the journey "reset_password" is triggered when the customer wants to reset their password
         And the journey "reset_password" is triggered when the customer can't remember their password
@@ -191,7 +191,7 @@ Feature: Journeys
         And the node "do_reset" uses the tool "reset_password"
         And the node "do_reset" is tool running only
         And a transition from "good_day" to "do_reset" when the customer wished you a good day in return in "reset_password" journey
-        And a node "cant_reset" apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
+        And a node "cant_reset" to apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
         And a transition from "good_day" to "cant_reset" when the customer did not immediately wish you a good day in return in "reset_password" journey
         And a node "reset_succeed" to report the result to the customer in "reset_password" journey
         And a transition from "do_reset" to "reset_succeed" when reset_password tool returned that the password was successfully reset in "reset_password" journey

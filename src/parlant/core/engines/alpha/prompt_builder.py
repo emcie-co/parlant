@@ -371,7 +371,7 @@ If none of the capabilities address the current request of the customer - DO NOT
             self.add_section(
                 name=BuiltInSection.CAPABILITIES,
                 template="""
-When evaluating guidelines, you may sometimes be given capabilities to assist the customer beyond those dictated through guidelines. 
+When evaluating guidelines, you may sometimes be given capabilities to assist the customer beyond those dictated through guidelines.
 However, in this case, no capabilities relevant to the current state of the conversation were found, besides the ones potentially listed in other sections of this prompt.
 
 
@@ -392,7 +392,7 @@ However, in this case, no capabilities relevant to the current state of the conv
             self.add_section(
                 name=BuiltInSection.CAPABILITIES,
                 template="""
-The following are the capabilities that you hold as an agent. 
+The following are the capabilities that you hold as an agent.
 They may or may not effect your decision regarding the specified guidelines.
 ###
 {capabilities_string}
@@ -465,7 +465,10 @@ you don't need to specifically double-check if you followed or broke any guideli
                     guideline = (
                         f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                     )
-                guideline += f"\n   Rationale: {p.rationale}"
+
+                if p.rationale:
+                    guideline += f"\n      - Rationale: {p.rationale}"
+
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)
                 else:
@@ -500,7 +503,7 @@ For any other guidelines, do not disregard a guideline because you believe its '
                 [str(i) for i in customer_dependent_guideline_indices]
             )
             guideline_instruction += f"""
-Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response. 
+Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
 """
         guideline_instruction += """
 
@@ -510,7 +513,7 @@ You may choose not to follow a guideline only in the following cases:
     - It lacks sufficient context or data to apply reliably.
     - It conflicts with an insight.
     - It depends on an agent intention condition that does not apply in the current situation (as mentioned above)
-    - If a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), follow both by 
+    - If a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), follow both by
         choosing the permitted alternative (i.e., do Y).
 In all other situations, you are expected to adhere to the guidelines.
 These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.

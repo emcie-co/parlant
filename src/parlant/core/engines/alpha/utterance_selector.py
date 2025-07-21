@@ -280,7 +280,15 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
             guidelines_texts = []
             for i, p in enumerate(all_matches, start=1):
                 if p.guideline.content.action:
-                    guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                    internal_representation = guideline_representations[p.guideline.id]
+
+                    if internal_representation.condition:
+                        guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                    else:
+                        guideline = (
+                            f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
+                        )
+
                     guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
                     guidelines_texts.append(guideline)
             return "\n".join(guidelines_texts)
@@ -1186,9 +1194,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
-        with open("utterance-selector-draft-prompt.txt", "w") as f:
-            f.write(builder.build())
-        return builder
 
     def _get_draft_output_format(
         self,

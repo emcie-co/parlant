@@ -113,8 +113,6 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    with open("output_observational.txt", "a") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
                     matches = []
 
                     for match in inference.content.checks:
@@ -232,7 +230,7 @@ GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by how the current state of its interaction with a customer (also referred to as "the user") compares to a number of pre-defined conditions:
 
-- "condition": This is a natural-language condition that specifies when a guideline should apply. 
+- "condition": This is a natural-language condition that specifies when a guideline should apply.
           We evaluate each conversation at its current state against these conditions
           to determine which guidelines should inform the agent's next reply.
 

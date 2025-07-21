@@ -577,8 +577,6 @@ Produce a valid JSON object in the following format: ###
             },
         )
 
-        with open("message generation prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _format_missing_data(self, missing_data: Sequence[MissingToolData]) -> str:
@@ -728,8 +726,6 @@ Produce a valid JSON object in the following format: ###
         self._logger.trace(
             f"Completion:\n{message_event_response.content.model_dump_json(indent=2)}"
         )
-        with open("message generation output.txt", "w") as f:
-            f.write(message_event_response.content.model_dump_json(indent=2))
 
         if (
             message_event_response.content.produced_reply is False

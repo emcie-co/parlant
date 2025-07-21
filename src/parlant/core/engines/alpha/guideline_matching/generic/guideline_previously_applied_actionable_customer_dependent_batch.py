@@ -134,7 +134,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],
                                     score=10 if match.should_apply else 1,
-                                    rationale=f'''reapply rational: "{match.tldr}"''',
+                                    rationale=match.tldr,
                                     guideline_previously_applied=PreviouslyAppliedType.FULLY,
                                 )
                             )

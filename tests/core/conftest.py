@@ -72,6 +72,7 @@ def context(
         tools=dict(),
         actions=list(),
         journeys=dict(),
+        nodes=dict(),
     )
 
 

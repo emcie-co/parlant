@@ -161,6 +161,7 @@ def get_journey_transition_map_text(
     journey_title: str,
     journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
+    print_customer_action_description: bool = False,
 ) -> str:
     def step_sort_key(step_id: str) -> Any:
         try:
@@ -228,7 +229,7 @@ TRANSITIONS:
         elif node.action:  # not root
             flags_str = "Step Flags:\n"
             if node.customer_dependent_action:
-                if node.customer_action_description:
+                if print_customer_action_description and node.customer_action_description:
                     flags_str += f'- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. It is completed if the following action was completed: "{node.customer_action_description}" \n'
                 else:
                     flags_str += "- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
@@ -422,6 +423,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                     )
                     for i, c in enumerate(shot.conditions)
                 ],
+                print_customer_action_description=True,
             )
 
         formatted_shot += f"""
@@ -653,6 +655,7 @@ Example section is over. The following is the real data you need to use for your
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
                 journey_conditions=journey_conditions,
+                print_customer_action_description=True,
             ),
         )
         builder.add_section(

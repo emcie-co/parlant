@@ -124,7 +124,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account name",
                     "agent_action": "",
                 },
             )
@@ -152,7 +152,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided either one of their email or their phone number",
                     "agent_action": "",
                 },
             )
@@ -308,7 +308,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided both their source and destination airport",
                     "agent_action": "",
                 },
             )
@@ -336,7 +336,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the desired dates for both their arrival and for their return flight",
                     "agent_action": "",
                 },
             )
@@ -364,7 +364,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose between economy and business class",
                     "agent_action": "",
                 },
             )
@@ -392,7 +392,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The name of the traveler was provided",
                     "agent_action": "",
                 },
             )
@@ -495,7 +495,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The desired pick up location was provided",
                     "agent_action": "",
                 },
             )
@@ -523,7 +523,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their drop-off location",
                     "agent_action": "",
                 },
             )
@@ -551,7 +551,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their desired pickup time",
                     "agent_action": "",
                 },
             )
@@ -579,7 +579,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the details of the booking",
                     "agent_action": "",
                 },
             )
@@ -642,7 +642,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their preference for a salad or a sandwich",
                     "agent_action": "",
                 },
             )
@@ -670,7 +670,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their desired bread type",
                     "agent_action": "",
                 },
             )
@@ -698,7 +698,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose a filling between peanut butter, jam or pesto",
                     "agent_action": "",
                 },
             )
@@ -726,7 +726,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer mentioned if they do or do not want extras",
                     "agent_action": "",
                 },
             )
@@ -754,7 +754,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their base greens",
                     "agent_action": "",
                 },
             )
@@ -782,7 +782,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their toppings",
                     "agent_action": "",
                 },
             )
@@ -809,7 +809,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their desired dressing",
                     "agent_action": "",
                 },
             )
@@ -837,7 +837,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the order or requested changes",
                     "agent_action": "",
                 },
             )
@@ -907,7 +907,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account number",
                     "agent_action": "",
                 },
             )
@@ -935,7 +935,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their full name",
                     "agent_action": "",
                 },
             )
@@ -1046,7 +1046,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer specified which type of loan they'd like to take",
                     "agent_action": "",
                 },
             )
@@ -1074,7 +1074,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the desired loan amount",
                     "agent_action": "",
                 },
             )
@@ -1102,7 +1102,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the purpose of the loan",
                     "agent_action": "",
                 },
             )
@@ -1130,7 +1130,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account number",
                     "agent_action": "",
                 },
             )
@@ -1195,7 +1195,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the loan and its terms",
                     "agent_action": "",
                 },
             )
@@ -1222,7 +1222,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the loan and its terms",
                     "agent_action": "",
                 },
             )

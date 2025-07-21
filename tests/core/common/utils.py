@@ -22,7 +22,7 @@ from lagom import Container
 from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
-from parlant.core.journeys import Journey
+from parlant.core.journeys import Journey, JourneyNode
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline
@@ -41,6 +41,7 @@ class ContextOfTest:
     tools: dict[str, Tool]
     actions: list[UtteranceRequest]
     journeys: dict[str, Journey]
+    nodes: dict[str, JourneyNode]
 
 
 def create_event_message(

@@ -252,7 +252,7 @@ TRANSITIONS:
 Journey: {journey_title}
 {journey_conditions_str}
 Steps:
-{nodes_str} 
+{nodes_str}
 """
 
 
@@ -308,17 +308,14 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
 
-                    with open("journey step selection output.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
-                        f.write("\nTime: " + str(inference.info.duration))
-
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
 
                     journey_path = self._get_verified_step_advancement(inference.content)
 
-                    # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
+                    # Get correct guideline to return based on the transition into next_step
+                    # TODO: consider surrounding with try catch specifically
                     matched_guideline: Guideline | None = None
                     if inference.content.next_step in self._node_wrappers:
                         if len(journey_path) > 1 and [
@@ -345,7 +342,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                             GuidelineMatch(
                                 guideline=matched_guideline,
                                 score=10,
-                                rationale="NA",
+                                rationale="",
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                                 metadata={
                                     "journey_path": journey_path,
@@ -540,15 +537,15 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
         journey_conditions: Sequence[Guideline],
         shots: Sequence[JourneyStepSelectionShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="journey-step-selection-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -------------------
-You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business. 
-Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes. 
+You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business.
+Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes.
 
 ## Journey Structure
 Each journey consists of:
@@ -557,7 +554,7 @@ Each journey consists of:
 - **Flags**: Special properties that modify how steps behave
 
 ## Your Core Task
-Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.  
+Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -569,7 +566,7 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation should continue within the current journey. 
+Determine if the conversation should continue within the current journey.
 Once a journey has begun, continue following it unless the customer explicitly indicates they no longer want to pursue the journey's original goal.
 
 Set journey_applies to true unless the customer explicitly requests to leave the topic or abandon the journey's goal entirely.
@@ -580,7 +577,7 @@ If journey_applies is false, set next_step to 'None' and skip remaining steps
 
 CRITICAL: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.
 
-## 2: Backtracking Check  
+## 2: Backtracking Check
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
@@ -594,8 +591,8 @@ Evaluate whether the last executed step is complete.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement
-Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. 
-At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied. 
+Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array.
+At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied.
 Base advancement decisions strictly on these transitions and their conditions—never jump to a step whose condition was not met, even if you believe it should logically be executed next
 
 Continue advancing until you encounter:
@@ -610,7 +607,7 @@ For each step in the advancement path:
 
 Document your advancement path in step_advancement as a list of step advancement objects, starting with the last_step and ending with the next step to execute. Each step must be a legal follow-up of the previous step, and you can only advance if the previous step was completed.
 
-**Special handling for journey exits**: 
+**Special handling for journey exits**:
 - "None" is a valid step ID that means "exit the journey"
 - Include "None" in follow_ups arrays for steps that have EXIT JOURNEY transitions
 - Set next_step to "None" when the journey should exit (either due to transitions or being outside journey context)
@@ -666,8 +663,6 @@ Example section is over. The following is the real data you need to use for your
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
 
-        with open("journey step selection prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

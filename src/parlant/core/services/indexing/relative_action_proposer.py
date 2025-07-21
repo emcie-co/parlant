@@ -183,7 +183,7 @@ You will be asked to:
     - Maintain the original intent without elaborating beyond what is explicitly provided
 
 Common issues requiring clarification: Pronouns like "it", "that" when their referent is unclear from the condition alone
-Standard, unambiguous pronouns (don't need clarification): We are in the context of customer service. In this context "they/them" referring to "the customer" and is completely standard and unambiguous. 
+Standard, unambiguous pronouns (don't need clarification): We are in the context of customer service. In this context "they/them" referring to "the customer" and is completely standard and unambiguous.
 No need to rewrite such actions (needs_rewrite is False)
 
 """,
@@ -222,8 +222,6 @@ Expected output (JSON):
 """,
             props={"result_structure_text": self._format_text(step_guidelines)},
         )
-        with open("prompt_relative_action_proposer.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _format_text(

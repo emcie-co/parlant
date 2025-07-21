@@ -108,9 +108,6 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
 
-                    with open("disambiguation batch output.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
-
                     metadata: dict[str, JSONSerializable] = {}
 
                     if inference.content.is_ambiguous:
@@ -144,7 +141,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                         GuidelineMatch(
                             guideline=self._disambiguation_guideline,
                             score=10 if inference.content.is_ambiguous else 1,
-                            rationale=f'''Not previously applied matcher rationale: "{inference.content.tldr}"''',
+                            rationale=inference.content.tldr,
                             guideline_previously_applied=PreviouslyAppliedType.NO,
                             metadata=metadata,
                         )
@@ -281,7 +278,7 @@ Notes:
 - Some guidelines may turn out to be irrelevant based on the interaction. For example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or
 as a context variable) rules them out. In such cases, the ambiguity may already be resolved (only one or none option is relevant) and note that no clarification is needed in such cases.
 
-- Notice that if you've already asked for disambiguation from the customer you need to **pay extra attention** to if we need to re-ask for clarification or the user responded and it was resolved. 
+- Notice that if you've already asked for disambiguation from the customer you need to **pay extra attention** to if we need to re-ask for clarification or the user responded and it was resolved.
 - **Accept brief customer responses as valid clarifications**: Customers often communicate with very short responses (single words or phrases like "return", "replace", "yes", "no"). If the customer's brief
  response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentences.
 
@@ -346,8 +343,6 @@ OUTPUT FORMAT
                 "result_structure_text": self._format_of_guideline_check_json_description(),
             },
         )
-        with open("disambiguation prompt.txt", "w") as f:
-            f.write(builder.build())
 
         return builder
 

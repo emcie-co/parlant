@@ -124,7 +124,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],
                                     score=10 if match.applies else 1,
-                                    rationale=f'''Not previously applied matcher rationale: "{match.rationale}"''',
+                                    rationale=match.rationale,
                                     guideline_previously_applied=PreviouslyAppliedType.NO,
                                 )
                             )

@@ -160,7 +160,7 @@ Feature: Journeys
 
     Scenario: Multiple step advancement of a journey stopped by lacking info
         Given the journey called "Book Flight"
-        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. We flight in the 12.10 and return in the 17.10."
+        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. Our flight is on the 12.10 and we wish to return on the 17.10."  
         When processing is triggered
         Then a single message event is emitted
         And the message contains asking what is the destination 

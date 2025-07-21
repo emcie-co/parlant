@@ -55,6 +55,7 @@ class _JourneyNode:
     outgoing_edges: list[_JourneyEdge]
     customer_dependent_action: bool
     requires_tool_calls: bool
+    customer_action_description: Optional[str] = None
 
 
 class JourneyStepAdvancement(DefaultBaseModel):
@@ -108,6 +109,9 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
                 customer_dependent_action=cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False),
+                customer_action_description=cast(
+                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
+                ).get("customer_action", None),
                 requires_tool_calls=cast(bool, g.metadata.get("tool_running_only")),
             )
 
@@ -198,14 +202,14 @@ def get_journey_transition_map_text(
         node: _JourneyNode = nodes[node_index]
         if (
             node.id == ROOT_INDEX
-            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and (not node.action or node.action == DEFAULT_ROOT_ACTION)
             and len(node.outgoing_edges) == 1
         ):  # Don't print root node
             if not previous_path:
                 first_step_to_execute = node.outgoing_edges[0].target_node_index
         elif (
             node.id == ROOT_INDEX
-            and node.action in [None, DEFAULT_ROOT_ACTION]
+            and (not node.action or node.action == DEFAULT_ROOT_ACTION)
             and len(node.outgoing_edges) > 1
         ):  # Print root node
             if previous_path:
@@ -224,10 +228,13 @@ TRANSITIONS:
         elif node.action:  # not root
             flags_str = "Step Flags:\n"
             if node.customer_dependent_action:
-                flags_str += "- CUSTOMER_DEPENDENT: This action is completed if the customer provided a response to this step's action\n"
+                if node.customer_action_description:
+                    flags_str += f'- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. It is completed if the following action was completed: "{node.customer_action_description}" \n'
+                else:
+                    flags_str += "- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
             if (
                 node.requires_tool_calls and (not previous_path or node.id != previous_path[-1])
-            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading
+            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading. TODO find a better solution here
                 flags_str += (
                     "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
                 )
@@ -753,6 +760,7 @@ example_1_journey_steps = {
         ],
         customer_dependent_action=True,
         requires_tool_calls=False,
+        customer_action_description="the customer responded regarding their preference between exploring cities and scenic landscapes",
     ),
     "2": _JourneyNode(
         id="2",
@@ -849,7 +857,7 @@ book_taxi_shot_journey_steps = {
                 target_node_index="2",
             )
         ],
-        customer_dependent_action=True,
+        customer_dependent_action=False,
         requires_tool_calls=False,
     ),
     "2": _JourneyNode(
@@ -878,6 +886,7 @@ book_taxi_shot_journey_steps = {
             ),
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer provided their pick up location",
         requires_tool_calls=False,
     ),
     "3": _JourneyNode(
@@ -900,6 +909,7 @@ book_taxi_shot_journey_steps = {
             )
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer provided their desired destination",
         requires_tool_calls=False,
     ),
     "4": _JourneyNode(
@@ -937,6 +947,7 @@ book_taxi_shot_journey_steps = {
             )
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer provided their desired pick up time",
         requires_tool_calls=False,
     ),
     "6": _JourneyNode(
@@ -987,6 +998,7 @@ book_taxi_shot_journey_steps = {
             ),
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer specified which payment method they'd like to use'",
         requires_tool_calls=False,
     ),
     "8": _JourneyNode(
@@ -1058,6 +1070,7 @@ random_actions_journey_steps = {
         ],
         customer_dependent_action=True,
         requires_tool_calls=False,
+        customer_action_description="the customer directly responded to the agent's request for money",
     ),
     "3": _JourneyNode(
         id="3",
@@ -1280,6 +1293,7 @@ loan_journey_steps = {
         ],
         customer_dependent_action=True,
         requires_tool_calls=False,
+        customer_action_description="the customer provided their full name",
     ),
     "2": _JourneyNode(
         id="2",
@@ -1308,6 +1322,7 @@ loan_journey_steps = {
         ],
         customer_dependent_action=True,
         requires_tool_calls=False,
+        customer_action_description="the customer specified which type of loan they'd like to take",
     ),
     "3": _JourneyNode(
         id="3",
@@ -1330,6 +1345,7 @@ loan_journey_steps = {
         ],
         customer_dependent_action=True,
         requires_tool_calls=False,
+        customer_action_description="the customer provided the desired loan amount",
     ),
     "4": _JourneyNode(
         id="4",
@@ -1351,6 +1367,7 @@ loan_journey_steps = {
             )
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer provided the desired loan amount",
         requires_tool_calls=False,
     ),
     "5": _JourneyNode(
@@ -1373,6 +1390,7 @@ loan_journey_steps = {
             )
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer specified their employment status",
         requires_tool_calls=False,
     ),
     "6": _JourneyNode(
@@ -1401,6 +1419,7 @@ loan_journey_steps = {
             ),
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer provided their collateral",
         requires_tool_calls=False,
     ),
     "7": _JourneyNode(
@@ -1423,6 +1442,7 @@ loan_journey_steps = {
             )
         ],
         customer_dependent_action=True,
+        customer_action_description="the customer confirmed the application and its details",
         requires_tool_calls=False,
     ),
     "8": _JourneyNode(
@@ -1438,6 +1458,7 @@ loan_journey_steps = {
         ],
         outgoing_edges=[],
         customer_dependent_action=True,
+        customer_action_description="the customer confirmed the application and its details",
         requires_tool_calls=False,
     ),
     "9": _JourneyNode(

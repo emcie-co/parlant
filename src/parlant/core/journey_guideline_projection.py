@@ -19,8 +19,6 @@ def format_journey_node_guideline_id(
 ) -> GuidelineId:
     if edge_id:
         return GuidelineId(f"journey_node:{node_id}:{edge_id}")
-    elif node_id == JourneyStore.ROOT_NODE_ID:
-        return GuidelineId(f"journey_node_{journey_id}:{node_id}")
 
     return GuidelineId(f"journey_node:{node_id}")
 
@@ -29,7 +27,7 @@ def extract_node_id_from_journey_node_guideline_id(
     guideline_id: GuidelineId,
 ) -> JourneyNodeId:
     parts = guideline_id.split(":")
-    if len(parts) < 2 or not parts[0].startswith("journey_node"):
+    if len(parts) < 2 or parts[0] != "journey_node":
         raise ValueError(f"Invalid guideline ID format: {guideline_id}")
 
     return JourneyNodeId(parts[1])
@@ -51,6 +49,8 @@ class JourneyGuidelineProjection:
         guidelines: dict[GuidelineId, Guideline] = {}
 
         index = 0
+
+        journey = await self._journey_store.read_journey(journey_id)
 
         edges_objs = await self._journey_store.list_edges(journey_id)
 
@@ -110,7 +110,7 @@ class JourneyGuidelineProjection:
             )
 
         queue: deque[tuple[JourneyNodeId, JourneyEdgeId | None]] = deque()
-        queue.append((JourneyStore.ROOT_NODE_ID, None))
+        queue.append((journey.root_id, None))
 
         while queue:
             node_id, edge_id = queue.popleft()

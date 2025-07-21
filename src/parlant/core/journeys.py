@@ -82,6 +82,7 @@ class Journey:
     description: str
     conditions: Sequence[GuidelineId]
     title: str
+    root_id: JourneyNodeId
     tags: Sequence[TagId]
 
     def __hash__(self) -> int:
@@ -103,7 +104,6 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 
 
 class JourneyStore(ABC):
-    ROOT_NODE_ID = JourneyNodeId("root")
     END_NODE_ID = JourneyNodeId("end")
 
     DEFAULT_ROOT_ACTION = (
@@ -314,6 +314,7 @@ class JourneyDocument(TypedDict, total=False):
     creation_utc: str
     title: str
     description: str
+    root_id: JourneyNodeId
 
 
 class JourneyConditionAssociationDocument(TypedDict, total=False):
@@ -547,6 +548,7 @@ class JourneyVectorStore(JourneyStore):
             creation_utc=journey.creation_utc.isoformat(),
             title=journey.title,
             description=journey.description,
+            root_id=journey.root_id,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -568,6 +570,7 @@ class JourneyVectorStore(JourneyStore):
             conditions=conditions,
             title=doc["title"],
             description=doc["description"],
+            root_id=JourneyNodeId(doc["root_id"]),
             tags=tags,
         )
 
@@ -650,9 +653,10 @@ class JourneyVectorStore(JourneyStore):
             journey_checksum = md5_checksum(f"{title}{description}{conditions}")
 
             journey_id = JourneyId(self._id_generator.generate(journey_checksum))
+            journey_root_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}root"))
 
             root = JourneyNode(
-                id=self.ROOT_NODE_ID,
+                id=journey_root_id,
                 creation_utc=creation_utc,
                 action=None,
                 tools=[],
@@ -669,6 +673,7 @@ class JourneyVectorStore(JourneyStore):
                 conditions=conditions,
                 title=title,
                 description=description,
+                root_id=journey_root_id,
                 tags=tags or [],
             )
 

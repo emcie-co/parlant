@@ -27,7 +27,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
-from parlant.core.journeys import Journey, JourneyId
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
@@ -357,6 +357,7 @@ async def create_journey(
     journey_id = JourneyId("j1")
     guideline_store = context.container[GuidelineStore]
     condition_ids: list[GuidelineId] = []
+
     for c in conditions:
         g = await guideline_store.create_guideline(condition=c, action=None)
         await guideline_store.upsert_tag(
@@ -364,6 +365,21 @@ async def create_journey(
             tag_id=Tag.for_journey_id(journey_id=journey_id),
         )
         condition_ids.append(g.id)
+
+    root_guideline = Guideline(
+        id=GuidelineId("root"),
+        creation_utc=datetime.now(timezone.utc),
+        content=GuidelineContent(condition="", action=None),
+        enabled=True,
+        tags=[],
+        metadata={
+            "journey_node": {
+                "follow_ups": ["1"],
+                "index": "0",
+                "journey_id": journey_id,
+            }
+        },
+    )
 
     step_guidelines: Sequence[Guideline] = [
         Guideline(
@@ -396,6 +412,7 @@ async def create_journey(
 
     journey = Journey(
         id=journey_id,
+        root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
         description="",
         conditions=condition_ids,
@@ -403,7 +420,7 @@ async def create_journey(
         tags=[],
     )
 
-    return journey, step_guidelines
+    return journey, [root_guideline] + list(step_guidelines)
 
 
 async def base_test_that_correct_step_is_selected(

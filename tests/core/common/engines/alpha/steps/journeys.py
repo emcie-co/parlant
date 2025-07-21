@@ -132,7 +132,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="The customer has not provided their account number",
             )
@@ -317,7 +317,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -504,7 +504,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -651,7 +651,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -916,7 +916,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -1055,7 +1055,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )

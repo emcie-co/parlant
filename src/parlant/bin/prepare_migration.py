@@ -63,6 +63,7 @@ from parlant.core.journeys import (
     JourneyEdgeAssociationDocument,
     JourneyId,
     JourneyNodeAssociationDocument,
+    JourneyNodeId,
     JourneyTagAssociationDocument,
     JourneyVectorDocument,
     JourneyVectorStore,
@@ -1306,7 +1307,7 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
         _condition_association_document_loader,
     )
 
-    _ = await journey_associations_db.get_or_create_collection(
+    nodes_collection = await journey_associations_db.get_or_create_collection(
         "journey_nodes",
         JourneyNodeAssociationDocument,
         _node_association_document_loader,
@@ -1347,12 +1348,26 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
             )
             migrated_count += 2
 
+            root_doc = JourneyNodeAssociationDocument(
+                id=ObjectId(generate_id()),
+                creation_utc=cast(str, doc["creation_utc"]),
+                version=Version.String("0.3.0"),
+                action=None,
+                tools=[],
+                metadata={},
+                journey_id=JourneyId(cast(str, doc["id"])),
+                node_id=JourneyNodeId(generate_id()),
+            )
+
+            await nodes_collection.insert_one(root_doc)
+
             j_doc = JourneyDocument(
                 id=ObjectId(cast(str, doc["id"])),
                 version=Version.String("0.3.0"),
                 creation_utc=cast(str, doc["creation_utc"]),
                 title=cast(str, doc["title"]),
                 description=cast(str, doc["description"]),
+                root_id=root_doc["node_id"],
             )
 
             await journeys_collection.insert_one(j_doc)

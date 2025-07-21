@@ -19,6 +19,8 @@ def format_journey_node_guideline_id(
 ) -> GuidelineId:
     if edge_id:
         return GuidelineId(f"journey_node:{node_id}:{edge_id}")
+    elif node_id == JourneyStore.ROOT_NODE_ID:
+        return GuidelineId(f"journey_node_{journey_id}:{node_id}")
 
     return GuidelineId(f"journey_node:{node_id}")
 

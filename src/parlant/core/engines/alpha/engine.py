@@ -1206,7 +1206,10 @@ class AlphaEngine(Engine):
                     filtered_out_matches.add(match.guideline.id)
                     continue  # Skip if the journey is not in the active journeys
 
-                if latest_match_per_journey[journey_id] is not None:
+                if (
+                    latest_match_per_journey[journey_id] is not None
+                    and latest_match_per_journey[journey_id] != match.guideline.id
+                ):
                     filtered_out_matches.add(
                         cast(GuidelineId, latest_match_per_journey[journey_id])
                     )

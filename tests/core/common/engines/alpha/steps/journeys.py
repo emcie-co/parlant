@@ -1553,3 +1553,307 @@ def given_a_journey_path_for_the_journey(
             ),
         )
     )
+
+
+# todo - add a version with description?
+@step(
+    given,
+    parsers.parse('a journey "{journey_title}"'),
+)
+def given_a_journey_titled(
+    context: ContextOfTest,
+    journey_title: str,
+) -> Journey:
+    journey_store = context.container[JourneyStore]
+
+    journey = context.sync_await(
+        journey_store.create_journey(
+            title=journey_title,
+            description="",
+            conditions=[],
+            tags=[],
+        )
+    )
+
+    context.journeys[journey_title] = journey
+
+    return journey
+
+
+@step(
+    given,
+    parsers.parse('the journey "{journey_title}" is triggered when {condition}'),
+)
+def given_the_journey_is_triggered_when(
+    context: ContextOfTest,
+    journey_title: str,
+    condition: str,
+) -> Journey:
+    journey_store = context.container[JourneyStore]
+    guideline_store = context.container[GuidelineStore]
+
+    journey = context.journeys[journey_title]
+
+    guideline_condition = context.sync_await(
+        guideline_store.create_guideline(
+            condition=condition,
+            action=None,
+            metadata={},
+        )
+    )
+    context.sync_await(
+        journey_store.add_condition(
+            journey_id=journey.id,
+            condition=guideline_condition.id,
+        )
+    )
+
+    context.sync_await(
+        guideline_store.upsert_tag(
+            guideline_id=guideline_condition.id,
+            tag_id=Tag.for_journey_id(journey_id=journey.id),
+        )
+    )
+
+    context.journeys[journey_title] = journey
+
+    return journey
+
+
+@step(
+    given,
+    parsers.parse('a node "{node_name}" to {action} in "{journey_title}" journey'),
+)
+def given_a_node_with_an_action_in_journey(
+    context: ContextOfTest,
+    node_name: str,
+    action: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+
+    journey = context.journeys[journey_title]
+
+    node = context.sync_await(
+        journey_store.create_node(
+            journey_id=journey.id,
+            action=action,
+            tools=[],
+        )
+    )
+
+    context.nodes[node_name] = node
+
+
+@step(
+    given,
+    parsers.parse('a terminating node "{node_name}" in "{journey_title}" journey'),
+)
+def given_a_terminating_node(
+    context: ContextOfTest,
+    node_name: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+
+    journey = context.journeys[journey_title]
+
+    node = context.sync_await(
+        journey_store.create_node(
+            journey_id=journey.id,
+            action=None,
+            tools=[],
+        )
+    )
+
+    context.nodes[node_name] = node
+
+
+@step(
+    given,
+    parsers.parse('the node "{node_name}" uses the tool "{tool_name}"'),
+)
+def given_the_node_uses_the_tool(
+    context: ContextOfTest,
+    tool_name: str,
+    node_name: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    local_tool_service = context.container[LocalToolService]
+
+    node = context.nodes[node_name]
+
+    tool = context.sync_await(local_tool_service.create_tool(**TOOLS[tool_name]))
+
+    new_node_tools = list(node.tools) + [ToolId("local", tool.name)]
+    context.sync_await(journey_store.update_node(node_id=node.id, params={"tools": new_node_tools}))
+
+    context.nodes[node_name] = node
+
+
+@step(
+    given,
+    parsers.parse("the node {node_name} requires customer input"),
+)
+def given_the_node_requires_customer_input(
+    context: ContextOfTest,
+    node_name: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.set_node_metadata(
+            node.id,
+            "customer_dependent_action_data",
+            {
+                "is_customer_dependent": True,
+                "customer_action": "",
+                "agent_action": "",
+            },
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse("the node {node_name} is tool running only"),
+)
+def given_the_node_is_tool_running_only(
+    context: ContextOfTest,
+    node_name: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    relationship_store = context.container[RelationshipStore]
+
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.set_node_metadata(
+            node.id,
+            "tool_running_only",
+            True,
+        )
+    )
+
+    for tool_id in node.tools:  # Assume all associated tools were added
+        context.sync_await(
+            relationship_store.create_relationship(
+                source=RelationshipEntity(
+                    id=tool_id,
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                target=RelationshipEntity(
+                    id=Tag.for_journey_node_id(node.id),
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+        )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a transition from the root to {node_name} when {condition} in "{journey_title}" journey'
+    ),
+)
+def given_a_transition_from_to_the_node_when_in_journey(
+    context: ContextOfTest,
+    node_name: str,
+    condition: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    journey = context.journeys[journey_title]
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=journey.root_id,
+            target=node.id,
+            condition=condition,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('a transition from the root to "{node_name}" in "{journey_title}" journey'),
+)
+def given_a_transition_from_root_to_the_node_in_journey(
+    context: ContextOfTest,
+    node_name: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    journey = context.journeys[journey_title]
+    node = context.nodes[node_name]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=JourneyStore.ROOT_NODE_ID,
+            target=node.id,
+            condition=None,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a transition from "{node_name1}" to "{node_name2}" when {condition} in "{journey_title}" journey'
+    ),
+)
+def given_a_transition_from_to_when_in_journey(
+    context: ContextOfTest,
+    node_name1: str,
+    node_name2: str,
+    condition: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    journey = context.journeys[journey_title]
+
+    node1 = context.nodes[node_name1]
+    node2 = context.nodes[node_name2]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=node1.id,
+            target=node2.id,
+            condition=condition,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a transition from "{node_name1}"" to "{node_name2}" in "{journey_title}" journey'
+    ),
+)
+def given_a_transition_from_to_in_journey(
+    context: ContextOfTest,
+    node_name1: str,
+    node_name2: str,
+    journey_title: str,
+) -> None:
+    journey_store = context.container[JourneyStore]
+    journey = context.journeys[journey_title]
+
+    node1 = context.nodes[node_name1]
+    node2 = context.nodes[node_name2]
+
+    context.sync_await(
+        journey_store.create_edge(
+            journey_id=journey.id,
+            source=node1.id,
+            target=node2.id,
+            condition=None,
+        )
+    )

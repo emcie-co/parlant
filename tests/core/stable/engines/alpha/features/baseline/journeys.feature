@@ -209,4 +209,29 @@ Feature: Journeys
         And a single message event is emitted
         And the message contains asking for account number
 
-        
+            Scenario: reset password journey is created with new steps
+        Given a journey "reset_password"
+        And the journey "reset_password" is triggered when the customer wants to reset their password
+        And the journey "reset_password" is triggered when the customer can't remember their password
+        And a node "account_name" to ask for their account name in "reset_password" journey
+        And the node "account_name" requires customer input
+        And a transition from the root to "account_name" when the customer has not provided their account number in "reset_password" journey
+        And a node "email_phone" to ask for their email address or phone number in "reset_password" journey
+        And the node "email_phone" requires customer input
+        And a transition from "account_name" to "email_phone" when the customer provided their account number in "reset_password" journey
+        And a node "good_day" to wish them a good day in "reset_password" journey
+        And a transition from "email_phone" to "good_day" when the customer provided their email address or phone number in "reset_password" journey
+        And a node "do_reset" to use the reset_password tool with the provided information in "reset_password" journey
+        And the node "do_reset" uses the tool "reset_password"
+        And the node "do_reset" is tool running only
+        And a transition from "good_day" to "do_reset" when the customer wished you a good day in return in "reset_password" journey
+        And a node "cant_reset" apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
+        And a transition from "good_day" to "cant_reset" when the customer did not immediately wish you a good day in return in "reset_password" journey
+        And a node "reset_succeed" to report the result to the customer in "reset_password" journey
+        And a transition from "do_reset" to "reset_succeed" when reset_password tool returned that the password was successfully reset in "reset_password" journey
+        And a transition from "do_reset" to "cant_reset" when reset_password tool returned that the password was not successfully reset, or otherwise failed in "reset_password" journey
+        And a customer message, "I want to reset my password"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message contains asking the customer for their username, but not for their email or phone number

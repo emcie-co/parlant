@@ -40,7 +40,6 @@ from lagom import Container
 
 
 from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
-from parlant.adapters.db.mongo_db import MongoDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
@@ -1892,6 +1891,7 @@ class Server:
                         )
 
                     from pymongo import AsyncMongoClient
+                    from parlant.adapters.db.mongo_db import MongoDocumentDatabase
 
                     mongo_client = await self._exit_stack.enter_async_context(
                         AsyncMongoClient[Any](self._session_store)

@@ -874,7 +874,7 @@ class Journey:
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
-            queries=[],
+            queries=queries,
         )
 
         return utterance.id

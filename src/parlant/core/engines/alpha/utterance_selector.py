@@ -491,17 +491,6 @@ class UtteranceSelector(MessageEventComposer):
             staged_events=staged_events,
         )
 
-        last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
-
-        await event_emitter.emit_status_event(
-            correlation_id=f"{self._correlator.correlation_id}.preamble",
-            data={
-                "acknowledged_offset": last_known_event_offset,
-                "status": "typing",
-                "data": {},
-            },
-        )
-
         prompt_builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(f"Utterance Preamble Prompt:\n{prompt}")
         )
@@ -563,6 +552,9 @@ You must generate the preamble message. You must produce a JSON object with a si
                         f"Preamble utterance rendering failed: {traceback.format_exception(exc)}"
                     )
 
+            if not preamble_choices:
+                return []
+
             # LLMs are usually biased toward the last choices, so we shuffle the list.
             shuffle(preamble_choices)
 
@@ -606,6 +598,17 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         prompt_builder.add_interaction_history(interaction_history)
+
+        last_known_event_offset = interaction_history[-1].offset if interaction_history else -1
+
+        await event_emitter.emit_status_event(
+            correlation_id=f"{self._correlator.correlation_id}.preamble",
+            data={
+                "acknowledged_offset": last_known_event_offset,
+                "status": "typing",
+                "data": {},
+            },
+        )
 
         response = await self._utterance_fluid_preamble_generator.generate(
             prompt=prompt_builder, hints={"temperature": 0.1}

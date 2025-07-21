@@ -173,7 +173,7 @@ class Test_that_a_created_journey_is_followed(SDKTest):
             description="Offer the customer a Pepsi",
         )
 
-        await self.journey.root.connect(action="offer a Pepsi")
+        await self.journey.start.transition(action="offer a Pepsi")
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive("Hello there", recipient=self.agent)
@@ -184,100 +184,106 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         )
 
 
-class Test_that_journey_edge_and_node_can_be_created_with_connection(SDKTest):
+class Test_that_journey_transition_and_state_can_be_created_with_transition(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Agent for journey node creation tests",
+            description="Agent for journey state creation tests",
         )
 
         self.journey = await self.agent.create_journey(
-            title="Node Journey",
+            title="State Journey",
             conditions=[],
-            description="A journey with multiple nodes",
+            description="A journey with multiple states",
         )
 
-        self.edge_w = await self.journey.root.connect(action="check room availability")
-        self.edge_x = await self.edge_w.target.connect(action="provide hotel amenities")
+        self.transition_w = await self.journey.start.transition(action="check room availability")
+        self.transition_x = await self.transition_w.target.transition(
+            action="provide hotel amenities"
+        )
 
     async def run(self, ctx: Context) -> None:
-        assert self.edge_w in self.journey.edges
-        assert self.edge_x in self.journey.edges
+        assert self.transition_w in self.journey.transitions
+        assert self.transition_x in self.journey.transitions
 
-        assert self.edge_w.source.id == self.journey.root.id
-        assert self.edge_w.target.action == "check room availability"
-        assert self.edge_w.target in self.journey.nodes
+        assert self.transition_w.source.id == self.journey.start.id
+        assert self.transition_w.target.action == "check room availability"
+        assert self.transition_w.target in self.journey.states
 
-        assert self.edge_x.source.id == self.edge_w.target.id
-        assert self.edge_x.target.action == "provide hotel amenities"
-        assert self.edge_x.target in self.journey.nodes
+        assert self.transition_x.source.id == self.transition_w.target.id
+        assert self.transition_x.target.action == "provide hotel amenities"
+        assert self.transition_x.target in self.journey.states
 
 
-class Test_that_journey_node_can_connect_to_a_tool(SDKTest):
+class Test_that_journey_state_can_transition_to_a_tool(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Agent for journey node creation tests",
+            description="Agent for journey state creation tests",
         )
 
         self.journey = await self.agent.create_journey(
-            title="Node Journey",
+            title="State Journey",
             conditions=[],
-            description="A journey with multiple nodes",
+            description="A journey with multiple states",
         )
 
         @tool
         def test_tool(context: ToolContext) -> ToolResult:
             return ToolResult(data={})
 
-        self.edge = await self.journey.root.connect(
+        self.transition = await self.journey.start.transition(
             action="check available upgrades", tools=[test_tool]
         )
 
     async def run(self, ctx: Context) -> None:
-        node = self.edge.target
+        state = self.transition.target
 
-        assert node.tools
+        assert state.tools
 
-        assert len(node.tools) == 1
-        assert node.tools[0].tool.name == "test_tool"
+        assert len(state.tools) == 1
+        assert state.tools[0].tool.name == "test_tool"
 
 
-class Test_that_journey_node_can_be_connected_with_condition(SDKTest):
+class Test_that_journey_state_can_be_transitioned_with_condition(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Journey conditioned nodes Agent",
-            description="Agent for journey node with condition creation tests",
+            name="Journey conditioned states Agent",
+            description="Agent for journey state with condition creation tests",
         )
 
         self.journey = await self.agent.create_journey(
-            title="Conditioned-nodes Journey",
+            title="Conditioned-states Journey",
             conditions=[],
-            description="A journey with nodes depending on customer decisions",
+            description="A journey with states depending on customer decisions",
         )
 
-        self.edge_x = await self.journey.root.connect(action="ask if the customer wants breakfast")
-        self.edge_y = await self.edge_x.target.connect(
+        self.transition_x = await self.journey.start.transition(
+            action="ask if the customer wants breakfast"
+        )
+        self.transition_y = await self.transition_x.target.transition(
             condition="if the customer says yes", action="add breakfast to booking"
         )
-        self.edge_z = await self.edge_x.target.connect(
+        self.transition_z = await self.transition_x.target.transition(
             condition="if the customer says no", action="proceed without breakfast"
         )
 
     async def run(self, ctx: Context) -> None:
         journey_store = ctx.container[JourneyStore]
 
-        edges = self.journey.edges
-        nodes = self.journey.nodes
+        transitions = self.journey.transitions
+        states = self.journey.states
 
-        assert {e.id for e in edges}.issuperset({self.edge_x.id, self.edge_y.id, self.edge_z.id})
+        assert {e.id for e in transitions}.issuperset(
+            {self.transition_x.id, self.transition_y.id, self.transition_z.id}
+        )
 
-        assert {n.id for n in nodes}.issuperset(
+        assert {n.id for n in states}.issuperset(
             {
-                self.edge_x.source.id,
-                self.edge_x.target.id,
-                self.edge_y.target.id,
-                self.edge_z.target.id,
+                self.transition_x.source.id,
+                self.transition_x.target.id,
+                self.transition_y.target.id,
+                self.transition_z.target.id,
             }
         )
 
@@ -285,46 +291,48 @@ class Test_that_journey_node_can_be_connected_with_condition(SDKTest):
         store_nodes = await journey_store.list_nodes(journey_id=self.journey.id)
 
         assert {e.id for e in store_edges}.issuperset(
-            {self.edge_x.id, self.edge_y.id, self.edge_z.id}
+            {self.transition_x.id, self.transition_y.id, self.transition_z.id}
         )
         assert {n.id for n in store_nodes}.issuperset(
             {
-                self.edge_x.source.id,
-                self.edge_x.target.id,
-                self.edge_y.target.id,
-                self.edge_z.target.id,
+                self.transition_x.source.id,
+                self.transition_x.target.id,
+                self.transition_y.target.id,
+                self.transition_z.target.id,
             }
         )
 
-        assert self.edge_y.condition == "if the customer says yes"
-        assert self.edge_z.condition == "if the customer says no"
+        assert self.transition_y.condition == "if the customer says yes"
+        assert self.transition_z.condition == "if the customer says no"
 
 
-class Test_that_if_node_has_more_than_one_connect_they_all_need_to_have_conditions(SDKTest):
+class Test_that_if_state_has_more_than_one_transition_they_all_need_to_have_conditions(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Journey conditioned nodes Agent",
-            description="Agent for journey node with condition creation tests",
+            name="Journey conditioned states Agent",
+            description="Agent for journey state with condition creation tests",
         )
 
         self.journey = await self.agent.create_journey(
-            title="Conditioned-nodes Journey",
+            title="Conditioned-states Journey",
             conditions=[],
-            description="A journey with nodes depending on customer decisions",
+            description="A journey with states depending on customer decisions",
         )
 
-        self.edge_ask_breakfast = await self.journey.root.connect(
+        self.transition_ask_breakfast = await self.journey.start.transition(
             action="ask if the customer wants breakfast"
         )
 
-        self.edge_add_breakfast = await self.edge_ask_breakfast.target.connect(
+        self.transition_add_breakfast = await self.transition_ask_breakfast.target.transition(
             condition="if the customer says yes",
             action="add breakfast to booking",
         )
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
-            await self.edge_ask_breakfast.target.connect(action="proceed without breakfast")
+            await self.transition_ask_breakfast.target.transition(
+                action="proceed without breakfast"
+            )
 
 
 class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
@@ -344,11 +352,11 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
         def check_balance(context: ToolContext) -> ToolResult:
             return ToolResult(data={})
 
-        self.edge_check_balance = await self.journey.root.connect(
+        self.transition_check_balance = await self.journey.start.transition(
             action="check customer account balance", tools=[check_balance]
         )
 
-        self.edge_offer_discount = await self.edge_check_balance.target.connect(
+        self.transition_offer_discount = await self.transition_check_balance.target.transition(
             condition="if balance is low",
             action="offer discount if balance is low",
         )
@@ -359,7 +367,7 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
         relationships = await relationship_store.list_relationships(
             kind=RelationshipKind.REEVALUATION,
             target_id=Tag.for_journey_node_id(
-                self.edge_check_balance.target.id,
+                self.transition_check_balance.target.id,
             ),
         )
 
@@ -370,31 +378,31 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
             service_name=p.INTEGRATED_TOOL_SERVICE_NAME, tool_name="check_balance"
         )
         assert relationships[0].target.id == Tag.for_journey_node_id(
-            self.edge_check_balance.target.id,
+            self.transition_check_balance.target.id,
         )
 
 
-class Test_that_journey_node_can_connect_to_end_node(SDKTest):
+class Test_that_journey_state_can_transition_to_end_state(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="EndNode Agent",
-            description="Agent for end node connection test",
+            name="EndState Agent",
+            description="Agent for end state transition test",
         )
 
         self.journey = await self.agent.create_journey(
-            title="End Node Journey",
+            title="End State Journey",
             conditions=[],
             description="A journey that ends",
         )
 
-        self.edge_to_end = await self.journey.root.connect(node=p.JourneyEndNode)
+        self.transition_to_end = await self.journey.start.transition(state=p.JourneyEndState)
 
     async def run(self, ctx: Context) -> None:
-        assert self.edge_to_end in self.journey.edges
-        assert self.edge_to_end.target.id == JourneyStore.END_NODE_ID
+        assert self.transition_to_end in self.journey.transitions
+        assert self.transition_to_end.target.id == JourneyStore.END_NODE_ID
 
 
-class Test_that_journey_node_can_be_created_with_internal_action(SDKTest):
+class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Calzone Seller Agent",
@@ -407,23 +415,23 @@ class Test_that_journey_node_can_be_created_with_internal_action(SDKTest):
             description="A journey to deliver calzones",
         )
 
-        self.edge = await self.journey.root.connect(
+        self.transition = await self.journey.start.transition(
             action="Welcome the customer to the Low Cal Calzone Zone",
         )
 
-        self.edge_2 = await self.edge.target.connect(
+        self.transition_2 = await self.transition.target.transition(
             action="Ask them how many they want",
         )
 
     async def run(self, ctx: Context) -> None:
-        assert self.edge in self.journey.edges
-        assert self.edge_2 in self.journey.edges
+        assert self.transition in self.journey.transitions
+        assert self.transition_2 in self.journey.transitions
 
-        assert self.edge.target.action == "Welcome the customer to the Low Cal Calzone Zone"
-        assert self.edge_2.target.action == "Ask them how many they want"
+        assert self.transition.target.action == "Welcome the customer to the Low Cal Calzone Zone"
+        assert self.transition_2.target.action == "Ask them how many they want"
 
         second_target = await ctx.container[JourneyStore].read_node(
-            node_id=self.edge_2.target.id,
+            node_id=self.transition_2.target.id,
         )
 
         assert second_target.action == "Ask them how many they want"

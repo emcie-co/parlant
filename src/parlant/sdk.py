@@ -35,6 +35,7 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
+    TypeAlias,
     TypedDict,
     cast,
 )
@@ -166,6 +167,10 @@ INTEGRATED_TOOL_SERVICE_NAME = "built-in"
 T = TypeVar("T")
 
 
+JourneyStateId: TypeAlias = JourneyNodeId
+JourneyTransitionId: TypeAlias = JourneyEdgeId
+
+
 class SDKError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -184,15 +189,15 @@ class _CachedGuidelineEvaluation(TypedDict, total=False):
 class _CachedJourneyEvaluation(TypedDict, total=False):
     id: ObjectId
     version: Version.String
-    node_properties: dict[JourneyNodeId, dict[str, JSONSerializable]]
-    edge_properties: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+    node_properties: dict[JourneyStateId, dict[str, JSONSerializable]]
+    edge_properties: dict[JourneyTransitionId, dict[str, JSONSerializable]]
 
 
 class _CachedEvaluator:
     @dataclass(frozen=True)
     class JourneyEvaluation:
-        node_properties: dict[JourneyNodeId, dict[str, JSONSerializable]]
-        edge_properties: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+        node_properties: dict[JourneyStateId, dict[str, JSONSerializable]]
+        edge_properties: dict[JourneyTransitionId, dict[str, JSONSerializable]]
 
     @dataclass(frozen=True)
     class GuidelineEvaluation:
@@ -255,8 +260,10 @@ class _CachedEvaluator:
         journey: Journey,
     ) -> str:
         """Generate a hash for the journey evaluation request."""
-        node_ids_str = ",".join(str(node.id) for node in journey.nodes) if journey.nodes else ""
-        edge_ids_str = ",".join(str(edge.id) for edge in journey.edges) if journey.edges else ""
+        node_ids_str = ",".join(str(node.id) for node in journey.states) if journey.states else ""
+        edge_ids_str = (
+            ",".join(str(edge.id) for edge in journey.transitions) if journey.transitions else ""
+        )
 
         return md5(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode()).hexdigest()
 
@@ -627,17 +634,17 @@ class Guideline:
 
 
 @dataclass(frozen=True)
-class JourneyEdge:
-    id: JourneyEdgeId
+class JourneyTransition:
+    id: JourneyTransitionId
     condition: str | None
-    source: JourneyNode
-    target: JourneyNode
+    source: JourneyState
+    target: JourneyState
     metadata: Mapping[str, JSONSerializable]
 
 
 @dataclass(frozen=True)
-class JourneyNode:
-    id: JourneyNodeId
+class JourneyState:
+    id: JourneyStateId
     action: str | None
     tools: Sequence[ToolEntry]
     metadata: Mapping[str, JSONSerializable]
@@ -648,41 +655,39 @@ class JourneyNode:
     def internal_action(self) -> str | None:
         return self.action or cast(str | None, self.metadata.get("internal_action"))
 
-    async def connect(
+    async def transition(
         self,
-        node: JourneyNode | None = None,
+        state: JourneyState | None = None,
         condition: str | None = None,
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
-    ) -> JourneyEdge:
+    ) -> JourneyTransition:
         if not self._journey:
-            raise SDKError("EndNode cannot be connected to any other nodes.")
+            raise SDKError("EndState cannot be connected to any other states.")
 
-        if node is None and (action or tools):
-            node = await self._journey.create_node(action=action, tools=tools)
+        if state is None and (action or tools):
+            state = await self._journey.create_state(action=action, tools=tools)
 
-        node_connections = [edge for edge in self._journey.edges if edge.source == self]
+        transitions = [t for t in self._journey.transitions if t.source == self]
 
-        if len(node_connections) > 0 and (
-            not condition or any(not e.condition for e in node_connections)
-        ):
+        if len(transitions) > 0 and (not condition or any(not e.condition for e in transitions)):
             raise SDKError(
-                "Cannot connect a new node without a condition if there are already connected nodes without conditions."
+                "Cannot connect a new state without a condition if there are already connected states without conditions."
             )
 
-        edge = await self._journey.create_edge(
-            condition=condition, source=self, target=node if node else JourneyEndNode
+        transition = await self._journey.create_transition(
+            condition=condition, source=self, target=state if state else JourneyEndState
         )
 
-        if node:
-            cast(list[JourneyNode], self._journey.nodes).append(node)
+        if state:
+            cast(list[JourneyState], self._journey.states).append(state)
 
-        cast(list[JourneyEdge], self._journey.edges).append(edge)
+        cast(list[JourneyTransition], self._journey.transitions).append(transition)
 
-        return edge
+        return transition
 
 
-JourneyEndNode = JourneyNode(
+JourneyEndState = JourneyState(
     id=JourneyStore.END_NODE_ID,
     action=None,
     tools=[],
@@ -697,27 +702,27 @@ class Journey:
     title: str
     description: str
     conditions: list[Guideline]
-    nodes: Sequence[JourneyNode]
-    edges: Sequence[JourneyEdge]
+    states: Sequence[JourneyState]
+    transitions: Sequence[JourneyTransition]
     tags: Sequence[TagId]
 
-    _root_id: JourneyNodeId
+    _start_state_id: JourneyStateId
     _server: Server
     _container: Container
 
     @property
-    def root(self) -> JourneyNode:
-        return next(n for n in self.nodes if n.id == self._root_id)
+    def start(self) -> JourneyState:
+        return next(n for n in self.states if n.id == self._start_state_id)
 
-    async def create_node(
+    async def create_state(
         self,
         action: str | None,
         tools: Sequence[ToolEntry] = [],
-    ) -> JourneyNode:
+    ) -> JourneyState:
         for t in list(tools):
             await self._server._plugin_server.enable_tool(t)
 
-        node = await self._container[JourneyStore].create_node(
+        state = await self._container[JourneyStore].create_node(
             journey_id=self.id,
             action=action,
             tools=[
@@ -726,21 +731,21 @@ class Journey:
             ],
         )
 
-        return JourneyNode(
-            id=node.id,
+        return JourneyState(
+            id=state.id,
             action=action,
             tools=tools,
-            metadata=node.metadata,
+            metadata=state.metadata,
             _journey=self,
         )
 
-    async def create_edge(
+    async def create_transition(
         self,
         condition: str | None,
-        source: JourneyNode,
-        target: JourneyNode,
-    ) -> JourneyEdge:
-        if target is not None and target.id != JourneyStore.END_NODE_ID:
+        source: JourneyState,
+        target: JourneyState,
+    ) -> JourneyTransition:
+        if target is not None and target.id != JourneyEndState.id:
             target_tool_ids = {
                 t.tool.name: ToolId(
                     service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
@@ -748,7 +753,7 @@ class Journey:
                 for t in target.tools
             }
 
-            self._server.add_node_evaluation(
+            self._server.add_state_evaluation(
                 target.id,
                 self._server._evaluator.evaluate_guideline(
                     GuidelineContent(condition=condition or "", action=target.internal_action),
@@ -757,19 +762,19 @@ class Journey:
                 ),
             )
 
-        edge = await self._container[JourneyStore].create_edge(
+        transition = await self._container[JourneyStore].create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target else JourneyStore.END_NODE_ID,
+            target=target.id if target else JourneyEndState.id,
             condition=condition,
         )
 
-        return JourneyEdge(
-            id=edge.id,
+        return JourneyTransition(
+            id=transition.id,
             condition=condition,
             source=source,
             target=target,
-            metadata=edge.metadata,
+            metadata=transition.metadata,
         )
 
     async def create_guideline(
@@ -1029,9 +1034,9 @@ class Agent:
             description=description,
             conditions=journey.conditions,
             tags=journey.tags,
-            nodes=journey.nodes,
-            edges=journey.edges,
-            _root_id=journey._root_id,
+            states=journey.states,
+            transitions=journey.transitions,
+            _start_state_id=journey._start_state_id,
             _server=self._server,
             _container=self._container,
         )
@@ -1335,7 +1340,7 @@ class Server:
             GuidelineId, Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]
         ] = {}
         self._node_evaluations: dict[
-            JourneyNodeId, Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]
+            JourneyStateId, Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]
         ] = {}
         self._journey_evaluations: dict[
             JourneyId, Coroutine[Any, Any, _CachedEvaluator.JourneyEvaluation]
@@ -1365,12 +1370,12 @@ class Server:
     ) -> None:
         self._guideline_evaluations[guideline_id] = evaluation
 
-    def add_node_evaluation(
+    def add_state_evaluation(
         self,
-        node_id: JourneyNodeId,
+        state_id: JourneyStateId,
         evaluation: Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation],
     ) -> None:
-        self._node_evaluations[node_id] = evaluation
+        self._node_evaluations[state_id] = evaluation
 
     def add_journey_evaluation(
         self,
@@ -1385,18 +1390,18 @@ class Server:
                 Any, Any, _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation
             ],
             entity_type: Literal["guideline", "node", "journey"],
-            entity_id: GuidelineId | JourneyNodeId | JourneyId,
+            entity_id: GuidelineId | JourneyStateId | JourneyId,
         ) -> asyncio.Task[
             tuple[
                 Literal["guideline", "node", "journey"],
-                GuidelineId | JourneyNodeId | JourneyId,
+                GuidelineId | JourneyStateId | JourneyId,
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]
         ]:
             async def task_wrapper() -> (
                 tuple[
                     Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyNodeId | JourneyId,
+                    GuidelineId | JourneyStateId | JourneyId,
                     _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
                 ]
             ):
@@ -1409,7 +1414,7 @@ class Server:
             asyncio.Task[
                 tuple[
                     Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyNodeId | JourneyId,
+                    GuidelineId | JourneyStateId | JourneyId,
                     _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
                 ]
             ]
@@ -1450,7 +1455,7 @@ class Server:
 
             elif entity_type == "node":
                 node = await self._container[JourneyStore].read_node(
-                    node_id=cast(JourneyNodeId, entity_id)
+                    node_id=cast(JourneyStateId, entity_id)
                 )
                 properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
 
@@ -1458,7 +1463,7 @@ class Server:
 
                 for key, value in properties_to_add.items():
                     await self._container[JourneyStore].set_node_metadata(
-                        node_id=cast(JourneyNodeId, entity_id),
+                        node_id=cast(JourneyStateId, entity_id),
                         key=key,
                         value=value,
                     )
@@ -1828,22 +1833,22 @@ class Server:
             title=title,
             description=description,
             conditions=condition_guidelines,
-            nodes=[],
-            edges=[],
+            states=[],
+            transitions=[],
             tags=tags,
-            _root_id=stored_journey.root_id,
+            _start_state_id=stored_journey.root_id,
             _server=self,
             _container=self._container,
         )
 
-        root_node = await self._container[JourneyStore].read_node(node_id=stored_journey.root_id)
+        start_state = await self._container[JourneyStore].read_node(node_id=stored_journey.root_id)
 
-        cast(list[JourneyNode], journey.nodes).append(
-            JourneyNode(
-                id=root_node.id,
-                action=root_node.action,
+        cast(list[JourneyState], journey.states).append(
+            JourneyState(
+                id=start_state.id,
+                action=start_state.action,
                 tools=[],
-                metadata=root_node.metadata,
+                metadata=start_state.metadata,
                 _journey=journey,
             )
         )
@@ -2108,9 +2113,11 @@ __all__ = [
     "InteractionMessage",
     "Journey",
     "JourneyId",
-    "JourneyNode",
-    "JourneyEndNode",
-    "JourneyEdge",
+    "JourneyState",
+    "JourneyStateId",
+    "JourneyEndState",
+    "JourneyTransition",
+    "JourneyTransitionId",
     "JSONSerializable",
     "LoadedContext",
     "LogLevel",

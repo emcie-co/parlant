@@ -697,16 +697,17 @@ class Journey:
     title: str
     description: str
     conditions: list[Guideline]
-    tags: Sequence[TagId]
     nodes: Sequence[JourneyNode]
     edges: Sequence[JourneyEdge]
+    tags: Sequence[TagId]
 
+    _root_id: JourneyNodeId
     _server: Server
     _container: Container
 
     @property
     def root(self) -> JourneyNode:
-        return next(n for n in self.nodes if n.id == self._container[JourneyStore].ROOT_NODE_ID)
+        return next(n for n in self.nodes if n.id == self._root_id)
 
     async def create_node(
         self,
@@ -1030,6 +1031,7 @@ class Agent:
             tags=journey.tags,
             nodes=journey.nodes,
             edges=journey.edges,
+            _root_id=journey._root_id,
             _server=self._server,
             _container=self._container,
         )
@@ -1829,11 +1831,12 @@ class Server:
             nodes=[],
             edges=[],
             tags=tags,
+            _root_id=stored_journey.root_id,
             _server=self,
             _container=self._container,
         )
 
-        root_node = await self._container[JourneyStore].read_node(node_id=JourneyStore.ROOT_NODE_ID)
+        root_node = await self._container[JourneyStore].read_node(node_id=stored_journey.root_id)
 
         cast(list[JourneyNode], journey.nodes).append(
             JourneyNode(

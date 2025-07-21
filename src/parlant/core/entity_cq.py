@@ -408,12 +408,6 @@ class EntityQueries:
 
                         guidelines.extend(projected_journey_guidelines)
 
-                        journey_conditions = [
-                            available_guidelines[c]
-                            for c in active_journeys_mapping[journey_id].conditions
-                        ]
-
-                        guidelines.extend(journey_conditions)
                 else:
                     # If the guideline is not associated with a journey step, we add it to the list of guidelines
                     # that need reevaluation.

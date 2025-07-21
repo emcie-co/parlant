@@ -442,7 +442,7 @@ async def test_that_a_plugin_tool_with_datetime_parameter_can_be_called(
             assert result.data == 1
 
 
-async def test_that_a_plugin_tool_with_basemodel_parameter_can_be_called(
+async def test_that_a_plugin_tool_with_base_model_parameter_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
@@ -507,7 +507,7 @@ async def test_that_a_plugin_calls_a_tool_with_an_optional_param_and_a_None_arg(
             assert result.data == 2
 
 
-async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_can_be_called(
+async def test_that_a_plugin_tool_with_an_optional_base_model_parameter_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
@@ -534,7 +534,7 @@ async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_can_be_ca
             assert result.data == "Dor 32"
 
 
-async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_and_a_None_value_can_be_called(
+async def test_that_a_plugin_tool_with_an_optional_base_model_parameter_and_a_None_value_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:

@@ -33,6 +33,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    TypeVar,
     TypedDict,
     cast,
 )
@@ -160,6 +161,8 @@ from parlant.core.tools import (
 from parlant.core.version import VERSION
 
 INTEGRATED_TOOL_SERVICE_NAME = "built-in"
+
+T = TypeVar("T")
 
 
 class SDKError(Exception):
@@ -1280,6 +1283,7 @@ class Server:
         tool_service_port: int = 8818,
         nlp_service: Callable[[Container], NLPService] = _load_openai,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
+        customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -1296,6 +1300,7 @@ class Server:
         self._nlp_service_func = nlp_service
         self._evaluator: _CachedEvaluator
         self._session_store = session_store
+        self._customer_store = customer_store
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
         self._initialize = initialize
@@ -1837,7 +1842,6 @@ class Server:
 
             for interface, implementation in [
                 (ContextVariableStore, ContextVariableDocumentStore),
-                (CustomerStore, CustomerDocumentStore),
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
@@ -1865,57 +1869,88 @@ class Server:
                     ),
                 )
 
-            if isinstance(self._session_store, SessionStore):
-                c()[SessionStore] = self._session_store
-            else:
-                if self._session_store in ["transient", "local"]:
-                    c()[SessionStore] = await self._exit_stack.enter_async_context(
-                        SessionDocumentStore(
-                            await cast(
+            mongo_client: object | None = None
+
+            async def make_mongo_db(url: str, name: str) -> DocumentDatabase:
+                nonlocal mongo_client
+
+                if importlib.util.find_spec("pymongo") is None:
+                    raise SDKError(
+                        "MongoDB requires an additional package to be installed. "
+                        "Please install parlant[mongo] to use MongoDB."
+                    )
+
+                from pymongo import AsyncMongoClient
+                from parlant.adapters.db.mongo_db import MongoDocumentDatabase
+
+                if mongo_client is None:
+                    mongo_client = await self._exit_stack.enter_async_context(
+                        AsyncMongoClient[Any](url)
+                    )
+
+                db = await self._exit_stack.enter_async_context(
+                    MongoDocumentDatabase(
+                        mongo_client=cast(AsyncMongoClient[Any], mongo_client),
+                        database_name=f"parlant_{name}",
+                        logger=c()[Logger],
+                    )
+                )
+
+                return db
+
+            async def make_persistable_store(t: type[T], spec: str, name: str, **kwargs: Any) -> T:
+                store: T
+
+                if spec in ["transient", "local"]:
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await cast(
                                 dict[str, Callable[[], Awaitable[DocumentDatabase]]],
                                 {
-                                    "transient": lambda: make_transient_db(),
+                                    "transient": make_transient_db,
                                     "local": lambda: make_json_db(
-                                        PARLANT_HOME_DIR / "sessions.json"
+                                        PARLANT_HOME_DIR / f"{name}.json"
                                     ),
                                 },
-                            )[self._session_store](),
+                            )[spec](),
                             allow_migration=self._migrate,
-                        )
-                    )
-                elif self._session_store.startswith("mongodb://"):
-                    if importlib.util.find_spec("pymongo") is None:
-                        raise SDKError(
-                            "MongoDB requires an additional package to be installed. "
-                            "Please install parlant[mongo] to use MongoDB."
-                        )
-
-                    from pymongo import AsyncMongoClient
-                    from parlant.adapters.db.mongo_db import MongoDocumentDatabase
-
-                    mongo_client = await self._exit_stack.enter_async_context(
-                        AsyncMongoClient[Any](self._session_store)
+                            **kwargs,
+                        )  # type: ignore
                     )
 
-                    mongo_doc_db = await self._exit_stack.enter_async_context(
-                        MongoDocumentDatabase(
-                            mongo_client=mongo_client,
-                            database_name="parlant_sessions",
-                            logger=c()[Logger],
-                        )
-                    )
-
-                    c()[SessionStore] = await self._exit_stack.enter_async_context(
-                        SessionDocumentStore(
-                            database=mongo_doc_db,
+                    return store
+                elif spec.startswith("mongodb://") or spec.startswith("mongodb+srv://"):
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await make_mongo_db(spec, name),
                             allow_migration=self._migrate,
-                        )
+                            **kwargs,
+                        )  # type: ignore
                     )
+
+                    return store
                 else:
                     raise SDKError(
                         f"Invalid session store type: {self._session_store}. "
                         "Expected 'transient', 'local', or a MongoDB connection string."
                     )
+
+            if isinstance(self._session_store, SessionStore):
+                c()[SessionStore] = self._session_store
+            else:
+                c()[SessionStore] = await make_persistable_store(
+                    SessionDocumentStore, self._session_store, "sessions"
+                )
+
+            if isinstance(self._customer_store, CustomerStore):
+                c()[CustomerStore] = self._customer_store
+            else:
+                c()[CustomerStore] = await make_persistable_store(
+                    CustomerDocumentStore,
+                    self._customer_store,
+                    "customers",
+                    id_generator=c()[IdGenerator],
+                )
 
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(
@@ -1933,61 +1968,25 @@ class Server:
             async def get_embedder_type() -> type[Embedder]:
                 return type(await c()[NLPService].get_embedder())
 
-            c()[GlossaryStore] = await self._exit_stack.enter_async_context(
-                GlossaryVectorStore(
-                    id_generator=c()[IdGenerator],
-                    vector_db=TransientVectorDatabase(
-                        c()[Logger],
-                        embedder_factory,
-                        lambda: c()[EmbeddingCache],
-                    ),
-                    document_db=TransientDocumentDatabase(),
-                    embedder_factory=embedder_factory,
-                    embedder_type_provider=get_embedder_type,
+            for vector_store_interface, vector_store_type in [
+                (GlossaryStore, GlossaryVectorStore),
+                (UtteranceStore, UtteranceVectorStore),
+                (CapabilityStore, CapabilityVectorStore),
+                (JourneyStore, JourneyVectorStore),
+            ]:
+                c()[vector_store_interface] = await self._exit_stack.enter_async_context(
+                    vector_store_type(
+                        id_generator=c()[IdGenerator],
+                        vector_db=TransientVectorDatabase(
+                            c()[Logger],
+                            embedder_factory,
+                            lambda: c()[EmbeddingCache],
+                        ),
+                        document_db=TransientDocumentDatabase(),
+                        embedder_factory=embedder_factory,
+                        embedder_type_provider=get_embedder_type,
+                    )  # type: ignore
                 )
-            )
-
-            c()[UtteranceStore] = await self._exit_stack.enter_async_context(
-                UtteranceVectorStore(
-                    id_generator=c()[IdGenerator],
-                    vector_db=TransientVectorDatabase(
-                        c()[Logger],
-                        embedder_factory,
-                        lambda: c()[EmbeddingCache],
-                    ),
-                    document_db=TransientDocumentDatabase(),
-                    embedder_factory=embedder_factory,
-                    embedder_type_provider=get_embedder_type,
-                )
-            )
-
-            c()[CapabilityStore] = await self._exit_stack.enter_async_context(
-                CapabilityVectorStore(
-                    id_generator=c()[IdGenerator],
-                    vector_db=TransientVectorDatabase(
-                        c()[Logger],
-                        embedder_factory,
-                        lambda: c()[EmbeddingCache],
-                    ),
-                    document_db=TransientDocumentDatabase(),
-                    embedder_factory=embedder_factory,
-                    embedder_type_provider=get_embedder_type,
-                )
-            )
-
-            c()[JourneyStore] = await self._exit_stack.enter_async_context(
-                JourneyVectorStore(
-                    id_generator=c()[IdGenerator],
-                    vector_db=TransientVectorDatabase(
-                        c()[Logger],
-                        embedder_factory,
-                        lambda: c()[EmbeddingCache],
-                    ),
-                    document_db=TransientDocumentDatabase(),
-                    embedder_factory=embedder_factory,
-                    embedder_type_provider=get_embedder_type,
-                )
-            )
 
             c()[Application] = lambda rc: Application(rc)
 

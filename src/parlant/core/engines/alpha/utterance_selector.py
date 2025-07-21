@@ -1198,6 +1198,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
             },
         )
 
+        return builder
+
     def _get_draft_output_format(
         self,
         interaction_history: Sequence[Event],

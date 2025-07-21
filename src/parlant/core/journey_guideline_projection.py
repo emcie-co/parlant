@@ -29,7 +29,7 @@ def extract_node_id_from_journey_node_guideline_id(
     guideline_id: GuidelineId,
 ) -> JourneyNodeId:
     parts = guideline_id.split(":")
-    if len(parts) < 2 or parts[0] != "journey_node":
+    if len(parts) < 2 or not parts[0].startswith("journey_node"):
         raise ValueError(f"Invalid guideline ID format: {guideline_id}")
 
     return JourneyNodeId(parts[1])

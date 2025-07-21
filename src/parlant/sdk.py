@@ -20,6 +20,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import md5
+import importlib.util
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -36,7 +37,7 @@ from typing import (
     cast,
 )
 from lagom import Container
-from pymongo import AsyncMongoClient
+
 
 from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
 from parlant.adapters.db.mongo_db import MongoDocumentDatabase
@@ -1884,6 +1885,14 @@ class Server:
                         )
                     )
                 elif self._session_store.startswith("mongodb://"):
+                    if importlib.util.find_spec("pymongo") is None:
+                        raise SDKError(
+                            "MongoDB requires an additional package to be installed. "
+                            "Please install parlant[mongo] to use MongoDB."
+                        )
+
+                    from pymongo import AsyncMongoClient
+
                     mongo_client = await self._exit_stack.enter_async_context(
                         AsyncMongoClient[Any](self._session_store)
                     )

@@ -172,10 +172,11 @@ class GuidelineMatcher:
             )
         ]
     )
-    async def _process_batch_with_retry(
+    async def _process_guideline_matching_batch_with_retry(
         self, batch: GuidelineMatchingBatch
     ) -> GuidelineMatchingBatchResult:
-        return await batch.process()
+        with self._logger.scope(batch.__class__.__name__):
+            return await batch.process()
 
     @policy(
         [
@@ -188,7 +189,8 @@ class GuidelineMatcher:
     async def _process_report_analysis_batch_with_retry(
         self, batch: ResponseAnalysisBatch
     ) -> ResponseAnalysisBatchResult:
-        return await batch.process()
+        with self._logger.scope(batch.__class__.__name__):
+            return await batch.process()
 
     async def match_guidelines(
         self,
@@ -245,7 +247,7 @@ class GuidelineMatcher:
 
             with self._logger.operation("Processing guideline matching batches"):
                 batch_tasks = [
-                    self._process_batch_with_retry(batch)
+                    self._process_guideline_matching_batch_with_retry(batch)
                     for strategy_batches in batches
                     for batch in strategy_batches
                 ]

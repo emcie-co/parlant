@@ -97,12 +97,6 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     async def process(
         self,
     ) -> ResponseAnalysisBatchResult:
-        with self._logger.scope("ResponseAnalysisBatch"):
-            return await self._do_process()
-
-    async def _do_process(
-        self,
-    ) -> ResponseAnalysisBatchResult:
         all_guidelines = [m.guideline for m in self._guideline_matches]
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))

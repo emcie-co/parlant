@@ -522,7 +522,7 @@ class AlphaEngine(Engine):
 
         context.state.ordinary_guideline_matches = list(
             set(guideline_and_journey_matching_result.resolved_guidelines).difference(
-                context.state.tool_enabled_guideline_matches
+                set(context.state.tool_enabled_guideline_matches.keys())
             ),
         )
 
@@ -635,7 +635,7 @@ class AlphaEngine(Engine):
 
         context.state.ordinary_guideline_matches = list(
             set(guideline_and_journey_matching_result.resolved_guidelines).difference(
-                context.state.tool_enabled_guideline_matches
+                set(context.state.tool_enabled_guideline_matches.keys())
             ),
         )
 

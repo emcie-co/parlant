@@ -309,7 +309,8 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
         terms,
         capabilities,
         staged_events,
-        relevant_journeys=[],
+        active_journeys=[],
+        journey_paths=session.agent_states[-1]["journey_paths"] if session.agent_states else {},
     )
 
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(

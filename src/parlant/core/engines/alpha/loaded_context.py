@@ -27,8 +27,8 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.types import Context
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline
-from parlant.core.journeys import Journey
+from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.sessions import Event, EventKind, EventSource, Session, ToolEventData
 from parlant.core.tools import ToolId, ToolResult
@@ -114,6 +114,7 @@ class ResponseState:
     ordinary_guideline_matches: list[GuidelineMatch]
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
     journeys: list[Journey]
+    journey_paths: dict[JourneyId, list[Optional[GuidelineId]]]
     tool_events: list[EmittedEvent]
     tool_insights: ToolInsights
     prepared_to_respond: bool

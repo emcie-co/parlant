@@ -106,7 +106,6 @@ However, for actions that involve continuous behavior, such as:
 1. General principles: "Do not ask the user for their age"
 2. Guidelines regarding the language the agent should use
 3. Guidelines that involve behavior that must be consistently maintained.
-4. Guidelines in which at least one part of their action must apply for multiple turns until circumstances change, such as "Do this until <something happens>"
 
 Such guidelines will be called ‘continuous’.
 

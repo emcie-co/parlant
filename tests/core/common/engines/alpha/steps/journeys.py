@@ -1810,7 +1810,7 @@ def given_a_transition_from_to_when_in_journey(
 @step(
     given,
     parsers.parse(
-        'a transition from "{node_name1}"" to "{node_name2}" in "{journey_title}" journey'
+        'a transition from "{node_name1}" to "{node_name2}" in "{journey_title}" journey'
     ),
 )
 def given_a_transition_from_to_in_journey(

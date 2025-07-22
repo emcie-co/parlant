@@ -38,6 +38,7 @@ from typing import (
     TypeAlias,
     TypedDict,
     cast,
+    overload,
 )
 from lagom import Container
 
@@ -655,8 +656,27 @@ class JourneyState:
     def internal_action(self) -> str | None:
         return self.action or cast(str | None, self.metadata.get("internal_action"))
 
+    @overload
     async def transition(
         self,
+        *,
+        state: JourneyState | None = None,
+        condition: str | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyTransition: ...
+
+    @overload
+    async def transition(
+        self,
+        *,
+        condition: str | None = None,
+        action: str | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyTransition: ...
+
+    async def transition(
+        self,
+        *,
         state: JourneyState | None = None,
         condition: str | None = None,
         action: str | None = None,

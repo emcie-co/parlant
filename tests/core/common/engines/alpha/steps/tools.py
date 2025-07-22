@@ -827,6 +827,38 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["account_id", "amount"],
     },
+    "change_credit_limit": {
+        "name": "change_credit_limit",
+        "description": "Changes the credit limit for an account. Can increase or decrease by $10,000 without supervisor approval. Larger changes require supervisor authorization.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "username": {
+                "type": "string",
+                "description": "The account's username",
+            },
+            "new_limit": {
+                "type": "int",
+                "description": "The new requested credit limit in USD",
+            },
+            "current_limit": {
+                "type": "int",
+                "description": "The current credit limit in USD",
+            },
+        },
+        "required": ["username", "new_limit", "current_limit"],
+    },
+    "get_credit_limit": {
+        "name": "get_credit_limit",
+        "description": "Retrieves the current credit limit for a given account.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "username": {
+                "type": "string",
+                "description": "The account's username",
+            }
+        },
+        "required": ["username"],
+    },
 }
 
 

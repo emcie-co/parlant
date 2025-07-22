@@ -215,10 +215,11 @@ Feature: Journeys
         And the journey "reset_password" is triggered when the customer can't remember their password
         And a node "account_name" to ask for their account name in "reset_password" journey
         And the node "account_name" requires customer input
-        And a transition from the root to "account_name" when the customer has not provided their account number in "reset_password" journey
+        And a transition from the root to "account_name" in "reset_password" journey
         And a node "email_phone" to ask for their email address or phone number in "reset_password" journey
         And the node "email_phone" requires customer input
-        And a transition from "account_name" to "email_phone" when the customer provided their account number in "reset_password" journey
+        And a transition from "email_phone" to end when the customer said they don't have a phone or mail in "reset_password" journey
+        And a transition from "account_name" to "email_phone" in "reset_password" journey
         And a node "good_day" to wish them a good day in "reset_password" journey
         And a transition from "email_phone" to "good_day" when the customer provided their email address or phone number in "reset_password" journey
         And a node "do_reset" to use the reset_password tool with the provided information in "reset_password" journey
@@ -227,6 +228,7 @@ Feature: Journeys
         And a transition from "good_day" to "do_reset" when the customer wished you a good day in return in "reset_password" journey
         And a node "cant_reset" apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
         And a transition from "good_day" to "cant_reset" when the customer did not immediately wish you a good day in return in "reset_password" journey
+        And a transition from "cant_reset" to end in "reset_password" journey
         And a node "reset_succeed" to report the result to the customer in "reset_password" journey
         And a transition from "do_reset" to "reset_succeed" when reset_password tool returned that the password was successfully reset in "reset_password" journey
         And a transition from "do_reset" to "cant_reset" when reset_password tool returned that the password was not successfully reset, or otherwise failed in "reset_password" journey

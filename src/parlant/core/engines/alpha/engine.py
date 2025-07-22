@@ -1234,6 +1234,7 @@ class AlphaEngine(Engine):
             journey.id: None for journey in active_journeys
         }
         filtered_out_matches: set[GuidelineId] = set()
+        result: dict[GuidelineId, GuidelineMatch] = {}
 
         previous_matches = list(
             OrderedDict.fromkeys(
@@ -1274,7 +1275,11 @@ class AlphaEngine(Engine):
 
                 latest_match_per_journey[journey_id] = match.guideline.id
 
-        return [m for m in combined.keys() if m.guideline.id not in filtered_out_matches]
+        for m in combined.keys():
+            if m.guideline.id not in filtered_out_matches:
+                result[m.guideline.id] = m
+
+        return list(result.values())
 
     async def _find_tool_enabled_guideline_matches(
         self,

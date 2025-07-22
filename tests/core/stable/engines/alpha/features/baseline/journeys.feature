@@ -175,3 +175,37 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains asking whether they want economy or business class
 
+    Scenario: Two consecutive steps with tools are running one after the other
+        Given the journey called "Change Credit Limits"
+        And a customer message, "Hi I see that my credit limit is low. Can I change it?"
+        And an agent message, "Sure, I can help with that. Can you please provide your account name?"
+        And a customer message, "Yes, it's Alice"
+        And an agent message, "Thanks, Alice. What would you like your new credit limit to be?"
+        And a customer message, "$20,000"
+        And an agent message, "Got it. You'd like to change your credit limit to $20,000. Please confirm the request so I can proceed."
+        And a customer message, "Yes that's good thanks"
+        And a journey path "[2, 3, 4]" for the journey "Change Credit Limits"
+        When processing is triggered
+        And the tool calls event contains 2 tool call(s)
+        And the message contains informing that the change succeed
+
+    Scenario: Agent starts a new journey after finishing the previous one and receiving a new customer request.
+        Given the journey called "Change Credit Limits"
+        And the journey called "Reset Password Journey"
+        And a customer message, "Hi I see that my credit limit is low. Can I change it?"
+        And an agent message, "Sure, I can help with that. Can you please provide your account name?"
+        And a customer message, "Yes, it's Alice"
+        And an agent message, "Thanks, Alice. What would you like your new credit limit to be?"
+        And a customer message, "$20,000"
+        And an agent message, "Got it. You'd like to change your credit limit to $20,000. Please confirm the request so I can proceed."
+        And a customer message, "Yes that's good thanks"
+        And an agent message, "Your credit limit has been successfully updated to $20,000."
+        And an agent message, "Is there anything else I can help you with today?"
+        And a customer message, "Actually, I see that I can't access the website. I think I need to reset my password."
+        And a journey path "[2, 3, 4, 5, 6, 7]" for the journey "Change Credit Limits"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message contains asking for account number
+
+        

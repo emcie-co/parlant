@@ -28,11 +28,12 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 import time
-from typing import Sequence
+from typing import Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.capabilities import Capability
-from parlant.core.journeys import Journey
+from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.journeys import Journey, JourneyId
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -46,7 +47,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     AnalyzedGuideline,
 )
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline
+from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.sessions import Event, Session
 from parlant.core.loggers import Logger
 
@@ -71,7 +72,8 @@ class GuidelineMatchingContext:
     terms: Sequence[Term]
     capabilities: Sequence[Capability]
     staged_events: Sequence[EmittedEvent]
-    relevant_journeys: Sequence[Journey]
+    active_journeys: Sequence[Journey]
+    journey_paths: dict[JourneyId, list[Optional[GuidelineId]]]
 
 
 @dataclass(frozen=True)
@@ -194,14 +196,7 @@ class GuidelineMatcher:
 
     async def match_guidelines(
         self,
-        agent: Agent,
-        session: Session,
-        customer: Customer,
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-        interaction_history: Sequence[Event],
-        terms: Sequence[Term],
-        capabilities: Sequence[Capability],
-        staged_events: Sequence[EmittedEvent],
+        context: LoadedContext,
         active_journeys: Sequence[Journey],
         guidelines: Sequence[Guideline],
     ) -> GuidelineMatchingResult:
@@ -230,15 +225,16 @@ class GuidelineMatcher:
                     strategy.create_matching_batches(
                         guidelines,
                         context=GuidelineMatchingContext(
-                            agent,
-                            session,
-                            customer,
-                            context_variables,
-                            interaction_history,
-                            terms,
-                            capabilities,
-                            staged_events,
-                            active_journeys,
+                            agent=context.agent,
+                            session=context.session,
+                            customer=context.customer,
+                            context_variables=context.state.context_variables,
+                            interaction_history=context.interaction.history,
+                            terms=list(context.state.glossary_terms),
+                            capabilities=context.state.capabilities,
+                            staged_events=context.state.tool_events,
+                            active_journeys=active_journeys,
+                            journey_paths=context.state.journey_paths,
                         ),
                     )
                     for _, (strategy, guidelines) in guideline_strategies.items()

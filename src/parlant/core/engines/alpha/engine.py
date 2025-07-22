@@ -408,6 +408,9 @@ class AlphaEngine(Engine):
                 ordinary_guideline_matches=[],
                 tool_enabled_guideline_matches={},
                 journeys=[],
+                journey_paths=session.agent_states[-1]["journey_paths"]
+                if session.agent_states
+                else {},
                 tool_events=[],
                 tool_insights=ToolInsights(),
                 prepared_to_respond=False,
@@ -446,6 +449,16 @@ class AlphaEngine(Engine):
             result = await self._run_additional_preparation_iteration(context)
 
         context.state.iterations.append(result.iteration)
+
+        context.state.journey_paths = self._list_journey_paths(
+            context=context,
+            guideline_matches=list(
+                chain(
+                    context.state.ordinary_guideline_matches,
+                    context.state.tool_enabled_guideline_matches,
+                )
+            ),
+        )
 
         # If there's no new information to consider (which would have come from
         # the tools), then we can consider ourselves prepared to respond.
@@ -982,14 +995,7 @@ class AlphaEngine(Engine):
 
         # Step 4: Filter the best matches out of those.
         matching_result = await self._guideline_matcher.match_guidelines(
-            agent=context.agent,
-            session=context.session,
-            customer=context.customer,
-            context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
-            terms=list(context.state.glossary_terms),
-            capabilities=context.state.capabilities,
-            staged_events=context.state.tool_events,
+            context=context,
             active_journeys=high_prob_journeys,  # Only consider the top K journeys
             guidelines=relevant_guidelines,
         )
@@ -1084,14 +1090,7 @@ class AlphaEngine(Engine):
 
         # Step 4: Reevaluate those guidelines using the latest context.
         matching_result = await self._guideline_matcher.match_guidelines(
-            agent=context.agent,
-            session=context.session,
-            customer=context.customer,
-            context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
-            terms=list(context.state.glossary_terms),
-            capabilities=context.state.capabilities,
-            staged_events=context.state.tool_events,
+            context=context,
             active_journeys=context.state.journeys,
             guidelines=guidelines_to_reevaluate,
         )
@@ -1151,6 +1150,26 @@ class AlphaEngine(Engine):
             resolved_guidelines=list(all_relevant_guidelines),
             journeys=activated_journeys,
         )
+
+    def _list_journey_paths(
+        self,
+        context: LoadedContext,
+        guideline_matches: Sequence[GuidelineMatch],
+    ) -> dict[JourneyId, list[Optional[GuidelineId]]]:
+        journey_paths = context.state.journey_paths
+
+        new_journey_paths = self._list_journey_paths_from_guideline_matches(
+            guideline_matches=guideline_matches,
+            active_journeys=context.state.journeys,
+        )
+
+        for journey_id, path in new_journey_paths.items():
+            if journey_id in journey_paths:
+                journey_paths[journey_id].extend(path)
+            else:
+                journey_paths[journey_id] = path
+
+        return journey_paths
 
     def _filter_activated_journeys(
         self,
@@ -1419,14 +1438,7 @@ class AlphaEngine(Engine):
             ]
 
             return await self._guideline_matcher.match_guidelines(
-                agent=context.agent,
-                session=context.session,
-                customer=context.customer,
-                context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
-                terms=list(context.state.glossary_terms),
-                capabilities=context.state.capabilities,
-                staged_events=context.state.tool_events,
+                context=context,
                 active_journeys=activated_journeys,
                 guidelines=additional_matching_guidelines,
             )
@@ -1464,14 +1476,7 @@ class AlphaEngine(Engine):
             ]
 
             return await self._guideline_matcher.match_guidelines(
-                agent=context.agent,
-                session=context.session,
-                customer=context.customer,
-                context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
-                terms=list(context.state.glossary_terms),
-                capabilities=context.state.capabilities,
-                staged_events=context.state.tool_events,
+                context=context,
                 active_journeys=activated_journeys,
                 guidelines=filtered_guidelines,
             )
@@ -1678,7 +1683,6 @@ class AlphaEngine(Engine):
         applied_guideline_ids = (
             session.agent_states[-1]["applied_guideline_ids"] if session.agent_states else []
         )
-        journey_paths = session.agent_states[-1]["journey_paths"] if session.agent_states else {}
 
         matches_to_analyze = [
             match
@@ -1709,17 +1713,6 @@ class AlphaEngine(Engine):
 
         applied_guideline_ids.extend(new_applied_guideline_ids)
 
-        new_journey_paths = self._list_journey_paths_from_guideline_matches(
-            guideline_matches=guideline_matches,
-            active_journeys=context.state.journeys,
-        )
-
-        for journey_id, path in new_journey_paths.items():
-            if journey_id in journey_paths:
-                journey_paths[journey_id].extend(path)
-            else:
-                journey_paths[journey_id] = path
-
         await self._entity_commands.update_session(
             session_id=session.id,
             params=SessionUpdateParams(
@@ -1728,7 +1721,7 @@ class AlphaEngine(Engine):
                     AgentState(
                         correlation_id=self._correlator.correlation_id,
                         applied_guideline_ids=applied_guideline_ids,
-                        journey_paths=journey_paths,
+                        journey_paths=context.state.journey_paths,
                     )
                 ]
             ),

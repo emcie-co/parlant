@@ -195,7 +195,8 @@ async def base_test_that_correct_guidelines_are_matched(
         terms=[],
         capabilities=capabilities,
         staged_events=staged_events,
-        relevant_journeys=[],
+        active_journeys=[],
+        journey_paths=session.agent_states[-1]["journey_paths"] if session.agent_states else {},
     )
 
     guideline_actionable_matcher = GenericActionableGuidelineMatchingBatch(

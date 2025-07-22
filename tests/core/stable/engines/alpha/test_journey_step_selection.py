@@ -471,7 +471,8 @@ async def base_test_that_correct_step_is_selected(
             terms=[],
             capabilities=capabilities,
             staged_events=staged_events,
-            relevant_journeys=[],
+            active_journeys=[],
+            journey_paths=session.agent_states[-1]["journey_paths"] if session.agent_states else {},
         ),
     )
     result = await journey_step_selector.process()
@@ -1474,7 +1475,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
 
 
 # TODO sometimes passes, sometimes fails by fast forwards over the calzone type choice
-async def test_that_journey_selector_doesnt_fast_forward_when_earlier_customer_decision_no_longer_applies(
+async def test_that_journey_selector_does_not_fast_forward_when_earlier_customer_decision_no_longer_applies(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -1544,7 +1545,7 @@ async def test_that_journey_selector_doesnt_fast_forward_when_earlier_customer_d
     )
 
 
-async def test_that_journey_selector_backtracks_back_doesnt_fast_forward_upon_new_customer_request(
+async def test_that_journey_selector_backtracks_back_does_not_fast_forward_upon_new_customer_request(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

@@ -103,7 +103,7 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
         if node_index not in node_wrappers:
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
-                action=g.content.action or "",
+                action=g.content.action,
                 incoming_edges=[],
                 outgoing_edges=[],
                 customer_dependent_action=cast(

@@ -350,7 +350,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                             GuidelineMatch(
                                 guideline=matched_guideline,
                                 score=10,
-                                rationale="",
+                                rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
                                 metadata={
                                     "journey_path": journey_path,

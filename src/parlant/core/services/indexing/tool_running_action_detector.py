@@ -50,13 +50,13 @@ class ToolRunningActionDetector:
         tool_ids: Sequence[ToolId],
         progress_report: Optional[ProgressReport] = None,
     ) -> ToolRunningActionProposition:
-        if progress_report:
-            await progress_report.stretch(1)
-
         if not tool_ids:
             return ToolRunningActionProposition(
                 is_tool_running_only=False,
             )
+
+        if progress_report:
+            await progress_report.stretch(1)
 
         tools = {}
         for tid in tool_ids:

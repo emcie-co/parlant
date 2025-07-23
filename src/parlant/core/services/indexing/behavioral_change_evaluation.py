@@ -505,7 +505,7 @@ class LegacyBehavioralChangeEvaluator:
                 params={"invoices": invoices},
             )
 
-            self._logger.info(f"evaluation task '{evaluation.id}' completed")
+            self._logger.trace(f"evaluation task '{evaluation.id}' completed")
 
             await self._evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
@@ -998,13 +998,13 @@ class BehavioralChangeEvaluator:
         )
 
         await self._background_task_service.start(
-            self.run_evaluation(evaluation),
+            self._run_evaluation(evaluation),
             tag=f"evaluation({evaluation.id})",
         )
 
         return evaluation.id
 
-    async def run_evaluation(
+    async def _run_evaluation(
         self,
         evaluation: Evaluation,
     ) -> None:
@@ -1077,7 +1077,7 @@ class BehavioralChangeEvaluator:
                 params={"invoices": invoices},
             )
 
-            self._logger.info(f"evaluation task '{evaluation.id}' completed")
+            self._logger.trace(f"evaluation task '{evaluation.id}' completed")
 
             await self._evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,

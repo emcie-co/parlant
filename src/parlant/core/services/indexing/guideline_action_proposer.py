@@ -90,7 +90,7 @@ class GuidelineActionProposer:
                     )
 
                     if progress_report:
-                        await progress_report.increment()
+                        await progress_report.increment(1)
 
                     return GuidelineActionProposition(
                         content=GuidelineContent(

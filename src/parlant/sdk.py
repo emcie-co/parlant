@@ -957,6 +957,15 @@ class Variable:
 
 @dataclass(frozen=True)
 class Customer:
+    @staticmethod
+    def guest() -> Customer:
+        return Customer(
+            id=CustomerStore.GUEST_ID,
+            name="Guest",
+            metadata={},
+            tags=[],
+        )
+
     id: CustomerId
     name: str
     metadata: Mapping[str, str]

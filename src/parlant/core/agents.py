@@ -254,7 +254,7 @@ class AgentDocumentStore(AgentStore):
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            max_engine_iterations = max_engine_iterations or 1
+            max_engine_iterations = max_engine_iterations or 3
 
             agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
 

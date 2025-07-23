@@ -116,7 +116,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                     matches = []
 
                     for match in inference.content.checks:
-                        if match.applies:
+                        if self._match_applies(match):
                             self._logger.debug(
                                 f"Completion::Activated:\n{match.model_dump_json(indent=2)}"
                             )
@@ -150,6 +150,10 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
 
     async def shots(self) -> Sequence[GenericObservationalGuidelineMatchingShot]:
         return await shot_collection.list()
+
+    def _match_applies(self, match: GenericObservationalGuidelineMatchSchema) -> bool:
+        """This is a separate function to allow overriding in tests and other applications."""
+        return match.applies
 
     def _format_shots(self, shots: Sequence[GenericObservationalGuidelineMatchingShot]) -> str:
         return "\n".join(

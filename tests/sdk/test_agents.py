@@ -30,7 +30,7 @@ class Test_that_an_agent_can_be_created(SDKTest):
         await server.create_agent(
             name="Test Agent",
             description="This is a test agent",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
+            composition_mode=p.CompositionMode.COMPOSITED,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -43,7 +43,6 @@ class Test_that_a_capability_can_be_created(SDKTest):
         self.agent = await server.create_agent(
             name="Test Agent",
             description="This is a test agent",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.capability = await self.agent.create_capability(

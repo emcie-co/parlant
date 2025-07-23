@@ -600,9 +600,10 @@ Evaluate whether the last executed step is complete.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement
-Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array.
-At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied.
-Base advancement decisions strictly on these transitions and their conditions—never jump to a step whose condition was not met, even if you believe it should logically be executed next
+Starting from the last executed step, advance through subsequent steps, documenting each step's completion status in the step_advancement array. 
+At each completed step, carefully evaluate the follow-up steps from the 'transitions' section, and advance only to the step whose condition is satisfied. 
+Base advancement decisions strictly on these transitions and their conditions—never jump to a step whose condition was not met, even if you believe it should logically be executed next. 
+Pleasing the customer is not a valid reason to violate the transitions - always traverse to the next step according to its conditions.
 
 Continue advancing until you encounter:
 - A step requiring a tool call (REQUIRES_TOOL_CALLS flag)

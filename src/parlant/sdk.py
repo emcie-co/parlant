@@ -1679,6 +1679,11 @@ class Server:
         except ItemNotFoundError:
             return None
 
+    async def get_agent(self, *, id: str) -> Agent:
+        if agent := await self.find_agent(id=id):
+            return agent
+        raise SDKError(f"Agent with id {id} not found.")
+
     async def create_customer(
         self,
         name: str,
@@ -1748,7 +1753,7 @@ class Server:
 
         return None
 
-    async def read_customer(self, customer_id: CustomerId) -> Customer:
+    async def get_customer(self, customer_id: CustomerId) -> Customer:
         customer = await self._container[CustomerStore].read_customer(customer_id)
 
         return Customer(
@@ -2116,6 +2121,7 @@ __all__ = [
     "TermId",
     "Tool",
     "ToolContext",
+    "ToolContextAccessor",
     "ToolEntry",
     "ToolEventData",
     "ToolId",

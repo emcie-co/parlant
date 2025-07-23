@@ -31,7 +31,6 @@ class Test_that_journey_can_be_created_without_conditions(SDKTest):
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -55,7 +54,6 @@ class Test_that_condition_guidelines_are_tagged_for_created_journey(SDKTest):
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -81,7 +79,6 @@ class Test_that_condition_guidelines_are_evaluated_in_journey_creation(SDKTest):
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -109,7 +106,6 @@ class Test_that_guideline_creation_from_journey_creates_dependency_relationship(
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -141,7 +137,6 @@ class Test_that_journey_can_be_created_with_guideline_object_as_condition(SDKTes
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.condition_guideline = await self.agent.create_guideline(
@@ -170,7 +165,6 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         self.agent = await server.create_agent(
             name="Store agent",
             description="You work at a store and help customers",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -195,7 +189,6 @@ class Test_that_journey_edge_and_node_can_be_created_with_connection(SDKTest):
         self.agent = await server.create_agent(
             name="Test Agent",
             description="Agent for journey node creation tests",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -225,7 +218,6 @@ class Test_that_journey_node_can_connect_to_a_tool(SDKTest):
         self.agent = await server.create_agent(
             name="Test Agent",
             description="Agent for journey node creation tests",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -256,7 +248,6 @@ class Test_that_journey_node_can_be_connected_with_condition(SDKTest):
         self.agent = await server.create_agent(
             name="Journey conditioned nodes Agent",
             description="Agent for journey node with condition creation tests",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -314,7 +305,6 @@ class Test_that_if_node_has_more_than_one_connect_they_all_need_to_have_conditio
         self.agent = await server.create_agent(
             name="Journey conditioned nodes Agent",
             description="Agent for journey node with condition creation tests",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -342,7 +332,6 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
         self.agent = await server.create_agent(
             name="Test Agent",
             description="Agent for journey step creation tests",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -390,7 +379,6 @@ class Test_that_journey_node_can_connect_to_end_node(SDKTest):
         self.agent = await server.create_agent(
             name="EndNode Agent",
             description="Agent for end node connection test",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(
@@ -411,7 +399,6 @@ class Test_that_journey_node_can_be_created_with_internal_action(SDKTest):
         self.agent = await server.create_agent(
             name="Calzone Seller Agent",
             description="Agent for selling calzones",
-            composition_mode=p.CompositionMode.COMPOSITED_UTTERANCE,
         )
 
         self.journey = await self.agent.create_journey(

@@ -19,6 +19,7 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import enum
 from hashlib import md5
 import importlib.util
 from pathlib import Path
@@ -50,7 +51,7 @@ from parlant.core.agents import (
     AgentId,
     AgentStore,
     AgentUpdateParams,
-    CompositionMode,
+    CompositionMode as _CompositionMode,
 )
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
@@ -470,7 +471,7 @@ class _SdkAgentStore(AgentStore):
         description: str | None = None,
         creation_utc: datetime | None = None,
         max_engine_iterations: int | None = None,
-        composition_mode: CompositionMode | None = None,
+        composition_mode: _CompositionMode | None = None,
         tags: Sequence[TagId] | None = None,
     ) -> _Agent:
         agent = _Agent(
@@ -480,7 +481,7 @@ class _SdkAgentStore(AgentStore):
             creation_utc=creation_utc or datetime.now(timezone.utc),
             max_engine_iterations=max_engine_iterations or 1,
             tags=tags or [],
-            composition_mode=composition_mode or CompositionMode.FLUID,
+            composition_mode=composition_mode or _CompositionMode.FLUID_UTTERANCE,
         )
 
         self._agents[agent.id] = agent
@@ -987,6 +988,12 @@ class RetrieverResult:
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
     utterances: Sequence[str] = field(default_factory=list)
     utterance_fields: Mapping[str, Any] = field(default_factory=dict)
+
+
+class CompositionMode(enum.Enum):
+    FLUID = _CompositionMode.FLUID_UTTERANCE
+    COMPOSITED = _CompositionMode.COMPOSITED_UTTERANCE
+    STRICT = _CompositionMode.STRICT_UTTERANCE
 
 
 @dataclass(frozen=True)
@@ -1632,7 +1639,7 @@ class Server:
         self,
         name: str,
         description: str,
-        composition_mode: CompositionMode = CompositionMode.FLUID_UTTERANCE,
+        composition_mode: CompositionMode = CompositionMode.FLUID,
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
     ) -> Agent:
@@ -1640,7 +1647,7 @@ class Server:
             name=name,
             description=description,
             max_engine_iterations=max_engine_iterations or 1,
-            composition_mode=composition_mode,
+            composition_mode=composition_mode.value,
         )
 
         return Agent(
@@ -1648,7 +1655,7 @@ class Server:
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=agent.composition_mode,
+            composition_mode=CompositionMode(agent.composition_mode),
             tags=tags,
             _server=self,
             _container=self._container,
@@ -1663,7 +1670,7 @@ class Server:
                 name=a.name,
                 description=a.description,
                 max_engine_iterations=a.max_engine_iterations,
-                composition_mode=a.composition_mode,
+                composition_mode=CompositionMode(a.composition_mode),
                 tags=a.tags,
                 _server=self,
                 _container=self._container,
@@ -1680,7 +1687,7 @@ class Server:
                 name=agent.name,
                 description=agent.description,
                 max_engine_iterations=agent.max_engine_iterations,
-                composition_mode=agent.composition_mode,
+                composition_mode=CompositionMode(agent.composition_mode),
                 tags=agent.tags,
                 _server=self,
                 _container=self._container,

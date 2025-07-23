@@ -1753,8 +1753,8 @@ class Server:
 
         return None
 
-    async def get_customer(self, customer_id: CustomerId) -> Customer:
-        customer = await self._container[CustomerStore].read_customer(customer_id)
+    async def get_customer(self, *, id: CustomerId) -> Customer:
+        customer = await self._container[CustomerStore].read_customer(id)
 
         return Customer(
             id=customer.id,

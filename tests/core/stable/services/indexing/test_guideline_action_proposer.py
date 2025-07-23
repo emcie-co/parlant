@@ -19,7 +19,11 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.customers import Customer
+from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatcher
+from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.types import Context
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.services.indexing.guideline_action_proposer import GuidelineActionProposer
@@ -322,15 +326,40 @@ async def base_test_that_guideline_with_proposed_action_matched(
 
     session = await context.container[SessionStore].read_session(session_id)
 
-    guideline_matching_result = await context.container[GuidelineMatcher].match_guidelines(
+    loaded_context = LoadedContext(
+        info=Context(
+            session_id=session.id,
+            agent_id=agent.id,
+        ),
+        logger=context.logger,
+        correlation_id="<main>",
         agent=agent,
-        session=session,
         customer=customer,
-        context_variables=[],
-        interaction_history=interaction_history,
-        terms=[],
-        capabilities=[],
-        staged_events=[],
+        session=session,
+        session_event_emitter=EventBuffer(agent),
+        response_event_emitter=EventBuffer(agent),
+        interaction=Interaction(
+            history=interaction_history,
+            last_known_event_offset=interaction_history[-1].offset if interaction_history else -1,
+        ),
+        state=ResponseState(
+            context_variables=[],
+            glossary_terms=set(),
+            capabilities=[],
+            iterations=[],
+            ordinary_guideline_matches=[],
+            tool_enabled_guideline_matches={},
+            journeys=[],
+            journey_paths=session.agent_states[-1]["journey_paths"] if session.agent_states else {},
+            tool_events=[],
+            tool_insights=ToolInsights(),
+            prepared_to_respond=False,
+            message_events=[],
+        ),
+    )
+
+    guideline_matching_result = await context.container[GuidelineMatcher].match_guidelines(
+        context=loaded_context,
         active_journeys=[],
         guidelines=context.guidelines,
     )

@@ -142,7 +142,10 @@ Edge Cases to Consider:
 
 If you determine the action is customer dependent, you must also split it into:
  - the portion that depends solely on the agent (agent_action)
- - the portion that depends on the customer (customer_action)
+ - the portion that depends on the customer (customer_action). 
+
+Your decision will be used to asses whether this guideline was completed at different stages of the conversation. You should split the action such that it is considered complete if and only if both the agent and customer portions were completed.
+For example, the customer dependent action "ask the customer for their age" should be split into the agent_action "the agent asked the customer for their age" and the customer_action "the customer provided their age"
 """,
         )
         builder.add_section(
@@ -225,8 +228,8 @@ example_1_shot = CustomerDependentActionShot(
     expected_result=CustomerDependentActionSchema(
         action=example_1_guideline.action or "",
         is_customer_dependent=True,
-        customer_action="provide their account number and shipping address",
-        agent_action="ask for the customer's account number and shipping address, and inform them that it would take 3-5 business days.",
+        customer_action="The customer provided both their account number and shipping address",
+        agent_action="The agent asks for the customer's account number and shipping address, and informs them that it would take 3-5 business days.",
     ),
 )
 

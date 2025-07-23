@@ -129,7 +129,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         disambiguation_groups: list[tuple[Guideline, list[Guideline]]] = []
         journey_step_selection_journeys: dict[Journey, list[Guideline]] = defaultdict(list)
 
-        active_journeys_mapping = {journey.id: journey for journey in context.relevant_journeys}
+        active_journeys_mapping = {journey.id: journey for journey in context.active_journeys}
 
         for g in guidelines:
             if g.metadata.get("journey_node") is not None:
@@ -308,7 +308,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         terms=context.terms,
                         capabilities=context.capabilities,
                         staged_events=context.staged_events,
-                        relevant_journeys=journeys,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
                     ),
                 )
             )
@@ -366,7 +367,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         terms=context.terms,
                         capabilities=context.capabilities,
                         staged_events=context.staged_events,
-                        relevant_journeys=journeys,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
                     ),
                 )
             )
@@ -424,7 +426,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         terms=context.terms,
                         capabilities=context.capabilities,
                         staged_events=context.staged_events,
-                        relevant_journeys=journeys,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
                     ),
                 )
             )
@@ -482,7 +485,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         terms=context.terms,
                         capabilities=context.capabilities,
                         staged_events=context.staged_events,
-                        relevant_journeys=journeys,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
                     ),
                 )
             )
@@ -550,7 +554,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 terms=context.terms,
                 capabilities=context.capabilities,
                 staged_events=context.staged_events,
-                relevant_journeys=journeys,
+                active_journeys=journeys,
+                journey_paths=context.journey_paths,
             ),
         )
 
@@ -575,14 +580,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 terms=context.terms,
                 capabilities=context.capabilities,
                 staged_events=context.staged_events,
-                relevant_journeys=context.relevant_journeys,
+                active_journeys=context.active_journeys,
+                journey_paths=context.journey_paths,
             ),
             step_guidelines=step_guidelines,
-            journey_path=context.session.agent_states[-1]["journey_paths"].get(
-                examined_journey.id, []
-            )
-            if context.session.agent_states
-            else [],
+            journey_path=context.journey_paths.get(examined_journey.id, []),
         )
 
     def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:

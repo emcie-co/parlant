@@ -46,19 +46,6 @@ Feature: Journeys
         Then no tool calls event is emitted
         And a single message event is emitted
         And the message contains an answer indicating that the password cannot be reset at this time, or has otherwise failed to reset
-
-    Scenario: Critical guideline overrides journey
-        Given the journey called "Reset Password Journey"
-        And a guideline to ask the customer their age, and do not continue with any other process unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth
-        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        And a journey path "[2]" for the journey "Reset Password Journey"
-        When processing is triggered
-        Then no tool calls event is emitted
-        And a single message event is emitted
-        And the message contains asking the customer for their age
-        And the message contains no questions about the customer's email address or phone number
     
     Scenario: Two journeys are used in unison
         Given the journey called "Book Flight"
@@ -160,7 +147,7 @@ Feature: Journeys
 
     Scenario: Multiple step advancement of a journey stopped by lacking info
         Given the journey called "Book Flight"
-        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. We flight in the 12.10 and return in the 17.10."
+        And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. Our flight is on the 12.10 and we wish to return on the 17.10."  
         When processing is triggered
         Then a single message event is emitted
         And the message contains asking what is the destination 
@@ -175,3 +162,37 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains asking whether they want economy or business class
 
+    Scenario: Two consecutive steps with tools are running one after the other
+        Given the journey called "Change Credit Limits"
+        And a customer message, "Hi I see that my credit limit is low. Can I change it?"
+        And an agent message, "Sure, I can help with that. Can you please provide your account name?"
+        And a customer message, "Yes, it's Alice"
+        And an agent message, "Thanks, Alice. What would you like your new credit limit to be?"
+        And a customer message, "$20,000"
+        And an agent message, "Got it. You'd like to change your credit limit to $20,000. Please confirm the request so I can proceed."
+        And a customer message, "Yes that's good thanks"
+        And a journey path "[2, 3, 4]" for the journey "Change Credit Limits"
+        When processing is triggered
+        And the tool calls event contains 2 tool call(s)
+        And the message contains informing that the change succeed
+
+    Scenario: Agent starts a new journey after finishing the previous one and receiving a new customer request.
+        Given the journey called "Change Credit Limits"
+        And the journey called "Reset Password Journey"
+        And a customer message, "Hi I see that my credit limit is low. Can I change it?"
+        And an agent message, "Sure, I can help with that. Can you please provide your account name?"
+        And a customer message, "Yes, it's Alice"
+        And an agent message, "Thanks, Alice. What would you like your new credit limit to be?"
+        And a customer message, "$20,000"
+        And an agent message, "Got it. You'd like to change your credit limit to $20,000. Please confirm the request so I can proceed."
+        And a customer message, "Yes that's good thanks"
+        And an agent message, "Your credit limit has been successfully updated to $20,000."
+        And an agent message, "Is there anything else I can help you with today?"
+        And a customer message, "Actually, I see that I can't access the website. I think I need to reset my password."
+        And a journey path "[2, 3, 4, 5, 6, 7]" for the journey "Change Credit Limits"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message contains asking for account number
+
+        

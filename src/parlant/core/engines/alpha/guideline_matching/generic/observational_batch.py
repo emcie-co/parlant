@@ -370,7 +370,8 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
                         terms=context.terms,
                         capabilities=context.capabilities,
                         staged_events=context.staged_events,
-                        relevant_journeys=journeys,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
                     ),
                 )
             )

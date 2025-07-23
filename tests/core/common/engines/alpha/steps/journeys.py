@@ -124,7 +124,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account name",
                     "agent_action": "",
                 },
             )
@@ -132,9 +132,9 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
-                condition="The customer has not provided their account number",
+                condition="The customer has not provided their account name",
             )
         )
 
@@ -152,7 +152,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided either one of their email or their phone number",
                     "agent_action": "",
                 },
             )
@@ -162,7 +162,7 @@ def given_the_journey_called(
                 journey_id=journey.id,
                 source=node1.id,
                 target=node2.id,
-                condition="The customer provided their account number",
+                condition="The customer provided their account name",
             )
         )
         node3 = context.sync_await(
@@ -308,7 +308,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided both their source and destination airport",
                     "agent_action": "",
                 },
             )
@@ -317,7 +317,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -336,7 +336,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the desired dates for both their arrival and for their return flight",
                     "agent_action": "",
                 },
             )
@@ -364,7 +364,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose between economy and business class",
                     "agent_action": "",
                 },
             )
@@ -392,7 +392,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The name of the traveler was provided",
                     "agent_action": "",
                 },
             )
@@ -495,7 +495,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The desired pick up location was provided",
                     "agent_action": "",
                 },
             )
@@ -504,7 +504,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -523,7 +523,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their drop-off location",
                     "agent_action": "",
                 },
             )
@@ -551,7 +551,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their desired pickup time",
                     "agent_action": "",
                 },
             )
@@ -579,7 +579,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the details of the booking",
                     "agent_action": "",
                 },
             )
@@ -642,7 +642,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their preference for a salad or a sandwich",
                     "agent_action": "",
                 },
             )
@@ -651,7 +651,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -670,7 +670,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their desired bread type",
                     "agent_action": "",
                 },
             )
@@ -698,7 +698,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose a filling between peanut butter, jam or pesto",
                     "agent_action": "",
                 },
             )
@@ -726,7 +726,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer mentioned if they do or do not want extras",
                     "agent_action": "",
                 },
             )
@@ -754,7 +754,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their base greens",
                     "agent_action": "",
                 },
             )
@@ -782,7 +782,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their toppings",
                     "agent_action": "",
                 },
             )
@@ -809,7 +809,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer chose their desired dressing",
                     "agent_action": "",
                 },
             )
@@ -837,7 +837,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the order or requested changes",
                     "agent_action": "",
                 },
             )
@@ -907,7 +907,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account number",
                     "agent_action": "",
                 },
             )
@@ -916,7 +916,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -935,7 +935,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their full name",
                     "agent_action": "",
                 },
             )
@@ -1046,7 +1046,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer specified which type of loan they'd like to take",
                     "agent_action": "",
                 },
             )
@@ -1055,7 +1055,7 @@ def given_the_journey_called(
         context.sync_await(
             journey_store.create_edge(
                 journey_id=journey.id,
-                source=JourneyStore.ROOT_NODE_ID,
+                source=journey.root_id,
                 target=node1.id,
                 condition="",
             )
@@ -1074,7 +1074,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the desired loan amount",
                     "agent_action": "",
                 },
             )
@@ -1102,7 +1102,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided the purpose of the loan",
                     "agent_action": "",
                 },
             )
@@ -1130,7 +1130,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer provided their account number",
                     "agent_action": "",
                 },
             )
@@ -1195,7 +1195,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the loan and its terms",
                     "agent_action": "",
                 },
             )
@@ -1222,7 +1222,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "",
+                    "customer_action": "The customer confirmed the loan and its terms",
                     "agent_action": "",
                 },
             )
@@ -1266,6 +1266,241 @@ def given_the_journey_called(
 
         return journey
 
+    def create_change_credit_limit_journey() -> Journey:
+        conditions = [
+            "the customer wants to change their credit limit",
+            "the customer says their current credit limit is too low",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="change credit limit journey",
+                description="",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
+        # Step 1: Ask for account name
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for their account name",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition="The customer has not provided their account number",
+            )
+        )
+
+        # Step 2: Ask for desired credit limit
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask for the new desired credit limit",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition="The customer provided their account number",
+            )
+        )
+
+        # Step 3: Confirm information and move forward politely
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Thank them and confirm the requested change",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition="The customer provided a desired credit limit",
+            )
+        )
+
+        # Step 4: Use tool to get the current limit
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["get_credit_limit"]))
+        node4 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use the get_credit_limit tool with the provided account name to get the current limit",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node4.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            relationship_store.create_relationship(
+                source=RelationshipEntity(
+                    id=ToolId("local", tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                target=RelationshipEntity(
+                    id=Tag.for_journey_node_id(node4.id),
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=node4.id,
+                condition="The customer confirmed the desired change",
+            )
+        )
+
+        # Step 5: Use tool to change the limit
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["change_credit_limit"]))
+        node5 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use the change_credit_limit tool with the provided account and desired limit",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node5.id,
+                "tool_running_only",
+                True,
+            )
+        )
+
+        context.sync_await(
+            relationship_store.create_relationship(
+                source=RelationshipEntity(
+                    id=ToolId("local", tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                target=RelationshipEntity(
+                    id=Tag.for_journey_node_id(node5.id),
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+        )
+
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node4.id,
+                target=node5.id,
+                condition=None,
+            )
+        )
+
+        # Step 6: Report to customer
+        node6 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Let the customer know that the credit limit has been successfully updated",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node5.id,
+                target=node6.id,
+                condition="change_credit_limit tool returned success",
+            )
+        )
+
+        # Step 7: Report failure
+        node7 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Apologize and inform the customer that the credit limit change can not be done. Explain why according to tool result",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node5.id,
+                target=node7.id,
+                condition="change_credit_limit tool returned that can not change the limit",
+            )
+        )
+
+        return journey
+
     JOURNEYS = {
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
@@ -1273,6 +1508,7 @@ def given_the_journey_called(
         "Place Food Order": create_place_food_order_journey,
         "Decrease Spending Journey": create_decrease_spending_journey,
         "Request Loan Journey": create_request_loan_journey,
+        "Change Credit Limits": create_change_credit_limit_journey,
     }
 
     create_journey_func = JOURNEYS[journey_title]

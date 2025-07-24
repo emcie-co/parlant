@@ -58,32 +58,32 @@ class _JourneyNode:
     customer_action_description: Optional[str] = None
 
 
-class JourneyStepAdvancement(DefaultBaseModel):
+class JourneyNodeAdvancement(DefaultBaseModel):
     id: str
     completed: bool
     follow_ups: Optional[list[str]] = None
 
 
-class JourneyStepSelectionSchema(DefaultBaseModel):
+class JourneyNodeSelectionSchema(DefaultBaseModel):
     journey_applies: bool
     rationale: str
     requires_backtracking: bool
     backtracking_target_step: Optional[str] | None = ""
-    step_advancement: Optional[Sequence[JourneyStepAdvancement]] = None
+    step_advancement: Optional[Sequence[JourneyNodeAdvancement]] = None
     next_step: str
 
 
 @dataclass
-class JourneyStepSelectionShot(Shot):
+class JourneyNodeSelectionShot(Shot):
     interaction_events: Sequence[Event]
     journey_title: str
-    journey_steps: dict[str, _JourneyNode] | None
+    journey_nodes: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
-    expected_result: JourneyStepSelectionSchema
+    expected_result: JourneyNodeSelectionSchema
     conditions: Sequence[str]
 
 
-def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
+def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
     def _get_guideline_node_index(guideline: Guideline) -> str:
         return str(
             cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
@@ -91,14 +91,14 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
             ),
         )
 
-    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in step_guidelines}
+    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in guidelines}
     guideline_id_to_node_index: dict[GuidelineId, str] = {
-        g.id: _get_guideline_node_index(g) for g in step_guidelines
+        g.id: _get_guideline_node_index(g) for g in guidelines
     }
     node_wrappers: dict[str, _JourneyNode] = {}
 
     # Build nodes
-    for g in step_guidelines:
+    for g in guidelines:
         node_index: str = guideline_id_to_node_index[g.id]
         if node_index not in node_wrappers:
             node_wrappers[node_index] = _JourneyNode(
@@ -117,13 +117,13 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
 
     # Build edges
     registered_edges: set[tuple[str, str]] = set()
-    for g in step_guidelines:
+    for g in guidelines:
         source_node_index: str = guideline_id_to_node_index[g.id]
         for followup_id in cast(
             dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
         ).get("follow_ups", []):
             followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
-            followup_guideline = next((g for g in step_guidelines if g.id == followup_id), None)
+            followup_guideline = next((g for g in guidelines if g.id == followup_id), None)
             if (
                 followup_guideline
                 and (source_node_index, followup_node_index) not in registered_edges
@@ -145,7 +145,7 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
         node_wrappers[ROOT_INDEX].incoming_edges.append(
             _JourneyEdge(
                 target_guideline=next(
-                    g for g in step_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+                    g for g in guidelines if _get_guideline_node_index(g) == ROOT_INDEX
                 ),
                 condition=None,
                 source_node_index=PRE_ROOT_INDEX,
@@ -163,11 +163,11 @@ def get_journey_transition_map_text(
     previous_path: Sequence[str | None] = [],
     print_customer_action_description: bool = False,
 ) -> str:
-    def step_sort_key(step_id: str) -> Any:
+    def node_sort_key(node_index: str) -> Any:
         try:
-            return int(step_id)
+            return int(node_index)
         except Exception:
-            return step_id
+            return node_index
 
     def get_node_transition_text(node: _JourneyNode) -> str:
         result = ""
@@ -197,9 +197,9 @@ def get_journey_transition_map_text(
     else:
         journey_conditions_str = ""
 
-    first_step_to_execute: str | None = None
+    first_node_to_execute: str | None = None
     nodes_str = ""
-    for node_index in sorted(nodes.keys(), key=step_sort_key):
+    for node_index in sorted(nodes.keys(), key=node_sort_key):
         node: _JourneyNode = nodes[node_index]
         if (
             node.id == ROOT_INDEX
@@ -207,7 +207,7 @@ def get_journey_transition_map_text(
             and len(node.outgoing_edges) == 1
         ):  # Don't print root node
             if not previous_path:
-                first_step_to_execute = node.outgoing_edges[0].target_node_index
+                first_node_to_execute = node.outgoing_edges[0].target_node_index
         elif (
             node.id == ROOT_INDEX
             and (not node.action or node.action == DEFAULT_ROOT_ACTION)
@@ -239,7 +239,7 @@ TRANSITIONS:
                 flags_str += (
                     "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
                 )
-            if node.id == first_step_to_execute:
+            if node.id == first_node_to_execute:
                 flags_str += "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed.\n"
             elif previous_path and node.id == previous_path[-1]:
                 flags_str += (
@@ -260,20 +260,20 @@ TRANSITIONS:
 Journey: {journey_title}
 {journey_conditions_str}
 Steps:
-{nodes_str}
+{nodes_str} 
 """
 
 
-class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
+class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
-        schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
+        schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
-        step_guidelines: Sequence[Guideline] = [],
+        node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
@@ -282,7 +282,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
-        self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
+        self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(node_guidelines)
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
@@ -300,7 +300,7 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
-        with self._logger.operation(f"JourneyStepSelectionBatch: {self._examined_journey.title}"):
+        with self._logger.operation(f"JourneyNodeSelectionBatch: {self._examined_journey.title}"):
             generation_attempt_temperatures = (
                 self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
                     hints={"type": self.__class__.__name__}
@@ -316,14 +316,17 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
 
+                    with open("journey step selection output.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
+                        f.write("\nTime: " + str(inference.info.duration))
+
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
 
-                    journey_path = self._get_verified_step_advancement(inference.content)
+                    journey_path = self._get_verified_node_advancement(inference.content)
 
-                    # Get correct guideline to return based on the transition into next_step
-                    # TODO: consider surrounding with try catch specifically
+                    # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
                     matched_guideline: Guideline | None = None
                     if inference.content.next_step in self._node_wrappers:
                         if len(journey_path) > 1 and [
@@ -371,16 +374,16 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
             raise GuidelineMatchingBatchError() from last_generation_exception
 
-    async def shots(self) -> Sequence[JourneyStepSelectionShot]:
+    async def shots(self) -> Sequence[JourneyNodeSelectionShot]:
         return await shot_collection.list()
 
-    def _format_shots(self, shots: Sequence[JourneyStepSelectionShot]) -> str:
+    def _format_shots(self, shots: Sequence[JourneyNodeSelectionShot]) -> str:
         return "\n".join(
             f"Example #{i}: {shot.journey_title}\n{self._format_shot(shot)}"
             for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, shot: JourneyStepSelectionShot) -> str:
+    def _format_shot(self, shot: JourneyNodeSelectionShot) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 EventSource.CUSTOMER: "user",
@@ -404,9 +407,9 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 {json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
 
 """
-        if shot.journey_steps:
+        if shot.journey_nodes:
             formatted_shot += get_journey_transition_map_text(
-                shot.journey_steps,
+                shot.journey_nodes,
                 previous_path=shot.previous_path,
                 journey_title=shot.journey_title,
                 journey_conditions=[
@@ -435,8 +438,8 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
 
         return formatted_shot
 
-    def _get_verified_step_advancement(
-        self, response: JourneyStepSelectionSchema
+    def _get_verified_node_advancement(
+        self, response: JourneyNodeSelectionSchema
     ) -> list[str | None]:
         def add_and_remove_list_values(
             list_to_alter: list[Any],
@@ -544,17 +547,17 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
     def _build_prompt(
         self,
         journey_conditions: Sequence[Guideline],
-        shots: Sequence[JourneyStepSelectionShot],
+        shots: Sequence[JourneyNodeSelectionShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
             name="journey-step-selection-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -------------------
-You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business.
-Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes.
+You are an AI agent named {agent_name} whose role is to engage in multi-turn conversations with customers on behalf of a business. 
+Your interactions are structured around predefined "journeys" - systematic processes that guide customer conversations toward specific outcomes. 
 
 ## Journey Structure
 Each journey consists of:
@@ -563,7 +566,7 @@ Each journey consists of:
 - **Flags**: Special properties that modify how steps behave
 
 ## Your Core Task
-Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.
+Analyze the current conversation state and determine the next appropriate journey step, based on the last step that was performed and the current state of the conversation.  
 """,
             props={"agent_name": self._context.agent.name},
         )
@@ -575,7 +578,7 @@ TASK DESCRIPTION
 Follow this process to determine the next journey step. Document each decision in the specified output format.
 
 ## 1: Journey Context Check
-Determine if the conversation should continue within the current journey.
+Determine if the conversation should continue within the current journey. 
 Once a journey has begun, continue following it unless the customer explicitly indicates they no longer want to pursue the journey's original goal.
 
 Set journey_applies to true unless the customer explicitly requests to leave the topic or abandon the journey's goal entirely.
@@ -586,7 +589,7 @@ If journey_applies is false, set next_step to 'None' and skip remaining steps
 
 CRITICAL: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.
 
-## 2: Backtracking Check
+## 2: Backtracking Check  
 Check if the customer has changed a previous decision that requires returning to an earlier step.
 - Set `requires_backtracking` to `true` if the customer contradicts or changes a prior choice
 - If backtracking is needed:
@@ -617,7 +620,7 @@ For each step in the advancement path:
 
 Document your advancement path in step_advancement as a list of step advancement objects, starting with the last_step and ending with the next step to execute. Each step must be a legal follow-up of the previous step, and you can only advance if the previous step was completed.
 
-**Special handling for journey exits**:
+**Special handling for journey exits**: 
 - "None" is a valid step ID that means "exit the journey"
 - Include "None" in follow_ups arrays for steps that have EXIT JOURNEY transitions
 - Set next_step to "None" when the journey should exit (either due to transitions or being outside journey context)
@@ -674,10 +677,12 @@ Example section is over. The following is the real data you need to use for your
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
 
+        with open("journey step selection prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:
-        last_step = self._previous_path[-1] if self._previous_path else "None"
+        last_node = self._previous_path[-1] if self._previous_path else "None"
         return f"""
 IMPORTANT: Please provide your answer in the following JSON format.
 
@@ -693,7 +698,7 @@ OUTPUT FORMAT
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "step_advancement": [
     {{
-        "id": "<str, id of the step. First one should be either {last_step} or backtracking_target_step if it exists>",
+        "id": "<str, id of the step. First one should be either {last_node} or backtracking_target_step if it exists>",
         "completed": <bool, whether this step was completed>,
         "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is false>"
     }},
@@ -737,7 +742,7 @@ example_1_events = [
 ]
 
 
-example_1_journey_steps = {
+example_1_journey_nodes = {
     "1": _JourneyNode(
         id="1",
         action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
@@ -814,13 +819,13 @@ example_1_journey_steps = {
 }
 
 
-example_1_expected = JourneyStepSelectionSchema(
+example_1_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2", "3", "4"]),
-        JourneyStepAdvancement(id="4", completed=False),
+        JourneyNodeAdvancement(id="1", completed=True, follow_ups=["2", "3", "4"]),
+        JourneyNodeAdvancement(id="4", completed=False),
     ],
     next_step="4",
 )
@@ -848,7 +853,7 @@ example_2_events = [
     ),
 ]
 
-book_taxi_shot_journey_steps = {
+book_taxi_shot_journey_nodes = {
     "1": _JourneyNode(
         id="1",
         action="Welcome the customer to the taxi service",
@@ -1037,7 +1042,7 @@ book_taxi_shot_journey_steps = {
     ),
 }
 
-random_actions_journey_steps = {
+random_actions_journey_nodes = {
     "1": _JourneyNode(
         id="1",
         action="State a random capital city. Do not say anything else.",
@@ -1093,15 +1098,15 @@ random_actions_journey_steps = {
     ),
 }
 
-example_2_expected = JourneyStepSelectionSchema(
+example_2_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
     step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=False),
+        JourneyNodeAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyNodeAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyNodeAdvancement(id="5", completed=True, follow_ups=["6"]),
+        JourneyNodeAdvancement(id="6", completed=False),
     ],
     next_step="6",
 )
@@ -1119,15 +1124,15 @@ example_3_events = [
     ),
 ]
 
-example_3_expected = JourneyStepSelectionSchema(
+example_3_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
     step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["3"]),
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=False),
+        JourneyNodeAdvancement(id="1", completed=True, follow_ups=["3"]),
+        JourneyNodeAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyNodeAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyNodeAdvancement(id="5", completed=False),
     ],
     next_step="5",
 )
@@ -1208,16 +1213,16 @@ example_4_events = [
     ),
 ]
 
-example_4_expected = JourneyStepSelectionSchema(
+example_4_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
     backtracking_target_step="2",
     step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="3", completed=True, follow_ups=["5"]),
-        JourneyStepAdvancement(id="5", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=False),
+        JourneyNodeAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyNodeAdvancement(id="3", completed=True, follow_ups=["5"]),
+        JourneyNodeAdvancement(id="5", completed=True, follow_ups=["6"]),
+        JourneyNodeAdvancement(id="6", completed=False),
     ],
     next_step="6",
 )
@@ -1240,13 +1245,13 @@ example_5_events = [
     ),
 ]
 
-example_5_expected = JourneyStepSelectionSchema(
+example_5_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
     step_advancement=[
-        JourneyStepAdvancement(id="1", completed=True, follow_ups=["2"]),
-        JourneyStepAdvancement(id="2", completed=False),
+        JourneyNodeAdvancement(id="1", completed=True, follow_ups=["2"]),
+        JourneyNodeAdvancement(id="2", completed=False),
     ],
     next_step="2",
 )
@@ -1282,7 +1287,7 @@ example_6_events = [
     ),
 ]
 
-loan_journey_steps = {
+loan_journey_nodes = {
     "1": _JourneyNode(
         id="1",
         action="Ask for the customer's full name.",
@@ -1488,16 +1493,16 @@ loan_journey_steps = {
     ),
 }
 
-example_6_expected = JourneyStepSelectionSchema(
+example_6_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
     backtracking_target_step="2",
     step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
-        JourneyStepAdvancement(
+        JourneyNodeAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyNodeAdvancement(id="4", completed=True, follow_ups=["6"]),
+        JourneyNodeAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
+        JourneyNodeAdvancement(
             id="None",
             completed=False,
         ),
@@ -1555,15 +1560,15 @@ example_7_events = [
     ),
 ]
 
-example_7_expected = JourneyStepSelectionSchema(
+example_7_expected = JourneyNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The customer wants a loan for their restaurant, making it a business loan. We can proceed through steps 4 and 6, since the customer already specified their desired loan amount and the collateral for the loan. This brings us to step 8, which was not completed yet.",
     step_advancement=[
-        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
-        JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
-        JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
-        JourneyStepAdvancement(
+        JourneyNodeAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyNodeAdvancement(id="4", completed=True, follow_ups=["6"]),
+        JourneyNodeAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
+        JourneyNodeAdvancement(
             id="8",
             completed=False,
         ),
@@ -1571,66 +1576,66 @@ example_7_expected = JourneyStepSelectionSchema(
     next_step="8",
 )
 
-_baseline_shots: Sequence[JourneyStepSelectionShot] = [
-    JourneyStepSelectionShot(
+_baseline_shots: Sequence[JourneyNodeSelectionShot] = [
+    JourneyNodeSelectionShot(
         description="Example 1 - Simple Single-Step Advancement",
         journey_title="Recommend Vacation Journey",
         interaction_events=example_1_events,
-        journey_steps=example_1_journey_steps,
+        journey_nodes=example_1_journey_nodes,
         expected_result=example_1_expected,
         previous_path=["1"],
         conditions=["the customer is interested in a vacation"],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 2 - Multiple Step Advancement Stopped by Tool Calling Step",
         journey_title="Book Taxi Journey",
         interaction_events=example_2_events,
-        journey_steps=book_taxi_shot_journey_steps,
+        journey_nodes=book_taxi_shot_journey_nodes,
         expected_result=example_2_expected,
         previous_path=["1", "2"],
         conditions=[],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 3 - Multiple Step Advancement Stopped by Lacking Info",
         journey_title="Book Taxi Journey - Same Journey as in Example 2",
         interaction_events=example_3_events,
-        journey_steps=None,
+        journey_nodes=None,
         expected_result=example_3_expected,
         previous_path=["1"],
         conditions=[],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 4 - Backtracking Due to Changed Customer Decision",
         journey_title="Book Taxi Journey - Same as in Example 2",
         interaction_events=example_4_events,
-        journey_steps=None,
+        journey_nodes=None,
         expected_result=example_4_expected,
         previous_path=["1", "2", "4", "2", "3", "5"],
         conditions=[],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 5 - Remaining in journey unless explicitly told otherwise",
         journey_title="Book Taxi II Journey",
         interaction_events=example_5_events,
-        journey_steps=random_actions_journey_steps,
+        journey_nodes=random_actions_journey_nodes,
         expected_result=example_5_expected,
         previous_path=["1"],
         conditions=["customer wants to book a taxi"],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 6 - Backtracking and fast forwarding to Completion",
         journey_title="Loan Application Journey",
         interaction_events=example_6_events,
-        journey_steps=loan_journey_steps,
+        journey_nodes=loan_journey_nodes,
         expected_result=example_6_expected,
         previous_path=["1", "2", "3", "5", "7"],
         conditions=["customer wants a loan"],
     ),
-    JourneyStepSelectionShot(
+    JourneyNodeSelectionShot(
         description="Example 7 - fast forwarding due to information provided earlier in the conversation",
         journey_title="Loan Application Journey - Same as in Example 6",
         interaction_events=example_7_events,  # TODO I was here
-        journey_steps=loan_journey_steps,
+        journey_nodes=loan_journey_nodes,
         expected_result=example_7_expected,
         previous_path=["1", "2", "3", "5", "7"],
         conditions=["customer wants a loan"],
@@ -1638,4 +1643,4 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
 ]
 
 
-shot_collection = ShotCollection[JourneyStepSelectionShot](_baseline_shots)
+shot_collection = ShotCollection[JourneyNodeSelectionShot](_baseline_shots)

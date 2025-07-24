@@ -50,6 +50,7 @@ class _NodeData:
     condition: str | None
     action: str | None
     customer_dependent_action: bool = False
+    customer_action: str | None = None
     requires_tool_calls: bool = False
     follow_up_ids: list[str] = field(default_factory=list)
 
@@ -316,6 +317,70 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             ),
         ],
     ),
+    "tech_experience_journey": _JourneyData(
+        conditions=["the customer needs technical help"],
+        title="Technical Experience Journey",
+        nodes=[
+            _NodeData(
+                id="1",
+                condition=None,
+                action="Ask the customer how much technical experience they have",
+                customer_action="the customer provided enough information to determine if they have plenty of technical experience",
+                follow_up_ids=["2"],
+                customer_dependent_action=True,
+            ),
+            _NodeData(
+                id="2",
+                condition=None,
+                action="Ask if the issue they have is internet or password related",
+                customer_action="the customer provided enough information to identify if the issue is related to internet connectivity, password issues or something entirely different",
+                follow_up_ids=["3", "4"],
+                customer_dependent_action=True,
+            ),
+            _NodeData(
+                id="3",
+                condition="The issue is internet related",
+                action="No action necessary - always advance to the next step based on the relevant transition",
+                follow_up_ids=["5", "6"],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="4",
+                condition="The issue is password related, or something entirely different",
+                action="No action necessary - always advance to the next step based on the relevant transition",
+                follow_up_ids=["7", "8"],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="5",
+                condition="They have much technical experience",
+                action="Provide advanced internet troubleshooting steps",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="6",
+                condition="They do not have much technical experience",
+                action="Provide basic internet troubleshooting steps",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="7",
+                condition="They have much technical experience",
+                action="Provide advanced non-internet troubleshooting steps",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="8",
+                condition="They do not have much technical experience",
+                action="Provide basic non-internet troubleshooting steps",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+        ],
+    ),
 }
 
 
@@ -399,7 +464,7 @@ async def create_journey(
                 },
                 "customer_dependent_action_data": {
                     "is_customer_dependent": node.customer_dependent_action,
-                    "customer_action": "",
+                    "customer_action": node.customer_action or "",
                     "agent_action": "",
                 },
                 "tool_running_only": node.requires_tool_calls,
@@ -1638,7 +1703,7 @@ async def test_that_journey_selector_correctly_advances_by_multiple_nodes(  # Oc
     )
 
 
-async def test_that_fork_steps_are_correctly_traversed_1(
+async def test_that_fork_steps_are_correctly_traversed(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -1647,15 +1712,23 @@ async def test_that_fork_steps_are_correctly_traversed_1(
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
-            "Hi",
+            "google is not loading up",
         ),
         (
             EventSource.AI_AGENT,
-            "Welcome to the Low Cal Calzone Zone!",
+            "Hi there! I'm sorry to hear that. Before we begin troubleshooting - how technically experienced are you?",
         ),
         (
             EventSource.CUSTOMER,
-            "Thanks! Can I order 3 medium classical Italian calzones please?",
+            "Not much, I just browse the internet on my iphone",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I see, that's not a problem. Can you describe the exact issue you're experiencing?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I type in google.com, but it doesn't load up",
         ),
     ]
 
@@ -1665,8 +1738,34 @@ async def test_that_fork_steps_are_correctly_traversed_1(
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
-        journey_name="calzone_journey",
-        journey_previous_path=["1"],
-        expected_path=["1", "2", "7", "8", "9"],
-        expected_next_node_index="9",
+        journey_name="tech_experience_journey",
+        journey_previous_path=["1", "2"],
+        expected_path=["2", "3", "6"],
+        expected_next_node_index="6",
+    )
+
+
+async def test_that_fork_steps_are_correctly_fast_forwarded_through(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+):
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I can't remember the password for my PC and I have no technological experience pls help me",
+        ),
+    ]
+
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="tech_experience_journey",
+        journey_previous_path=[],
+        expected_path=["1", "2", "4", "8"],
+        expected_next_node_index="8",
     )

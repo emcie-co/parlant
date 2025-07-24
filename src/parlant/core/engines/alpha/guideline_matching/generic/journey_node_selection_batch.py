@@ -107,8 +107,9 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
                 action=g.content.action
-                if True
-                else FORK_NODE_ACTION_STR,  # TODO change after knowing what it looks like
+                if cast(dict[str, Any], g.metadata.get("journey_node", {})).get("node_type")
+                != "fork"
+                else FORK_NODE_ACTION_STR,
                 incoming_edges=[],
                 outgoing_edges=[],
                 customer_dependent_action=cast(
@@ -701,9 +702,9 @@ OUTPUT FORMAT
 
 ```json
 {{
+  "rationale": "<str, explanation for what is the next step and why it was selected>",
   "journey_applies": <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "rationale": "<str, explanation for what is the next step and why it was selected>",
   "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "step_advancement": [
     {{

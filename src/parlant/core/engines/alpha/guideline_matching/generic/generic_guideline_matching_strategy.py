@@ -38,9 +38,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_step_selection_batch import (
-    GenericJourneyStepSelectionBatch,
-    JourneyStepSelectionSchema,
+from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+    GenericJourneyNodeSelectionBatch,
+    JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.observational_batch import (
     GenericObservationalGuidelineMatchesSchema,
@@ -89,7 +89,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         disambiguation_guidelines_schematic_generator: SchematicGenerator[
             DisambiguationGuidelineMatchesSchema
         ],
-        journey_step_selection_schematic_generator: SchematicGenerator[JourneyStepSelectionSchema],
+        journey_step_selection_schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
         report_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
@@ -565,8 +565,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
-    ) -> GenericJourneyStepSelectionBatch:
-        return GenericJourneyStepSelectionBatch(
+    ) -> GenericJourneyNodeSelectionBatch:
+        return GenericJourneyNodeSelectionBatch(
             logger=self._logger,
             guideline_store=self._guideline_store,
             optimization_policy=self._optimization_policy,
@@ -584,7 +584,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                 active_journeys=context.active_journeys,
                 journey_paths=context.journey_paths,
             ),
-            step_guidelines=step_guidelines,
+            node_guidelines=step_guidelines,
             journey_path=context.journey_paths.get(examined_journey.id, []),
         )
 

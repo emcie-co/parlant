@@ -21,6 +21,7 @@ from typing_extensions import override
 
 from parlant.core import async_utils
 from parlant.core.common import JSONSerializable, generate_id
+from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
     GenericDisambiguationGuidelineMatchingBatch,
@@ -250,7 +251,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                             id=cast(GuidelineId, f"<transient_{generate_id()}>"),
                             creation_utc=datetime.now(),
                             content=GuidelineContent(
-                                condition=m.guideline.content.condition,
+                                condition=internal_representation(m.guideline).condition,
                                 action=cast(
                                     str,
                                     cast(dict[str, JSONSerializable], disambiguation)[

@@ -675,8 +675,8 @@ class JourneyState:
     async def transition(
         self,
         *,
-        state: JourneyState | None = None,
         condition: str | None = None,
+        state: JourneyState | None = None,
         tools: Sequence[ToolEntry] = [],
     ) -> JourneyTransition: ...
 
@@ -692,8 +692,8 @@ class JourneyState:
     async def transition(
         self,
         *,
-        state: JourneyState | None = None,
         condition: str | None = None,
+        state: JourneyState | None = None,
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
     ) -> JourneyTransition:
@@ -723,7 +723,7 @@ class JourneyState:
 
 
 JourneyEndState = JourneyState(
-    id=JourneyStore.END_NODE_ID,
+    id=JourneyStore.END,
     action=None,
     tools=[],
     metadata={},

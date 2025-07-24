@@ -399,7 +399,7 @@ class Test_that_journey_state_can_transition_to_end_state(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         assert self.transition_to_end in self.journey.transitions
-        assert self.transition_to_end.target.id == JourneyStore.END_NODE_ID
+        assert self.transition_to_end.target.id == JourneyStore.END
 
 
 class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):

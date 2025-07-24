@@ -889,7 +889,9 @@ You will now be given the current state of the interaction to which you must gen
         guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
     ) -> str:
         all_matches = [
-            match for match in chain(ordinary, tool_enabled) if match.guideline.content.action
+            match
+            for match in chain(ordinary, tool_enabled)
+            if internal_representation(match.guideline).action
         ]
 
         if not all_matches:
@@ -901,7 +903,7 @@ However, in this case, no special behavioral guidelines were provided.
         agent_intention_guidelines = []
 
         for i, p in enumerate(all_matches, start=1):
-            if p.guideline.content.action:
+            if internal_representation(p.guideline).action:
                 guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
                 guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
                 if p.guideline.metadata.get("agent_intention_condition"):
@@ -1192,7 +1194,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guidelines": [
                     g
                     for g in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
-                    if g.guideline.content.action
+                    if internal_representation(g.guideline).action
                 ],
                 "guideline_representations": guideline_representations,
             },
@@ -1241,7 +1243,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
             last_user_message = ""
 
         guidelines_list_text = ", ".join(
-            [f'"{g.guideline}"' for g in guidelines if g.guideline.content.action]
+            [f'"{g.guideline}"' for g in guidelines if internal_representation(g.guideline).action]
         )
 
         return f"""
@@ -1274,7 +1276,9 @@ Produce a valid JSON object according to the following spec. Use the values prov
         if context.guidelines:
             formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
 
-            for match in [g for g in context.guidelines if g.guideline.content.action]:
+            for match in [
+                g for g in context.guidelines if internal_representation(g.guideline).action
+            ]:
                 formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
 
             formatted_guidelines += "\n###"
@@ -1325,7 +1329,9 @@ Output a JSON object with three properties:
                 "draft_message": draft_message,
                 "utterances": utterances,
                 "formatted_utterances": formatted_utterances,
-                "guidelines": [g for g in context.guidelines if g.guideline.content.action],
+                "guidelines": [
+                    g for g in context.guidelines if internal_representation(g.guideline).action
+                ],
                 "formatted_guidelines": formatted_guidelines,
                 "composition_mode": context.agent.composition_mode,
                 "guideline_representations": guideline_representations,

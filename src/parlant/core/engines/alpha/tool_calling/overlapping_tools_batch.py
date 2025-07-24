@@ -19,6 +19,7 @@ from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
@@ -586,9 +587,9 @@ Tools: ###
         if ordinary_guideline_matches:
             ordinary_guidelines_list = "\n".join(
                 [
-                    f"{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
+                    f"{i}) When {internal_representation(p.guideline).condition}, then {internal_representation(p.guideline).action}"
                     for i, p in enumerate(ordinary_guideline_matches, start=1)
-                    if p.guideline.content.action
+                    if internal_representation(p.guideline).action
                 ]
             )
 
@@ -597,8 +598,8 @@ Tools: ###
             for id, _, guidelines in tools_propositions:
                 tool_guidelines: list[str] = []
                 for i, p in enumerate(guidelines, start=1):
-                    if p.guideline.content.action:
-                        guideline = f"{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
+                    if internal_representation(p.guideline).action:
+                        guideline = f"{i}) When {internal_representation(p.guideline).condition}, then {internal_representation(p.guideline).action}"
                         tool_guidelines.append(guideline)
                 if tool_guidelines:
                     tools_guidelines.append("\n".join(tool_guidelines))

@@ -85,7 +85,7 @@ class CannedResponseDraftSchema(DefaultBaseModel):
     response_body: Optional[str] = None
 
 
-class CannedResponseSelectionSchema(DefaultBaseModel):
+class CannedResponseGenerationSchema(DefaultBaseModel):
     tldr: Optional[str] = None
     chosen_template_id: Optional[str] = None
     match_quality: Optional[str] = None
@@ -100,16 +100,16 @@ class CannedResponseRevisionSchema(DefaultBaseModel):
 
 
 @dataclass
-class CannedResponseSelectorDraftShot(Shot):
+class CannedResponseGeneratorDraftShot(Shot):
     composition_modes: list[CompositionMode]
     expected_result: CannedResponseDraftSchema
 
 
 @dataclass(frozen=True)
-class _CannedResponseSelectionResult:
+class _CannedResponseGenerationResult:
     @staticmethod
-    def no_match(draft: Optional[str] = None) -> _CannedResponseSelectionResult:
-        return _CannedResponseSelectionResult(
+    def no_match(draft: Optional[str] = None) -> _CannedResponseGenerationResult:
+        return _CannedResponseGenerationResult(
             message=DEFAULT_NO_MATCH_CANNED_RESPONSE,
             draft=draft or "N/A",
             responses=[],
@@ -423,14 +423,14 @@ def _get_response_template_fields(template: str) -> set[str]:
     return jinja2.meta.find_undeclared_variables(parse_result)
 
 
-class CannedResponseSelector(MessageEventComposer):
+class CannedResponseGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
         correlator: ContextualCorrelator,
         optimization_policy: OptimizationPolicy,
         can_rep_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
-        can_rep_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
+        can_rep_generation_generator: SchematicGenerator[CannedResponseGenerationSchema],
         can_rep_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
         can_rep_fluid_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
         perceived_performance_policy: PerceivedPerformancePolicy,
@@ -443,7 +443,7 @@ class CannedResponseSelector(MessageEventComposer):
         self._correlator = correlator
         self._optimization_policy = optimization_policy
         self._can_rep_draft_generator = can_rep_draft_generator
-        self._can_rep_selection_generator = can_rep_selection_generator
+        self._can_rep_generation_generator = can_rep_generation_generator
         self._can_rep_composition_generator = can_rep_composition_generator
         self._can_rep_fluid_preamble_generator = can_rep_fluid_preamble_generator
         self._canned_response_store = canned_response_store
@@ -455,7 +455,7 @@ class CannedResponseSelector(MessageEventComposer):
 
     async def shots(
         self, composition_mode: CompositionMode
-    ) -> Sequence[CannedResponseSelectorDraftShot]:
+    ) -> Sequence[CannedResponseGeneratorDraftShot]:
         shots = await shot_collection.list()
         supported_shots = [s for s in shots if composition_mode in s.composition_modes]
         return supported_shots
@@ -657,7 +657,7 @@ You will now be given the current state of the interaction to which you must gen
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
-            with self._logger.scope("CannedResponseSelector"):
+            with self._logger.scope("CannedResponseGenerator"):
                 with self._logger.operation("Canned response selection and rendering"):
                     return await self._do_generate_events(
                         event_emitter=event_emitter,
@@ -952,7 +952,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
 
     def _format_shots(
         self,
-        shots: Sequence[CannedResponseSelectorDraftShot],
+        shots: Sequence[CannedResponseGeneratorDraftShot],
     ) -> str:
         return "\n".join(
             f"""
@@ -965,7 +965,7 @@ Example {i} - {shot.description}: ###
 
     def _format_shot(
         self,
-        shot: CannedResponseSelectorDraftShot,
+        shot: CannedResponseGeneratorDraftShot,
     ) -> str:
         return f"""
 - **Expected Result**:
@@ -987,7 +987,7 @@ Example {i} - {shot.description}: ###
         staged_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
         responses: Sequence[CannedResponse],
-        shots: Sequence[CannedResponseSelectorDraftShot],
+        shots: Sequence[CannedResponseGeneratorDraftShot],
     ) -> PromptBuilder:
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
@@ -1348,7 +1348,7 @@ Output a JSON object with three properties:
         responses: Sequence[CannedResponse],
         composition_mode: CompositionMode,
         temperature: float,
-    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
+    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseGenerationResult]]:
         # This will be needed throughout the process for emitting status events
         last_known_event_offset = (
             context.interaction_history[-1].offset if context.interaction_history else -1
@@ -1400,7 +1400,7 @@ Output a JSON object with three properties:
         if direct_draft_output_mode:
             return {
                 "draft": draft_response.info,
-            }, _CannedResponseSelectionResult(
+            }, _CannedResponseGenerationResult(
                 message=draft_response.content.response_body,
                 draft=draft_response.content.response_body,
                 responses=[],
@@ -1448,14 +1448,14 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
                 "composition": recomposition_generation_info,
-            }, _CannedResponseSelectionResult(
+            }, _CannedResponseGenerationResult(
                 message=composited_message,
                 draft=draft_response.content.response_body,
                 responses=[],
             )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        selection_response = await self._can_rep_selection_generator.generate(
+        selection_response = await self._can_rep_generation_generator.generate(
             prompt=self._build_selection_prompt(
                 context=context,
                 draft_message=draft_response.content.response_body,
@@ -1484,7 +1484,7 @@ Output a JSON object with three properties:
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
-                }, _CannedResponseSelectionResult.no_match(
+                }, _CannedResponseGenerationResult.no_match(
                     draft=draft_response.content.response_body
                 )
             else:
@@ -1492,7 +1492,7 @@ Output a JSON object with three properties:
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
-                }, _CannedResponseSelectionResult(
+                }, _CannedResponseGenerationResult(
                     message=draft_response.content.response_body,
                     draft=draft_response.content.response_body,
                     responses=[],
@@ -1507,7 +1507,7 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _CannedResponseSelectionResult(
+            }, _CannedResponseGenerationResult(
                 message=draft_response.content.response_body,
                 draft=draft_response.content.response_body,
                 responses=[],
@@ -1528,12 +1528,12 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
-            }, _CannedResponseSelectionResult.no_match(draft=draft_response.content.response_body)
+            }, _CannedResponseGenerationResult.no_match(draft=draft_response.content.response_body)
 
         return {
             "draft": draft_response.info,
             "selection": selection_response.info,
-        }, _CannedResponseSelectionResult(
+        }, _CannedResponseGenerationResult(
             message=rendered_canned_response,
             draft=draft_response.content.response_body,
             responses=[(response_id, rendered_canned_response)],
@@ -1639,7 +1639,7 @@ example_1_expected = CannedResponseDraftSchema(
     response_body="Unfortunately we're out of cheese. Would you like anything else instead?",
 )
 
-example_1_shot = CannedResponseSelectorDraftShot(
+example_1_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[CompositionMode.CANNED_FLUID],
     description="A reply where one instruction was prioritized over another",
     expected_result=example_1_expected,
@@ -1657,7 +1657,7 @@ example_2_expected = CannedResponseDraftSchema(
     response_body="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
 )
 
-example_2_shot = CannedResponseSelectorDraftShot(
+example_2_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
@@ -1678,7 +1678,7 @@ example_3_expected = CannedResponseDraftSchema(
     response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
-example_3_shot = CannedResponseSelectorDraftShot(
+example_3_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
@@ -1689,10 +1689,10 @@ example_3_shot = CannedResponseSelectorDraftShot(
 )
 
 
-_baseline_shots: Sequence[CannedResponseSelectorDraftShot] = [
+_baseline_shots: Sequence[CannedResponseGeneratorDraftShot] = [
     example_1_shot,
     example_2_shot,
     example_3_shot,
 ]
 
-shot_collection = ShotCollection[CannedResponseSelectorDraftShot](_baseline_shots)
+shot_collection = ShotCollection[CannedResponseGeneratorDraftShot](_baseline_shots)

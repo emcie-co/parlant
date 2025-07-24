@@ -97,8 +97,8 @@ from parlant.core.engines.alpha.canned_response_selector import (
     CannedResponseFieldExtractionSchema,
     CannedResponseFieldExtractor,
     CannedResponsePreambleSchema,
-    CannedResponseSelector,
-    CannedResponseSelectionSchema,
+    CannedResponseGenerator,
+    CannedResponseGenerationSchema,
     CannedResponseRevisionSchema,
 )
 from parlant.core.evaluations import (
@@ -450,7 +450,7 @@ async def container(
             GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
             MessageSchema,
             CannedResponseDraftSchema,
-            CannedResponseSelectionSchema,
+            CannedResponseGenerationSchema,
             CannedResponsePreambleSchema,
             CannedResponseRevisionSchema,
             CannedResponseFieldExtractionSchema,
@@ -536,7 +536,7 @@ async def container(
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
         container[ToolCaller] = Singleton(ToolCaller)
         container[RelationalGuidelineResolver] = Singleton(RelationalGuidelineResolver)
-        container[CannedResponseSelector] = Singleton(CannedResponseSelector)
+        container[CannedResponseGenerator] = Singleton(CannedResponseGenerator)
         container[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
@@ -638,12 +638,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[CannedResponseSelectionSchema]],
+        container[SchematicGenerator[CannedResponseGenerationSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[CannedResponseSelectionSchema],
-            container[SchematicGenerator[CannedResponseSelectionSchema]],
+            CachedSchematicGenerator[CannedResponseGenerationSchema],
+            container[SchematicGenerator[CannedResponseGenerationSchema]],
         ).use_cache = False
 
     if isinstance(

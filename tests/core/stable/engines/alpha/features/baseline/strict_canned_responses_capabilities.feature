@@ -2,7 +2,7 @@ Feature: Strict Canned Response Capabilities
      Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And an empty session
 
     Scenario: Agent mentions relevant capabilities when many are available based on description (strict canned response)

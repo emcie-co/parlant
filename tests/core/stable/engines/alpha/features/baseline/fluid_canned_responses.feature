@@ -2,7 +2,7 @@ Feature: Fluid Canned Response
     Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And an empty session
 
     Scenario: The agent greets the customer (fluid canned response)
@@ -136,7 +136,7 @@ Feature: Fluid Canned Response
 
     Scenario: The agent correctly applies greeting guidelines based on auxiliary data (fluid canned response)
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer named "Beef Wellington"
         And an empty session with "Beef Wellingotn"
         And the term "Bug" defined as The name of our tech retail store, specializing in gadgets, computers, and tech services.
@@ -160,7 +160,7 @@ Feature: Fluid Canned Response
 
     Scenario: The agent follows a guideline with agent intention (fluid canned response)
         Given a guideline to do not provide any personal medical information even if you have it when you discusses a patient's medical record
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer named "Alex Smith"
         And an empty session with "Alex Smith"
         And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith" 
@@ -175,7 +175,7 @@ Feature: Fluid Canned Response
     Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition (fluid canned response)
         Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
         And a canned response, "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option"

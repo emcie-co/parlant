@@ -2,12 +2,12 @@ Feature: Strict Canned Response
     Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And an empty session
 
     Scenario: The agent fills multiple fields in a veterinary appointment system (strict canned response)
         Given an agent whose job is to schedule veterinary appointments and provide pet care information
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And a customer named "Joanna"
         And a context variable "next_available_date" set to "May 22" for "Joanna"
         And a context variable "vet_name" set to "Dr. Happypaws" for "Joanna"
@@ -128,7 +128,7 @@ Feature: Strict Canned Response
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (strict canned response)
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
         And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
@@ -139,7 +139,7 @@ Feature: Strict Canned Response
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (strict canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when the customer asks for pizza topping recommendation and they are from India
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
         And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered
@@ -149,7 +149,7 @@ Feature: Strict Canned Response
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict canned response) 
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
         And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
@@ -160,7 +160,7 @@ Feature: Strict Canned Response
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (strict canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
-        And that the agent uses the strict_canned_response message composition mode
+        And that the agent uses the strict_canned message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
         And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered

@@ -810,7 +810,7 @@ class GuidelineEvaluator:
         tasks: list[asyncio.Task[CustomerDependentActionProposition]] = []
         indices: list[int] = []
         for i, (p, action_prop) in enumerate(zip(payloads, proposed_actions)):
-            if not p.properties_proposition and not p.journey_step_proposition:
+            if not p.properties_proposition and not p.journey_node_proposition:
                 continue
             action_to_use = (
                 action_prop.content.action if action_prop is not None else p.content.action
@@ -913,7 +913,7 @@ class GuidelineEvaluator:
         indices: list[int] = []
 
         for i, p in enumerate(payloads):
-            if not p.journey_step_proposition:
+            if not p.journey_node_proposition:
                 continue
 
             tasks.append(

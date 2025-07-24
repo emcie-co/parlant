@@ -909,9 +909,9 @@ class AlphaEngine(Engine):
             case CompositionMode.FLUID:
                 return self._fluid_message_generator
             case (
-                CompositionMode.STRICT_CANNED_RESPONSE
-                | CompositionMode.COMPOSITED_CANNED_RESPONSE
-                | CompositionMode.FLUID_CANNED_RESPONSE
+                CompositionMode.CANNED_STRICT
+                | CompositionMode.CANNED_COMPOSITED
+                | CompositionMode.CANNED_FLUID
             ):
                 return self._canned_response_selector
 

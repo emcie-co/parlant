@@ -84,7 +84,7 @@ async def strict_agent_id(
     agent = await agent_store.create_agent(name="strict_test_agent")
     await agent_store.update_agent(
         agent.id,
-        params=AgentUpdateParams(composition_mode=CompositionMode.STRICT_CANNED_RESPONSE),
+        params=AgentUpdateParams(composition_mode=CompositionMode.CANNED_STRICT),
     )
     return agent.id
 

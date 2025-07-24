@@ -502,7 +502,7 @@ class CannedResponseSelector(MessageEventComposer):
         preamble_responses: Sequence[CannedResponse] = []
         preamble_choices: list[str] = []
 
-        if agent.composition_mode != CompositionMode.STRICT_CANNED_RESPONSE:
+        if agent.composition_mode != CompositionMode.CANNED_STRICT:
             preamble_choices = [
                 "Hey there!",
                 "Just a moment.",
@@ -620,7 +620,7 @@ You will now be given the current state of the interaction to which you must gen
             f"Canned Response Preamble Completion:\n{can_rep.content.model_dump_json(indent=2)}"
         )
 
-        if agent.composition_mode == CompositionMode.STRICT_CANNED_RESPONSE:
+        if agent.composition_mode == CompositionMode.CANNED_STRICT:
             if can_rep.content.preamble not in preamble_choices:
                 self._logger.error(
                     f"Selected preamble '{can_rep.content.preamble}' is not in the list of available preamble canned_responses."
@@ -1355,8 +1355,7 @@ Output a JSON object with three properties:
         )
 
         direct_draft_output_mode = (
-            not responses
-            and context.agent.composition_mode != CompositionMode.STRICT_CANNED_RESPONSE
+            not responses and context.agent.composition_mode != CompositionMode.CANNED_STRICT
         )
 
         # Step 1: Generate the draft message
@@ -1439,7 +1438,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
-        if composition_mode == CompositionMode.COMPOSITED_CANNED_RESPONSE:
+        if composition_mode == CompositionMode.CANNED_COMPOSITED:
             recomposition_generation_info, composited_message = await self._recompose(
                 context=context,
                 draft_message=draft_response.content.response_body,
@@ -1476,7 +1475,7 @@ Output a JSON object with three properties:
             selection_response.content.match_quality not in ["partial", "high"]
             or not selection_response.content.chosen_template_id
         ):
-            if composition_mode == CompositionMode.STRICT_CANNED_RESPONSE:
+            if composition_mode == CompositionMode.CANNED_STRICT:
                 # Return a no-match message
                 self._logger.warning(
                     "Failed to find relevant canned responses. Please review canned response selection prompt and completion."
@@ -1502,7 +1501,7 @@ Output a JSON object with three properties:
         # Step 5.2: Assuming a partial match in non-strict mode
         if (
             selection_response.content.match_quality == "partial"
-            and composition_mode != CompositionMode.STRICT_CANNED_RESPONSE
+            and composition_mode != CompositionMode.CANNED_STRICT
         ):
             # Return the draft message as the response
             return {
@@ -1641,7 +1640,7 @@ example_1_expected = CannedResponseDraftSchema(
 )
 
 example_1_shot = CannedResponseSelectorDraftShot(
-    composition_modes=[CompositionMode.FLUID_CANNED_RESPONSE],
+    composition_modes=[CompositionMode.CANNED_FLUID],
     description="A reply where one instruction was prioritized over another",
     expected_result=example_1_expected,
 )
@@ -1660,9 +1659,9 @@ example_2_expected = CannedResponseDraftSchema(
 
 example_2_shot = CannedResponseSelectorDraftShot(
     composition_modes=[
-        CompositionMode.STRICT_CANNED_RESPONSE,
-        CompositionMode.COMPOSITED_CANNED_RESPONSE,
-        CompositionMode.FLUID_CANNED_RESPONSE,
+        CompositionMode.CANNED_STRICT,
+        CompositionMode.CANNED_COMPOSITED,
+        CompositionMode.CANNED_FLUID,
     ],
     description="Non-adherence to guideline due to missing data",
     expected_result=example_2_expected,
@@ -1681,9 +1680,9 @@ example_3_expected = CannedResponseDraftSchema(
 
 example_3_shot = CannedResponseSelectorDraftShot(
     composition_modes=[
-        CompositionMode.STRICT_CANNED_RESPONSE,
-        CompositionMode.COMPOSITED_CANNED_RESPONSE,
-        CompositionMode.FLUID_CANNED_RESPONSE,
+        CompositionMode.CANNED_STRICT,
+        CompositionMode.CANNED_COMPOSITED,
+        CompositionMode.CANNED_FLUID,
     ],
     description="An insight is derived and followed on not offering to help with something you don't know about",
     expected_result=example_3_expected,

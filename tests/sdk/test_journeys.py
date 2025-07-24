@@ -173,7 +173,9 @@ class Test_that_a_created_journey_is_followed(SDKTest):
             description="Offer the customer a Pepsi",
         )
 
-        await self.journey.start.transition(action="offer a Pepsi")
+        await self.journey.initial_state.transition_to(
+            conversational_instruction="offer a Pepsi",
+        )
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive("Hello there", recipient=self.agent)
@@ -197,16 +199,18 @@ class Test_that_journey_transition_and_state_can_be_created_with_transition(SDKT
             description="A journey with multiple states",
         )
 
-        self.transition_w = await self.journey.start.transition(action="check room availability")
-        self.transition_x = await self.transition_w.target.transition(
-            action="provide hotel amenities"
+        self.transition_w = await self.journey.initial_state.transition_to(
+            conversational_instruction="check room availability"
+        )
+        self.transition_x = await self.transition_w.target.transition_to(
+            conversational_instruction="provide hotel amenities"
         )
 
     async def run(self, ctx: Context) -> None:
         assert self.transition_w in self.journey.transitions
         assert self.transition_x in self.journey.transitions
 
-        assert self.transition_w.source.id == self.journey.start.id
+        assert self.transition_w.source.id == self.journey.initial_state.id
         assert self.transition_w.target.action == "check room availability"
         assert self.transition_w.target in self.journey.states
 
@@ -232,8 +236,9 @@ class Test_that_journey_state_can_transition_to_a_tool(SDKTest):
         def test_tool(context: ToolContext) -> ToolResult:
             return ToolResult(data={})
 
-        self.transition = await self.journey.start.transition(
-            action="check available upgrades", tools=[test_tool]
+        self.transition = await self.journey.initial_state.transition_to(
+            tool_instruction="check available upgrades",
+            tool=test_tool,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -258,14 +263,16 @@ class Test_that_journey_state_can_be_transitioned_with_condition(SDKTest):
             description="A journey with states depending on customer decisions",
         )
 
-        self.transition_x = await self.journey.start.transition(
-            action="ask if the customer wants breakfast"
+        self.transition_x = await self.journey.initial_state.transition_to(
+            conversational_instruction="ask if the customer wants breakfast"
         )
-        self.transition_y = await self.transition_x.target.transition(
-            condition="if the customer says yes", action="add breakfast to booking"
+        self.transition_y = await self.transition_x.target.transition_to(
+            condition="if the customer says yes",
+            conversational_instruction="add breakfast to booking",
         )
-        self.transition_z = await self.transition_x.target.transition(
-            condition="if the customer says no", action="proceed without breakfast"
+        self.transition_z = await self.transition_x.target.transition_to(
+            condition="if the customer says no",
+            conversational_instruction="proceed without breakfast",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -319,19 +326,19 @@ class Test_that_if_state_has_more_than_one_transition_they_all_need_to_have_cond
             description="A journey with states depending on customer decisions",
         )
 
-        self.transition_ask_breakfast = await self.journey.start.transition(
-            action="ask if the customer wants breakfast"
+        self.transition_ask_breakfast = await self.journey.initial_state.transition_to(
+            conversational_instruction="ask if the customer wants breakfast"
         )
 
-        self.transition_add_breakfast = await self.transition_ask_breakfast.target.transition(
+        self.transition_add_breakfast = await self.transition_ask_breakfast.target.transition_to(
             condition="if the customer says yes",
-            action="add breakfast to booking",
+            conversational_instruction="add breakfast to booking",
         )
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
-            await self.transition_ask_breakfast.target.transition(
-                action="proceed without breakfast"
+            await self.transition_ask_breakfast.target.transition_to(
+                conversational_instruction="proceed without breakfast"
             )
 
 
@@ -352,13 +359,14 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
         def check_balance(context: ToolContext) -> ToolResult:
             return ToolResult(data={})
 
-        self.transition_check_balance = await self.journey.start.transition(
-            action="check customer account balance", tools=[check_balance]
+        self.transition_check_balance = await self.journey.initial_state.transition_to(
+            tool_instruction="check customer account balance",
+            tools=[check_balance],
         )
 
-        self.transition_offer_discount = await self.transition_check_balance.target.transition(
-            condition="if balance is low",
-            action="offer discount if balance is low",
+        self.transition_offer_discount = await self.transition_check_balance.target.transition_to(
+            condition="balance is low",
+            conversational_instruction="offer discount if balance is low",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -395,7 +403,7 @@ class Test_that_journey_state_can_transition_to_end_state(SDKTest):
             description="A journey that ends",
         )
 
-        self.transition_to_end = await self.journey.start.transition(state=p.END_JOURNEY)
+        self.transition_to_end = await self.journey.initial_state.transition_to(state=p.END_JOURNEY)
 
     async def run(self, ctx: Context) -> None:
         assert self.transition_to_end in self.journey.transitions
@@ -415,19 +423,19 @@ class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):
             description="A journey to deliver calzones",
         )
 
-        self.transition = await self.journey.start.transition(
-            action="Welcome the customer to the Low Cal Calzone Zone",
+        self.transition_1 = await self.journey.initial_state.transition_to(
+            conversational_instruction="Welcome the customer to the Low Cal Calzone Zone",
         )
 
-        self.transition_2 = await self.transition.target.transition(
-            action="Ask them how many they want",
+        self.transition_2 = await self.transition_1.target.transition_to(
+            conversational_instruction="Ask them how many they want",
         )
 
     async def run(self, ctx: Context) -> None:
-        assert self.transition in self.journey.transitions
+        assert self.transition_1 in self.journey.transitions
         assert self.transition_2 in self.journey.transitions
 
-        assert self.transition.target.action == "Welcome the customer to the Low Cal Calzone Zone"
+        assert self.transition_1.target.action == "Welcome the customer to the Low Cal Calzone Zone"
         assert self.transition_2.target.action == "Ask them how many they want"
 
         second_target = await ctx.container[JourneyStore].read_node(

@@ -126,7 +126,7 @@ class SDKTest:
         return p.Server(
             port=port,
             tool_service_port=get_random_port(),
-            log_level=p.LogLevel.DEBUG,
+            log_level=p.LogLevel.TRACE,
             configure_container=configure_container,
         ), lambda: test_container
 

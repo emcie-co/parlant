@@ -32,6 +32,7 @@ from typing import (
     Awaitable,
     Callable,
     Coroutine,
+    Generic,
     Iterable,
     Literal,
     Mapping,
@@ -41,8 +42,8 @@ from typing import (
     TypeAlias,
     TypedDict,
     cast,
-    overload,
 )
+from typing_extensions import overload
 from lagom import Container
 
 
@@ -675,12 +676,15 @@ class Guideline:
         )
 
 
+TState = TypeVar("TState", bound="JourneyState")
+
+
 @dataclass(frozen=True)
-class JourneyTransition:
+class JourneyTransition(Generic[TState]):
     id: JourneyTransitionId
     condition: str | None
     source: JourneyState
-    target: JourneyState
+    target: TState
     metadata: Mapping[str, JSONSerializable]
 
 
@@ -697,37 +701,55 @@ class JourneyState:
     def internal_action(self) -> str | None:
         return self.action or cast(str | None, self.metadata.get("internal_action"))
 
-    @overload
-    async def transition(
-        self,
-        *,
-        condition: str | None = None,
-        state: JourneyState | None = None,
-        tools: Sequence[ToolEntry] = [],
-    ) -> JourneyTransition: ...
+    async def _fork(self) -> JourneyTransition[ForkJourneyState]:
+        return cast(
+            JourneyTransition[ForkJourneyState],
+            await self._transition(
+                condition=None,
+                state=None,
+                action=None,
+                tool=None,
+                tools=[],
+                fork=True,
+            ),
+        )
 
-    @overload
-    async def transition(
+    async def _transition(
         self,
         *,
         condition: str | None = None,
+        state: TState | None = None,
         action: str | None = None,
+        tool: ToolEntry | None = None,
         tools: Sequence[ToolEntry] = [],
-    ) -> JourneyTransition: ...
-
-    async def transition(
-        self,
-        *,
-        condition: str | None = None,
-        state: JourneyState | None = None,
-        action: str | None = None,
-        tools: Sequence[ToolEntry] = [],
-    ) -> JourneyTransition:
+        fork: bool = False,
+    ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
 
-        if state is None and (action or tools):
-            state = await self._journey.create_state(action=action, tools=tools)
+        actual_state: JourneyState | None = None
+
+        if tool and tools:
+            raise SDKError("Cannot specify both a single tool and multiple tools.")
+
+        if state is not None:
+            actual_state = state
+        elif tool or tools:
+            actual_state = await self._journey._create_state(
+                ToolJourneyState,
+                action=action,
+                tools=tools or [cast(ToolEntry, tool)],
+            )
+        elif action:
+            actual_state = await self._journey._create_state(
+                ConversationalJourneyState,
+                action=action,
+                tools=[],
+            )
+        elif fork:
+            actual_state = await self._journey._create_state(
+                ForkJourneyState,
+            )
 
         transitions = [t for t in self._journey.transitions if t.source == self]
 
@@ -737,13 +759,13 @@ class JourneyState:
             )
 
         transition = await self._journey.create_transition(
-            condition=condition, source=self, target=state if state else END_JOURNEY
+            condition=condition, source=self, target=actual_state or END_JOURNEY
         )
 
-        if state:
-            cast(list[JourneyState], self._journey.states).append(state)
+        if actual_state:
+            cast(list[JourneyState], self._journey.states).append(actual_state)
 
-        cast(list[JourneyTransition], self._journey.transitions).append(transition)
+        cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(transition)
 
         return transition
 
@@ -757,6 +779,205 @@ END_JOURNEY = JourneyState(
 )
 
 
+class InitialJourneyState(JourneyState):
+    @overload  # type: ignore
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        state: TState,
+    ) -> JourneyTransition[TState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str,
+    ) -> JourneyTransition[ConversationalJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tool: ToolEntry,
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tools: Sequence[ToolEntry],
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str | None = None,
+        tool_instruction: str | None = None,
+        state: TState | None = None,
+        tool: ToolEntry | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyTransition[Any]:
+        return await self._transition(
+            condition=condition,
+            state=state,
+            action=conversational_instruction or tool_instruction,
+            tool=tool,
+            tools=tools,
+        )
+
+
+class ToolJourneyState(JourneyState):
+    @overload  # type: ignore
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        state: TState,
+    ) -> JourneyTransition[TState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str,
+    ) -> JourneyTransition[ConversationalJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str | None = None,
+        state: TState | None = None,
+    ) -> JourneyTransition[Any]:
+        return await self._transition(
+            condition=condition,
+            state=state,
+            action=conversational_instruction,
+        )
+
+    async def fork(self) -> JourneyTransition[ForkJourneyState]:
+        return await super()._fork()
+
+
+class ConversationalJourneyState(JourneyState):
+    @overload  # type: ignore
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        state: TState,
+    ) -> JourneyTransition[TState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str,
+    ) -> JourneyTransition[ConversationalJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tool: ToolEntry,
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tools: Sequence[ToolEntry],
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        conversational_instruction: str | None = None,
+        tool_instruction: str | None = None,
+        state: TState | None = None,
+        tool: ToolEntry | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyTransition[Any]:
+        return await self._transition(
+            condition=condition,
+            state=state,
+            action=conversational_instruction or tool_instruction,
+            tool=tool,
+            tools=tools,
+        )
+
+    async def fork(self) -> JourneyTransition[ForkJourneyState]:
+        return await super()._fork()
+
+
+class ForkJourneyState(JourneyState):
+    @overload  # type: ignore
+    async def transition_to(
+        self,
+        *,
+        condition: str,
+        state: TState,
+    ) -> JourneyTransition[TState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str,
+        conversational_instruction: str,
+    ) -> JourneyTransition[ConversationalJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str,
+        tool_instruction: str | None = None,
+        tool: ToolEntry,
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str,
+        tool_instruction: str | None = None,
+        tools: Sequence[ToolEntry],
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str,
+        conversational_instruction: str | None = None,
+        tool_instruction: str | None = None,
+        state: TState | None = None,
+        tool: ToolEntry | None = None,
+        tools: Sequence[ToolEntry] = [],
+    ) -> JourneyTransition[Any]:
+        return await self._transition(
+            condition=condition,
+            state=state,
+            action=conversational_instruction or tool_instruction,
+            tool=tool,
+            tools=tools,
+        )
+
+
 @dataclass(frozen=True)
 class Journey:
     id: JourneyId
@@ -764,7 +985,7 @@ class Journey:
     description: str
     conditions: list[Guideline]
     states: Sequence[JourneyState]
-    transitions: Sequence[JourneyTransition]
+    transitions: Sequence[JourneyTransition[JourneyState]]
     tags: Sequence[TagId]
 
     _start_state_id: JourneyStateId
@@ -772,18 +993,21 @@ class Journey:
     _container: Container
 
     @property
-    def start(self) -> JourneyState:
-        return next(n for n in self.states if n.id == self._start_state_id)
+    def initial_state(self) -> InitialJourneyState:
+        return cast(
+            InitialJourneyState, next(n for n in self.states if n.id == self._start_state_id)
+        )
 
-    async def create_state(
+    async def _create_state(
         self,
-        action: str | None,
+        state_type: type[TState],
+        action: str | None = None,
         tools: Sequence[ToolEntry] = [],
-    ) -> JourneyState:
+    ) -> TState:
         for t in list(tools):
             await self._server._plugin_server.enable_tool(t)
 
-        state = await self._container[JourneyStore].create_node(
+        node = await self._container[JourneyStore].create_node(
             journey_id=self.id,
             action=action,
             tools=[
@@ -792,11 +1016,16 @@ class Journey:
             ],
         )
 
-        return JourneyState(
-            id=state.id,
+        if state_type == ForkJourneyState:
+            node = await self._container[JourneyStore].set_node_metadata(
+                node.id, "journey_node_type", "fork"
+            )
+
+        return state_type(
+            id=node.id,
             action=action,
             tools=tools,
-            metadata=state.metadata,
+            metadata=node.metadata,
             _journey=self,
         )
 
@@ -804,8 +1033,8 @@ class Journey:
         self,
         condition: str | None,
         source: JourneyState,
-        target: JourneyState,
-    ) -> JourneyTransition:
+        target: TState,
+    ) -> JourneyTransition[TState]:
         if target is not None and target.id != END_JOURNEY.id:
             target_tool_ids = {
                 t.tool.name: ToolId(
@@ -827,7 +1056,7 @@ class Journey:
             condition=condition,
         )
 
-        return JourneyTransition(
+        return JourneyTransition[TState](
             id=transition.id,
             condition=condition,
             source=source,
@@ -1476,7 +1705,7 @@ class Server:
             "journey": self._render_journey,  # type: ignore
         }
 
-        async def create_evaluation_task(
+        def create_evaluation_task(
             evaluation: Coroutine[
                 Any, Any, _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation
             ],
@@ -1512,15 +1741,13 @@ class Server:
         ] = []
 
         for guideline_id, evaluation_func in self._guideline_evaluations.items():
-            tasks.append((await create_evaluation_task(evaluation_func, "guideline", guideline_id)))
+            tasks.append((create_evaluation_task(evaluation_func, "guideline", guideline_id)))
 
         for node_id, evaluation_func in self._node_evaluations.items():
-            tasks.append((await create_evaluation_task(evaluation_func, "node", node_id)))
+            tasks.append((create_evaluation_task(evaluation_func, "node", node_id)))
 
         for journey_id, journey_evaluation_func in self._journey_evaluations.items():
-            tasks.append(
-                (await create_evaluation_task(journey_evaluation_func, "journey", journey_id))
-            )
+            tasks.append((create_evaluation_task(journey_evaluation_func, "journey", journey_id)))
 
         if self.log_level == LogLevel.TRACE:
             evaluation_results = await async_utils.safe_gather(*tasks)
@@ -2010,7 +2237,7 @@ class Server:
         start_state = await self._container[JourneyStore].read_node(node_id=stored_journey.root_id)
 
         cast(list[JourneyState], journey.states).append(
-            JourneyState(
+            InitialJourneyState(
                 id=start_state.id,
                 action=start_state.action,
                 tools=[],

@@ -780,7 +780,7 @@ END_JOURNEY = JourneyState(
 
 
 class InitialJourneyState(JourneyState):
-    @overload  # type: ignore
+    @overload
     async def transition_to(
         self,
         *,
@@ -834,7 +834,7 @@ class InitialJourneyState(JourneyState):
 
 
 class ToolJourneyState(JourneyState):
-    @overload  # type: ignore
+    @overload
     async def transition_to(
         self,
         *,
@@ -868,7 +868,7 @@ class ToolJourneyState(JourneyState):
 
 
 class ConversationalJourneyState(JourneyState):
-    @overload  # type: ignore
+    @overload
     async def transition_to(
         self,
         *,
@@ -925,7 +925,7 @@ class ConversationalJourneyState(JourneyState):
 
 
 class ForkJourneyState(JourneyState):
-    @overload  # type: ignore
+    @overload
     async def transition_to(
         self,
         *,

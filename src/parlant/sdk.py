@@ -1522,81 +1522,84 @@ class Server:
                 (await create_evaluation_task(journey_evaluation_func, "journey", journey_id))
             )
 
-        max_visible = 5
+        if self.log_level == LogLevel.TRACE:
+            evaluation_results = await async_utils.safe_gather(*tasks)
+        else:
+            max_visible = 5
 
-        overall_progress = Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            TaskProgressColumn(style="bold blue"),
-            "{task.completed}/{task.total}",
-            TimeElapsedColumn(),
-        )
+            overall_progress = Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(style="bold blue"),
+                "{task.completed}/{task.total}",
+                TimeElapsedColumn(),
+            )
 
-        entity_progress = Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            TaskProgressColumn(style="bold blue"),
-            "{task.completed}/{task.total}",
-            TimeElapsedColumn(),
-            transient=True,
-        )
+            entity_progress = Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(style="bold blue"),
+                "{task.completed}/{task.total}",
+                TimeElapsedColumn(),
+                transient=True,
+            )
 
-        with Live(Columns([overall_progress, entity_progress]), refresh_per_second=10):
-            bar_id: dict[str, int] = {}
+            with Live(Columns([overall_progress, entity_progress]), refresh_per_second=10):
+                bar_id: dict[str, int] = {}
 
-            for t in tasks:
-                entity_id = cast(
-                    GuidelineId | JourneyStateId | JourneyId, t.get_name().split("_")[-1]
-                )
-                entity_type = t.get_name().split("_")[0]
-                description = await _render_functions[
-                    cast(Literal["guideline", "node", "journey"], entity_type)
-                ](entity_id)
+                for t in tasks:
+                    entity_id = cast(
+                        GuidelineId | JourneyStateId | JourneyId, t.get_name().split("_")[-1]
+                    )
+                    entity_type = t.get_name().split("_")[0]
+                    description = await _render_functions[
+                        cast(Literal["guideline", "node", "journey"], entity_type)
+                    ](entity_id)
 
-                bar_id[entity_id] = entity_progress.add_task(
-                    description,
-                    total=100,
-                )
+                    bar_id[entity_id] = entity_progress.add_task(
+                        description,
+                        total=100,
+                    )
 
-            overall = overall_progress.add_task("Overall Evaluation Progress", total=100)
+                overall = overall_progress.add_task("Overall Evaluation Progress", total=100)
 
-            gather = asyncio.create_task(async_utils.safe_gather(*tasks))
+                gather = asyncio.create_task(async_utils.safe_gather(*tasks))
 
-            while not gather.done():
-                unfinished: list[tuple[str, float]] = []
+                while not gather.done():
+                    unfinished: list[tuple[str, float]] = []
 
-                for _id, rich_id in bar_id.items():
-                    pct = self._evaluator._progress_for(_id)
-                    entity_progress.update(TaskID(rich_id), completed=pct)
+                    for _id, rich_id in bar_id.items():
+                        pct = self._evaluator._progress_for(_id)
+                        entity_progress.update(TaskID(rich_id), completed=pct)
 
-                    if pct < 100.0:
-                        unfinished.append((_id, pct))
+                        if pct < 100.0:
+                            unfinished.append((_id, pct))
 
-                if unfinished:
-                    show = {
-                        e_id for e_id, _ in sorted(unfinished, key=lambda x: x[1])[:max_visible]
-                    }
-                else:
-                    show = set()
+                    if unfinished:
+                        show = {
+                            e_id for e_id, _ in sorted(unfinished, key=lambda x: x[1])[:max_visible]
+                        }
+                    else:
+                        show = set()
+
+                    for e_id, rich_id in bar_id.items():
+                        entity_progress.update(TaskID(rich_id), visible=(e_id in show))
+
+                    overall_pct = sum(self._evaluator._progress_for(e_id) for e_id in bar_id) / len(
+                        bar_id
+                    )
+                    overall_progress.update(overall, completed=overall_pct)
+
+                    await asyncio.sleep(0.2)
 
                 for e_id, rich_id in bar_id.items():
-                    entity_progress.update(TaskID(rich_id), visible=(e_id in show))
+                    entity_progress.remove_task(
+                        TaskID(rich_id),
+                    )
 
-                overall_pct = sum(self._evaluator._progress_for(e_id) for e_id in bar_id) / len(
-                    bar_id
-                )
-                overall_progress.update(overall, completed=overall_pct)
-
-                await asyncio.sleep(0.2)
-
-            for e_id, rich_id in bar_id.items():
-                entity_progress.remove_task(
-                    TaskID(rich_id),
-                )
-
-            entity_progress.refresh()
-            overall_progress.update(overall, completed=100)
-            evaluation_results = await gather
+                entity_progress.refresh()
+                overall_progress.update(overall, completed=100)
+                evaluation_results = await gather
 
         for entity_type, entity_id, result in evaluation_results:
             if entity_type == "guideline":

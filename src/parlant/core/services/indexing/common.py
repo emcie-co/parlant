@@ -16,7 +16,7 @@ import asyncio
 from typing import Awaitable, Callable
 
 
-class EvaluationErrorError(Exception):
+class EvaluationError(Exception):
     def __init__(self, message: str = "Evaluation failed") -> None:
         super().__init__(message)
 

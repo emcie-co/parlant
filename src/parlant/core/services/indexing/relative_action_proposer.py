@@ -15,7 +15,7 @@ from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
+from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
@@ -117,7 +117,7 @@ class RelativeActionProposer:
 
                     last_generation_exception = exc
 
-            raise EvaluationErrorError() from last_generation_exception
+            raise EvaluationError() from last_generation_exception
 
     def get_journey_text(
         self,

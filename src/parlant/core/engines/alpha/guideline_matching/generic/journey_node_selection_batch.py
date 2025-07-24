@@ -51,7 +51,7 @@ class _JourneyEdge:
 
 
 @dataclass
-class _JourneyNode:
+class _JourneyNode:  # Refactor after node type is implemented
     id: str
     action: str | None
     incoming_edges: list[_JourneyEdge]
@@ -258,8 +258,9 @@ TRANSITIONS:
             if (
                 node.action == FORK_NODE_ACTION_STR
             ):  # TODO change why I know how to recognize fork nodes
-                flags_str += "- NEVER STOP HERE: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
-
+                flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
+            if node.action != FORK_NODE_ACTION_STR and not node.customer_dependent_action:
+                flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
             nodes_str += f"""
 STEP {node_index}: {node.action}
 {flags_str}

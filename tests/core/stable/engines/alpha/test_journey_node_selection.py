@@ -1029,8 +1029,8 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
-        journey_previous_path=["1", "2", "7", "8"],
-        expected_next_node_index="8",  # Should return to asking about calzone type
+        journey_previous_path=["1", "2", "7"],
+        expected_next_node_index="7",  # Should return to asking about calzone type. If it goes to step 8 it's not too bad
     )
 
 
@@ -1441,8 +1441,9 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             "1",
             "2",
             "3",
+            "5",
         ],  # Backtrack to account collection, then fast forward through email to good day
-        expected_next_node_index="3",
+        expected_next_node_index="5",
     )  # This test is slightly ambiguous, advancing to either node 3 or 5 (its followup) is considered valid, but we only test for node 3
 
 

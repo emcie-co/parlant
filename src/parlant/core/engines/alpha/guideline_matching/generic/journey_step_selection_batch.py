@@ -1504,6 +1504,73 @@ example_6_expected = JourneyStepSelectionSchema(
     ],
     next_step="None",
 )
+
+# Example 7: Loan Application Journey where relevant answers were provided earlier in the conversation
+
+example_7_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Hello, I'd like to take a loan for 10,000$ and put stocks as collateral, is that possible?",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Sure, I can help you with that. What type of loan are you interested in?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "What do you mean?",
+    ),
+    _make_event(
+        "45",
+        EventSource.AI_AGENT,
+        "Are you interested in a business or a personal loan?",
+    ),
+    _make_event(
+        "56",
+        EventSource.CUSTOMER,
+        "Does it matter?",
+    ),
+    _make_event(
+        "67",
+        EventSource.AI_AGENT,
+        "We need to know this information to proceed with the loan application, as the two loan types have different requirements.",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "Ok, let me check for a sec",
+    ),
+    _make_event(
+        "89",
+        EventSource.AI_AGENT,
+        "Sure, take your time",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "It's a loan for my restaurant",
+    ),
+]
+
+example_7_expected = JourneyStepSelectionSchema(
+    journey_applies=True,
+    requires_backtracking=False,
+    rationale="The customer wants a loan for their restaurant, making it a business loan. We can proceed through steps 4 and 6, since the customer already specified their desired loan amount and the collateral for the loan. This brings us to step 8, which was not completed yet.",
+    step_advancement=[
+        JourneyStepAdvancement(id="2", completed=True, follow_ups=["3", "4"]),
+        JourneyStepAdvancement(id="4", completed=True, follow_ups=["6"]),
+        JourneyStepAdvancement(id="6", completed=True, follow_ups=["8", "None"]),
+        JourneyStepAdvancement(
+            id="8",
+            completed=False,
+        ),
+    ],
+    next_step="8",
+)
+
 _baseline_shots: Sequence[JourneyStepSelectionShot] = [
     JourneyStepSelectionShot(
         description="Example 1 - Simple Single-Step Advancement",
@@ -1556,6 +1623,15 @@ _baseline_shots: Sequence[JourneyStepSelectionShot] = [
         interaction_events=example_6_events,
         journey_steps=loan_journey_steps,
         expected_result=example_6_expected,
+        previous_path=["1", "2", "3", "5", "7"],
+        conditions=["customer wants a loan"],
+    ),
+    JourneyStepSelectionShot(
+        description="Example 7 - fast forwarding due to information provided earlier in the conversation",
+        journey_title="Loan Application Journey - Same as in Example 6",
+        interaction_events=example_7_events,  # TODO I was here
+        journey_steps=loan_journey_steps,
+        expected_result=example_7_expected,
         previous_path=["1", "2", "3", "5", "7"],
         conditions=["customer wants a loan"],
     ),

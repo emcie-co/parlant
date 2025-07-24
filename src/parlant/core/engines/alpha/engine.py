@@ -51,7 +51,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     InvalidToolData,
     ProblematicToolData,
 )
-from parlant.core.engines.alpha.canned_response_selector import CannedResponseSelector
+from parlant.core.engines.alpha.canned_response_selector import CannedResponseGenerator
 from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
 )
@@ -130,7 +130,7 @@ class AlphaEngine(Engine):
         relational_guideline_resolver: RelationalGuidelineResolver,
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
-        canned_response_selector: CannedResponseSelector,
+        canned_response_selector: CannedResponseGenerator,
         perceived_performance_policy: PerceivedPerformancePolicy,
         hooks: EngineHooks,
     ) -> None:

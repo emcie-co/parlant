@@ -38,7 +38,7 @@ from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.alpha.canned_response_selector import (
-    CannedResponseSelector,
+    CannedResponseGenerator,
 )
 from parlant.core.engines.alpha.message_event_composer import MessageEventComposer
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
@@ -348,7 +348,7 @@ def when_messages_are_emitted(
             | CompositionMode.CANNED_COMPOSITED
             | CompositionMode.CANNED_FLUID
         ):
-            message_event_composer = context.container[CannedResponseSelector]
+            message_event_composer = context.container[CannedResponseGenerator]
 
     result = context.sync_await(
         message_event_composer.generate_response(

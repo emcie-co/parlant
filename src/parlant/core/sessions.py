@@ -669,7 +669,7 @@ class SessionDocumentStore(SessionStore):
                         generation_names=[
                             "selection"
                             if mg["generation"]["schema_name"]
-                            in ["CannedResponseCompositionSchema", "CannedResponseSelectionSchema"]
+                            in ["CannedResponseCompositionSchema", "CannedResponseGenerationSchema"]
                             else "message_generation"
                         ],
                         messages=mg["messages"],

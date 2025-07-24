@@ -344,9 +344,9 @@ def when_messages_are_emitted(
         case CompositionMode.FLUID:
             message_event_composer = context.container[MessageGenerator]
         case (
-            CompositionMode.STRICT_CANNED_RESPONSE
-            | CompositionMode.COMPOSITED_CANNED_RESPONSE
-            | CompositionMode.FLUID_CANNED_RESPONSE
+            CompositionMode.CANNED_STRICT
+            | CompositionMode.CANNED_COMPOSITED
+            | CompositionMode.CANNED_FLUID
         ):
             message_event_composer = context.container[CannedResponseSelector]
 

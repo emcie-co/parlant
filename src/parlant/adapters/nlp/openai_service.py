@@ -85,13 +85,16 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tokenizer_model_name: str | None = None,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
-        self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
+        self._tokenizer = OpenAIEstimatingTokenizer(
+            model_name=tokenizer_model_name or self.model_name
+        )
 
     @property
     @override
@@ -249,6 +252,20 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="gpt-4o-2024-08-06", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_4_1(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gpt-4.1",
+            logger=logger,
+            tokenizer_model_name="gpt-4o-2024-11-20",
+        )
 
     @property
     @override
@@ -415,9 +432,10 @@ class OpenAIService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        if t == SingleToolBatchSchema or t == JourneyNodeSelectionSchema:
-            return GPT_4o[t](self._logger)  # type: ignore
-        return GPT_4o_24_08_06[t](self._logger)  # type: ignore
+        return {
+            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+            JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+        }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

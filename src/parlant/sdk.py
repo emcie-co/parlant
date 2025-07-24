@@ -737,7 +737,7 @@ class JourneyState:
             )
 
         transition = await self._journey.create_transition(
-            condition=condition, source=self, target=state if state else JourneyEndState
+            condition=condition, source=self, target=state if state else END_JOURNEY
         )
 
         if state:
@@ -748,8 +748,8 @@ class JourneyState:
         return transition
 
 
-JourneyEndState = JourneyState(
-    id=JourneyStore.END,
+END_JOURNEY = JourneyState(
+    id=JourneyStore.END_NODE_ID,
     action=None,
     tools=[],
     metadata={},
@@ -806,7 +806,7 @@ class Journey:
         source: JourneyState,
         target: JourneyState,
     ) -> JourneyTransition:
-        if target is not None and target.id != JourneyEndState.id:
+        if target is not None and target.id != END_JOURNEY.id:
             target_tool_ids = {
                 t.tool.name: ToolId(
                     service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
@@ -823,7 +823,7 @@ class Journey:
         transition = await self._container[JourneyStore].create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target else JourneyEndState.id,
+            target=target.id if target else END_JOURNEY.id,
             condition=condition,
         )
 
@@ -2278,7 +2278,7 @@ __all__ = [
     "JourneyId",
     "JourneyState",
     "JourneyStateId",
-    "JourneyEndState",
+    "END_JOURNEY",
     "JourneyTransition",
     "JourneyTransitionId",
     "JSONSerializable",

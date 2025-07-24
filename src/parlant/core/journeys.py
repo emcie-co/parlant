@@ -104,7 +104,7 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 
 
 class JourneyStore(ABC):
-    END = JourneyNodeId("end")
+    END_NODE_ID = JourneyNodeId("end")
 
     DEFAULT_ROOT_ACTION = (
         "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
@@ -1111,7 +1111,7 @@ class JourneyVectorStore(JourneyStore):
 
         return [self._deserialize_node(doc) for doc in docs] + [
             JourneyNode(
-                id=self.END,
+                id=self.END_NODE_ID,
                 creation_utc=datetime.now(timezone.utc),
                 action=None,
                 tools=[],

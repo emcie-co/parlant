@@ -96,7 +96,7 @@ class GuidelinePayload:
     connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
     properties_proposition: bool
-    journey_step_proposition: bool
+    journey_node_proposition: bool
     updated_id: Optional[GuidelineId] = None
 
     def __repr__(self) -> str:
@@ -257,7 +257,7 @@ class GuidelinePayloadDocument(TypedDict):
     connection_proposition: bool
     action_proposition: bool
     properties_proposition: bool
-    journey_step_propositions: bool
+    journey_node_proposition: bool
 
 
 class JourneyPayloadDocument(TypedDict):
@@ -491,7 +491,7 @@ class EvaluationDocumentStore(EvaluationStore):
                             connection_proposition=inv["payload"]["connection_proposition"],
                             action_proposition=inv["payload"]["action_proposition"],
                             properties_proposition=inv["payload"]["properties_proposition"],
-                            journey_step_propositions=False,
+                            journey_node_proposition=False,
                         ),
                         checksum=inv["checksum"],
                         state_version=inv["state_version"],
@@ -643,7 +643,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     connection_proposition=payload.connection_proposition,
                     action_proposition=payload.action_proposition,
                     properties_proposition=payload.properties_proposition,
-                    journey_step_propositions=payload.journey_step_proposition,
+                    journey_node_proposition=payload.journey_node_proposition,
                 )
             elif isinstance(payload, JourneyPayload):
                 return JourneyPayloadDocument(
@@ -765,7 +765,7 @@ class EvaluationDocumentStore(EvaluationStore):
                     connection_proposition=payload_doc["connection_proposition"],
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
-                    journey_step_proposition=payload_doc["journey_step_propositions"],
+                    journey_node_proposition=payload_doc["journey_node_proposition"],
                 )
             elif kind == PayloadKind.JOURNEY:
                 payload_doc = cast(JourneyPayloadDocument, payload_doc)

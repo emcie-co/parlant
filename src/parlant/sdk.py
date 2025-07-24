@@ -257,13 +257,13 @@ class _CachedEvaluator:
         self,
         g: GuidelineContent,
         tool_ids: Sequence[ToolId],
-        journey_step_propositions: bool,
+        journey_state_propositions: bool,
     ) -> str:
         """Generate a hash for the guideline evaluation request."""
         tool_ids_str = ",".join(str(tool_id) for tool_id in tool_ids) if tool_ids else ""
 
         return md5(
-            f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_step_propositions}".encode()
+            f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_state_propositions}".encode()
         ).hexdigest()
 
     def _hash_journey_evaluation_request(
@@ -278,18 +278,44 @@ class _CachedEvaluator:
 
         return md5(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode()).hexdigest()
 
+    async def evaluate_state(
+        self,
+        entity_id: JourneyStateId,
+        g: GuidelineContent,
+        tool_ids: Sequence[ToolId] = [],
+    ) -> _CachedEvaluator.GuidelineEvaluation:
+        return await self._evaluate_guideline(
+            entity_id=entity_id,
+            g=g,
+            tool_ids=tool_ids,
+            journey_state_proposition=True,
+        )
+
     async def evaluate_guideline(
+        self,
+        entity_id: GuidelineId,
+        g: GuidelineContent,
+        tool_ids: Sequence[ToolId] = [],
+    ) -> _CachedEvaluator.GuidelineEvaluation:
+        return await self._evaluate_guideline(
+            entity_id=entity_id,
+            g=g,
+            tool_ids=tool_ids,
+        )
+
+    async def _evaluate_guideline(
         self,
         entity_id: GuidelineId | JourneyStateId,
         g: GuidelineContent,
         tool_ids: Sequence[ToolId] = [],
-        journey_step_propositions: bool = False,
+        action_proposition: bool = True,
+        journey_state_proposition: bool = False,
     ) -> _CachedEvaluator.GuidelineEvaluation:
         # First check if we have a cached evaluation for this guideline
         _hash = self._hash_guideline_evaluation_request(
             g=g,
             tool_ids=tool_ids,
-            journey_step_propositions=journey_step_propositions,
+            journey_state_propositions=journey_state_proposition,
         )
 
         if cached_evaluation := await self._guideline_collection.find_one({"id": {"$eq": _hash}}):
@@ -329,9 +355,9 @@ class _CachedEvaluator:
                         operation=PayloadOperation.ADD,
                         coherence_check=False,  # Legacy and will be removed in the future
                         connection_proposition=False,  # Legacy and will be removed in the future
-                        action_proposition=True,
+                        action_proposition=action_proposition,
                         properties_proposition=True,
-                        journey_step_proposition=journey_step_propositions,
+                        journey_node_proposition=journey_state_proposition,
                     ),
                 )
             ],
@@ -1407,11 +1433,10 @@ class Server:
         guideline_content: GuidelineContent,
         tools: Sequence[ToolId],
     ) -> None:
-        evaluation = self._evaluator.evaluate_guideline(
+        evaluation = self._evaluator.evaluate_state(
             state_id,
             guideline_content,
             tools,
-            journey_step_propositions=True,
         )
 
         self._node_evaluations[state_id] = evaluation

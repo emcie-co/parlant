@@ -423,7 +423,7 @@ def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
         connection_proposition=dto.payload.guideline.connection_proposition,
         action_proposition=False,
         properties_proposition=False,
-        journey_step_proposition=False,
+        journey_node_proposition=False,
         updated_id=dto.payload.guideline.updated_id,
     )
 

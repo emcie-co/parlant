@@ -65,7 +65,7 @@ async def test_legacy_that_a_new_evaluation_starts_with_a_pending_status(
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
         ],
@@ -100,7 +100,7 @@ async def test_legacy_that_an_evaluation_completes_when_all_invoices_have_data(
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             )
         ],
@@ -156,7 +156,7 @@ async def test_legacy_that_an_evaluation_of_a_coherent_guideline_completes_with_
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             )
         ],
@@ -212,7 +212,7 @@ async def test_legacy_that_an_evaluation_of_an_incoherent_guideline_completes_wi
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             )
         ],
@@ -267,7 +267,7 @@ async def test_legacy_that_an_evaluation_of_incoherent_proposed_guidelines_compl
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
             PayloadDescriptor(
@@ -283,7 +283,7 @@ async def test_legacy_that_an_evaluation_of_incoherent_proposed_guidelines_compl
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
         ],
@@ -349,7 +349,7 @@ async def test_legacy_that_an_evaluation_of_multiple_payloads_completes_with_an_
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
             PayloadDescriptor(
@@ -365,7 +365,7 @@ async def test_legacy_that_an_evaluation_of_multiple_payloads_completes_with_an_
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
         ],
@@ -410,7 +410,7 @@ async def test_legacy_that_an_evaluation_that_failed_due_to_already_running_eval
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
             PayloadDescriptor(
@@ -426,7 +426,7 @@ async def test_legacy_that_an_evaluation_that_failed_due_to_already_running_eval
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
         ],
@@ -444,7 +444,7 @@ async def test_legacy_that_an_evaluation_that_failed_due_to_already_running_eval
             connection_proposition=True,
             action_proposition=False,
             properties_proposition=False,
-            journey_step_proposition=False,
+            journey_node_proposition=False,
         )
     ]
 
@@ -480,7 +480,7 @@ async def test_legacy_that_an_evaluation_validation_failed_due_to_guidelines_dup
         connection_proposition=True,
         action_proposition=False,
         properties_proposition=False,
-        journey_step_proposition=False,
+        journey_node_proposition=False,
     )
 
     with raises(EvaluationValidationError) as exc:
@@ -533,7 +533,7 @@ async def test_legacy_that_an_evaluation_validation_failed_due_to_duplicate_guid
                         connection_proposition=True,
                         action_proposition=False,
                         properties_proposition=False,
-                        journey_step_proposition=False,
+                        journey_node_proposition=False,
                     ),
                 )
             ],
@@ -581,7 +581,7 @@ async def test_legacy_that_an_evaluation_completes_and_contains_a_connection_pro
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             )
         ],
@@ -638,7 +638,7 @@ async def test_legacy_that_an_evaluation_completes_and_contains_connection_propo
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
             PayloadDescriptor(
@@ -654,7 +654,7 @@ async def test_legacy_that_an_evaluation_completes_and_contains_connection_propo
                     connection_proposition=True,
                     action_proposition=False,
                     properties_proposition=False,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 ),
             ),
         ],

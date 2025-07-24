@@ -553,7 +553,7 @@ async def test_evaluation_creation(
                     connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 )
             ]
 
@@ -590,7 +590,7 @@ async def test_evaluation_update(
                     connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
-                    journey_step_proposition=False,
+                    journey_node_proposition=False,
                 )
             ]
 

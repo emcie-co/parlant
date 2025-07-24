@@ -257,7 +257,7 @@ async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_pay
     assert "detail" in data
     assert (
         data["detail"]
-        == "At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled"
+        == "At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled"
     )
 
 
@@ -293,5 +293,5 @@ async def test_that_error_is_returned_when_all_propositions_are_disabled_in_a_pa
     assert "detail" in data
     assert (
         data["detail"]
-        == "At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled"
+        == "At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled"
     )

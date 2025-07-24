@@ -86,7 +86,7 @@ GuidelinePayloadPropertiesPropositionField: TypeAlias = Annotated[
     ),
 ]
 
-GuidelinePayloadJourneyStepPropositionField: TypeAlias = Annotated[
+GuidelinePayloadJourneyNodePropositionField: TypeAlias = Annotated[
     bool,
     Field(
         description="Journey step proposition",
@@ -119,7 +119,7 @@ class GuidelinePayloadDTO(
     updated_id: Optional[GuidelineIdField] = None
     action_proposition: GuidelinePayloadActionPropositionField = False
     properties_proposition: GuidelinePayloadPropertiesPropositionField = False
-    journey_step_proposition: GuidelinePayloadJourneyStepPropositionField = False
+    journey_node_proposition: GuidelinePayloadJourneyNodePropositionField = False
 
 
 payload_example: ExampleJson = {
@@ -283,11 +283,11 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
         if (
             not dto.guideline.action_proposition
             and not dto.guideline.properties_proposition
-            and not dto.guideline.journey_step_proposition
+            and not dto.guideline.journey_node_proposition
         ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="At least one of action_proposition, properties_proposition or journey_step_proposition must be enabled",
+                detail="At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled",
             )
 
         return GuidelinePayload(
@@ -305,7 +305,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
             connection_proposition=False,  # Legacy and will be removed in the future
             action_proposition=dto.guideline.action_proposition,
             properties_proposition=dto.guideline.properties_proposition,
-            journey_step_proposition=dto.guideline.journey_step_proposition,
+            journey_node_proposition=dto.guideline.journey_node_proposition,
         )
 
     raise HTTPException(
@@ -347,9 +347,9 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
                 properties_proposition=cast(
                     GuidelinePayload, descriptor.payload
                 ).properties_proposition,
-                journey_step_proposition=cast(
+                journey_node_proposition=cast(
                     GuidelinePayload, descriptor.payload
-                ).journey_step_proposition,
+                ).journey_node_proposition,
             ),
         )
 

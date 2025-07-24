@@ -1,3 +1,4 @@
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -37,6 +38,7 @@ BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this s
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
+LAST_PRESENTED_NODE_INSTRUCTION = "Do not advance past this step"
 
 
 @dataclass
@@ -156,39 +158,126 @@ def build_node_wrappers(step_guidelines: Sequence[Guideline]) -> dict[str, _Jour
     return node_wrappers
 
 
+def get_pruned_nodes(
+    nodes: dict[str, _JourneyNode],
+    previous_path: Sequence[str | None],
+    max_depth: int,
+) -> dict[str, _JourneyNode]:
+    if previous_path:
+        previous_nodes = set(previous_path[:-1])
+        last_executed = previous_path[-1]
+    else:
+        previous_nodes = set()
+        last_executed = "1"
+
+    visited: set[str | None] = set()
+    result: set[str | None] = set()
+
+    queue = deque([(last_executed, 0)])
+    while queue:
+        current, depth = queue.popleft()
+        if not current:
+            continue
+
+        if depth > max_depth or current in visited:
+            continue
+
+        visited.add(current)
+        result.add(current)
+
+        # If node run tools, no need to show the steps further.
+        if nodes[current].requires_tool_calls and (not previous_path or current != last_executed):
+            continue
+
+        for edge in nodes[current].outgoing_edges:
+            neighbor = edge.target_node_index
+            queue.append((neighbor, depth + 1))
+
+    for prev_node in previous_nodes:
+        queue.append((prev_node, 0))
+        while queue:
+            current, depth = queue.popleft()
+            if not current:
+                continue
+
+            if depth > max_depth or current in visited:
+                continue
+
+            visited.add(current)
+            result.add(current)
+
+            for edge in nodes[current].outgoing_edges:
+                neighbor = edge.target_node_index
+                queue.append((neighbor, depth + 1))
+
+    pruned_nodes = {idx: nodes[idx] for idx in result if idx}
+    return pruned_nodes
+
+
 def get_journey_transition_map_text(
     nodes: dict[str, _JourneyNode],
     journey_title: str,
     journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
     print_customer_action_description: bool = False,
+    to_prune: bool = False,
+    max_depth: int = 3,
 ) -> str:
+    pruned_nodes = (
+        get_pruned_nodes(
+            nodes,
+            previous_path,
+            max_depth,
+        )
+        if to_prune
+        else nodes
+    )
+
     def step_sort_key(step_id: str) -> Any:
         try:
             return int(step_id)
         except Exception:
             return step_id
 
-    def get_node_transition_text(node: _JourneyNode) -> str:
+    def get_node_transition_text(
+        node: _JourneyNode,
+    ) -> str:
         result = ""
         if len(node.outgoing_edges) == 0:
             result = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
         elif len(node.outgoing_edges) == 1:
-            followup_instruction = (
-                f"Go to step {node.outgoing_edges[0].target_node_index}"
-                if node.outgoing_edges[0].target_node_index in nodes
+            if (
+                to_prune
                 and nodes[node.outgoing_edges[0].target_node_index].action
-                else EXIT_JOURNEY_INSTRUCTION
-            )
-            result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
+                and node.outgoing_edges[0].target_node_index in nodes
+                and node.outgoing_edges[0].target_node_index not in pruned_nodes
+            ):
+                result = LAST_PRESENTED_NODE_INSTRUCTION
+            else:
+                if (
+                    node.outgoing_edges[0].target_node_index in nodes
+                    and nodes[node.outgoing_edges[0].target_node_index].action
+                ):
+                    followup_instruction = f"Go to step {node.outgoing_edges[0].target_node_index}"
+                else:
+                    followup_instruction = EXIT_JOURNEY_INSTRUCTION
+
+                result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
         else:
-            result = "\n".join(
-                [
-                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
-                and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
-                    for e in node.outgoing_edges
-                ]
-            )
+            if to_prune and not all(
+                e.target_node_index in pruned_nodes
+                for e in node.outgoing_edges
+                if e.target_node_index in nodes and nodes[e.target_node_index].action
+            ):
+                result = LAST_PRESENTED_NODE_INSTRUCTION
+            else:
+                result = "\n".join(
+                    [
+                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
+                    and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
+                        for e in node.outgoing_edges
+                    ]
+                )
         return result
 
     if journey_conditions:
@@ -199,7 +288,7 @@ def get_journey_transition_map_text(
 
     first_step_to_execute: str | None = None
     nodes_str = ""
-    for node_index in sorted(nodes.keys(), key=step_sort_key):
+    for node_index in sorted(pruned_nodes.keys(), key=step_sort_key):
         node: _JourneyNode = nodes[node_index]
         if (
             node.id == ROOT_INDEX
@@ -315,6 +404,10 @@ class GenericJourneyStepSelectionBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
+
+                    with open("journey step selection output.txt", "a") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
+                        f.write("\nTime: " + str(inference.info.duration))
 
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
@@ -656,7 +749,7 @@ Example section is over. The following is the real data you need to use for your
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
                 journey_conditions=journey_conditions,
-                print_customer_action_description=True,
+                to_prune=True,
             ),
         )
         builder.add_section(
@@ -674,6 +767,8 @@ Example section is over. The following is the real data you need to use for your
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
 
+        with open("journey step selection prompt.txt", "a") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

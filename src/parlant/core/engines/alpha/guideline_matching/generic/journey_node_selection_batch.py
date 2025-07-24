@@ -37,6 +37,9 @@ BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this s
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
+FORK_NODE_ACTION_STR = (
+    "No action necessary - always advance to the next step based on the relevant transition"
+)
 
 
 @dataclass
@@ -103,7 +106,9 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
         if node_index not in node_wrappers:
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
-                action=g.content.action,
+                action=g.content.action
+                if True
+                else FORK_NODE_ACTION_STR,  # TODO change after knowing what it looks like
                 incoming_edges=[],
                 outgoing_edges=[],
                 customer_dependent_action=cast(
@@ -249,6 +254,10 @@ TRANSITIONS:
                 flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
             else:
                 flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
+            if (
+                node.action == FORK_NODE_ACTION_STR
+            ):  # TODO change why I know how to recognize fork nodes
+                flags_str += "- NEVER STOP HERE: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
 
             nodes_str += f"""
 STEP {node_index}: {node.action}
@@ -1634,10 +1643,10 @@ _baseline_shots: Sequence[JourneyNodeSelectionShot] = [
     JourneyNodeSelectionShot(
         description="Example 7 - fast forwarding due to information provided earlier in the conversation",
         journey_title="Loan Application Journey - Same as in Example 6",
-        interaction_events=example_7_events,  # TODO I was here
+        interaction_events=example_7_events,
         journey_nodes=loan_journey_nodes,
         expected_result=example_7_expected,
-        previous_path=["1", "2", "3", "5", "7"],
+        previous_path=["1", "2"],
         conditions=["customer wants a loan"],
     ),
 ]

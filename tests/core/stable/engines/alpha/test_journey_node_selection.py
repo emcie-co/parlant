@@ -1636,3 +1636,37 @@ async def test_that_journey_selector_correctly_advances_by_multiple_nodes(  # Oc
         expected_path=["1", "2", "7", "8", "9"],
         expected_next_node_index="9",
     )
+
+
+async def test_that_fork_steps_are_correctly_traversed_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+):
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to the Low Cal Calzone Zone!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thanks! Can I order 3 medium classical Italian calzones please?",
+        ),
+    ]
+
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="calzone_journey",
+        journey_previous_path=["1"],
+        expected_path=["1", "2", "7", "8", "9"],
+        expected_next_node_index="9",
+    )

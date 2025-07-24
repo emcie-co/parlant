@@ -1709,7 +1709,7 @@ async def test_that_fork_steps_are_correctly_traversed(
     agent: Agent,
     new_session: Session,
     customer: Customer,
-):
+) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
@@ -1751,7 +1751,7 @@ async def test_that_fork_steps_are_correctly_fast_forwarded_through(
     agent: Agent,
     new_session: Session,
     customer: Customer,
-):
+) -> None:
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,

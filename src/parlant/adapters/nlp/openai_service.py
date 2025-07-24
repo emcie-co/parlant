@@ -433,7 +433,7 @@ class OpenAIService(NLPService):
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
         return {
-            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],  # type: ignore
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
         }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
 

@@ -24,6 +24,7 @@ from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
+from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
@@ -715,16 +716,15 @@ Candidate tool: ###
         all_matches = [
             match
             for match in chain(ordinary_guideline_matches, tool_id_propositions[1])
-            if match.guideline.content.action
+            if internal_representation(match.guideline).action
         ]
 
+        guideline_list = ""
         if all_matches:
             guidelines = []
 
             for i, p in enumerate(all_matches, start=1):
-                guideline = (
-                    f"{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
-                )
+                guideline = f"{i}) When {internal_representation(p.guideline).condition}, then {internal_representation(p.guideline).action}"
                 guidelines.append(guideline)
 
             guideline_list = "\n".join(guidelines)

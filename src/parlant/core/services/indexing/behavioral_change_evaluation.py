@@ -48,7 +48,7 @@ from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
 )
-from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
     CustomerDependentActionProposition,
@@ -79,11 +79,6 @@ from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionProposition,
 )
 from parlant.core.tags import Tag
-
-
-class EvaluationError(Exception):
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
 
 
 class EvaluationValidationError(Exception):

@@ -8,7 +8,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.common import EvaluationErrorError, ProgressReport
+from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
@@ -96,7 +96,7 @@ class ToolRunningActionDetector:
 
                     last_generation_exception = exc
 
-            raise EvaluationErrorError() from last_generation_exception
+            raise EvaluationError() from last_generation_exception
 
     def _add_tool_definitions_section(
         self,

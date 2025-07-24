@@ -2,7 +2,7 @@ Feature: Fluid Canned Response
     Background:
         Given the alpha engine
         And an agent
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And an empty session
 
     Scenario: Multistep journey is aborted when the journey description requires so (fluid canned response)
@@ -87,7 +87,7 @@ Feature: Fluid Canned Response
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (fluid canned response)
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
         And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
@@ -98,7 +98,7 @@ Feature: Fluid Canned Response
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (fluid canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the recommended vegetarian toppings options when the customer asks about topping recommendation and the customer is from India
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
         And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered
@@ -108,7 +108,7 @@ Feature: Fluid Canned Response
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (fluid canned response)
         Given a guideline to suggest direct flights when you recommends on travel options
         Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
         And a canned response, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
@@ -119,7 +119,7 @@ Feature: Fluid Canned Response
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (fluid canned response)
         Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
-        And that the agent uses the fluid_canned_response message composition mode
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
         And a canned response, "I recommend on {{generative.answer}}."
         When processing is triggered

@@ -295,7 +295,7 @@ async def test_that_a_tag_can_be_removed_from_a_canned_response(
 
     canned_response = await canned_response_store.create_response(value=value, fields=fields)
 
-    await canned_response_store.upsert_tag(response_id=canned_response.id, tag_id=tag.id)
+    await canned_response_store.upsert_tag(can_rep_id=canned_response.id, tag_id=tag.id)
     response = await async_client.patch(
         f"/canned_responses/{canned_response.id}", json={"tags": {"remove": [tag.id]}}
     )

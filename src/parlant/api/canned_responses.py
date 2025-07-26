@@ -334,7 +334,7 @@ def create_router(
         canned_response_id: CannedResponseIdField,
     ) -> CannedResponseDTO:
         """Retrieves details of a specific canned response by ID."""
-        response = await canned_response_store.read_response(response_id=canned_response_id)
+        response = await canned_response_store.read_response(can_rep_id=canned_response_id)
 
         return CannedResponseDTO(
             id=response.id,

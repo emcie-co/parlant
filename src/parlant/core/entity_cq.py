@@ -338,17 +338,17 @@ class EntityQueries:
         agent_id: AgentId,
         journeys: Sequence[Journey],
     ) -> Sequence[CannedResponse]:
-        agent_canned_responses = await self._canned_response_store.list_responses(
+        agent_canned_responses = await self._canned_response_store.list_can_reps(
             tags=[Tag.for_agent_id(agent_id)],
         )
-        global_canned_responses = await self._canned_response_store.list_responses(tags=[])
+        global_canned_responses = await self._canned_response_store.list_can_reps(tags=[])
 
         agent = await self._agent_store.read_agent(agent_id)
-        canned_responses_for_agent_tags = await self._canned_response_store.list_responses(
+        canned_responses_for_agent_tags = await self._canned_response_store.list_can_reps(
             tags=[tag for tag in agent.tags]
         )
 
-        journey_canned_responses = await self._canned_response_store.list_responses(
+        journey_canned_responses = await self._canned_response_store.list_can_reps(
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 

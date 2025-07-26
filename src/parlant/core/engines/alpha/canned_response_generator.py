@@ -1201,11 +1201,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
-<<<<<<< HEAD:src/parlant/core/engines/alpha/canned_response_selector.py
-=======
-        with open("canned-response-generator-draft-prompt.txt", "w") as f:
-            f.write(builder.build())
->>>>>>> e00e43ce (Add migration for canned response):src/parlant/core/engines/alpha/canned_response_generator.py
         return builder
 
     def _get_draft_output_format(
@@ -1350,7 +1345,7 @@ Output a JSON object with three properties:
     async def _generate_response(
         self,
         context: CannedResponseContext,
-        responses: Sequence[CannedResponse],
+        can_reps: Sequence[CannedResponse],
         composition_mode: CompositionMode,
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseGenerationResult]]:
@@ -1360,7 +1355,7 @@ Output a JSON object with three properties:
         )
 
         direct_draft_output_mode = (
-            not responses and context.agent.composition_mode != CompositionMode.CANNED_STRICT
+            not can_reps and context.agent.composition_mode != CompositionMode.CANNED_STRICT
         )
 
         # Step 1: Generate the draft message
@@ -1376,7 +1371,7 @@ Output a JSON object with three properties:
             tool_enabled_guideline_matches=context.tool_enabled_guideline_matches,
             staged_events=context.staged_events,
             tool_insights=context.tool_insights,
-            responses=responses,
+            responses=can_reps,
             shots=await self.shots(context.agent.composition_mode),
         )
 
@@ -1422,18 +1417,18 @@ Output a JSON object with three properties:
 
         # Step 2: Select the most relevant canned response templates based on the draft message
         with self._logger.operation("Retrieving top relevant canned response templates"):
-            top_relevant_responses = await self._canned_response_store.find_relevant_responses(
+            top_relevant_can_reps = await self._canned_response_store.find_relevant_can_reps(
                 query=draft_response.content.response_body,
-                available_responses=responses,
+                available_can_reps=can_reps,
                 max_count=10,
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        rendered_responses: list[tuple[CannedResponseId, str]] = []
+        rendered_can_reps: list[tuple[CannedResponseId, str]] = []
 
-        for u in top_relevant_responses:
+        for u in top_relevant_can_reps:
             try:
-                rendered_responses.append((u.id, await self._render_response(context, u.value)))
+                rendered_can_reps.append((u.id, await self._render_response(context, u.value)))
             except Exception as exc:
                 self._logger.error(
                     f"Failed to pre-render canned response for matching '{u.id}' ('{u.value}')"
@@ -1447,7 +1442,7 @@ Output a JSON object with three properties:
             recomposition_generation_info, composited_message = await self._recompose(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                reference_messages=[u[1] for u in rendered_responses],
+                reference_messages=[u[1] for u in rendered_can_reps],
             )
 
             return {
@@ -1464,7 +1459,7 @@ Output a JSON object with three properties:
             prompt=self._build_selection_prompt(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                responses=rendered_responses,
+                responses=rendered_can_reps,
             ),
             hints={"temperature": 0.1},
         )
@@ -1521,7 +1516,7 @@ Output a JSON object with three properties:
         # Step 5.3: Assuming a high-quality match or a partial match in strict mode
         can_rep_id = CannedResponseId(selection_response.content.chosen_template_id)
         rendered_canned_response = next(
-            (value for uid, value in rendered_responses if uid == can_rep_id),
+            (value for uid, value in rendered_can_reps if uid == can_rep_id),
             None,
         )
 

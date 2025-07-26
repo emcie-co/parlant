@@ -40,10 +40,16 @@ from parlant.client.types import (
     AgentTagUpdateParams,
     Capability,
     CapabilityTagUpdateParams,
+    CannedResponse,
+    CannedResponseField,
+    ConsumptionOffsetsUpdateParams,
     ContextVariable,
     ContextVariableReadResult,
     ContextVariableValue,
     ContextVariableTagsUpdateParams,
+    Customer,
+    CustomerMetadataUpdateParams,
+    CustomerTagUpdateParams,
     Event,
     EventInspectionResult,
     Journey,
@@ -69,13 +75,7 @@ from parlant.client.types import (
     TermTagsUpdateParams,
     Tool,
     ToolId,
-    Customer,
-    CustomerExtraUpdateParams,
-    CustomerTagUpdateParams,
     Tag,
-    ConsumptionOffsetsUpdateParams,
-    CannedResponse,
-    CannedResponseField,
 )
 from websocket import WebSocketConnectionClosedException, create_connection
 
@@ -1021,7 +1021,7 @@ class Actions:
         client = cast(ParlantClient, ctx.obj.client)
         return client.customers.create(
             name=name,
-            extra={},
+            metadata={},
             tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
         )
 
@@ -1060,7 +1060,7 @@ class Actions:
     ) -> None:
         client = cast(ParlantClient, ctx.obj.client)
         client.customers.update(
-            customer_id=customer_id, extra=CustomerExtraUpdateParams(add={key: value})
+            customer_id=customer_id, metadata=CustomerMetadataUpdateParams(add={key: value})
         )
 
     @staticmethod
@@ -1071,7 +1071,7 @@ class Actions:
     ) -> None:
         client = cast(ParlantClient, ctx.obj.client)
         client.customers.update(
-            customer_id=customer_id, extra=CustomerExtraUpdateParams(remove=[key])
+            customer_id=customer_id, metadata=CustomerMetadataUpdateParams(remove=[key])
         )
 
     @staticmethod
@@ -2796,7 +2796,7 @@ class Interface:
             {
                 "ID": customer.id,
                 "Name": customer.name,
-                "Extra": customer.extra,
+                "Metadata": customer.metadata,
                 "Tags": ", ".join(customer.tags),
             }
             for customer in customers

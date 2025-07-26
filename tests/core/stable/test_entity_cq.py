@@ -209,7 +209,7 @@ async def test_that_find_can_reps_for_agent_returns_global_can_reps(
     can_rep_store: CannedResponseStore = container[CannedResponseStore]
     entity_queries = container[EntityQueries]
 
-    untagged_can_rep = await can_rep_store.create_response(
+    untagged_can_rep = await can_rep_store.create_can_rep(
         value="Hello world",
         fields=[],
     )
@@ -229,7 +229,7 @@ async def test_that_find_can_reps_for_agent_returns_none_for_non_matching_tag(
     entity_queries = container[EntityQueries]
 
     tag1 = TagId("tag1")
-    await can_rep_store.create_response(
+    await can_rep_store.create_can_rep(
         value="Tagged canned response",
         fields=[],
         tags=[tag1],
@@ -258,7 +258,7 @@ async def test_that_find_can_reps_for_agent_and_journey_returns_journey_can_reps
     )
 
     journey_tag = Tag.for_journey_id(journey.id)
-    journey_can_rep = await can_rep_store.create_response(
+    journey_can_rep = await can_rep_store.create_can_rep(
         value="Journey can_rep",
         fields=[],
         tags=[journey_tag],

@@ -299,7 +299,7 @@ def create_router(
 
             tags = list(set(params.tags))
 
-        response = await canned_response_store.create_response(
+        response = await canned_response_store.create_can_rep(
             value=params.value,
             fields=[_dto_to_canned_response_field(s) for s in params.fields],
             tags=tags or None,
@@ -334,7 +334,7 @@ def create_router(
         canned_response_id: CannedResponseIdField,
     ) -> CannedResponseDTO:
         """Retrieves details of a specific canned response by ID."""
-        response = await canned_response_store.read_response(can_rep_id=canned_response_id)
+        response = await canned_response_store.read_can_rep(can_rep_id=canned_response_id)
 
         return CannedResponseDTO(
             id=response.id,
@@ -359,9 +359,9 @@ def create_router(
     )
     async def list_canned_responses(tags: TagsQuery = []) -> Sequence[CannedResponseDTO]:
         if tags:
-            responses = await canned_response_store.list_responses(tags=tags)
+            responses = await canned_response_store.list_can_reps(tags=tags)
         else:
-            responses = await canned_response_store.list_responses()
+            responses = await canned_response_store.list_can_reps()
 
         return [
             CannedResponseDTO(
@@ -419,7 +419,7 @@ def create_router(
                 ),
             }
 
-            await canned_response_store.update_response(canned_response_id, update_params)
+            await canned_response_store.update_can_rep(canned_response_id, update_params)
 
         if params.tags:
             if params.tags.add:
@@ -430,7 +430,7 @@ def create_router(
                 for tag_id in params.tags.remove:
                     await canned_response_store.remove_tag(canned_response_id, tag_id)
 
-        updated_canned_response = await canned_response_store.read_response(canned_response_id)
+        updated_canned_response = await canned_response_store.read_can_rep(canned_response_id)
 
         return CannedResponseDTO(
             id=updated_canned_response.id,
@@ -456,6 +456,6 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_canned_response(canned_response_id: CannedResponseIdField) -> None:
-        await canned_response_store.delete_response(canned_response_id)
+        await canned_response_store.delete_can_rep(canned_response_id)
 
     return router

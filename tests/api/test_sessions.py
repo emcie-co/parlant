@@ -1133,7 +1133,7 @@ async def test_that_an_event_with_canned_responses_can_be_generated(
         customer_id=customer.id,
     )
 
-    can_rep = await can_rep_store.create_response(value="Hello, how can I assist?", fields=[])
+    can_rep = await can_rep_store.create_can_rep(value="Hello, how can I assist?", fields=[])
 
     customer_event = await post_message(
         container=container,

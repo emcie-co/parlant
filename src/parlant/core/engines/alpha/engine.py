@@ -51,7 +51,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     InvalidToolData,
     ProblematicToolData,
 )
-from parlant.core.engines.alpha.canned_response_selector import CannedResponseGenerator
+from parlant.core.engines.alpha.canned_response_generator import CannedResponseGenerator
 from parlant.core.engines.alpha.message_event_composer import (
     MessageEventComposer,
 )
@@ -130,7 +130,7 @@ class AlphaEngine(Engine):
         relational_guideline_resolver: RelationalGuidelineResolver,
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
-        canned_response_selector: CannedResponseGenerator,
+        canned_response_generator: CannedResponseGenerator,
         perceived_performance_policy: PerceivedPerformancePolicy,
         hooks: EngineHooks,
     ) -> None:
@@ -144,7 +144,7 @@ class AlphaEngine(Engine):
         self._relational_guideline_resolver = relational_guideline_resolver
         self._tool_event_generator = tool_event_generator
         self._fluid_message_generator = fluid_message_generator
-        self._canned_response_selector = canned_response_selector
+        self._canned_response_generator = canned_response_generator
         self._perceived_performance_policy = perceived_performance_policy
 
         self._hooks = hooks
@@ -913,7 +913,7 @@ class AlphaEngine(Engine):
                 | CompositionMode.CANNED_COMPOSITED
                 | CompositionMode.CANNED_FLUID
             ):
-                return self._canned_response_selector
+                return self._canned_response_generator
 
         raise Exception("Unsupported agent composition mode")
 

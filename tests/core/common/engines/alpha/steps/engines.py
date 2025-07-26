@@ -37,7 +37,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
-from parlant.core.engines.alpha.canned_response_selector import (
+from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseGenerator,
 )
 from parlant.core.engines.alpha.message_event_composer import MessageEventComposer

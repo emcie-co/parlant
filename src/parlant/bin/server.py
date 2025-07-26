@@ -103,7 +103,7 @@ from parlant.core.engines.alpha.relational_guideline_resolver import RelationalG
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
 )
-from parlant.core.engines.alpha.canned_response_selector import (
+from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseFieldExtractionSchema,
     CannedResponseFieldExtractor,

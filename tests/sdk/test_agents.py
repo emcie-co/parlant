@@ -140,7 +140,7 @@ class Test_that_an_agent_can_create_canned_response(SDKTest):
     async def run(self, ctx: Context) -> None:
         can_rep_store = ctx.container[CannedResponseStore]
 
-        can_rep = await can_rep_store.read_response(response_id=self.can_rep_id)
+        can_rep = await can_rep_store.read_response(can_rep_id=self.can_rep_id)
 
         assert can_rep.value == "Hello, {user}!"
         assert Tag.for_agent_id(self.agent.id) in can_rep.tags

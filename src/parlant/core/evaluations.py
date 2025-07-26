@@ -414,7 +414,11 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
 class EvaluationDocumentStore(EvaluationStore):
     VERSION = Version.from_string("0.4.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
         self._database = database
         self._collection: DocumentCollection[EvaluationDocument]
         self._tag_association_collection: DocumentCollection[EvaluationTagAssociationDocument]

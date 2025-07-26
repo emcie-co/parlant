@@ -543,7 +543,7 @@ class _SdkAgentStore(AgentStore):
             creation_utc=creation_utc or datetime.now(timezone.utc),
             max_engine_iterations=max_engine_iterations or 1,
             tags=tags or [],
-            composition_mode=composition_mode or _CompositionMode.FLUID_CANNED_RESPONSE,
+            composition_mode=composition_mode or _CompositionMode.CANNED_FLUID,
         )
 
         self._agents[agent.id] = agent
@@ -1193,7 +1193,7 @@ class Journey:
     ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        can_rep = await self._container[CannedResponseStore].create_response(
+        can_rep = await self._container[CannedResponseStore].create_can_rep(
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
@@ -1313,9 +1313,9 @@ class RetrieverResult:
 
 
 class CompositionMode(enum.Enum):
-    FLUID = _CompositionMode.FLUID_CANNED_RESPONSE
-    COMPOSITED = _CompositionMode.COMPOSITED_CANNED_RESPONSE
-    STRICT = _CompositionMode.STRICT_CANNED_RESPONSE
+    FLUID = _CompositionMode.CANNED_FLUID
+    COMPOSITED = _CompositionMode.CANNED_COMPOSITED
+    STRICT = _CompositionMode.CANNED_STRICT
 
 
 @dataclass(frozen=True)
@@ -1448,7 +1448,7 @@ class Agent:
     ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        can_rep = await self._container[CannedResponseStore].create_response(
+        can_rep = await self._container[CannedResponseStore].create_can_rep(
             value=template,
             tags=[_Tag.for_agent_id(self.id), *tags],
             fields=[],

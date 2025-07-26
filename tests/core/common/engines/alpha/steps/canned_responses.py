@@ -31,7 +31,7 @@ def given_a_canned_response(
     field_names = re.findall(can_rep_field_pattern, text)
 
     can_rep = context.sync_await(
-        can_rep_store.create_response(
+        can_rep_store.create_can_rep(
             value=text,
             fields=[
                 CannedResponseField(

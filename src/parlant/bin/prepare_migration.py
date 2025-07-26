@@ -250,11 +250,9 @@ async def get_component_versions() -> list[tuple[str, str]]:
                     "utterances",
                     chroma_db_metadata.get(
                         VectorDocumentStoreMigrationHelper.get_store_version_key(
-                            CannedResponseVectorStore.__name__
+                            "UtteranceVectorStore"
                         ),
-                        chroma_db_metadata.get(
-                            "version", "0.1.0"
-                        ),  # Back off to the old version key method if not found
+                        "0.4.0",  # In case not exists, set to the last version of utterances
                     ),
                 )
             )
@@ -1492,64 +1490,82 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
     ) or db.chroma_client.create_collection(name="canned_responses_unembedded")
 
     migrated_count = 0
+    unique_docs = set()
+    vector_docs = []
+    docs = []
+
     if metadatas := chroma_utterances_unembedded_collection.get()["metadatas"]:
         for doc in metadatas:
             if doc["version"] == "0.2.0":
                 u2_doc = cast(UtteranceDocument_v0_2_0, doc)
 
-                vector_docs = [
-                    CannedResponseVectorDocument(
-                        id=ObjectId(generate_id()),
-                        can_rep_id=u2_doc["id"],
-                        version=Version.String("0.3.0"),
-                        checksum=md5_checksum(u2_doc["content"]),
-                        content=u2_doc["content"],
-                    )
-                ]
-
-                new_doc = CannedResponseDocument(
-                    id=u2_doc["id"],
-                    version=Version.String("0.3.0"),
-                    creation_utc=u2_doc["creation_utc"],
-                    value=u2_doc["value"],
-                    fields=u2_doc["fields"],
-                    signals=[],
+                vector_docs.extend(
+                    [
+                        CannedResponseVectorDocument(
+                            id=ObjectId(generate_id()),
+                            can_rep_id=u2_doc["id"],
+                            version=Version.String("0.3.0"),
+                            checksum=md5_checksum(u2_doc["content"]),
+                            content=u2_doc["content"],
+                        )
+                    ]
                 )
+
+                docs.append(
+                    CannedResponseDocument(
+                        id=u2_doc["id"],
+                        version=Version.String("0.3.0"),
+                        creation_utc=u2_doc["creation_utc"],
+                        value=u2_doc["value"],
+                        fields=u2_doc["fields"],
+                        signals=[],
+                    )
+                )
+
+                unique_docs.add(u2_doc["id"])
 
             if doc["version"] == "0.3.0":
                 u3_doc = cast(UtteranceDocument_v0_3_0, doc)
 
-                vector_docs = [
-                    CannedResponseVectorDocument(
-                        id=ObjectId(generate_id()),
-                        can_rep_id=u3_doc["utterance_id"],
-                        version=Version.String("0.4.0"),
-                        checksum=md5_checksum(c),
-                        content=c,
+                if u3_doc["utterance_id"] not in unique_docs:
+                    vector_docs.extend(
+                        [
+                            CannedResponseVectorDocument(
+                                id=ObjectId(generate_id()),
+                                can_rep_id=u3_doc["utterance_id"],
+                                version=Version.String("0.4.0"),
+                                checksum=md5_checksum(c),
+                                content=c,
+                            )
+                            for c in [u3_doc["value"], *json.loads(u3_doc["queries"])]
+                        ]
                     )
-                    for c in [u3_doc["value"], *json.loads(u3_doc["queries"])]
-                ]
 
-                new_doc = CannedResponseDocument(
-                    id=u3_doc["id"],
-                    version=Version.String("0.4.0"),
-                    creation_utc=u3_doc["creation_utc"],
-                    value=u3_doc["value"],
-                    fields=u3_doc["fields"],
-                    signals=[json.loads(u3_doc["queries"])],
-                )
+                    docs.append(
+                        CannedResponseDocument(
+                            id=u3_doc["id"],
+                            version=Version.String("0.4.0"),
+                            creation_utc=u3_doc["creation_utc"],
+                            value=u3_doc["value"],
+                            fields=u3_doc["fields"],
+                            signals=[*json.loads(u3_doc["queries"])],
+                        )
+                    )
 
-            for v_doc in vector_docs:
-                chroma_can_reps_unembedded_collection.add(
-                    ids=[cast(str, v_doc["id"])],
-                    documents=[v_doc["content"]],
-                    metadatas=[cast(chromadb.Metadata, v_doc)],
-                    embeddings=[0],
-                )
+                    unique_docs.add(u3_doc["utterance_id"])
 
-                migrated_count += 1
+        for v_doc in vector_docs:
+            chroma_can_reps_unembedded_collection.add(
+                ids=[cast(str, v_doc["id"])],
+                documents=[v_doc["content"]],
+                metadatas=[cast(chromadb.Metadata, v_doc)],
+                embeddings=[0],
+            )
 
-            await canned_response_collection.insert_one(new_doc)
+            migrated_count += 1
+
+        for c_doc in docs:
+            await canned_response_collection.insert_one(c_doc)
 
     for tag_doc in await utterance_tags_collection.find(filters={}):
         await canned_response_tags_collection.insert_one(
@@ -1570,6 +1586,12 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
         ),
         Version.String("0.4.0"),
     )
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key("UtteranceVectorStore"),
+        Version.String("0.4.0"),
+    )
+
     await upgrade_document_database_metadata(utterance_tags_db, Version.String("0.4.0"))
 
     utterance_tags_file.unlink()

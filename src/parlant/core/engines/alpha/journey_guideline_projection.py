@@ -33,7 +33,7 @@ class JourneyGuidelineProjection:
         index = 0
 
         journey = await self._journey_store.read_journey(journey_id)
-        root_id = journey.root
+        root_id = journey.root_id
 
         edges_objs = await self._journey_store.list_edges(journey_id)
 

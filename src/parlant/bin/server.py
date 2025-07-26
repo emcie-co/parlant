@@ -640,7 +640,7 @@ async def initialize_container(
 
         for store_type, store_class, document_db_filename in [
             (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
-            (CannedResponseStore, CannedResponseVectorStore, "canned_response_tags.json"),
+            (CannedResponseStore, CannedResponseVectorStore, "canned_responses.json"),
             (JourneyStore, JourneyVectorStore, "journey_associations.json"),
             (CapabilityStore, CapabilityVectorStore, "capability_tags.json"),
         ]:

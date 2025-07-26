@@ -660,22 +660,6 @@ class JourneyVectorStore(JourneyStore):
             journey_checksum = md5_checksum(f"{title}{description}{conditions}")
 
             journey_id = JourneyId(self._id_generator.generate(journey_checksum))
-
-            root = JourneyNode(
-                id=self.ROOT_NODE_ID,
-                creation_utc=creation_utc,
-                action=None,
-                tools=[],
-                metadata={},
-            )
-
-            await self._node_association_collection.insert_one(
-                document=self._serialize_node(root, journey_id)
-            )
-
-            journey_checksum = md5_checksum(f"{title}{description}{conditions}")
-
-            journey_id = JourneyId(self._id_generator.generate(journey_checksum))
             journey_root_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}root"))
 
             root = JourneyNode(

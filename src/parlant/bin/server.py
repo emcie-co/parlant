@@ -18,10 +18,21 @@ import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
 import importlib
+import inspect
 import os
 import traceback
 from lagom import Container, Singleton
-from typing import AsyncIterator, Awaitable, Callable, Iterable, Literal, Optional, Sequence, cast
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Literal,
+    Optional,
+    Sequence,
+    cast,
+)
 import rich
 import toml
 from typing_extensions import NoReturn
@@ -468,6 +479,7 @@ async def initialize_container(
             c[t] = await value_func()
 
     async def try_define_document_store(
+        id_generator: IdGenerator,
         store_type: type,
         store_doc_type: type,
         filename: str,
@@ -480,12 +492,21 @@ async def initialize_container(
                 )
             )
 
-            c[store_type] = await EXIT_STACK.enter_async_context(
-                store_doc_type(
-                    db,
-                    migrate,
-                )
-            )
+            sig = inspect.signature(store_doc_type)
+            params = list(sig.parameters.keys())
+
+            # Remove 'self' from parameters list
+            if "self" in params:
+                params.remove("self")
+
+            # Build arguments based on what the constructor accepts
+            args: list[Any] = []
+            if "id_generator" in params:
+                args.append(id_generator)
+
+            args.extend([db, migrate])
+
+            c[store_type] = await EXIT_STACK.enter_async_context(store_doc_type(*args))
 
     async def try_define_vector_store(
         store_type: type,
@@ -494,6 +515,7 @@ async def initialize_container(
         document_db_filename: str,
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
+        id_generator: IdGenerator,
     ) -> None:
         if store_type not in c.defined_types:
             vector_db = await vector_db_factory()
@@ -505,6 +527,7 @@ async def initialize_container(
             )
             c[store_type] = await EXIT_STACK.enter_async_context(
                 store_class(
+                    id_generator=id_generator,
                     vector_db=vector_db,
                     document_db=document_db,
                     embedder_type_provider=embedder_type_provider,
@@ -556,7 +579,7 @@ async def initialize_container(
             (RelationshipStore, RelationshipDocumentStore, "relationships.json"),
             (SessionStore, SessionDocumentStore, "sessions.json"),
         ]:
-            await try_define_document_store(interface, implementation, filename)
+            await try_define_document_store(c[IdGenerator], interface, implementation, filename)
 
         async def make_service_document_registry() -> ServiceRegistry:
             db = await EXIT_STACK.enter_async_context(
@@ -628,6 +651,7 @@ async def initialize_container(
                 document_db_filename,
                 get_embedder_type,
                 embedder_factory,
+                c[IdGenerator],
             )
 
     except MigrationRequired as e:

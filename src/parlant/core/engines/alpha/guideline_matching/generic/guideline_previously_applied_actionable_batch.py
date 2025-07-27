@@ -52,7 +52,6 @@ class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
     action: str
     condition_met_again: bool
     action_wasnt_taken: Optional[bool] = None
-    tldr: str
     should_reapply: bool
 
 
@@ -127,7 +126,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                             GuidelineMatch(
                                 guideline=self._guidelines[match.guideline_id],
                                 score=10 if match.should_reapply else 1,
-                                rationale=match.tldr,
+                                rationale="",
                                 guideline_previously_applied=PreviouslyAppliedType.FULLY,
                             )
                         )
@@ -496,7 +495,6 @@ example_1_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             condition="the customer initiates a purchase.",
             action="Open a new cart for the customer",
             condition_met_again=False,
-            tldr="The purchase-related guideline was initiated earlier, but is currently irrelevant since the customer completed the purchase and the conversation has moved to a new topic.",
             should_reapply=False,
         ),
         GenericPreviouslyAppliedActionableBatch(
@@ -505,7 +503,6 @@ example_1_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             action="Refer the customer to our privacy policy page",
             condition_met_again=True,
             action_wasnt_taken=True,
-            tldr="While the customer has already asked a question to do with data security, and has been REFERRED to the privacy policy page, they now asked another question, so I should tell them once again to refer to the privacy policy page, perhaps stressing it more this time",
             should_reapply=True,
         ),
     ]
@@ -546,7 +543,6 @@ example_2_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             action="provide the price using the 'check_stock_price' tool",
             condition_met_again=True,
             action_wasnt_taken=True,
-            tldr="The agent previously provided the price of that stock, but since the price might have changed since it should be checked and provided again",
             should_reapply=True,
         ),
         GenericPreviouslyAppliedActionableBatch(
@@ -554,7 +550,6 @@ example_2_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             condition="the weather at a certain location is discussed.",
             action="check the weather at that location using the 'check_weather' tool",
             condition_met_again=False,
-            tldr="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
             should_reapply=False,
         ),
     ]
@@ -608,7 +603,6 @@ example_3_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             condition="The customer asks about their account balance, billing amount, or payment status.",
             action="Provide the current account balance or billing information clearly.",
             condition_met_again=False,
-            tldr="The customer last request is not related to balance or payment",
             should_reapply=False,
         ),
     ]
@@ -650,7 +644,6 @@ example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             action="provide the price using the 'check_stock_price' tool",
             condition_met_again=True,
             action_wasnt_taken=False,
-            tldr="The customer asked for the stock price again and was answered.",
             should_reapply=False,
         ),
         GenericPreviouslyAppliedActionableBatch(
@@ -658,7 +651,6 @@ example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             condition="the weather at a certain location is discussed.",
             action="check the weather at that location using the 'check_weather' tool",
             condition_met_again=False,
-            tldr="while weather was discussed earlier, the conversation have moved on to an entirely different topic (stock prices)",
             should_reapply=False,
         ),
     ]

@@ -2,6 +2,7 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 import json
 import traceback
 from typing import Any, Optional, cast
@@ -9,6 +10,7 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
+from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
@@ -25,6 +27,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, Gu
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
@@ -44,6 +47,12 @@ FORK_NODE_ACTION_STR = (
 LAST_PRESENTED_NODE_INSTRUCTION = "Do not advance past this step"
 
 
+class JourneyNodeKind(Enum):
+    FORK = "fork"
+    CHAT = "chat"
+    TOOL = "tool"
+
+
 @dataclass
 class _JourneyEdge:
     target_guideline: Guideline | None
@@ -58,8 +67,8 @@ class _JourneyNode:  # Refactor after node type is implemented
     action: str | None
     incoming_edges: list[_JourneyEdge]
     outgoing_edges: list[_JourneyEdge]
+    kind: JourneyNodeKind
     customer_dependent_action: bool
-    requires_tool_calls: bool
     customer_action_description: Optional[str] = None
 
 
@@ -93,6 +102,8 @@ def get_pruned_nodes(
     previous_path: Sequence[str | None],
     max_depth: int,
 ) -> dict[str, _JourneyNode]:
+    # TODO can be implemented in cleaner fashion if we maintain a dictionary of the distance of each node from the previous path / current node
+    # If we encounter any trouble with pruning - we should implement it as such
     if previous_path:
         previous_nodes = set(previous_path[:-1])
         last_executed = previous_path[-1]
@@ -116,7 +127,9 @@ def get_pruned_nodes(
         result.add(current)
 
         # If node run tools, no need to show the steps further.
-        if nodes[current].requires_tool_calls and (not previous_path or current != last_executed):
+        if nodes[current].kind == JourneyNodeKind.TOOL and (
+            not previous_path or current != last_executed
+        ):
             continue
 
         for edge in nodes[current].outgoing_edges:
@@ -146,8 +159,6 @@ def get_pruned_nodes(
 
 
 def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
-    # TODO can be implemented in cleaner fashion if we maintain a dictionary of the distance of each node from the previous path / current node
-    # If we encounter any trouble with pruning - we should implement it as such
     def _get_guideline_node_index(guideline: Guideline) -> str:
         return str(
             cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
@@ -165,20 +176,23 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
     for g in guidelines:
         node_index: str = guideline_id_to_node_index[g.id]
         if node_index not in node_wrappers:
+            kind = JourneyNodeKind(
+                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+            )
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
-                action=g.content.action
-                if cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind") != "fork"
-                else FORK_NODE_ACTION_STR,
+                action=FORK_NODE_ACTION_STR
+                if kind == JourneyNodeKind.FORK
+                else internal_representation(g).action,
                 incoming_edges=[],
                 outgoing_edges=[],
+                kind=kind,
                 customer_dependent_action=cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False),
                 customer_action_description=cast(
                     dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
                 ).get("customer_action", None),
-                requires_tool_calls=cast(bool, g.metadata.get("tool_running_only")),
             )
 
     # Build edges
@@ -322,7 +336,8 @@ TRANSITIONS:
                 else:
                     flags_str += "- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
             if (
-                node.requires_tool_calls and (not previous_path or node.id != previous_path[-1])
+                node.kind == JourneyNodeKind.TOOL
+                and (not previous_path or node.id != previous_path[-1])
             ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading. TODO find a better solution here
                 flags_str += (
                     "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
@@ -380,8 +395,45 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
 
+    def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
+        if self._previous_path and self._previous_path[-1] in self._node_wrappers:
+            last_visited_node = self._node_wrappers[self._previous_path[-1]]
+            if (
+                last_visited_node.kind == JourneyNodeKind.TOOL
+                and len(last_visited_node.outgoing_edges) == 1
+            ):
+                generation_info = GenerationInfo(
+                    schema_name="No inference performed",
+                    model="No inference performed",
+                    duration=0.0,
+                    usage=UsageInfo(
+                        input_tokens=0,
+                        output_tokens=0,
+                        extra={},
+                    ),
+                )
+                if last_visited_node.outgoing_edges[0].target_guideline:
+                    return GuidelineMatchingBatchResult(
+                        matches=[
+                            GuidelineMatch(
+                                guideline=last_visited_node.outgoing_edges[0].target_guideline,
+                                score=10,
+                                rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
+                                guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                            )
+                        ],
+                        generation_info=generation_info,
+                    )
+                else:
+                    return GuidelineMatchingBatchResult(matches=[], generation_info=generation_info)
+        return None
+
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
+        automatic_match = self.auto_return_match()
+        if automatic_match:
+            return automatic_match  # TODO fix this
+
         journey_conditions = list(
             await async_utils.safe_gather(
                 *[
@@ -558,7 +610,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             if (
                 i > 0
                 and advancement.id in self._node_wrappers
-                and self._node_wrappers[advancement.id].requires_tool_calls
+                and self._node_wrappers[advancement.id].kind == JourneyNodeKind.TOOL
             ):
                 break  # Don't continue past tool calling step
 
@@ -838,6 +890,7 @@ example_1_events = [
 example_1_journey_nodes = {
     "1": _JourneyNode(
         id="1",
+        kind=JourneyNodeKind.CHAT,
         action="Ask the customer if they prefer exploring cities or enjoying scenic landscapes.",
         incoming_edges=[],
         outgoing_edges=[
@@ -861,11 +914,11 @@ example_1_journey_nodes = {
             ),
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
         customer_action_description="the customer responded regarding their preference between exploring cities and scenic landscapes",
     ),
     "2": _JourneyNode(
         id="2",
+        kind=JourneyNodeKind.CHAT,
         action="Recommend the capital city of their desired nation",
         incoming_edges=[
             _JourneyEdge(
@@ -877,10 +930,10 @@ example_1_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
     ),
     "3": _JourneyNode(
         id="3",
+        kind=JourneyNodeKind.CHAT,
         action="Recommend the top hiking route of their desired nation",
         incoming_edges=[
             _JourneyEdge(
@@ -892,7 +945,6 @@ example_1_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
     ),
     "4": _JourneyNode(
         id="4",
@@ -907,7 +959,7 @@ example_1_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
 }
 
@@ -960,7 +1012,7 @@ book_taxi_shot_journey_nodes = {
             )
         ],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "2": _JourneyNode(
         id="2",
@@ -989,7 +1041,7 @@ book_taxi_shot_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer provided their pick up location",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "3": _JourneyNode(
         id="3",
@@ -1012,7 +1064,7 @@ book_taxi_shot_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer provided their desired destination",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "4": _JourneyNode(
         id="4",
@@ -1027,7 +1079,7 @@ book_taxi_shot_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "5": _JourneyNode(
         id="5",
@@ -1050,7 +1102,7 @@ book_taxi_shot_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer provided their desired pick up time",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "6": _JourneyNode(
         id="6",
@@ -1072,7 +1124,7 @@ book_taxi_shot_journey_nodes = {
             )
         ],
         customer_dependent_action=False,
-        requires_tool_calls=True,
+        kind=JourneyNodeKind.TOOL,
     ),
     "7": _JourneyNode(
         id="7",
@@ -1101,7 +1153,7 @@ book_taxi_shot_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer specified which payment method they'd like to use'",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "8": _JourneyNode(
         id="8",
@@ -1116,7 +1168,7 @@ book_taxi_shot_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "9": _JourneyNode(
         id="9",
@@ -1131,7 +1183,7 @@ book_taxi_shot_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
 }
 
@@ -1149,7 +1201,7 @@ random_actions_journey_nodes = {
             )
         ],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "2": _JourneyNode(
         id="2",
@@ -1171,7 +1223,7 @@ random_actions_journey_nodes = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
         customer_action_description="the customer directly responded to the agent's request for money",
     ),
     "3": _JourneyNode(
@@ -1187,7 +1239,7 @@ random_actions_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
 }
 
@@ -1394,7 +1446,7 @@ loan_journey_nodes = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
         customer_action_description="the customer provided their full name",
     ),
     "2": _JourneyNode(
@@ -1423,7 +1475,7 @@ loan_journey_nodes = {
             ),
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
         customer_action_description="the customer specified which type of loan they'd like to take",
     ),
     "3": _JourneyNode(
@@ -1446,7 +1498,7 @@ loan_journey_nodes = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
         customer_action_description="the customer provided the desired loan amount",
     ),
     "4": _JourneyNode(
@@ -1470,7 +1522,7 @@ loan_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer provided the desired loan amount",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "5": _JourneyNode(
         id="5",
@@ -1493,7 +1545,7 @@ loan_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer specified their employment status",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "6": _JourneyNode(
         id="6",
@@ -1522,7 +1574,7 @@ loan_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer provided their collateral",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "7": _JourneyNode(
         id="7",
@@ -1545,7 +1597,7 @@ loan_journey_nodes = {
         ],
         customer_dependent_action=True,
         customer_action_description="the customer confirmed the application and its details",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "8": _JourneyNode(
         id="8",
@@ -1561,7 +1613,7 @@ loan_journey_nodes = {
         outgoing_edges=[],
         customer_dependent_action=True,
         customer_action_description="the customer confirmed the application and its details",
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "9": _JourneyNode(
         id="9",
@@ -1582,7 +1634,7 @@ loan_journey_nodes = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
 }
 

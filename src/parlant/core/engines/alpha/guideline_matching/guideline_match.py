@@ -34,7 +34,7 @@ class GuidelineMatch:
     guideline: Guideline
     score: int
     rationale: str
-    guideline_previously_applied: PreviouslyAppliedType = PreviouslyAppliedType.NO
+    guideline_previously_applied: PreviouslyAppliedType = PreviouslyAppliedType.NO  # TODO delete me
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
 
     def __hash__(self) -> int:

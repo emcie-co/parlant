@@ -6,6 +6,7 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
     _JourneyEdge,
     _JourneyNode,
+    JourneyNodeKind,
     build_node_wrappers,
     get_journey_transition_map_text,
 )
@@ -316,7 +317,7 @@ book_hotel_shot_journey_steps = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "2": _JourneyNode(
         id="2",
@@ -338,7 +339,7 @@ book_hotel_shot_journey_steps = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "3": _JourneyNode(
         id="3",
@@ -360,7 +361,7 @@ book_hotel_shot_journey_steps = {
             )
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "4": _JourneyNode(
         id="4",
@@ -388,7 +389,7 @@ book_hotel_shot_journey_steps = {
             ),
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "5": _JourneyNode(
         id="5",
@@ -410,7 +411,7 @@ book_hotel_shot_journey_steps = {
             )
         ],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "6": _JourneyNode(
         id="6",
@@ -425,7 +426,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "7": _JourneyNode(
         id="7",
@@ -453,7 +454,7 @@ book_hotel_shot_journey_steps = {
             ),
         ],
         customer_dependent_action=True,
-        requires_tool_calls=False,
+        kind=JourneyNodeKind.CHAT,
     ),
     "8": _JourneyNode(
         id="8",
@@ -481,7 +482,7 @@ book_hotel_shot_journey_steps = {
             )
         ],
         customer_dependent_action=False,
-        requires_tool_calls=True,
+        kind=JourneyNodeKind.TOOL,
     ),
     "9": _JourneyNode(
         id="9",
@@ -515,7 +516,7 @@ book_hotel_shot_journey_steps = {
             ),
         ],
         customer_dependent_action=False,
-        requires_tool_calls=True,
+        kind=JourneyNodeKind.TOOL,
     ),
     "10": _JourneyNode(
         id="10",
@@ -530,7 +531,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[],
         customer_dependent_action=False,
-        requires_tool_calls=True,
+        kind=JourneyNodeKind.TOOL,
     ),
 }
 
@@ -545,7 +546,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["1"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["1"].action,
+                action=book_hotel_shot_journey_steps["1"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
@@ -554,7 +555,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["2"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["2"].action,
+                action=book_hotel_shot_journey_steps["2"].action or "",
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite.",
                 needs_rewrite=False,
             ),
@@ -563,7 +564,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["3"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["3"].action,
+                action=book_hotel_shot_journey_steps["3"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
@@ -572,7 +573,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["4"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["4"].action,
+                action=book_hotel_shot_journey_steps["4"].action or "",
                 needs_rewrite_rational="The action does not specify what availability to check based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="The availability refers to hotel rooms matching the specified hotel, dates, and number of guests from previous steps.",
@@ -583,7 +584,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["5"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["5"].action,
+                action=book_hotel_shot_journey_steps["5"].action or "",
                 needs_rewrite_rational="The action does not specify what to book based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="The booking refers to the hotel reservation with the specified details from previous steps.",
@@ -594,7 +595,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["6"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["6"].action,
+                action=book_hotel_shot_journey_steps["6"].action or "",
                 needs_rewrite_rational="'it' refers to the fact that the availability check failed. I'ts clear that need to explain that the availability check failed, given the condition",
                 needs_rewrite=False,
             ),
@@ -603,7 +604,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["7"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["7"].action,
+                action=book_hotel_shot_journey_steps["7"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer and why.",
                 needs_rewrite=False,
             ),
@@ -612,7 +613,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["8"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["8"].action,
+                action=book_hotel_shot_journey_steps["8"].action or "",
                 needs_rewrite_rational="The action does not specify what to send based on the condition alone.",
                 needs_rewrite=True,
                 former_reference="Previous step mentions asking for email address to send booking confirmation.",
@@ -623,7 +624,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["9"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["9"].action,
+                action=book_hotel_shot_journey_steps["9"].action or "",
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite",
                 needs_rewrite=False,
             ),
@@ -632,7 +633,7 @@ example_1_shot = RelativeActionShot(
                 conditions=str(
                     [edge.condition for edge in book_hotel_shot_journey_steps["10"].incoming_edges]
                 ),
-                action=book_hotel_shot_journey_steps["10"].action,
+                action=book_hotel_shot_journey_steps["10"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),

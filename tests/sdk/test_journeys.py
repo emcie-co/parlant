@@ -174,7 +174,7 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         )
 
         await self.journey.initial_state.transition_to(
-            conversational_instruction="offer a Pepsi",
+            chat_state="offer a Pepsi",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -200,10 +200,10 @@ class Test_that_journey_transition_and_state_can_be_created_with_transition(SDKT
         )
 
         self.transition_w = await self.journey.initial_state.transition_to(
-            conversational_instruction="check room availability"
+            chat_state="check room availability"
         )
         self.transition_x = await self.transition_w.target.transition_to(
-            conversational_instruction="provide hotel amenities"
+            chat_state="provide hotel amenities"
         )
 
     async def run(self, ctx: Context) -> None:
@@ -238,7 +238,7 @@ class Test_that_journey_state_can_transition_to_a_tool(SDKTest):
 
         self.transition = await self.journey.initial_state.transition_to(
             tool_instruction="check available upgrades",
-            tool=test_tool,
+            tool_state=test_tool,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -264,15 +264,15 @@ class Test_that_journey_state_can_be_transitioned_with_condition(SDKTest):
         )
 
         self.transition_x = await self.journey.initial_state.transition_to(
-            conversational_instruction="ask if the customer wants breakfast"
+            chat_state="ask if the customer wants breakfast"
         )
         self.transition_y = await self.transition_x.target.transition_to(
             condition="if the customer says yes",
-            conversational_instruction="add breakfast to booking",
+            chat_state="add breakfast to booking",
         )
         self.transition_z = await self.transition_x.target.transition_to(
             condition="if the customer says no",
-            conversational_instruction="proceed without breakfast",
+            chat_state="proceed without breakfast",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -327,18 +327,18 @@ class Test_that_if_state_has_more_than_one_transition_they_all_need_to_have_cond
         )
 
         self.transition_ask_breakfast = await self.journey.initial_state.transition_to(
-            conversational_instruction="ask if the customer wants breakfast"
+            chat_state="ask if the customer wants breakfast"
         )
 
         self.transition_add_breakfast = await self.transition_ask_breakfast.target.transition_to(
             condition="if the customer says yes",
-            conversational_instruction="add breakfast to booking",
+            chat_state="add breakfast to booking",
         )
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
             await self.transition_ask_breakfast.target.transition_to(
-                conversational_instruction="proceed without breakfast"
+                chat_state="proceed without breakfast"
             )
 
 
@@ -361,12 +361,12 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
 
         self.transition_check_balance = await self.journey.initial_state.transition_to(
             tool_instruction="check customer account balance",
-            tools=[check_balance],
+            tool_state=[check_balance],
         )
 
         self.transition_offer_discount = await self.transition_check_balance.target.transition_to(
             condition="balance is low",
-            conversational_instruction="offer discount if balance is low",
+            chat_state="offer discount if balance is low",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -424,11 +424,11 @@ class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):
         )
 
         self.transition_1 = await self.journey.initial_state.transition_to(
-            conversational_instruction="Welcome the customer to the Low Cal Calzone Zone",
+            chat_state="Welcome the customer to the Low Cal Calzone Zone",
         )
 
         self.transition_2 = await self.transition_1.target.transition_to(
-            conversational_instruction="Ask them how many they want",
+            chat_state="Ask them how many they want",
         )
 
     async def run(self, ctx: Context) -> None:

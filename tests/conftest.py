@@ -96,7 +96,7 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceDraftSchema,
     UtteranceFieldExtractionSchema,
     UtteranceFieldExtractor,
-    UtteranceFluidPreambleSchema,
+    UtterancePreambleSchema,
     UtteranceSelector,
     UtteranceSelectionSchema,
     UtteranceRevisionSchema,
@@ -451,7 +451,7 @@ async def container(
             MessageSchema,
             UtteranceDraftSchema,
             UtteranceSelectionSchema,
-            UtteranceFluidPreambleSchema,
+            UtterancePreambleSchema,
             UtteranceRevisionSchema,
             UtteranceFieldExtractionSchema,
             single_tool_batch.SingleToolBatchSchema,
@@ -647,12 +647,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[UtteranceFluidPreambleSchema]],
+        container[SchematicGenerator[UtterancePreambleSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[UtteranceFluidPreambleSchema],
-            container[SchematicGenerator[UtteranceFluidPreambleSchema]],
+            CachedSchematicGenerator[UtterancePreambleSchema],
+            container[SchematicGenerator[UtterancePreambleSchema]],
         ).use_cache = False
 
     if isinstance(

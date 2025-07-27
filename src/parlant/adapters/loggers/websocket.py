@@ -66,8 +66,6 @@ class WebSocketLogger(CorrelationalLogger):
 
     @override
     def trace(self, message: str) -> None:
-        if self.log_level > LogLevel.TRACE:
-            return
         self._enqueue_message("TRACE", f"{self.current_scope} {message}")
 
     @override

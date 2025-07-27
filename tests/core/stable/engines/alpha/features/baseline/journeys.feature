@@ -1,11 +1,11 @@
 Feature: Journeys
     Background:
         Given the alpha engine
-        And an agent
         And an empty session
 
     Scenario: Multistep journey is partially followed 1
-        Given the journey called "Reset Password Journey"
+        Given an agent
+        And the journey called "Reset Password Journey"
         And a customer message, "I want to reset my password"
         When processing is triggered
         Then no tool calls event is emitted
@@ -13,7 +13,8 @@ Feature: Journeys
         And the message contains asking the customer for their username, but not for their email or phone number
 
     Scenario: Irrelevant journey is ignored
-        Given the journey called "Reset Password Journey"
+        Given an agent
+        And the journey called "Reset Password Journey"
         And a customer message, "What are some tips I could use to come up with a strong password?"
         When processing is triggered
         Then no tool calls event is emitted
@@ -21,7 +22,8 @@ Feature: Journeys
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2
-        Given the journey called "Reset Password Journey"
+        Given an agent
+        And the journey called "Reset Password Journey"
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
         And a customer message, "it's leonardo_barbosa_1982"
@@ -33,7 +35,8 @@ Feature: Journeys
         And the message contains nothing about wishing the customer a good day
 
     Scenario: Multistep journey is aborted when the journey description requires so
-        Given the journey called "Reset Password Journey"
+        Given an agent
+        And the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
@@ -48,7 +51,8 @@ Feature: Journeys
         And the message contains an answer indicating that the password cannot be reset at this time, or has otherwise failed to reset
     
     Scenario: Two journeys are used in unison
-        Given the journey called "Book Flight"
+        Given an agent
+        And the journey called "Book Flight"
         And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey
         And a dependency relationship between the guideline "skip steps" and the "Book Flight" journey
         And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
@@ -63,7 +67,8 @@ Feature: Journeys
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
     Scenario: Journey returns to earlier step when the conversation justifies doing so (1)
-        Given the journey called "Book Taxi Ride"
+        Given an agent
+        And the journey called "Book Taxi Ride"
         And a journey path "[2, 3, 4]" for the journey "Book Taxi Ride"
         And a customer message, "Hi, I'd like to book a taxi for myself"
         And an agent message, "Great! What's your pickup location?"
@@ -77,7 +82,8 @@ Feature: Journeys
         And the message contains asking the customer for the drop-off location
 
     Scenario: Journey returns to earlier step when the conversation justifies doing so (2)
-        Given the journey called "Place Food Order"
+        Given an agent
+        And the journey called "Place Food Order"
         And a journey path "[2, 3, 5]" for the journey "Place Food Order"
         And a customer message, "Hey, I'd like to make an order"
         And an agent message, "Great! What would you like to order? We have either a salad or a sandwich."
@@ -91,7 +97,8 @@ Feature: Journeys
         And the message contains asking asking what green base the customer wants for their salad 
 
     Scenario: Dependent guidelines on journey are getting matched when journey is activated
-        Given the journey called "Book Flight"
+        Given an agent
+        And the journey called "Book Flight"
         And a guideline "under 21" to inform the customer that only economy class is available when a customer wants to book a flight and the traveler is under 21
         And a guideline "21 or older" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
         And a dependency relationship between the guideline "under 21" and the "Book Flight" journey
@@ -101,8 +108,9 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains informing the customer that only economy class is available  
 
-    Scenario: Multistep journey invokes tool calls correctly 
-        Given the journey called "Reset Password Journey"
+    Scenario: Multistep journey invokes tool calls correctly
+        Given an agent 
+        And the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a customer message, "I want to reset my password"
         And an agent message, "I can help you do just that. What's your username?"
@@ -119,7 +127,8 @@ Feature: Journeys
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
     Scenario: Journey reconfirms previously provided details
-        Given the journey called "Request Loan Journey"
+        Given an agent
+        And the journey called "Request Loan Journey"
         And a journey path "[2]" for the journey "Request Loan Journey"
         And a customer message, "Hi there, i need a loan for 15k for a pizza restaurant and my account is 1234"
         And an agent message, "Got it!"
@@ -135,7 +144,8 @@ Feature: Journeys
 
 
     Scenario: Dependent guidelines on journey are getting matched when journey is activated
-        Given the journey called "Book Flight"
+        Given an agent
+        And the journey called "Book Flight"
         And a guideline "under 21" to inform the customer that only economy class is available when a customer wants to book a flight and the traveler is under 21
         And a guideline "21 or older" to tell te customer they may choose between economy and business class when a customer wants to book a flight and the traveler is 21 or older
         And a dependency relationship between the guideline "under 21" and the "Book Flight" journey
@@ -146,14 +156,16 @@ Feature: Journeys
         And the message contains informing the customer that only economy class is available  
 
     Scenario: Multiple step advancement of a journey stopped by lacking info
-        Given the journey called "Book Flight"
+        Given an agent
+        And the journey called "Book Flight"
         And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. Our flight is on the 12.10 and we wish to return on the 17.10."  
         When processing is triggered
         Then a single message event is emitted
         And the message contains asking what is the destination 
 
     Scenario: Previously answered journey steps are skipped 
-        Given the journey called "Book Flight"
+        Given an agent
+        And the journey called "Book Flight"
         And a customer message, "Hi, my name is John Smith and I'd like to book a flight for myself from Ben Gurion airport. We flight in the 12.10 and return in the 17.10."
         And an agent message, "Hi John, thanks for reaching out! I see you're planning to fly from Ben Gurion airport. Could you please let me know your destination airport?"
         And a customer message, "Suvarnabhumi Airport, please"
@@ -162,8 +174,9 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains asking whether they want economy or business class
 
-    Scenario: Two consecutive steps with tools are running one after the other
-        Given the journey called "Change Credit Limits"
+    Scenario: Two consecutive journey steps with tools are running one after the other
+        Given an agent with max iteration of 3
+        And the journey called "Change Credit Limits"
         And a customer message, "Hi I see that my credit limit is low. Can I change it?"
         And an agent message, "Sure, I can help with that. Can you please provide your account name?"
         And a customer message, "Yes, it's Alice"
@@ -173,11 +186,12 @@ Feature: Journeys
         And a customer message, "Yes that's good thanks"
         And a journey path "[2, 3, 4]" for the journey "Change Credit Limits"
         When processing is triggered
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the message contains informing that the change succeed
 
     Scenario: Agent starts a new journey after finishing the previous one and receiving a new customer request.
-        Given the journey called "Change Credit Limits"
+        Given an agent
+        And the journey called "Change Credit Limits"
         And the journey called "Reset Password Journey"
         And a customer message, "Hi I see that my credit limit is low. Can I change it?"
         And an agent message, "Sure, I can help with that. Can you please provide your account name?"

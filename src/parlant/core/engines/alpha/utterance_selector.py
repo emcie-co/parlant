@@ -91,7 +91,7 @@ class UtteranceSelectionSchema(DefaultBaseModel):
     match_quality: Optional[str] = None
 
 
-class UtteranceFluidPreambleSchema(DefaultBaseModel):
+class UtterancePreambleSchema(DefaultBaseModel):
     preamble: str
 
 
@@ -432,7 +432,7 @@ class UtteranceSelector(MessageEventComposer):
         utterance_draft_generator: SchematicGenerator[UtteranceDraftSchema],
         utterance_selection_generator: SchematicGenerator[UtteranceSelectionSchema],
         utterance_composition_generator: SchematicGenerator[UtteranceRevisionSchema],
-        utterance_fluid_preamble_generator: SchematicGenerator[UtteranceFluidPreambleSchema],
+        utterance_preamble_generator: SchematicGenerator[UtterancePreambleSchema],
         perceived_performance_policy: PerceivedPerformancePolicy,
         utterance_store: UtteranceStore,
         field_extractor: UtteranceFieldExtractor,
@@ -445,7 +445,7 @@ class UtteranceSelector(MessageEventComposer):
         self._utterance_draft_generator = utterance_draft_generator
         self._utterance_selection_generator = utterance_selection_generator
         self._utterance_composition_generator = utterance_composition_generator
-        self._utterance_fluid_preamble_generator = utterance_fluid_preamble_generator
+        self._utterance_preamble_generator = utterance_preamble_generator
         self._utterance_store = utterance_store
         self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
@@ -610,7 +610,7 @@ You will now be given the current state of the interaction to which you must gen
             },
         )
 
-        response = await self._utterance_fluid_preamble_generator.generate(
+        response = await self._utterance_preamble_generator.generate(
             prompt=prompt_builder, hints={"temperature": 0.1}
         )
 

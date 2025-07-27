@@ -23,9 +23,16 @@ import enum
 from hashlib import md5
 import importlib.util
 from pathlib import Path
-from rich.progress import BarColumn, Progress, TaskProgressColumn, TimeElapsedColumn, TaskID
+from rich.console import Group
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+    TaskID,
+    TextColumn,
+)
 from rich.live import Live
-from rich.columns import Columns
 from types import TracebackType
 from typing import (
     Any,
@@ -1024,6 +1031,8 @@ class Journey:
         source: JourneyState,
         target: TState,
     ) -> JourneyTransition[TState]:
+        self._server._advance_creation_progress()
+
         if target is not None and target.id != END_JOURNEY.id:
             target_tool_ids = {
                 t.tool.name: ToolId(
@@ -1060,6 +1069,8 @@ class Journey:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
     ) -> Guideline:
+        self._server._advance_creation_progress()
+
         tool_ids = [
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
@@ -1149,6 +1160,8 @@ class Journey:
         tags: list[TagId] = [],
         queries: list[str] = [],
     ) -> UtteranceId:
+        self._server._advance_creation_progress()
+
         utterance = await self._container[UtteranceStore].create_utterance(
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
@@ -1296,6 +1309,8 @@ class Agent:
         description: str,
         conditions: list[str | Guideline],
     ) -> Journey:
+        self._server._advance_creation_progress()
+
         journey = await self._server.create_journey(title, description, conditions)
 
         await self.attach_journey(journey)
@@ -1326,6 +1341,8 @@ class Agent:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
     ) -> Guideline:
+        self._server._advance_creation_progress()
+
         tool_ids = [
             ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
         ]
@@ -1398,6 +1415,8 @@ class Agent:
         tags: list[TagId] = [],
         queries: list[str] = [],
     ) -> UtteranceId:
+        self._server._advance_creation_progress()
+
         utterance = await self._container[UtteranceStore].create_utterance(
             value=template,
             tags=[_Tag.for_agent_id(self.id), *tags],
@@ -1413,6 +1432,8 @@ class Agent:
         description: str,
         queries: Sequence[str] | None = None,
     ) -> Capability:
+        self._server._advance_creation_progress()
+
         capability = await self._container[CapabilityStore].create_capability(
             title=title,
             description=description,
@@ -1434,6 +1455,8 @@ class Agent:
         description: str,
         synonyms: Sequence[str] = [],
     ) -> Term:
+        self._server._advance_creation_progress()
+
         term = await self._container[GlossaryStore].create_term(
             name=name,
             description=description,
@@ -1456,6 +1479,8 @@ class Agent:
         tool: ToolEntry | None = None,
         freshness_rules: str | None = None,
     ) -> Variable:
+        self._server._advance_creation_progress()
+
         variable = await self._container[ContextVariableStore].create_variable(
             name=name,
             description=description,
@@ -1614,9 +1639,35 @@ class Server:
             JourneyId, Coroutine[Any, Any, _CachedEvaluator.JourneyEvaluation]
         ] = {}
 
+        self._creation_progress: Progress | None = Progress(
+            TextColumn("{task.description}"),
+            BarColumn(pulse_style="bold green"),
+            TimeElapsedColumn(),
+        )
+        self._creation_progress_k = 0
+        self._creation_progress_task_id: TaskID
+
+    def _advance_creation_progress(self) -> None:
+        if self._creation_progress is None:
+            return
+
+        self._creation_progress_k += 1
+
+        self._creation_progress.update(
+            self._creation_progress_task_id,
+            description=f"Caching entity embeddings ({self._creation_progress_k})",
+        )
+
     async def __aenter__(self) -> Server:
         self._startup_context_manager = start_parlant(self._get_startup_params())
         self._container = await self._startup_context_manager.__aenter__()
+
+        assert self._creation_progress
+        self._creation_progress = self._creation_progress.__enter__()
+        self._creation_progress_task_id = self._creation_progress.add_task(
+            "Caching entity embeddings", total=None
+        )
+
         return self
 
     async def __aexit__(
@@ -1625,6 +1676,10 @@ class Server:
         exc_value: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
+        assert self._creation_progress
+        self._creation_progress.__exit__(None, None, None)
+        self._creation_progress = None
+
         await self._process_evaluations()
         await self._setup_retrievers()
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
@@ -1760,7 +1815,7 @@ class Server:
                 transient=True,
             )
 
-            with Live(Columns([overall_progress, entity_progress]), refresh_per_second=10):
+            with Live(Group(overall_progress, entity_progress), refresh_per_second=10):
                 bar_id: dict[str, int] = {}
 
                 for t in tasks:
@@ -1773,11 +1828,11 @@ class Server:
                     ](entity_id)
 
                     bar_id[entity_id] = entity_progress.add_task(
-                        description,
+                        description[:50],
                         total=100,
                     )
 
-                overall = overall_progress.add_task("Evaluating Entities", total=100)
+                overall = overall_progress.add_task("Evaluating entities", total=100)
 
                 gather = asyncio.create_task(async_utils.safe_gather(*tasks))
 
@@ -2018,6 +2073,8 @@ class Server:
                 await setup_retriever(self._container, agent, retriever_id, retriever)
 
     async def create_tag(self, name: str) -> Tag:
+        self._advance_creation_progress()
+
         tag = await self._container[TagStore].create_tag(name=name)
 
         return Tag(
@@ -2033,6 +2090,8 @@ class Server:
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
     ) -> Agent:
+        self._advance_creation_progress()
+
         agent = await self._container[AgentStore].create_agent(
             name=name,
             description=description,
@@ -2096,6 +2155,8 @@ class Server:
         metadata: Mapping[str, str] = {},
         tags: Sequence[TagId] = [],
     ) -> Customer:
+        self._advance_creation_progress()
+
         customer = await self._container[CustomerStore].create_customer(
             name=name,
             extra=metadata,
@@ -2176,6 +2237,8 @@ class Server:
         conditions: list[str | Guideline],
         tags: Sequence[TagId] = [],
     ) -> Journey:
+        self._advance_creation_progress()
+
         condition_guidelines = [c for c in conditions if isinstance(c, Guideline)]
 
         str_conditions = [c for c in conditions if isinstance(c, str)]

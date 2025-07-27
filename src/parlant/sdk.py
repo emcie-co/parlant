@@ -708,7 +708,6 @@ class JourneyState:
                 condition=None,
                 state=None,
                 action=None,
-                tool=None,
                 tools=[],
                 fork=True,
             ),
@@ -720,7 +719,6 @@ class JourneyState:
         condition: str | None = None,
         state: TState | None = None,
         action: str | None = None,
-        tool: ToolEntry | None = None,
         tools: Sequence[ToolEntry] = [],
         fork: bool = False,
     ) -> JourneyTransition[JourneyState]:
@@ -729,20 +727,17 @@ class JourneyState:
 
         actual_state: JourneyState | None = None
 
-        if tool and tools:
-            raise SDKError("Cannot specify both a single tool and multiple tools.")
-
         if state is not None:
             actual_state = state
-        elif tool or tools:
+        elif tools:
             actual_state = await self._journey._create_state(
                 ToolJourneyState,
                 action=action,
-                tools=tools or [cast(ToolEntry, tool)],
+                tools=tools,
             )
         elif action:
             actual_state = await self._journey._create_state(
-                ConversationalJourneyState,
+                ChatJourneyState,
                 action=action,
                 tools=[],
             )
@@ -793,8 +788,8 @@ class InitialJourneyState(JourneyState):
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str,
-    ) -> JourneyTransition[ConversationalJourneyState]: ...
+        chat_state: str,
+    ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
     async def transition_to(
@@ -802,7 +797,7 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool: ToolEntry,
+        tool_state: ToolEntry,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -811,25 +806,23 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tools: Sequence[ToolEntry],
+        tool_state: Sequence[ToolEntry],
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str | None = None,
+        chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool: ToolEntry | None = None,
-        tools: Sequence[ToolEntry] = [],
+        tool_state: ToolEntry | Sequence[ToolEntry] = [],
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
             state=state,
-            action=conversational_instruction or tool_instruction,
-            tool=tool,
-            tools=tools,
+            action=chat_state or tool_instruction,
+            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
         )
 
 
@@ -847,27 +840,27 @@ class ToolJourneyState(JourneyState):
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str,
-    ) -> JourneyTransition[ConversationalJourneyState]: ...
+        chat_state: str,
+    ) -> JourneyTransition[ChatJourneyState]: ...
 
     async def transition_to(
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str | None = None,
+        chat_state: str | None = None,
         state: TState | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
             state=state,
-            action=conversational_instruction,
+            action=chat_state,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
         return await super()._fork()
 
 
-class ConversationalJourneyState(JourneyState):
+class ChatJourneyState(JourneyState):
     @overload
     async def transition_to(
         self,
@@ -881,8 +874,8 @@ class ConversationalJourneyState(JourneyState):
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str,
-    ) -> JourneyTransition[ConversationalJourneyState]: ...
+        chat_state: str,
+    ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
     async def transition_to(
@@ -890,7 +883,7 @@ class ConversationalJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool: ToolEntry,
+        tool_state: ToolEntry,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -899,25 +892,23 @@ class ConversationalJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tools: Sequence[ToolEntry],
+        tool_state: Sequence[ToolEntry],
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
         self,
         *,
         condition: str | None = None,
-        conversational_instruction: str | None = None,
+        chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool: ToolEntry | None = None,
-        tools: Sequence[ToolEntry] = [],
+        tool_state: ToolEntry | Sequence[ToolEntry] = [],
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
             state=state,
-            action=conversational_instruction or tool_instruction,
-            tool=tool,
-            tools=tools,
+            action=chat_state or tool_instruction,
+            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -938,8 +929,8 @@ class ForkJourneyState(JourneyState):
         self,
         *,
         condition: str,
-        conversational_instruction: str,
-    ) -> JourneyTransition[ConversationalJourneyState]: ...
+        chat_state: str,
+    ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
     async def transition_to(
@@ -947,7 +938,7 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         tool_instruction: str | None = None,
-        tool: ToolEntry,
+        tool_state: ToolEntry,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -956,25 +947,23 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         tool_instruction: str | None = None,
-        tools: Sequence[ToolEntry],
+        tool_state: Sequence[ToolEntry],
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
         self,
         *,
         condition: str,
-        conversational_instruction: str | None = None,
+        chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool: ToolEntry | None = None,
-        tools: Sequence[ToolEntry] = [],
+        tool_state: ToolEntry | Sequence[ToolEntry] = [],
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
             state=state,
-            action=conversational_instruction or tool_instruction,
-            tool=tool,
-            tools=tools,
+            action=chat_state or tool_instruction,
+            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
         )
 
 

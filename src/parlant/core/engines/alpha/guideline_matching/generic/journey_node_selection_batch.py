@@ -1,3 +1,4 @@
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -40,6 +41,7 @@ SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
 FORK_NODE_ACTION_STR = (
     "No action necessary - always advance to the next step based on the relevant transition"
 )
+LAST_PRESENTED_NODE_INSTRUCTION = "Do not advance past this step"
 
 
 @dataclass
@@ -86,7 +88,66 @@ class JourneyNodeSelectionShot(Shot):
     conditions: Sequence[str]
 
 
+def get_pruned_nodes(
+    nodes: dict[str, _JourneyNode],
+    previous_path: Sequence[str | None],
+    max_depth: int,
+) -> dict[str, _JourneyNode]:
+    if previous_path:
+        previous_nodes = set(previous_path[:-1])
+        last_executed = previous_path[-1]
+    else:
+        previous_nodes = set()
+        last_executed = "1"
+
+    visited: set[str | None] = set()
+    result: set[str | None] = set()
+
+    queue = deque([(last_executed, 0)])
+    while queue:
+        current, depth = queue.popleft()
+        if not current:
+            continue
+
+        if depth > max_depth or current in visited:
+            continue
+
+        visited.add(current)
+        result.add(current)
+
+        # If node run tools, no need to show the steps further.
+        if nodes[current].requires_tool_calls and (not previous_path or current != last_executed):
+            continue
+
+        for edge in nodes[current].outgoing_edges:
+            neighbor = edge.target_node_index
+            queue.append((neighbor, depth + 1))
+
+    for prev_node in previous_nodes:
+        visited = set()
+        queue.append((prev_node, 0))
+        while queue:
+            current, depth = queue.popleft()
+            if not current:
+                continue
+
+            if depth > max_depth or current in visited:
+                continue
+
+            visited.add(current)
+            result.add(current)
+
+            for edge in nodes[current].outgoing_edges:
+                neighbor = edge.target_node_index
+                queue.append((neighbor, depth + 1))
+
+    pruned_nodes = {idx: nodes[idx] for idx in result if idx}
+    return pruned_nodes
+
+
 def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
+    # TODO can be implemented in cleaner fashion if we maintain a dictionary of the distance of each node from the previous path / current node
+    # If we encounter any trouble with pruning - we should implement it as such
     def _get_guideline_node_index(guideline: Guideline) -> str:
         return str(
             cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
@@ -168,6 +229,8 @@ def get_journey_transition_map_text(
     journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
     print_customer_action_description: bool = False,
+    to_prune: bool = False,
+    max_depth: int = 5,
 ) -> str:
     def node_sort_key(node_index: str) -> Any:
         try:
@@ -180,22 +243,42 @@ def get_journey_transition_map_text(
         if len(node.outgoing_edges) == 0:
             result = f"""↳ If "this step is completed",  → {EXIT_JOURNEY_INSTRUCTION}"""
         elif len(node.outgoing_edges) == 1:
-            followup_instruction = (
-                f"Go to step {node.outgoing_edges[0].target_node_index}"
-                if node.outgoing_edges[0].target_node_index in nodes
-                and nodes[node.outgoing_edges[0].target_node_index].action
-                else EXIT_JOURNEY_INSTRUCTION
-            )
-            result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
+            if to_prune and nodes[node.outgoing_edges[0].target_node_index].action:
+                result = LAST_PRESENTED_NODE_INSTRUCTION
+            else:
+                followup_instruction = (
+                    f"Go to step {node.outgoing_edges[0].target_node_index}"
+                    if (
+                        node.outgoing_edges[0].target_node_index in nodes
+                        and nodes[node.outgoing_edges[0].target_node_index].action
+                    )
+                    else EXIT_JOURNEY_INSTRUCTION
+                )
+                result = f"""↳ If "{node.outgoing_edges[0].condition or SINGLE_FOLLOW_UP_CONDITION_STR}" → {followup_instruction}"""
         else:
-            result = "\n".join(
-                [
-                    f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
-                and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
-                    for e in node.outgoing_edges
-                ]
-            )
+            if to_prune and any(
+                e.target_node_index not in unpruned_nodes for e in node.outgoing_edges
+            ):
+                result = LAST_PRESENTED_NODE_INSTRUCTION
+            else:
+                result = "\n".join(
+                    [
+                        f"""↳ If "{e.condition or ELSE_CONDITION_STR}" → {f'Go to step {e.target_node_index}' if e.target_node_index in nodes
+                    and nodes[e.target_node_index].action else EXIT_JOURNEY_INSTRUCTION}"""
+                        for e in node.outgoing_edges
+                    ]
+                )
         return result
+
+    unpruned_nodes = (
+        get_pruned_nodes(
+            nodes,
+            previous_path,
+            max_depth,
+        )
+        if to_prune
+        else nodes
+    )
 
     if journey_conditions:
         journey_conditions_str = " OR ".join(f'"{g.content.condition}"' for g in journey_conditions)
@@ -205,7 +288,7 @@ def get_journey_transition_map_text(
 
     first_node_to_execute: str | None = None
     nodes_str = ""
-    for node_index in sorted(nodes.keys(), key=node_sort_key):
+    for node_index in sorted(unpruned_nodes.keys(), key=node_sort_key):
         node: _JourneyNode = nodes[node_index]
         if (
             node.id == ROOT_INDEX

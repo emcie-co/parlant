@@ -1012,16 +1012,6 @@ class BehavioralChangeEvaluator:
         progress_report = ProgressReport(_update_progress)
 
         try:
-            if running_task := next(
-                iter(
-                    e
-                    for e in await self._evaluation_store.list_evaluations()
-                    if e.status == EvaluationStatus.RUNNING and e.id != evaluation.id
-                ),
-                None,
-            ):
-                raise EvaluationError(f"An evaluation task '{running_task.id}' is already running.")
-
             await self._evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={"status": EvaluationStatus.RUNNING},

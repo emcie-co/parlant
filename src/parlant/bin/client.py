@@ -2976,7 +2976,7 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def _render_canned_responses(canned_responses: list[CannedResponse]) -> None:
+    def _render_can_reps(can_reps: list[CannedResponse]) -> None:
         canned_response_items = [
             {
                 "ID": f.id,
@@ -2989,7 +2989,7 @@ class Interface:
                 "Tags": ", ".join(f.tags),
                 "Creation Date": reformat_datetime(f.creation_utc),
             }
-            for f in canned_responses
+            for f in can_reps
         ]
 
         Interface._print_table(canned_response_items)
@@ -3000,7 +3000,7 @@ class Interface:
             canned_responses = Actions.load_canned_responses(ctx, path)
 
             Interface._write_success(f"Loaded {len(canned_responses)} canned_responses from {path}")
-            Interface._render_canned_responses(canned_responses)
+            Interface._render_can_reps(canned_responses)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -3008,12 +3008,12 @@ class Interface:
     @staticmethod
     def list_canned_responses(ctx: click.Context) -> None:
         try:
-            canned_responses = Actions.list_canned_responses(ctx)
-            if not canned_responses:
+            can_reps = Actions.list_canned_responses(ctx)
+            if not can_reps:
                 rich.print("No canned responses found")
                 return
 
-            Interface._render_canned_responses(canned_responses)
+            Interface._render_can_reps(can_reps)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -3024,7 +3024,7 @@ class Interface:
             canned_response = Actions.view_canned_response(
                 ctx, canned_response_id=canned_response_id
             )
-            Interface._render_canned_responses([canned_response])
+            Interface._render_can_reps([canned_response])
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)

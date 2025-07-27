@@ -642,7 +642,7 @@ async def initialize_container(
             (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
             (CannedResponseStore, CannedResponseVectorStore, "canned_responses.json"),
             (JourneyStore, JourneyVectorStore, "journey_associations.json"),
-            (CapabilityStore, CapabilityVectorStore, "capability_tags.json"),
+            (CapabilityStore, CapabilityVectorStore, "capabilities.json"),
         ]:
             await try_define_vector_store(
                 store_type,

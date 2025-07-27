@@ -357,48 +357,48 @@ class CannedResponseVectorStore(CannedResponseStore):
 
     def _serialize_can_rep(
         self,
-        response: CannedResponse,
+        can_rep: CannedResponse,
     ) -> CannedResponseDocument:
         return CannedResponseDocument(
-            id=ObjectId(response.id),
+            id=ObjectId(can_rep.id),
             version=self.VERSION.to_string(),
-            creation_utc=response.creation_utc.isoformat(),
-            value=response.value,
+            creation_utc=can_rep.creation_utc.isoformat(),
+            value=can_rep.value,
             fields=json.dumps(
                 [
                     {"name": s.name, "description": s.description, "examples": s.examples}
-                    for s in response.fields
+                    for s in can_rep.fields
                 ]
             ),
-            signals=response.signals,
+            signals=can_rep.signals,
         )
 
     async def _deserialize_can_rep(
-        self, response_document: CannedResponseDocument
+        self, can_rep_document: CannedResponseDocument
     ) -> CannedResponse:
         tags = [
             doc["tag_id"]
             for doc in await self._response_tag_association_collection.find(
-                {"can_rep_id": {"$eq": response_document["id"]}}
+                {"can_rep_id": {"$eq": can_rep_document["id"]}}
             )
         ]
 
         return CannedResponse(
-            id=CannedResponseId(response_document["id"]),
-            creation_utc=datetime.fromisoformat(response_document["creation_utc"]),
-            value=response_document["value"],
+            id=CannedResponseId(can_rep_document["id"]),
+            creation_utc=datetime.fromisoformat(can_rep_document["creation_utc"]),
+            value=can_rep_document["value"],
             fields=[
                 CannedResponseField(
                     name=d["name"], description=d["description"], examples=d["examples"]
                 )
-                for d in json.loads(response_document["fields"])
+                for d in json.loads(can_rep_document["fields"])
             ],
             tags=tags,
-            signals=response_document["signals"],
+            signals=can_rep_document["signals"],
         )
 
-    def _list_can_rep_contents(self, response: CannedResponse) -> list[str]:
-        return [response.value, *response.signals]
+    def _list_can_rep_contents(self, can_rep: CannedResponse) -> list[str]:
+        return [can_rep.value, *can_rep.signals]
 
     async def _insert_can_rep(self, response: CannedResponse) -> CannedResponseDocument:
         insertion_tasks = []

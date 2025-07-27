@@ -1670,19 +1670,19 @@ class Server:
     async def _render_guideline(self, guideline_id: GuidelineId) -> str:
         guideline = await self._container[GuidelineStore].read_guideline(guideline_id)
 
-        return f"Guideline Evaluation: Condition: {guideline.content.condition}" + (
-            f", Action: {guideline.content.action }" if guideline.content.action else ""
+        return f"When {guideline.content.condition}" + (
+            f", then {guideline.content.action }" if guideline.content.action else ""
         )
 
     async def _render_state(self, state_id: JourneyStateId) -> str:
         state = await self._container[JourneyStore].read_node(state_id)
 
-        return f"State Evaluation: {state.action}"
+        return f"State: {state.action}"
 
     async def _render_journey(self, journey_id: JourneyId) -> str:
         journey = await self._container[JourneyStore].read_journey(journey_id)
 
-        return f"Journey Evaluation: {journey.title}"
+        return f"Journey: {journey.title}"
 
     async def _process_evaluations(self) -> None:
         _render_functions: dict[
@@ -1777,7 +1777,7 @@ class Server:
                         total=100,
                     )
 
-                overall = overall_progress.add_task("Overall Evaluation Progress", total=100)
+                overall = overall_progress.add_task("Evaluating Entities", total=100)
 
                 gather = asyncio.create_task(async_utils.safe_gather(*tasks))
 

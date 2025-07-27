@@ -226,7 +226,7 @@ Feature: Journeys
         And the node "do_reset" uses the tool "reset_password"
         And the node "do_reset" is tool running only
         And a transition from "good_day" to "do_reset" when the customer wished you a good day in return in "reset_password" journey
-        And a node "cant_reset" apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
+        And a node "cant_reset" to apologize to the customer and report that the password cannot be reset at this time in "reset_password" journey
         And a transition from "good_day" to "cant_reset" when the customer did not immediately wish you a good day in return in "reset_password" journey
         And a transition from "cant_reset" to end in "reset_password" journey
         And a node "reset_succeed" to report the result to the customer in "reset_password" journey

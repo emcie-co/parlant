@@ -742,6 +742,22 @@ class JourneyState:
                 action=action,
                 tools=tools,
             )
+
+            [
+                await self._journey._container[RelationshipStore].create_relationship(
+                    source=RelationshipEntity(
+                        id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                        kind=RelationshipEntityKind.TOOL,
+                    ),
+                    target=RelationshipEntity(
+                        id=_Tag.for_journey_node_id(actual_state.id),
+                        kind=RelationshipEntityKind.TAG,
+                    ),
+                    kind=RelationshipKind.REEVALUATION,
+                )
+                for t in tools
+            ]
+
         elif action:
             actual_state = await self._journey._create_state(
                 ChatJourneyState,
@@ -1000,6 +1016,12 @@ class Journey:
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
     ) -> TState:
+        metadata_type = {
+            ForkJourneyState: "fork",
+            ToolJourneyState: "tool",
+            ChatJourneyState: "chat",
+        }[state_type]
+
         for t in list(tools):
             await self._server._plugin_server.enable_tool(t)
 
@@ -1012,10 +1034,11 @@ class Journey:
             ],
         )
 
-        if state_type == ForkJourneyState:
-            node = await self._container[JourneyStore].set_node_metadata(
-                node.id, "journey_node_type", "fork"
-            )
+        node = await self._container[JourneyStore].set_node_metadata(
+            node_id=node.id,
+            key="journey_node",
+            value={"kind": metadata_type},
+        )
 
         return state_type(
             id=node.id,
@@ -1905,31 +1928,6 @@ class Server:
                         key=key,
                         value=value,
                     )
-
-                # Set metadata for the node.
-                # The evaluated properties—`tool_running_only`, `customer_dependent_action`, and `action_proposition`
-                # are all tied to the node's action, so they are stored in the node metadata rather than in the edge.
-                #
-                # The evaluation is performed during edge creation for two reasons:
-                # 1. Prior to this point, the node is not yet connected to the graph and thus isn't relevant for evaluation.
-                # 2. The edge's condition provides important context for understanding the action during evaluation.
-                #
-                # We assume that evaluations between multiple edges pointing to the same node should not differ.
-                # Therefore, we safely override the target node's metadata with the evaluated properties.
-
-                if "tool_running_only" in properties and properties["tool_running_only"]:
-                    for tool_id in node.tools:
-                        await self._container[RelationshipStore].create_relationship(
-                            source=RelationshipEntity(
-                                id=tool_id,
-                                kind=RelationshipEntityKind.TOOL,
-                            ),
-                            target=RelationshipEntity(
-                                id=_Tag.for_journey_node_id(node.id),
-                                kind=RelationshipEntityKind.TAG,
-                            ),
-                            kind=RelationshipKind.REEVALUATION,
-                        )
 
             elif entity_type == "journey":
                 for node_id, properties in cast(

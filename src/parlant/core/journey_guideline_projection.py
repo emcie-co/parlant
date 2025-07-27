@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Optional, Sequence, cast
+from parlant.core.common import JSONSerializable
 from parlant.core.guidelines import Guideline, GuidelineStore, GuidelineContent, GuidelineId
 from parlant.core.journeys import (
     JourneyEdge,
@@ -74,6 +75,34 @@ class JourneyGuidelineProjection:
                 index += 1
                 node_indexes[node.id] = index
 
+            base_journey_node = {
+                "follow_ups": [],
+                "index": str(node_indexes[node.id]),
+                "journey_id": journey_id,
+            }
+
+            # Extract nested journey_node metadata from edge and node
+            edge_journey_node = (
+                edge.metadata.get("journey_node")
+                if edge and "journey_node" in edge.metadata
+                else {}
+            ) or {}
+            node_journey_node = node.metadata.get("journey_node", {}) or {}
+
+            # Merge nested journey_node data
+            merged_journey_node = {
+                **base_journey_node,
+                **cast(dict[str, JSONSerializable], node_journey_node),
+                **cast(dict[str, JSONSerializable], edge_journey_node),
+            }
+
+            # Merge top-level metadata
+            metadata = {
+                "journey_node": merged_journey_node,
+                **{k: v for k, v in node.metadata.items() if k != "journey_node"},
+                **({k: v for k, v in edge.metadata.items() if k != "journey_node"} if edge else {}),
+            }
+
             return Guideline(
                 id=format_journey_node_guideline_id(journey_id, node.id, edge.id if edge else None),
                 content=GuidelineContent(
@@ -83,16 +112,7 @@ class JourneyGuidelineProjection:
                 creation_utc=datetime.now(timezone.utc),
                 enabled=True,
                 tags=[],
-                metadata={
-                    **{
-                        "journey_node": {
-                            "follow_ups": [],
-                            "index": str(node_indexes[node.id]),
-                            "journey_id": journey_id,
-                        }
-                    },
-                    **({**edge.metadata, **node.metadata} if edge else node.metadata),
-                },
+                metadata=metadata,
             )
 
         def add_edge_guideline_metadata(

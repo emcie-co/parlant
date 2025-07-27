@@ -381,6 +381,78 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
             ),
         ],
     ),
+    "investment_advice_journey": _JourneyData(
+        conditions=[
+            "the customer wants investment advice",
+            "the customer is asking about investing",
+        ],
+        title="Investment Advice Journey",
+        nodes=[
+            _NodeData(
+                id="1",
+                condition=None,
+                action="Ask the customer about their age and current financial situation",
+                follow_up_ids=["2"],
+                customer_dependent_action=True,
+            ),
+            _NodeData(
+                id="2",
+                condition=None,
+                action="Ask about their risk tolerance and investment timeline",
+                follow_up_ids=["3"],
+                customer_dependent_action=True,
+            ),
+            _NodeData(
+                id="3",
+                condition=None,
+                action="No action necessary - always advance to the next step based on the relevant transition",
+                follow_up_ids=["4", "5"],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="4",
+                condition="They are young (under 40) with high risk tolerance",
+                action="No action necessary - always advance to the next step based on the relevant transition",
+                follow_up_ids=["6", "7"],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="5",
+                condition="They are older (40+) or have low risk tolerance",
+                action="No action necessary - always advance to the next step based on the relevant transition",
+                follow_up_ids=["8", "9"],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="6",
+                condition="They have long-term investment timeline (5+ years)",
+                action="Recommend aggressive growth stocks and emerging market funds",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="7",
+                condition="They have short-term investment timeline (under 5 years)",
+                action="Recommend balanced growth funds with some stability",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="8",
+                condition="They have long-term investment timeline (5+ years)",
+                action="Recommend conservative balanced funds and blue-chip stocks",
+                follow_up_ids=[],
+                customer_dependent_action=False,
+            ),
+            _NodeData(
+                id="9",
+                condition="They have short-term investment timeline (under 5 years)",
+                action="Use the refer_to_human tool with the relevant parameters",
+                follow_up_ids=[],
+                requires_tool_calls=True,
+            ),
+        ],
+    ),
 }
 
 
@@ -1441,9 +1513,8 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             "1",
             "2",
             "3",
-            "5",
         ],  # Backtrack to account collection, then fast forward through email to good day
-        expected_next_node_index="5",
+        expected_next_node_index="3",
     )  # This test is slightly ambiguous, advancing to either node 3 or 5 (its followup) is considered valid, but we only test for node 3
 
 
@@ -1769,4 +1840,102 @@ async def test_that_fork_steps_are_correctly_fast_forwarded_through(
         journey_previous_path=[],
         expected_path=["1", "2", "4", "8"],
         expected_next_node_index="8",
+    )
+
+
+async def test_that_two_consecutive_fork_steps_are_traversed_correctly(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I'm looking for investment advice",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'd be happy to help you with investment advice! To get started, could you tell me your age and describe your current financial situation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm 38 years old. Financially, I make about $100,000 a year as a software engineer, have about $25,000 in savings, and I'm contributing to my 401k. I don't have any major debts except my mortgage.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great, thank you for that information. Now I'd like to understand your investment preferences better. What's your risk tolerance - are you comfortable with higher risk investments that could potentially lose value but also have higher growth potential, or do you prefer safer, more stable investments? And what's your investment timeline - are you looking to invest for the short term (under 5 years) or long term (5+ years)?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'd say I have a pretty high risk tolerance - I'm young and can handle some volatility if it means better long-term returns. And I'm definitely thinking long-term, probably looking at 10-15 years before I'd need to touch this money.",
+        ),
+    ]
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="investment_advice_journey",
+        journey_previous_path=["1", "2"],
+        expected_path=["2", "3", "4", "6"],
+        expected_next_node_index="6",
+    )
+
+
+async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_backtracking(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I need some investment guidance",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'd be happy to help you with investment advice! To get started, could you tell me your age and describe your current financial situation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm 45 years old",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Thank you. Could you also tell me about your current financial situation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Sure! I make about $65,000 annually as a teacher, have around $8,000 in savings, and some retirement savings. I have a car loan but that's about it for debt.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great, thank you for that information. Now I'd like to understand your investment preferences better. What's your risk tolerance - are you comfortable with higher risk investments that could potentially lose value but also have higher growth potential, or do you prefer safer, more stable investments? And what's your investment timeline - are you looking to invest for the short term (under 5 years) or long term (5+ years)?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I'm pretty conservative with money - I prefer safer investments that won't lose value. And I'm looking at maybe 8-10 years before I might need this money for retirement planning.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Based on your preferences for conservative investments and your 8-10 year timeline, I'd recommend focusing on conservative balanced funds and blue-chip stocks. These typically provide steady, reliable returns with lower volatility than growth stocks, which aligns well with your risk tolerance while still giving you good potential for growth over your investment timeframe.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "That sounds good. Just out of curiosity, what advice would you have given if I was 10 years younger and were looking for short term investments?",
+        ),
+    ]
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="investment_advice_journey",
+        journey_previous_path=["1", "1", "2", "3", "5", "8"],
+        expected_path=["3", "4", "7"],
+        expected_next_node_index="7",
     )

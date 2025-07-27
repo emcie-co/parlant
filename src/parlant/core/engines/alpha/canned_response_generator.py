@@ -74,7 +74,7 @@ from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
-DEFAULT_NO_MATCH_CANNED_RESPONSE = "Not sure I understand. Could you please say that another way?"
+DEFAULT_NO_MATCH_CAN_REP = "Not sure I understand. Could you please say that another way?"
 
 
 class CannedResponseDraftSchema(DefaultBaseModel):
@@ -110,7 +110,7 @@ class _CannedResponseGenerationResult:
     @staticmethod
     def no_match(draft: Optional[str] = None) -> _CannedResponseGenerationResult:
         return _CannedResponseGenerationResult(
-            message=DEFAULT_NO_MATCH_CANNED_RESPONSE,
+            message=DEFAULT_NO_MATCH_CAN_REP,
             draft=draft or "N/A",
             responses=[],
         )
@@ -1261,7 +1261,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         self,
         context: CannedResponseContext,
         draft_message: str,
-        responses: Sequence[tuple[CannedResponseId, str]],
+        can_reps: Sequence[tuple[CannedResponseId, str]],
     ) -> PromptBuilder:
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
@@ -1288,9 +1288,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         else:
             formatted_guidelines = ""
 
-        formatted_canned_responses = "\n".join(
-            [f'Template ID: {u[0]} """\n{u[1]}\n"""' for u in responses]
-        )
+        formatted_can_reps = "\n".join([f'Template ID: {u[0]} """\n{u[1]}\n"""' for u in can_reps])
 
         builder.add_section(
             name="canned-response-generator-selection-task-description",
@@ -1330,8 +1328,8 @@ Output a JSON object with three properties:
 """,
             props={
                 "draft_message": draft_message,
-                "canned_responses": responses,
-                "formatted_canned_responses": formatted_canned_responses,
+                "canned_responses": can_reps,
+                "formatted_canned_responses": formatted_can_reps,
                 "guidelines": [
                     g for g in context.guidelines if internal_representation(g.guideline).action
                 ],
@@ -1459,7 +1457,7 @@ Output a JSON object with three properties:
             prompt=self._build_selection_prompt(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                responses=rendered_can_reps,
+                can_reps=rendered_can_reps,
             ),
             hints={"temperature": 0.1},
         )

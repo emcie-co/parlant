@@ -1154,14 +1154,14 @@ class Journey:
         tags: list[TagId] = [],
         signals: list[str] = [],
     ) -> CannedResponseId:
-        response = await self._container[CannedResponseStore].create_can_rep(
+        can_rep = await self._container[CannedResponseStore].create_can_rep(
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
             signals=signals,
         )
 
-        return response.id
+        return can_rep.id
 
 
 @dataclass(frozen=True)

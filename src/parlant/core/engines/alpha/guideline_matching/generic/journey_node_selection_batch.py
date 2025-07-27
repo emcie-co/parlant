@@ -168,8 +168,7 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
                 action=g.content.action
-                if cast(dict[str, Any], g.metadata.get("journey_node", {})).get("node_type")
-                != "fork"
+                if cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind") != "fork"
                 else FORK_NODE_ACTION_STR,
                 incoming_edges=[],
                 outgoing_edges=[],

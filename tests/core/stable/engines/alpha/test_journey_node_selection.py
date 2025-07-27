@@ -19,6 +19,7 @@ from parlant.core.emissions import EmittedEvent
 
 from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
     GenericJourneyNodeSelectionBatch,
+    JourneyNodeKind,
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
@@ -49,9 +50,9 @@ class _NodeData:
     id: str
     condition: str | None
     action: str | None
+    kind: JourneyNodeKind
     customer_dependent_action: bool = False
     customer_action: str | None = None
-    requires_tool_calls: bool = False
     follow_up_ids: list[str] = field(default_factory=list)
 
 
@@ -86,12 +87,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their name",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
                 condition=None,
                 action="tell them their name is pretty",
                 follow_up_ids=["3"],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
@@ -99,6 +102,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask them their surname",
                 follow_up_ids=["4"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="4",
@@ -106,12 +110,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask for their phone number",
                 follow_up_ids=["5"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="5",
                 condition=None,
                 action="send the customer a link to our terms of service page",
                 follow_up_ids=["6"],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="6",
@@ -119,6 +125,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their favorite color",
                 follow_up_ids=[],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
         ],
     ),
@@ -132,6 +139,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask the customer what type of keys they lost",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
@@ -139,6 +147,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask them when's the last time they used their keys",
                 follow_up_ids=["3"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
@@ -146,6 +155,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Tell them to check if it's near where they last used their keys",
                 follow_up_ids=["4", "5"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="4",
@@ -153,6 +163,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Tell them that they better get a new house",
                 follow_up_ids=[],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="5",
@@ -160,6 +171,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action=None,
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
         ],
     ),
@@ -176,6 +188,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask for their account number",
                 follow_up_ids=["2", "1"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
@@ -183,37 +196,42 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask for their email address or phone number",
                 follow_up_ids=["3"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
                 condition=None,
                 action="Wish them a good day",
                 follow_up_ids=["4", "5"],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="4",
                 condition="The customer did not immediately wish you a good day in return",
                 action=None,
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="5",
                 condition="The customer wished you a good day in return",
                 action="Use the reset_password tool with the provided information",
                 follow_up_ids=["6", "7"],
-                requires_tool_calls=True,
+                kind=JourneyNodeKind.TOOL,
             ),
             _NodeData(
                 id="6",
                 condition="reset_password tool returned that the password was successfully reset",
                 action="Report the result to the customer",
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="7",
                 condition="reset_password tool returned that the password was not successfully reset, or otherwise failed",
                 action="Apologize to the customer and report that the password cannot be reset at this time",
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
         ],
     ),
@@ -227,6 +245,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Welcome the customer to the Low Cal Calzone Zone",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
@@ -234,12 +253,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask them how many calzones they want",
                 follow_up_ids=["3", "7"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
                 condition="more than 5",
                 action="Warn the customer that delivery is likely to take more than an hour",
                 follow_up_ids=["4"],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="4",
@@ -247,18 +268,21 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask if they are able to call a human representative",
                 follow_up_ids=["5", "6"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="5",
                 condition="They can",
                 action="Tell them to order by phone to ensure correct delivery",
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="6",
                 condition=None,
                 action="Apologize and say you support orders of up to 5 calzones",
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="7",
@@ -266,6 +290,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask what type of calzones they want out of the options - Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone",
                 follow_up_ids=["8"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="8",
@@ -273,6 +298,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask which size of calzone they want between small, medium, and large",
                 follow_up_ids=["9"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="9",
@@ -280,13 +306,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask if they want any drinks with their order",
                 follow_up_ids=["10"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="10",
                 condition="The customer chose if they want drinks, and which ones",
                 action="Check if all ordered items are available in stock",
                 follow_up_ids=["11", "12"],
-                requires_tool_calls=True,
+                kind=JourneyNodeKind.TOOL,
             ),
             _NodeData(
                 id="11",
@@ -294,6 +321,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Confirm the order details with the customer",
                 follow_up_ids=["13"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="12",
@@ -301,6 +329,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Apologize for the inconvenience and ask them to remove missing items from their order",
                 follow_up_ids=["10"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="13",
@@ -308,12 +337,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask for the delivery address",
                 follow_up_ids=["14"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="14",
                 condition="The customer provided their delivery address",
                 action="Place the order and thank them for choosing the Low Cal Calzone Zone",
                 follow_up_ids=[],
+                kind=JourneyNodeKind.CHAT,
             ),
         ],
     ),
@@ -328,6 +359,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 customer_action="the customer provided enough information to determine if they have plenty of technical experience",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
@@ -336,20 +368,23 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 customer_action="the customer provided enough information to identify if the issue is related to internet connectivity, password issues or something entirely different",
                 follow_up_ids=["3", "4"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
                 condition="The issue is internet related",
-                action="No action necessary - always advance to the next step based on the relevant transition",
+                action=None,
                 follow_up_ids=["5", "6"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.FORK,
             ),
             _NodeData(
                 id="4",
                 condition="The issue is password related, or something entirely different",
-                action="No action necessary - always advance to the next step based on the relevant transition",
+                action=None,
                 follow_up_ids=["7", "8"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.FORK,
             ),
             _NodeData(
                 id="5",
@@ -357,6 +392,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Provide advanced internet troubleshooting steps",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="6",
@@ -364,6 +400,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Provide basic internet troubleshooting steps",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="7",
@@ -371,6 +408,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Provide advanced non-internet troubleshooting steps",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="8",
@@ -378,6 +416,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Provide basic non-internet troubleshooting steps",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
         ],
     ),
@@ -394,6 +433,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask the customer about their age and current financial situation",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="2",
@@ -401,27 +441,31 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask about their risk tolerance and investment timeline",
                 follow_up_ids=["3"],
                 customer_dependent_action=True,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="3",
                 condition=None,
-                action="No action necessary - always advance to the next step based on the relevant transition",
+                action=None,
                 follow_up_ids=["4", "5"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.FORK,
             ),
             _NodeData(
                 id="4",
                 condition="They are young (under 40) with high risk tolerance",
-                action="No action necessary - always advance to the next step based on the relevant transition",
+                action=None,
                 follow_up_ids=["6", "7"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.FORK,
             ),
             _NodeData(
                 id="5",
                 condition="They are older (40+) or have low risk tolerance",
-                action="No action necessary - always advance to the next step based on the relevant transition",
+                action=None,
                 follow_up_ids=["8", "9"],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.FORK,
             ),
             _NodeData(
                 id="6",
@@ -429,6 +473,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Recommend aggressive growth stocks and emerging market funds",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="7",
@@ -436,6 +481,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Recommend balanced growth funds with some stability",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="8",
@@ -443,13 +489,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Recommend conservative balanced funds and blue-chip stocks",
                 follow_up_ids=[],
                 customer_dependent_action=False,
+                kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
                 id="9",
                 condition="They have short-term investment timeline (under 5 years)",
                 action="Use the refer_to_human tool with the relevant parameters",
                 follow_up_ids=[],
-                requires_tool_calls=True,
+                kind=JourneyNodeKind.TOOL,
             ),
         ],
     ),
@@ -533,13 +580,13 @@ async def create_journey(
                     ],
                     "index": node.id,
                     "journey_id": journey_id,
+                    "kind": node.kind.value,
                 },
                 "customer_dependent_action_data": {
                     "is_customer_dependent": node.customer_dependent_action,
                     "customer_action": node.customer_action or "",
                     "agent_action": "",
                 },
-                "tool_running_only": node.requires_tool_calls,
             },
         )
         for node in nodes

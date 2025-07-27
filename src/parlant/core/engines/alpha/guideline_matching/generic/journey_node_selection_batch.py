@@ -51,6 +51,7 @@ class JourneyNodeKind(Enum):
     FORK = "fork"
     CHAT = "chat"
     TOOL = "tool"
+    NA = "NA"
 
 
 @dataclass
@@ -177,7 +178,7 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
         node_index: str = guideline_id_to_node_index[g.id]
         if node_index not in node_wrappers:
             kind = JourneyNodeKind(
-                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
             )
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),

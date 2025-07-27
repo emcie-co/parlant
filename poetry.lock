@@ -3828,8 +3828,8 @@ pydantic = "^2.9.2"
 [package.source]
 type = "git"
 url = "https://github.com/emcie-co/parlant-client-python.git"
-reference = "develop.1750698861"
-resolved_reference = "bfac47fdf7f53bd5d2e141f35dbf8375e3c3c35b"
+reference = "develop.1753550636"
+resolved_reference = "4194418a8cd775f235bb1e5a23b0359ac56765ac"
 
 [[package]]
 name = "parse"
@@ -6777,4 +6777,4 @@ together = ["together", "torch", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "32a7e4d8a523c1186187689911c335143a2204571088b38ccd19eb6007df3646"
+content-hash = "d61a577e0417daa3e5b6389e82af76e40c8d2ade8531134eeb8d7f3f8b23d175"

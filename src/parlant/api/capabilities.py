@@ -294,6 +294,7 @@ def create_router(
         Returns the complete capability object.
         """
         capability = await capability_store.read_capability(capability_id=capability_id)
+
         return CapabilityDTO(
             id=capability.id,
             title=capability.title,

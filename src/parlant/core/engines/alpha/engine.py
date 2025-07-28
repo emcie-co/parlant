@@ -1748,7 +1748,12 @@ class AlphaEngine(Engine):
                 journey_id = cast(JourneyId, journey_id)
                 journeys.remove(journey_id)
 
-                assert "journey_path" in match.metadata
+                if "journey_path" not in match.metadata:
+                    self._logger.error(
+                        f"Journey path not found in guideline journey-node match metadata. Match: {match}"
+                    )
+                    continue
+
                 journey_paths[journey_id] = cast(
                     list[Optional[GuidelineId]], match.metadata.get("journey_path")
                 )

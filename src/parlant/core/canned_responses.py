@@ -377,7 +377,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         tags = [
             doc["tag_id"]
             for doc in await self._canrep_tag_association_collection.find(
-                {"canned_response": {"$eq": canned_response_document["id"]}}
+                {"canned_response_id": {"$eq": canned_response_document["id"]}}
             )
         ]
 

@@ -2030,6 +2030,15 @@ class Server:
                             utterance_fields={},
                         )
 
+                    if not (
+                        retriever_result.data
+                        or retriever_result.metadata
+                        or retriever_result.utterances
+                        or retriever_result.utterance_fields
+                    ):
+                        # No need to emit tool event if nothing was retrieved.
+                        return EngineHookResult.CALL_NEXT
+
                     ctx.state.tool_events.append(
                         await ctx.response_event_emitter.emit_tool_event(
                             ctx.correlation_id,

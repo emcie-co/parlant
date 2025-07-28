@@ -1301,6 +1301,9 @@ class Customer:
 
 @dataclass(frozen=True)
 class RetrieverContext:
+    server: Server
+    container: Container
+    logger: Logger
     correlation_id: str
     session: Session
     agent: Agent
@@ -2003,6 +2006,9 @@ class Server:
 
                 coroutine = retriever(
                     RetrieverContext(
+                        server=self,
+                        container=self._container,
+                        logger=self._container[Logger],
                         correlation_id=ctx.correlation_id,
                         session=ctx.session,
                         agent=agent,

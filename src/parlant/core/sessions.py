@@ -484,6 +484,33 @@ class _InspectionDocument(TypedDict, total=False):
     preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
+class _MessageEventData_v0_5_0(TypedDict):
+    message: str
+    participant: Participant
+    flagged: NotRequired[bool]
+    tags: NotRequired[Sequence[str]]
+    draft: NotRequired[str]
+    utterances: NotRequired[Sequence[tuple[CannedResponseId, str]]]
+
+
+class _ToolResult_v0_5_0(TypedDict):
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable]
+    control: ControlOptions
+    utterances: Sequence[CannedResponse]
+    utterance_fields: Mapping[str, JSONSerializable]
+
+
+class _ToolCall_v0_5_0(TypedDict):
+    tool_id: str
+    arguments: Mapping[str, JSONSerializable]
+    result: _ToolResult_v0_5_0
+
+
+class _ToolEventData_v0_5_0(TypedDict):
+    tool_calls: list[_ToolCall_v0_5_0]
+
+
 class SessionDocumentStore(SessionStore):
     VERSION = Version.from_string("0.6.0")
 
@@ -569,6 +596,62 @@ class SessionDocumentStore(SessionStore):
                 offset=doc["offset"],
                 correlation_id=doc["correlation_id"],
                 data=doc["data"],
+                deleted=doc["deleted"],
+            )
+
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_EventDocument, doc)
+
+            if doc["kind"] == "message":
+                doc_data = cast(_MessageEventData_v0_5_0, doc["data"])
+
+                data = cast(
+                    JSONSerializable,
+                    MessageEventData(
+                        message=doc_data["message"],
+                        participant=doc_data["participant"],
+                        flagged=doc_data["flagged"],
+                        tags=doc_data["tags"],
+                        draft=doc_data["draft"],
+                        canned_responses=doc_data["utterances"],
+                    ),
+                )
+
+            elif doc["kind"] == "tool":
+                t_data = cast(_ToolEventData_v0_5_0, doc["data"])
+
+                data = cast(
+                    JSONSerializable,
+                    ToolEventData(
+                        tool_calls=[
+                            ToolCall(
+                                tool_id=tc["tool_id"],
+                                arguments=tc["arguments"],
+                                result=ToolResult(
+                                    data=tc["result"]["data"],
+                                    metadata=tc["result"]["metadata"],
+                                    control=tc["result"]["control"],
+                                    canned_responses=tc["result"]["utterances"],
+                                    canned_response_fields=tc["result"]["utterance_fields"],
+                                ),
+                            )
+                            for tc in t_data["tool_calls"]
+                        ]
+                    ),
+                )
+            else:
+                data = doc["data"]
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.6.0"),
+                creation_utc=doc["creation_utc"],
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                correlation_id=doc["correlation_id"],
+                data=data,
                 deleted=doc["deleted"],
             )
 
@@ -669,7 +752,7 @@ class SessionDocumentStore(SessionStore):
                         generation_names=[
                             "selection"
                             if mg["generation"]["schema_name"]
-                            in ["CannedResponseCompositionSchema", "CannedResponseGenerationSchema"]
+                            in ["UtteranceCompositionSchema", "UtteranceSelectionSchema"]
                             else "message_generation"
                         ],
                         messages=mg["messages"],

@@ -25,23 +25,23 @@ def given_a_canned_response(
     context: ContextOfTest,
     text: str,
 ) -> CannedResponseId:
-    can_rep_store = context.container[CannedResponseStore]
+    canrep_store = context.container[CannedResponseStore]
 
-    can_rep_field_pattern = r"\{(.*?)\}"
-    field_names = re.findall(can_rep_field_pattern, text)
+    canrep_field_pattern = r"\{(.*?)\}"
+    field_names = re.findall(canrep_field_pattern, text)
 
-    can_rep = context.sync_await(
-        can_rep_store.create_can_rep(
+    canrep = context.sync_await(
+        canrep_store.create_canned_response(
             value=text,
             fields=[
                 CannedResponseField(
-                    name=can_rep_field_name,
+                    name=canrep_field_name,
                     description="",
                     examples=[],
                 )
-                for can_rep_field_name in field_names
+                for canrep_field_name in field_names
             ],
         )
     )
 
-    return can_rep.id
+    return canrep.id

@@ -1133,7 +1133,7 @@ def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
     return LakeraGuard(logger)
 
 
-def can_rep_request_dto_to_can_rep_request(
+def canned_response_request_dto_to_canned_response_request(
     utter: CannedResponseRequestDTO,
 ) -> CannedResponseRequest:
     reason_dto_to_reason = {
@@ -1546,7 +1546,9 @@ def create_router(
         session = await session_store.read_session(session_id)
 
         if params.actions:
-            actions = [can_rep_request_dto_to_can_rep_request(a) for a in params.actions]
+            actions = [
+                canned_response_request_dto_to_canned_response_request(a) for a in params.actions
+            ]
             correlation_id = await application.utter(session, actions)
             event, *_ = await session_store.list_events(
                 session_id=session_id,

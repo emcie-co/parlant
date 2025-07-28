@@ -1505,7 +1505,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
         None,
     ) or db.chroma_client.create_collection(name="utterances_unembedded")
 
-    chroma_can_reps_unembedded_collection = next(
+    chroma_canreps_unembedded_collection = next(
         (
             collection
             for collection in db.chroma_client.list_collections()
@@ -1528,7 +1528,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
                     [
                         CannedResponseVectorDocument(
                             id=ObjectId(generate_id()),
-                            can_rep_id=u2_doc["id"],
+                            canned_response_id=u2_doc["id"],
                             version=Version.String("0.3.0"),
                             checksum=md5_checksum(u2_doc["content"]),
                             content=u2_doc["content"],
@@ -1557,7 +1557,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
                         [
                             CannedResponseVectorDocument(
                                 id=ObjectId(generate_id()),
-                                can_rep_id=u3_doc["utterance_id"],
+                                canned_response_id=u3_doc["utterance_id"],
                                 version=Version.String("0.4.0"),
                                 checksum=md5_checksum(c),
                                 content=c,
@@ -1580,7 +1580,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
                     unique_docs.add(u3_doc["utterance_id"])
 
         for v_doc in vector_docs:
-            chroma_can_reps_unembedded_collection.add(
+            chroma_canreps_unembedded_collection.add(
                 ids=[cast(str, v_doc["id"])],
                 documents=[v_doc["content"]],
                 metadatas=[cast(chromadb.Metadata, v_doc)],
@@ -1598,12 +1598,12 @@ async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
                 "id": tag_doc["id"],
                 "version": Version.String("0.4.0"),
                 "creation_utc": tag_doc["creation_utc"],
-                "can_rep_id": tag_doc["utterance_id"],
+                "canned_response_id": tag_doc["utterance_id"],
                 "tag_id": tag_doc["tag_id"],
             }
         )
 
-    chroma_can_reps_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+    chroma_canreps_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
     await db.upsert_metadata(
         VectorDocumentStoreMigrationHelper.get_store_version_key(
@@ -1705,7 +1705,7 @@ async def migrate_capabilities_0_1_0_to_0_2_0() -> None:
                     [
                         CannedResponseVectorDocument(
                             id=ObjectId(generate_id()),
-                            can_rep_id=old_doc["capability_id"],
+                            canned_response_id=old_doc["capability_id"],
                             version=Version.String("0.2.0"),
                             checksum=md5_checksum(c),
                             content=c,

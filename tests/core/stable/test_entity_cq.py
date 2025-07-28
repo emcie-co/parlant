@@ -203,13 +203,14 @@ async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_
     assert len(result) == 0
 
 
-async def test_that_find_can_reps_for_agent_returns_global_can_reps(
-    container: Container, agent: Agent
+async def test_that_find_canned_responses_for_agent_returns_global_canned_responses(
+    container: Container,
+    agent: Agent,
 ) -> None:
-    can_rep_store: CannedResponseStore = container[CannedResponseStore]
+    canrep_store: CannedResponseStore = container[CannedResponseStore]
     entity_queries = container[EntityQueries]
 
-    untagged_can_rep = await can_rep_store.create_can_rep(
+    untagged_canrep = await canrep_store.create_canned_response(
         value="Hello world",
         fields=[],
     )
@@ -219,17 +220,17 @@ async def test_that_find_can_reps_for_agent_returns_global_can_reps(
         journeys=[],
     )
     assert len(results) == 1
-    assert results[0].id == untagged_can_rep.id
+    assert results[0].id == untagged_canrep.id
 
 
-async def test_that_find_can_reps_for_agent_returns_none_for_non_matching_tag(
+async def test_that_find_canned_responses_for_agent_returns_none_for_non_matching_tag(
     container: Container, agent: Agent
 ) -> None:
-    can_rep_store: CannedResponseStore = container[CannedResponseStore]
+    canrep_store: CannedResponseStore = container[CannedResponseStore]
     entity_queries = container[EntityQueries]
 
     tag1 = TagId("tag1")
-    await can_rep_store.create_can_rep(
+    await canrep_store.create_canned_response(
         value="Tagged canned response",
         fields=[],
         tags=[tag1],
@@ -244,10 +245,10 @@ async def test_that_find_can_reps_for_agent_returns_none_for_non_matching_tag(
     assert len(results) == 0
 
 
-async def test_that_find_can_reps_for_agent_and_journey_returns_journey_can_reps(
+async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_canned_responses(
     container: Container, agent: Agent
 ) -> None:
-    can_rep_store: CannedResponseStore = container[CannedResponseStore]
+    canrep_store: CannedResponseStore = container[CannedResponseStore]
     journey_store = container[JourneyStore]
     entity_queries = container[EntityQueries]
 
@@ -258,8 +259,8 @@ async def test_that_find_can_reps_for_agent_and_journey_returns_journey_can_reps
     )
 
     journey_tag = Tag.for_journey_id(journey.id)
-    journey_can_rep = await can_rep_store.create_can_rep(
-        value="Journey can_rep",
+    journey_canrep = await canrep_store.create_canned_response(
+        value="Journey canrep",
         fields=[],
         tags=[journey_tag],
     )
@@ -269,7 +270,7 @@ async def test_that_find_can_reps_for_agent_and_journey_returns_journey_can_reps
         journeys=[journey],
     )
     assert len(results) == 1
-    assert results[0].id == journey_can_rep.id
+    assert results[0].id == journey_canrep.id
 
 
 async def test_that_find_glossary_terms_for_agent_returns_all_when_no_tags(

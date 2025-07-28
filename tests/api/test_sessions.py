@@ -1072,7 +1072,7 @@ async def test_that_an_agent_message_can_be_regenerated(
     assert "cold" in events[0]["data"]["message"].lower()
 
 
-async def test_that_an_agent_message_can_be_generated_from_can_rep_requests(
+async def test_that_an_agent_message_can_be_generated_from_canrep_requests(
     async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
@@ -1120,7 +1120,7 @@ async def test_that_an_event_with_canned_responses_can_be_generated(
     container: Container,
     strict_agent_id: AgentId,
 ) -> None:
-    can_rep_store = container[CannedResponseStore]
+    canrep_store = container[CannedResponseStore]
 
     customer = await create_customer(
         container=container,
@@ -1133,7 +1133,7 @@ async def test_that_an_event_with_canned_responses_can_be_generated(
         customer_id=customer.id,
     )
 
-    can_rep = await can_rep_store.create_can_rep(value="Hello, how can I assist?", fields=[])
+    canrep = await canrep_store.create_canned_response(value="Hello, how can I assist?", fields=[])
 
     customer_event = await post_message(
         container=container,
@@ -1162,7 +1162,7 @@ async def test_that_an_event_with_canned_responses_can_be_generated(
     event = events[0]
     assert event["data"].get("canned_responses")
 
-    assert any(can_rep.id == id for id, _ in event["data"]["canned_responses"])
+    assert any(canrep.id == id for id, _ in event["data"]["canned_responses"])
 
 
 async def test_that_agent_state_is_deleted_when_deleting_events(

@@ -790,12 +790,14 @@ async def test_that_a_plugin_tool_can_return_canned_responses(
     ]
 
     @tool
-    async def can_rep_tool(context: ToolContext) -> ToolResult:
+    async def canned_response_tool(context: ToolContext) -> ToolResult:
         return ToolResult({"message": "Executed successfully"}, canned_responses=canned_responses)
 
-    async with run_service_server([can_rep_tool]) as server:
+    async with run_service_server([canned_response_tool]) as server:
         async with create_client(server, container[EventBufferFactory]) as client:
-            result = await client.call_tool(can_rep_tool.tool.name, tool_context, arguments={})
+            result = await client.call_tool(
+                canned_response_tool.tool.name, tool_context, arguments={}
+            )
 
             assert result.canned_responses
             assert len(result.canned_responses) == 2

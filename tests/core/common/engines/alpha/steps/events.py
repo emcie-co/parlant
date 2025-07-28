@@ -312,31 +312,31 @@ def then_the_message_mentions(
 
 @step(
     then,
-    parsers.parse('the message uses the canned response "{can_rep_text}"'),
+    parsers.parse('the message uses the canned response "{canrep_text}"'),
 )
 def then_the_message_uses_the_canned_response(
     emitted_events: list[EmittedEvent],
-    can_rep_text: str,
+    canned_response_text: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
     assert message_data["canned_responses"]
 
-    assert any(can_rep_text in can_rep for _, can_rep in message_data["canned_responses"])
+    assert any(canned_response_text in canrep for _, canrep in message_data["canned_responses"])
 
 
 @step(
     then,
-    parsers.parse('the message doesn\'t use the canned response "{can_rep_text}"'),
+    parsers.parse('the message doesn\'t use the canned response "{canrep_text}"'),
 )
 def then_the_message_does_not_use_the_canned_response(
     emitted_events: list[EmittedEvent],
-    can_rep_text: str,
+    canned_response_text: str,
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
 
-    assert all(can_rep_text not in can_rep for _, can_rep in message_data["canned_responses"])
+    assert all(canned_response_text not in canrep for _, canrep in message_data["canned_responses"])
 
 
 @step(then, "no events are emitted")

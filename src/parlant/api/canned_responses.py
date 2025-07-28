@@ -245,7 +245,7 @@ class CannedResponseUpdateParamsDTO(
     tags: Optional[CannedResponseTagUpdateParamsDTO] = None
 
 
-def _dto_to_can_rep_field(dto: CannedResponseFieldDTO) -> CannedResponseField:
+def _dto_to_canned_response_field(dto: CannedResponseFieldDTO) -> CannedResponseField:
     return CannedResponseField(
         name=dto.name,
         description=dto.description,
@@ -253,7 +253,7 @@ def _dto_to_can_rep_field(dto: CannedResponseFieldDTO) -> CannedResponseField:
     )
 
 
-def _can_rep_field_to_dto(
+def _canned_response_field_to_dto(
     canned_response_field: CannedResponseField,
 ) -> CannedResponseFieldDTO:
     return CannedResponseFieldDTO(
@@ -299,9 +299,9 @@ def create_router(
 
             tags = list(set(params.tags))
 
-        response = await canned_response_store.create_can_rep(
+        response = await canned_response_store.create_canned_response(
             value=params.value,
-            fields=[_dto_to_can_rep_field(s) for s in params.fields],
+            fields=[_dto_to_canned_response_field(s) for s in params.fields],
             tags=tags or None,
             signals=params.signals or None,
         )
@@ -310,7 +310,7 @@ def create_router(
             id=response.id,
             creation_utc=response.creation_utc,
             value=response.value,
-            fields=[_can_rep_field_to_dto(s) for s in response.fields],
+            fields=[_canned_response_field_to_dto(s) for s in response.fields],
             tags=response.tags,
             signals=response.signals,
         )
@@ -334,13 +334,15 @@ def create_router(
         canned_response_id: CannedResponseIdField,
     ) -> CannedResponseDTO:
         """Retrieves details of a specific canned response by ID."""
-        response = await canned_response_store.read_can_rep(can_rep_id=canned_response_id)
+        response = await canned_response_store.read_canned_response(
+            canned_response_id=canned_response_id
+        )
 
         return CannedResponseDTO(
             id=response.id,
             creation_utc=response.creation_utc,
             value=response.value,
-            fields=[_can_rep_field_to_dto(s) for s in response.fields],
+            fields=[_canned_response_field_to_dto(s) for s in response.fields],
             tags=response.tags,
             signals=response.signals,
         )
@@ -359,16 +361,16 @@ def create_router(
     )
     async def list_canned_responses(tags: TagsQuery = []) -> Sequence[CannedResponseDTO]:
         if tags:
-            responses = await canned_response_store.list_can_reps(tags=tags)
+            responses = await canned_response_store.list_canned_responses(tags=tags)
         else:
-            responses = await canned_response_store.list_can_reps()
+            responses = await canned_response_store.list_canned_responses()
 
         return [
             CannedResponseDTO(
                 id=f.id,
                 creation_utc=f.creation_utc,
                 value=f.value,
-                fields=[_can_rep_field_to_dto(s) for s in f.fields],
+                fields=[_canned_response_field_to_dto(s) for s in f.fields],
                 tags=f.tags,
                 signals=f.signals,
             )
@@ -413,11 +415,13 @@ def create_router(
             update_params: CannedResponseUpdateParams = {
                 "value": params.value,
                 "fields": (
-                    [_dto_to_can_rep_field(s) for s in params.fields] if params.fields else []
+                    [_dto_to_canned_response_field(s) for s in params.fields]
+                    if params.fields
+                    else []
                 ),
             }
 
-            await canned_response_store.update_can_rep(canned_response_id, update_params)
+            await canned_response_store.update_canned_response(canned_response_id, update_params)
 
         if params.tags:
             if params.tags.add:
@@ -428,15 +432,15 @@ def create_router(
                 for tag_id in params.tags.remove:
                     await canned_response_store.remove_tag(canned_response_id, tag_id)
 
-        updated_can_rep = await canned_response_store.read_can_rep(canned_response_id)
+        updated_canrep = await canned_response_store.read_canned_response(canned_response_id)
 
         return CannedResponseDTO(
-            id=updated_can_rep.id,
-            creation_utc=updated_can_rep.creation_utc,
-            value=updated_can_rep.value,
-            fields=[_can_rep_field_to_dto(s) for s in updated_can_rep.fields],
-            tags=updated_can_rep.tags,
-            signals=updated_can_rep.signals,
+            id=updated_canrep.id,
+            creation_utc=updated_canrep.creation_utc,
+            value=updated_canrep.value,
+            fields=[_canned_response_field_to_dto(s) for s in updated_canrep.fields],
+            tags=updated_canrep.tags,
+            signals=updated_canrep.signals,
         )
 
     @router.delete(
@@ -454,6 +458,6 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_canned_response(canned_response_id: CannedResponseIdField) -> None:
-        await canned_response_store.delete_can_rep(canned_response_id)
+        await canned_response_store.delete_canned_response(canned_response_id)
 
     return router

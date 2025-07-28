@@ -1193,14 +1193,14 @@ class Journey:
     ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        can_rep = await self._container[CannedResponseStore].create_can_rep(
+        canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
             signals=signals,
         )
 
-        return can_rep.id
+        return canrep.id
 
 
 @dataclass(frozen=True)
@@ -1448,14 +1448,14 @@ class Agent:
     ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        can_rep = await self._container[CannedResponseStore].create_can_rep(
+        canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
             tags=[_Tag.for_agent_id(self.id), *tags],
             fields=[],
             signals=signals,
         )
 
-        return can_rep.id
+        return canrep.id
 
     async def create_capability(
         self,

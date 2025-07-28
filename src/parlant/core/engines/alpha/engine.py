@@ -350,7 +350,7 @@ class AlphaEngine(Engine):
             context.state.ordinary_guideline_matches.extend(
                 # Canned response requests are reduced to guidelines, to take advantage
                 # of the engine's ability to consistently adhere to guidelines.
-                await self._can_rep_requests_to_guideline_matches(requests)
+                await self._canned_response_requests_to_guideline_matches(requests)
             )
 
             # Money time: communicate with the customer given the
@@ -1612,14 +1612,17 @@ class AlphaEngine(Engine):
 
         return result, tool_events, result.insights
 
-    async def _can_rep_requests_to_guideline_matches(
+    async def _canned_response_requests_to_guideline_matches(
         self,
         requests: Sequence[CannedResponseRequest],
     ) -> Sequence[GuidelineMatch]:
         # Canned response requests are reduced to guidelines, to take advantage
         # of the engine's ability to consistently adhere to guidelines.
 
-        def can_rep_to_match(i: int, can_rep: CannedResponseRequest) -> GuidelineMatch:
+        def canned_response_to_match(
+            i: int,
+            canned_response: CannedResponseRequest,
+        ) -> GuidelineMatch:
             rationales = {
                 CannedResponseReason.BUY_TIME: "An external module has determined that this response is necessary, and you must adhere to it.",
                 CannedResponseReason.FOLLOW_UP: "An external module has determined that this response is necessary, and you must adhere to it.",
@@ -1632,21 +1635,21 @@ class AlphaEngine(Engine):
 
             return GuidelineMatch(
                 guideline=Guideline(
-                    id=GuidelineId(f"<can_rep-request-{i}>"),
+                    id=GuidelineId(f"<canrep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
-                        condition=conditions[can_rep.reason],
-                        action=can_rep.action,
+                        condition=conditions[canned_response.reason],
+                        action=canned_response.action,
                     ),
                     enabled=True,
                     tags=[],
                     metadata={},
                 ),
-                rationale=rationales[can_rep.reason],
+                rationale=rationales[canned_response.reason],
                 score=10,
             )
 
-        return [can_rep_to_match(i, request) for i, request in enumerate(requests, start=1)]
+        return [canned_response_to_match(i, request) for i, request in enumerate(requests, start=1)]
 
     async def _load_context_variable_value(
         self,

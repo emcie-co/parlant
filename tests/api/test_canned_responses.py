@@ -123,7 +123,7 @@ async def test_that_a_canned_response_can_be_read(
         CannedResponseField(name="balance", description="Account's balance", examples=["9000"])
     ]
 
-    canned_response = await canned_response_store.create_can_rep(value=value, fields=fields)
+    canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
     response = await async_client.get(f"/canned_responses/{canned_response.id}")
     assert response.status_code == status.HTTP_200_OK
@@ -162,8 +162,8 @@ async def test_that_all_canned_responses_can_be_listed(
         ),
     ]
 
-    await canned_response_store.create_can_rep(value=first_value, fields=first_fields)
-    await canned_response_store.create_can_rep(value=second_value, fields=second_fields)
+    await canned_response_store.create_canned_response(value=first_value, fields=first_fields)
+    await canned_response_store.create_canned_response(value=second_value, fields=second_fields)
 
     response = await async_client.get("/canned_responses")
     assert response.status_code == status.HTTP_200_OK
@@ -181,17 +181,19 @@ async def test_that_relevant_canned_responses_can_be_retrieved_based_on_closest_
     canned_response_store = container[CannedResponseStore]
 
     canned_responses = [
-        await canned_response_store.create_can_rep(value="Red", signals=[]),
-        await canned_response_store.create_can_rep(value="Green", signals=[]),
-        await canned_response_store.create_can_rep(value="Blue", signals=[]),
-        await canned_response_store.create_can_rep(value="Paneer Cheese", signals=["Colors"]),
+        await canned_response_store.create_canned_response(value="Red", signals=[]),
+        await canned_response_store.create_canned_response(value="Green", signals=[]),
+        await canned_response_store.create_canned_response(value="Blue", signals=[]),
+        await canned_response_store.create_canned_response(
+            value="Paneer Cheese", signals=["Colors"]
+        ),
     ]
 
     closest_canned_response = next(
         iter(
-            await canned_response_store.find_relevant_can_reps(
+            await canned_response_store.find_relevant_canned_responses(
                 query="Colors",
-                available_can_reps=canned_responses,
+                available_canned_responses=canned_responses,
                 max_count=1,
             )
         )
@@ -211,7 +213,7 @@ async def test_that_a_canned_response_can_be_updated(
         CannedResponseField(name="balance", description="Account's balance", examples=["9000"])
     ]
 
-    canned_response = await canned_response_store.create_can_rep(value=value, fields=fields)
+    canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
     update_payload = {
         "value": "Updated balance: {{balance}}",
@@ -245,13 +247,13 @@ async def test_that_a_canned_response_can_be_deleted(
         CannedResponseField(name="balance", description="Account's balance", examples=["9000"])
     ]
 
-    canned_response = await canned_response_store.create_can_rep(value=value, fields=fields)
+    canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
     delete_response = await async_client.delete(f"/canned_responses/{canned_response.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await canned_response_store.read_can_rep(canned_response.id)
+        await canned_response_store.read_canned_response(canned_response.id)
 
 
 async def test_that_a_tag_can_be_added_to_a_canned_response(
@@ -268,14 +270,14 @@ async def test_that_a_tag_can_be_added_to_a_canned_response(
         CannedResponseField(name="balance", description="Account's balance", examples=["9000"])
     ]
 
-    canned_response = await canned_response_store.create_can_rep(value=value, fields=fields)
+    canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
     response = await async_client.patch(
         f"/canned_responses/{canned_response.id}", json={"tags": {"add": [tag.id]}}
     )
     assert response.status_code == status.HTTP_200_OK
 
-    updated_canned_response = await canned_response_store.read_can_rep(canned_response.id)
+    updated_canned_response = await canned_response_store.read_canned_response(canned_response.id)
     assert tag.id in updated_canned_response.tags
 
 
@@ -293,15 +295,15 @@ async def test_that_a_tag_can_be_removed_from_a_canned_response(
         CannedResponseField(name="balance", description="Account's balance", examples=["9000"])
     ]
 
-    canned_response = await canned_response_store.create_can_rep(value=value, fields=fields)
+    canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
-    await canned_response_store.upsert_tag(can_rep_id=canned_response.id, tag_id=tag.id)
+    await canned_response_store.upsert_tag(canned_response_id=canned_response.id, tag_id=tag.id)
     response = await async_client.patch(
         f"/canned_responses/{canned_response.id}", json={"tags": {"remove": [tag.id]}}
     )
     assert response.status_code == status.HTTP_200_OK
 
-    updated_canned_response = await canned_response_store.read_can_rep(canned_response.id)
+    updated_canned_response = await canned_response_store.read_canned_response(canned_response.id)
     assert tag.id not in updated_canned_response.tags
 
 
@@ -316,7 +318,7 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     tag_finance = await tag_store.create_tag(name="Finance")
     tag_greeting = await tag_store.create_tag(name="Greeting")
 
-    first_canned_response = await canned_response_store.create_can_rep(
+    first_canned_response = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
         fields=[
             CannedResponseField(
@@ -326,7 +328,7 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     )
     await canned_response_store.upsert_tag(first_canned_response.id, tag_greeting.id)
 
-    second_canned_response = await canned_response_store.create_can_rep(
+    second_canned_response = await canned_response_store.create_canned_response(
         value="Your balance is {{balance}}",
         fields=[
             CannedResponseField(
@@ -336,7 +338,7 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     )
     await canned_response_store.upsert_tag(second_canned_response.id, tag_finance.id)
 
-    third_canned_response = await canned_response_store.create_can_rep(
+    third_canned_response = await canned_response_store.create_canned_response(
         value="Exclusive VIP offer for {{username}}",
         fields=[
             CannedResponseField(name="username", description="VIP customer", examples=["Charlie"])

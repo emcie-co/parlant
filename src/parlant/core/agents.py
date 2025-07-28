@@ -48,8 +48,8 @@ AgentId = NewType("AgentId", str)
 class CompositionMode(Enum):
     FLUID = "fluid"
     CANNED_FLUID = "canned_fluid"
-    CANNED_COMPOSITED = "composited_canned"
-    CANNED_STRICT = "strict_canned"
+    CANNED_COMPOSITED = "canned_composited"
+    CANNED_STRICT = "canned_strict"
 
 
 class AgentUpdateParams(TypedDict, total=False):
@@ -141,7 +141,7 @@ class _AgentTagAssociationDocument(TypedDict, total=False):
 
 
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
@@ -169,6 +169,34 @@ class AgentDocumentStore(AgentStore):
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_AgentDocument, doc)
+
+            if doc["version"] == "0.3.0":
+                utterance_to_canned_response_composition_mode = {
+                    "fluid": CompositionMode.FLUID.value,
+                    "fluid_utterance": CompositionMode.CANNED_FLUID.value,
+                    "composited_utterance": CompositionMode.CANNED_COMPOSITED.value,
+                    "strict_utterance": CompositionMode.CANNED_STRICT.value,
+                }
+
+                return _AgentDocument(
+                    id=ObjectId(doc["id"]),
+                    version=Version.String("0.4.0"),
+                    creation_utc=doc["creation_utc"],
+                    name=doc["name"],
+                    description=doc.get("description"),
+                    max_engine_iterations=doc["max_engine_iterations"],
+                    composition_mode=utterance_to_canned_response_composition_mode[
+                        doc["composition_mode"]
+                    ],
+                )
+
+            if doc["version"] == "0.4.0":
+                return doc
+
+            return None
+
         return await DocumentMigrationHelper[_AgentDocument](
             self,
             {
@@ -180,8 +208,19 @@ class AgentDocumentStore(AgentStore):
     async def _association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_AgentTagAssociationDocument]:
+        doc = cast(_AgentTagAssociationDocument, doc)
+
         if doc["version"] == "0.3.0":
-            return cast(_AgentTagAssociationDocument, doc)
+            return _AgentTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.4.0"),
+                creation_utc=doc["creation_utc"],
+                agent_id=AgentId(doc["agent_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        if doc["version"] == "0.4.0":
+            return doc
 
         return None
 

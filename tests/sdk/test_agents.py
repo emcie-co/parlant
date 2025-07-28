@@ -133,17 +133,17 @@ class Test_that_an_agent_can_create_canned_response(SDKTest):
             name="Canned Response Agent",
             description="Agent for canned response test",
         )
-        self.can_rep_id = await self.agent.create_canned_response(
+        self.canrep_id = await self.agent.create_canned_response(
             template="Hello, {user}!", tags=[Tag.for_agent_id(self.agent.id)]
         )
 
     async def run(self, ctx: Context) -> None:
-        can_rep_store = ctx.container[CannedResponseStore]
+        canrep_store = ctx.container[CannedResponseStore]
 
-        can_rep = await can_rep_store.read_can_rep(can_rep_id=self.can_rep_id)
+        canrep = await canrep_store.read_canned_response(canned_response_id=self.canrep_id)
 
-        assert can_rep.value == "Hello, {user}!"
-        assert Tag.for_agent_id(self.agent.id) in can_rep.tags
+        assert canrep.value == "Hello, {user}!"
+        assert Tag.for_agent_id(self.agent.id) in canrep.tags
 
 
 class Test_that_agents_can_be_listed(SDKTest):

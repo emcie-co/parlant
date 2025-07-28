@@ -338,30 +338,30 @@ class EntityQueries:
         agent_id: AgentId,
         journeys: Sequence[Journey],
     ) -> Sequence[CannedResponse]:
-        agent_can_reps = await self._canned_response_store.list_can_reps(
+        agent_canreps = await self._canned_response_store.list_canned_responses(
             tags=[Tag.for_agent_id(agent_id)],
         )
-        global_can_reps = await self._canned_response_store.list_can_reps(tags=[])
+        global_canreps = await self._canned_response_store.list_canned_responses(tags=[])
 
         agent = await self._agent_store.read_agent(agent_id)
-        can_reps_for_agent_tags = await self._canned_response_store.list_can_reps(
+        canreps_for_agent_tags = await self._canned_response_store.list_canned_responses(
             tags=[tag for tag in agent.tags]
         )
 
-        journey_can_reps = await self._canned_response_store.list_can_reps(
+        journey_canreps = await self._canned_response_store.list_canned_responses(
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 
-        all_can_reps = set(
+        all_canreps = set(
             chain(
-                agent_can_reps,
-                global_can_reps,
-                can_reps_for_agent_tags,
-                journey_can_reps,
+                agent_canreps,
+                global_canreps,
+                canreps_for_agent_tags,
+                journey_canreps,
             )
         )
 
-        return list(all_can_reps)
+        return list(all_canreps)
 
     async def find_guidelines_that_need_reevaluation(
         self,

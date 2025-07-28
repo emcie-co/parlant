@@ -108,7 +108,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseFieldExtractionSchema,
     CannedResponseFieldExtractor,
     CannedResponsePreambleSchema,
-    CannedResponseGenerationSchema,
+    CannedResponseSelectionSchema,
     CannedResponseRevisionSchema,
     CannedResponseGenerator,
 )
@@ -671,7 +671,7 @@ async def initialize_container(
         GenericObservationalGuidelineMatchesSchema,
         MessageSchema,
         CannedResponseDraftSchema,
-        CannedResponseGenerationSchema,
+        CannedResponseSelectionSchema,
         CannedResponsePreambleSchema,
         CannedResponseRevisionSchema,
         CannedResponseFieldExtractionSchema,

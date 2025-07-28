@@ -1025,6 +1025,9 @@ class Journey:
         for t in list(tools):
             await self._server._plugin_server.enable_tool(t)
 
+        if len(tools) == 1 and not action:
+            action = f"Use the tool {tools[0].tool.name}"
+
         node = await self._container[JourneyStore].create_node(
             journey_id=self.id,
             action=action,

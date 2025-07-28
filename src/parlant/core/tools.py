@@ -71,6 +71,7 @@ class ToolParameterDescriptor(TypedDict, total=False):
 # These two aliases are redefined here to avoid a circular reference.
 SessionStatus: TypeAlias = Literal["ready", "processing", "typing"]
 SessionMode: TypeAlias = Literal["auto", "manual"]
+LifeSpan: TypeAlias = Literal["response", "session"]
 
 
 class ToolContext:
@@ -111,6 +112,7 @@ class ToolContext:
 
 class ControlOptions(TypedDict, total=False):
     mode: SessionMode
+    lifespan: LifeSpan
 
 
 @dataclass(frozen=True)

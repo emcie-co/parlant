@@ -55,7 +55,6 @@ from parlant.core.sessions import (
     SessionUpdateParams,
 )
 
-from parlant.core.tags import Tag
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
@@ -131,7 +130,7 @@ def _load_context_variables(
     )
     # TODO The function need to be replaced by AlphaEngine._load_context_variables once will be public
     variables_supported_by_agent = context.sync_await(
-        context.container[EntityQueries].find_context_variables_for_agent(
+        context.container[EntityQueries].find_context_variables_for_context(
             agent_id=agent_id,
         )
     )
@@ -183,9 +182,9 @@ def _load_glossary_terms(
         )
     if query:
         return context.sync_await(
-            context.container[EntityQueries].find_relevant_glossary_terms(
+            context.container[EntityQueries].find_glossary_terms_for_context(
+                agent_id=agent_id,
                 query=query,
-                tags=[Tag.for_agent_id(agent_id)],
             )
         )
 
@@ -245,8 +244,9 @@ def when_detection_and_processing_are_triggered(
     )
 
     applied_guideline_ids = [
-        p.guideline.id
-        for p in (context.sync_await(response_analysis.process())).previously_applied_guidelines
+        a.guideline.id
+        for a in (context.sync_await(response_analysis.process())).analyzed_guidelines
+        if a.is_previously_applied
     ]
 
     applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])
@@ -344,6 +344,7 @@ def when_messages_are_emitted(
             context_variables=[],
             interaction_history=context.events,
             terms=[],
+            capabilities=[],
             ordinary_guideline_matches=list(context.guideline_matches.values()),
             tool_enabled_guideline_matches={},
             journeys=[],

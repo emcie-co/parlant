@@ -143,7 +143,7 @@ action_proposition_example: ExampleJson = {
 }
 
 properties_proposition_example: ExampleJson = {
-    "continious": True,
+    "continuous": True,
 }
 
 
@@ -185,7 +185,7 @@ PropertiesPropositionField: TypeAlias = Annotated[
     Optional[dict[str, JSONSerializableDTO]],
     Field(
         description="Properties proposition",
-        examples=[{"continious": True}],
+        examples=[{"continuous": True}],
     ),
 ]
 
@@ -213,7 +213,7 @@ invoice_example: ExampleJson = {
                     "action": "provide current pricing information",
                 },
                 "properties_proposition": {
-                    "continious": True,
+                    "continuous": True,
                 },
             },
         }
@@ -247,7 +247,7 @@ class InvoiceDataDTO(
     """
     Contains the relevant invoice data.
 
-    At this point only `guideline` is suppoerted.
+    At this point only `guideline` is supported.
     """
 
     guideline: Optional[GuidelineInvoiceDataDTO] = None
@@ -435,7 +435,7 @@ evaluation_example: ExampleJson = {
             "data": {
                 "guideline": {
                     "action_proposition": "provide current pricing information",
-                    "properties_proposition": {"continious": True},
+                    "properties_proposition": {"continuous": True},
                 }
             },
             "error": None,

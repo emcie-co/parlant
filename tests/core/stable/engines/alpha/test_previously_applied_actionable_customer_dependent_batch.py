@@ -1,9 +1,24 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
+from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
@@ -11,8 +26,11 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingBatchContext,
+)
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
@@ -37,6 +55,14 @@ GUIDELINES_DICT = {
     "order_alcohol": {
         "condition": "The customer wants to order alcohol",
         "action": "Check their age",
+    },
+    "unsupported_capability": {
+        "condition": "When a customer asks about a capability that is not supported",
+        "action": "ask the customer for their age before proceeding",
+    },
+    "multiple_capabilities": {
+        "condition": "When there are multiple capabilities that are relevant for the customer's request",
+        "action": "ask the customer which of the capabilities they want to use",
     },
 }
 
@@ -105,7 +131,7 @@ def create_guideline(
     return guideline
 
 
-def base_test_that_correct_guidelines_are_matched(
+async def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
     session_id: SessionId,
@@ -114,6 +140,8 @@ def base_test_that_correct_guidelines_are_matched(
     guidelines_target_names: list[str],
     guidelines_names: list[str],
     staged_events: Sequence[EmittedEvent] = [],
+    capabilities: Sequence[Capability] = [],
+    relevant_journeys: Sequence[Journey] = [],
 ) -> None:
     conversation_guidelines = {
         name: create_guideline_by_name(context, name) for name in guidelines_names
@@ -132,16 +160,18 @@ def base_test_that_correct_guidelines_are_matched(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+    session = await context.container[SessionStore].read_session(session_id)
 
-    guideline_matching_context = GuidelineMatchingContext(
+    guideline_matching_context = GuidelineMatchingBatchContext(
         agent=agent,
         session=session,
         customer=customer,
         context_variables=[],
         interaction_history=interaction_history,
         terms=[],
+        capabilities=capabilities,
         staged_events=staged_events,
+        relevant_journeys=relevant_journeys,
     )
 
     guideline_previously_applied_matcher = (
@@ -149,18 +179,19 @@ def base_test_that_correct_guidelines_are_matched(
             logger=context.container[Logger],
             schematic_generator=context.schematic_generator,
             guidelines=context.guidelines,
+            journeys=[],
             context=guideline_matching_context,
         )
     )
 
-    result = context.sync_await(guideline_previously_applied_matcher.process())
+    result = await guideline_previously_applied_matcher.process()
 
     matched_guidelines = [p.guideline for p in result.matches]
 
     assert set(matched_guidelines) == set(previously_applied_target_guidelines)
 
 
-def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side(
+async def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -183,7 +214,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
 
     guidelines: list[str] = ["reservation_location"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -194,7 +225,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
     )
 
 
-def test_that_customer_dependent_guideline_is_not_matched_when_customer_has_completed_their_side(
+async def test_that_customer_dependent_guideline_is_not_matched_when_customer_has_completed_their_side(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -217,7 +248,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_customer_has_comp
 
     guidelines: list[str] = ["reservation_location"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -228,7 +259,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_customer_has_comp
     )
 
 
-def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side_over_several_messages(
+async def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side_over_several_messages(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -259,7 +290,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
 
     guidelines: list[str] = ["reservation_location"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -270,7 +301,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
     )
 
 
-def test_that_customer_dependent_guideline_is_not_matched_when_customer_hasnt_completed_their_side_but_change_subject(
+async def test_that_customer_dependent_guideline_is_not_matched_when_customer_hasnt_completed_their_side_but_change_subject(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -293,7 +324,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_customer_hasnt_co
 
     guidelines: list[str] = ["issue_reporting"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -304,7 +335,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_customer_hasnt_co
     )
 
 
-def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side_on_the_second_time(
+async def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_completed_their_side_on_the_second_time(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -342,7 +373,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
     ]
 
     guidelines: list[str] = ["order_lookup"]
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -353,7 +384,7 @@ def test_that_customer_dependent_guideline_is_matched_when_customer_hasnt_comple
     )
 
 
-def test_that_customer_dependent_guideline_is_matched_when_condition_arises_for_the_second_time(
+async def test_that_customer_dependent_guideline_is_matched_when_condition_arises_for_the_second_time(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -384,7 +415,7 @@ def test_that_customer_dependent_guideline_is_matched_when_condition_arises_for_
 
     guidelines: list[str] = ["order_lookup"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -395,7 +426,7 @@ def test_that_customer_dependent_guideline_is_matched_when_condition_arises_for_
     )
 
 
-def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_for_the_second_time_but_completed(
+async def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_for_the_second_time_but_completed(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -434,7 +465,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_
 
     guidelines: list[str] = ["order_lookup"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -445,7 +476,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_
     )
 
 
-def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_for_the_second_time_but_dont_need_to_take_the_action_again(
+async def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_for_the_second_time_but_dont_need_to_take_the_action_again(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -476,7 +507,7 @@ def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_
 
     guidelines: list[str] = ["order_alcohol"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -484,4 +515,98 @@ def test_that_customer_dependent_guideline_is_not_matched_when_condition_arises_
         conversation_context,
         guidelines_target_names=[],
         guidelines_names=guidelines,
+    )
+
+
+async def test_that_customer_dependent_guideline_is_matched_based_on_capabilities_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Reset Password",
+            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
+            queries=["reset password", "password"],
+            tags=[],
+        )
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Teach me how to tame dinosaurs",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Before proceeding, may I ask for your age?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Sure! But can you help me get ice cream first?",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["unsupported_capability", "multiple_capabilities"]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=["unsupported_capability"],
+        guidelines_names=conversation_guideline_names,
+        capabilities=capabilities,
+    )
+
+
+async def test_that_customer_dependent_guideline_is_matched_based_on_capabilities_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Increase Credit Limit",
+            description="The ability to increase the customer's credit limit",
+            queries=["increase credit limit", "credit limit"],
+            tags=[],
+        ),
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Decrease Credit Limit",
+            description="The ability to decrease the customer's credit limit",
+            queries=["decrease credit limit", "credit limit"],
+            tags=[],
+        ),
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Can you help me change my credit limits",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can help you either increase or decrease your credit limit. Which option are you interested in?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I just want to change them...",
+        ),
+    ]
+    conversation_guideline_names: list[str] = ["unsupported_capability", "multiple_capabilities"]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=["multiple_capabilities"],
+        guidelines_names=conversation_guideline_names,
+        capabilities=capabilities,
     )

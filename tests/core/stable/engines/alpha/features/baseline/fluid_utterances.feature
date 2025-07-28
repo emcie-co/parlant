@@ -32,7 +32,7 @@ Feature: Fluid Utterance
         And the message mentions the color green
         
     Scenario: Multistep journey is partially followed 1 (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -48,7 +48,7 @@ Feature: Fluid Utterance
         And the message contains asking the customer for their username, but not for their email or phone number
 
     Scenario: Irrelevant journey is ignored (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when always
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -64,7 +64,7 @@ Feature: Fluid Utterance
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2 (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -83,7 +83,7 @@ Feature: Fluid Utterance
         And the message contains nothing about wishing the customer a good day
 
     Scenario: Critical guideline overrides journey (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Thank you, have a good day!"
@@ -104,7 +104,7 @@ Feature: Fluid Utterance
         And the message contains no questions about the customer's email address or phone number
     
     Scenario: Journey information is followed (fluid utterance)
-        Given a journey titled Change Credit Limits to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
+        Given a journey titled "Change Credit Limits" to remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch when credit limits are discussed
         And an utterance, "To increase credit limits, you must visit a physical branch"
         And an utterance, "Sure. Let me check how that could be done"
         And a customer message, "Hey there. I want to increase the credit limit on my platinum silver gold card. I want the new limits to be twice as high, please."
@@ -113,12 +113,12 @@ Feature: Fluid Utterance
         And the message contains that you must visit a physical branch to increase credit limits
 
     Scenario: Two journeys are used in unison (fluid utterance)
-        Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
+        Given a journey titled "Book Flight" to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance, "Great. Only economy class is available for this booking. What is the name of the traveler?"
         And an utterance, "Great. What is the name of the traveler?"
         And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a journey titled No Economy to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
+        And a journey titled "No Economy" to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
         And an agent message, "Great! From and to where would are you looking to fly?"
         And a customer message, "From LAX to JFK"
@@ -182,3 +182,31 @@ Feature: Fluid Utterance
         Then a single message event is emitted
         And the message contains the name 'Beef'
         And the message contains a welcoming back of the customer to the store and asking how the agent could help
+
+    Scenario: The agent follows a guideline with agent intention (fluid utterance)
+        Given a guideline to do not provide any personal medical information even if you have it when you discusses a patient's medical record
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer named "Alex Smith"
+        And an empty session with "Alex Smith"
+        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith" 
+        And a customer message, "Hi, I need to know what medications I was prescribed during my visit last month. Can you pull up my medical record?"
+        And an utterance, "I'm not able to provide personal medical information from your records."
+        And an utterance, "I can help you with that. You were prescribed the following medications: {{generative.medication}}"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains no prescription of medications 
+        And the message contains explanation that can't provide personal medical information
+
+    Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition (fluid utterance)
+        Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
+        Given a guideline to suggest only ground based travel options when the customer asks about travel options
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And an utterance, "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option. We also have a special sale if you book today!"
+        And an utterance, "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option. We also have a special sale if you book today!"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a suggestion to travel with bus or train but not with a flight
+        And the message contains no sale option

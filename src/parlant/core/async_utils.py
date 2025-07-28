@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import (
     Any,
     AsyncIterator,
+    Awaitable,
     Callable,
     Coroutine,
     Iterable,
@@ -78,7 +79,8 @@ _TResult3 = TypeVar("_TResult3")
 async def safe_gather(
     coros_or_future_0: asyncio.Future[_TResult0]
     | asyncio.Task[_TResult0]
-    | Coroutine[Any, Any, _TResult0],
+    | Coroutine[Any, Any, _TResult0]
+    | Awaitable[_TResult0],
 ) -> tuple[_TResult0]: ...
 
 
@@ -86,10 +88,12 @@ async def safe_gather(
 async def safe_gather(
     coros_or_future_0: asyncio.Future[_TResult0]
     | asyncio.Task[_TResult0]
-    | Coroutine[Any, Any, _TResult0],
+    | Coroutine[Any, Any, _TResult0]
+    | Awaitable[_TResult0],
     coros_or_future_1: asyncio.Future[_TResult1]
     | asyncio.Task[_TResult1]
-    | Coroutine[Any, Any, _TResult1],
+    | Coroutine[Any, Any, _TResult1]
+    | Awaitable[_TResult1],
 ) -> tuple[_TResult0, _TResult1]: ...
 
 
@@ -97,13 +101,16 @@ async def safe_gather(
 async def safe_gather(
     coros_or_future_0: asyncio.Future[_TResult0]
     | asyncio.Task[_TResult0]
-    | Coroutine[Any, Any, _TResult0],
+    | Coroutine[Any, Any, _TResult0]
+    | Awaitable[_TResult0],
     coros_or_future_1: asyncio.Future[_TResult1]
     | asyncio.Task[_TResult1]
-    | Coroutine[Any, Any, _TResult1],
+    | Coroutine[Any, Any, _TResult1]
+    | Awaitable[_TResult1],
     coros_or_future_2: asyncio.Future[_TResult2]
     | asyncio.Task[_TResult2]
-    | Coroutine[Any, Any, _TResult2],
+    | Coroutine[Any, Any, _TResult2]
+    | Awaitable[_TResult2],
 ) -> tuple[_TResult0, _TResult2]: ...
 
 
@@ -111,23 +118,28 @@ async def safe_gather(
 async def safe_gather(
     coros_or_future_0: asyncio.Future[_TResult0]
     | asyncio.Task[_TResult0]
-    | Coroutine[Any, Any, _TResult0],
+    | Coroutine[Any, Any, _TResult0]
+    | Awaitable[_TResult0],
     coros_or_future_1: asyncio.Future[_TResult1]
     | asyncio.Task[_TResult1]
-    | Coroutine[Any, Any, _TResult1],
+    | Coroutine[Any, Any, _TResult1]
+    | Awaitable[_TResult1],
     coros_or_future_2: asyncio.Future[_TResult2]
     | asyncio.Task[_TResult2]
-    | Coroutine[Any, Any, _TResult2],
+    | Coroutine[Any, Any, _TResult2]
+    | Awaitable[_TResult2],
     coros_or_future_3: asyncio.Future[_TResult3]
     | asyncio.Task[_TResult3]
-    | Coroutine[Any, Any, _TResult3],
+    | Coroutine[Any, Any, _TResult3]
+    | Awaitable[_TResult3],
 ) -> tuple[_TResult0, _TResult3]: ...
 
 
 async def safe_gather(  # type: ignore[misc]
     *coros_or_futures: asyncio.Future[_TResult0]
     | asyncio.Task[_TResult0]
-    | Coroutine[Any, Any, _TResult0],
+    | Coroutine[Any, Any, _TResult0]
+    | Awaitable[_TResult0],
 ) -> Iterable[_TResult0]:
     futures = [asyncio.ensure_future(x) for x in coros_or_futures]
 
@@ -181,13 +193,16 @@ def completed_task(value: _TResult0 | None = None) -> asyncio.Task[_TResult0 | N
 
 
 def default_done_callback(
-    logger: Logger,
+    logger: Logger | None = None,
 ) -> Callable[[asyncio.Task[_TResult0]], object]:
     def done_callback(task: asyncio.Task[_TResult0]) -> object:
         try:
             return task.result()
+        except asyncio.CancelledError:
+            return None
         except Exception as e:
-            logger.error(f"Exception encountered in background task: {e}")
+            if logger:
+                logger.error(f"Exception encountered in background task: {e}")
             return None
 
     return done_callback

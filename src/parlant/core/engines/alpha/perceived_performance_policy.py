@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from abc import ABC, abstractmethod
 import random
 from typing_extensions import override
@@ -60,7 +74,7 @@ class PerceivedPerformancePolicy(ABC):
         ...
 
 
-class DefaultPerceivedPerformancePolicy(PerceivedPerformancePolicy):
+class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     @override
     async def get_processing_indicator_delay(
         self,
@@ -129,3 +143,33 @@ class DefaultPerceivedPerformancePolicy(PerceivedPerformancePolicy):
             result.append(customer_wait_time.total_seconds())
 
         return result
+
+
+class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
+    @override
+    async def get_processing_indicator_delay(
+        self,
+        context: LoadedContext | None = None,
+    ) -> float:
+        return 0
+
+    @override
+    async def get_follow_up_delay(
+        self,
+        context: LoadedContext | None = None,
+    ) -> float:
+        return 0
+
+    @override
+    async def get_preamble_delay(
+        self,
+        context: LoadedContext | None = None,
+    ) -> float:
+        return 0
+
+    @override
+    async def is_preamble_required(
+        self,
+        context: LoadedContext | None = None,
+    ) -> bool:
+        return False

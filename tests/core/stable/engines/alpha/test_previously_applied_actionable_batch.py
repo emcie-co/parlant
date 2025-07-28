@@ -1,18 +1,37 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
+from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import generate_id
+from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatchingContext
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingBatchContext,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
     GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableGuidelineMatchingBatch,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
@@ -49,6 +68,10 @@ GUIDELINES_DICT = {
     "return_conditions": {
         "condition": "The customer is asking about return terms.",
         "action": "refer them to the company's website",
+    },
+    "unsupported_capability": {
+        "condition": "When a customer asks about a capability that is not supported",
+        "action": "inform the customer that the capability is not supported and make a joke",
     },
 }
 
@@ -115,7 +138,7 @@ def create_guideline(
     return guideline
 
 
-def base_test_that_correct_guidelines_are_matched(
+async def base_test_that_correct_guidelines_are_matched(
     context: ContextOfTest,
     agent: Agent,
     session_id: SessionId,
@@ -123,7 +146,10 @@ def base_test_that_correct_guidelines_are_matched(
     conversation_context: list[tuple[EventSource, str]],
     guidelines_target_names: list[str],
     guidelines_names: list[str],
+    capabilities: list[Capability] = [],
+    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     staged_events: Sequence[EmittedEvent] = [],
+    relevant_journeys: Sequence[Journey] = [],
 ) -> None:
     conversation_guidelines = {
         name: create_guideline_by_name(context, name) for name in guidelines_names
@@ -140,33 +166,36 @@ def base_test_that_correct_guidelines_are_matched(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+    session = await context.container[SessionStore].read_session(session_id)
 
-    guideline_matching_context = GuidelineMatchingContext(
+    guideline_matching_context = GuidelineMatchingBatchContext(
         agent=agent,
         session=session,
         customer=customer,
-        context_variables=[],
+        context_variables=context_variables,
         interaction_history=interaction_history,
         terms=[],
+        capabilities=capabilities,
         staged_events=staged_events,
+        relevant_journeys=relevant_journeys,
     )
 
     guideline_previously_applied_matcher = GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
         logger=context.container[Logger],
         schematic_generator=context.schematic_generator,
         guidelines=context.guidelines,
+        journeys=[],
         context=guideline_matching_context,
     )
 
-    result = context.sync_await(guideline_previously_applied_matcher.process())
+    result = await guideline_previously_applied_matcher.process()
 
     matched_guidelines = [p.guideline for p in result.matches]
 
     assert set(matched_guidelines) == set(target_guidelines)
 
 
-def test_that_previously_matched_guideline_are_not_matched_when_there_is_no_new_reason(
+async def test_that_previously_matched_guideline_are_not_matched_when_there_is_no_new_reason(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -189,7 +218,7 @@ def test_that_previously_matched_guideline_are_not_matched_when_there_is_no_new_
 
     guidelines: list[str] = ["problem_so_restart"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -200,7 +229,7 @@ def test_that_previously_matched_guideline_are_not_matched_when_there_is_no_new_
     )
 
 
-def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_not_matched_again(
+async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_not_matched_again(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -223,7 +252,7 @@ def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_not_mat
 
     guidelines: list[str] = ["calm_and_reset_password"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -234,7 +263,7 @@ def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_not_mat
     )
 
 
-def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_1(
+async def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_1(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -273,7 +302,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_
 
     guidelines: list[str] = ["frustrated_so_discount"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -284,7 +313,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_
     )
 
 
-def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_2(
+async def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_2(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -331,7 +360,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_
 
     guidelines: list[str] = ["order_status"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -342,7 +371,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_
     )
 
 
-def test_that_guideline_that_was_reapplied_earlier_and_should_reapply_again_based_on_the_most_recent_interaction_is_matched(
+async def test_that_guideline_that_was_reapplied_earlier_and_should_reapply_again_based_on_the_most_recent_interaction_is_matched(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -373,7 +402,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_reapply_again_base
 
     guidelines: list[str] = ["confirm_reservation"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -384,7 +413,7 @@ def test_that_guideline_that_was_reapplied_earlier_and_should_reapply_again_base
     )
 
 
-def test_that_guideline_that_should_reapply_is_matched_when_condition_holds_in_the_last_several_messages(
+async def test_that_guideline_that_should_reapply_is_matched_when_condition_holds_in_the_last_several_messages(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -415,7 +444,7 @@ def test_that_guideline_that_should_reapply_is_matched_when_condition_holds_in_t
 
     guidelines: list[str] = ["confirm_reservation"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -426,7 +455,7 @@ def test_that_guideline_that_should_reapply_is_matched_when_condition_holds_in_t
     )
 
 
-def test_that_reapplied_guideline_is_still_applied_when_handling_conditions_subissue(
+async def test_that_reapplied_guideline_is_still_applied_when_handling_conditions_sub_issue(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -457,7 +486,7 @@ def test_that_reapplied_guideline_is_still_applied_when_handling_conditions_subi
 
     guidelines: list[str] = ["confirm_reservation"]
 
-    base_test_that_correct_guidelines_are_matched(
+    await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
         new_session.id,
@@ -465,4 +494,88 @@ def test_that_reapplied_guideline_is_still_applied_when_handling_conditions_subi
         conversation_context,
         guidelines_target_names=guidelines,
         guidelines_names=guidelines,
+    )
+
+
+async def test_that_previously_applied_guidelines_are_matched_based_on_capabilities(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Reset Password",
+            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
+            queries=["reset password", "password"],
+            tags=[],
+        )
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Set my password to 1234",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can’t help you with that — it’s against my security policy. Besides, 1234? What is that, your luggage combination too?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Ok I see. So can you just send me my current password over here?",
+        ),
+    ]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=["unsupported_capability"],
+        guidelines_names=["unsupported_capability"],
+        capabilities=capabilities,
+    )
+
+
+async def test_that_previously_applied_guidelines_are_not_matched_based_on_irrelevant_capabilities(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Reset Password",
+            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
+            queries=["reset password", "password"],
+            tags=[],
+        )
+    ]
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Set my password to 1234",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can’t help you with that — it’s against my security policy. Besides, 1234? What is that, your luggage combination too?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Ok I see. So can you help me reset my password?",
+        ),
+    ]
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=[],
+        guidelines_names=["unsupported_capability"],
+        capabilities=capabilities,
     )

@@ -121,6 +121,7 @@ class MessageEventData(TypedDict):
 
 class ControlOptions(TypedDict, total=False):
     mode: SessionMode
+    lifespan: LifeSpan
 
 
 class ToolResult(TypedDict):
@@ -217,6 +218,7 @@ ConsumerId: TypeAlias = Literal["client"]
 """In the future we may support multiple consumer IDs"""
 
 SessionMode: TypeAlias = Literal["auto", "manual"]
+LifeSpan: TypeAlias = Literal["response", "session"]
 
 
 class AgentState(TypedDict):

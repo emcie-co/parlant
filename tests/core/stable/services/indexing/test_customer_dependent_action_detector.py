@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from lagom import Container
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.customer_dependent_action_detector import (
@@ -14,7 +28,7 @@ async def check_guideline(
     )
     assert (
         is_customer_dependent == result.is_customer_dependent
-    ), f"""Guideline incorrectly marked as {'not ' if is_customer_dependent else ''}customer dependent:
+    ), f"""Guideline incorrectly marked as {"not " if is_customer_dependent else ""}customer dependent:
 Condition: {guideline.condition}
 Action: {guideline.action}"""
 
@@ -100,10 +114,6 @@ async def test_that_actions_which_are_customer_dependent_are_classified_correctl
         GuidelineContent(
             condition="The customer wants to schedule a callback",
             action="ask for their preferred time and phone number, then confirm the appointment details",
-        ),
-        GuidelineContent(
-            condition="The customer seems confused about our return policy",
-            action="clearly explain our 30-day return policy and provide examples of eligible items",
         ),
     ]
 

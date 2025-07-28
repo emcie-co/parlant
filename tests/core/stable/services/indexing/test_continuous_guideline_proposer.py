@@ -1,3 +1,18 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import asyncio
 from lagom import Container
 
 from parlant.core.guidelines import GuidelineContent
@@ -40,10 +55,11 @@ async def test_that_non_continuous_guidelines_mark_as_non_continuous(
         ),
     ]
 
-    for g in guidelines:
-        result = await continuous_proposer.propose_continuous(
-            guideline=g,
-        )
+    tasks = [continuous_proposer.propose_continuous(guideline=g) for g in guidelines]
+
+    results = await asyncio.gather(*tasks)
+
+    for g, result in zip(guidelines, results):
         assert not result.is_continuous, (
             f"Guideline failed to be marked as non continuous:\n"
             f"Condition: {g.condition}\n"
@@ -82,15 +98,20 @@ async def test_that_continuous_guidelines_mark_as_continuous(
             action="Prioritize their needs and respond promptly.",
         ),
         GuidelineContent(
-            condition="the user indicates they have dietary restrictions while discussing meal options.",
+            condition="The user indicates they have dietary restrictions while discussing meal options.",
             action="Ensure that all suggested meal options respect their dietary restrictions.",
+        ),
+        GuidelineContent(
+            condition="The user wants to replace their current meal with a healthier option.",
+            action="Suggest healthier alternatives and then assist the user in replacing their meal choice until they are satisfied",
         ),
     ]
 
-    for g in guidelines:
-        result = await continuous_proposer.propose_continuous(
-            guideline=g,
-        )
+    tasks = [continuous_proposer.propose_continuous(guideline=g) for g in guidelines]
+
+    results = await asyncio.gather(*tasks)
+
+    for g, result in zip(guidelines, results):
         assert result.is_continuous, (
             f"Guideline failed to be marked as continuous:\n"
             f"Condition: {g.condition}\n"

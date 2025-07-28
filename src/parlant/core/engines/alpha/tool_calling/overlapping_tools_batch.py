@@ -97,7 +97,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         self._overlapping_tools_batch = overlapping_tools_batch
 
     async def process(self) -> ToolCallBatchResult:
-        with self._logger.operation("Evaluation: "):
+        with self._logger.operation("OverlappingToolsBatch"):
             (
                 generation_info,
                 inference_output,
@@ -142,8 +142,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         )
 
         # Send the tool call inference prompt to the LLM
-        with self._logger.operation("Evaluation: "):
-            generation_info, inference_output = await self._run_inference(inference_prompt)
+        generation_info, inference_output = await self._run_inference(inference_prompt)
 
         # Evaluate the tool calls
         tool_calls, missing_data = await self._evaluate_tool_calls_parameters(
@@ -332,9 +331,9 @@ TASK DESCRIPTION
 Your task is to review a batch of provided tools and, based on your most recent interaction with the customer, decide whether to use them.
 The provided tools have been grouped together due to overlapping functionality or shared parameters.
 You should prefer to run the tool that is the best fit for the current context. Specifically, the one that is most relevant and tailored to the user's inquiry or need.
-For each tool in the batch, indicate the tool applicability with a boolean value: true if the tool is useful at this point, or false if it is not. 
+For each tool in the batch, indicate the tool applicability with a boolean value: true if the tool is useful at this point, or false if it is not.
 For any tool marked as true, include the available arguments for activation.
-Note that a tool may be considered applicable even if not all of its required arguments are available. In such cases, provide the parameters that are currently available, 
+Note that a tool may be considered applicable even if not all of its required arguments are available. In such cases, provide the parameters that are currently available,
 following the format specified in its description.
 
 While doing so, take the following instructions into account:
@@ -444,7 +443,7 @@ Given these tools, your output should adhere to the following format:
             "comparison_with_alternative_tools_including_references_to_subtleties": "<A VERY BRIEF OVERVIEW OF HOW THIS CALL FARES AGAINST THE ALTERNATIVE TOOLS IN APPLICABILITY>",
             "alternative_tool_should_run_instead_of_this_tool": <BOOL>,
             "is_applicable": <BOOL>,
-            "calls": [ 
+            "calls": [
                 {{
                     "argument_evaluations": [
                         {{

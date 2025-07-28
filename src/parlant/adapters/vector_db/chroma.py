@@ -160,7 +160,7 @@ class ChromaDatabase(VectorDatabase):
                         collection.update(
                             ids=[str(doc["id"])],
                             documents=[cast(str, unembedded_docs_by_id[doc["id"]]["content"])],
-                            metadatas=[cast(chromadb.Metadata, unembedded_docs_by_id[doc["id"]])],
+                            metadatas=unembedded_docs_by_id[doc["id"]],
                             embeddings=embeddings,
                         )
                     unembedded_docs_by_id.pop(doc["id"])

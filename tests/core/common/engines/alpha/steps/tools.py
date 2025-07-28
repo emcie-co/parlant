@@ -328,7 +328,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "register_for_confusing_sweepstake": {
         "name": "register_for_confusing_sweepstake",
-        "description": "Register for a sweepstake with more confusing paramater options",
+        "description": "Register for a sweepstake with more confusing parameter options",
         "module_path": "tests.tool_utilities",
         "parameters": {
             "first_name": (
@@ -479,7 +479,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
             "pincode": {
                 "type": "string",
-                "description": "the pincode for the account the coins are transfered from",
+                "description": "the pincode for the account the coins are transferred from",
             },
         },
         "required": ["amount", "from_account", "to_account", "pincode"],
@@ -556,18 +556,6 @@ TOOLS: dict[str, dict[str, Any]] = {
             "destination_city": {
                 "type": "string",
                 "description": "The name of the city the user is flighting to",
-            },
-            "departure_date": {
-                "type": "string",
-                "description": "The departure date given in format DD-MM-YYYY",
-            },
-            "return_date": {
-                "type": "string",
-                "description": "The return date given in format DD-MM-YYYY",
-            },
-            "passenger_name": {
-                "type": "string",
-                "description": "The name of the passenger",
             },
         },
         "required": ["departure_city", "destination_city", "departure_date"],
@@ -783,6 +771,34 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["boolean"],
     },
+    "check_current_time": {
+        "name": "check_current_time",
+        "description": "Check the current time",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "class_access_validator": {
+        "name": "class_access_validator",
+        "description": "Checks if the traveler is eligible for business class (21+), else restricts to economy.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "check_current_time_emit": {
+        "name": "check_current_time_emit",
+        "description": "Check the current time",
+        "module_path": "tests.tool_utilities",
+        "parameters": {},
+        "required": [],
+    },
+    "class_eligibility_checker": {
+        "name": "class_eligibility_checker",
+        "description": "Checks if the traveler is eligible for business class (21+), else restricts to economy.",
+        "module_path": "tests.tool_utilities",
+        "parameters": {"age": {"type": "integer", "description": "The age of the traveler"}},
+        "required": ["age"],
+    },
 }
 
 
@@ -950,7 +966,7 @@ def given_max_engine_iteration(
     given,
     parsers.parse('a tool relationship whereby "{tool_a}" overlaps with "{tool_b}"'),
 )
-def given_an_overlaping_tools_relationship(
+def given_an_overlapping_tools_relationship(
     context: ContextOfTest,
     tool_a: str,
     tool_b: str,

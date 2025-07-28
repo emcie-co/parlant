@@ -322,7 +322,7 @@ class LegacyInvoiceDataDTO(
     """
     Contains the relevant invoice data.
 
-    At this point only `guideline` is suppoerted.
+    At this point only `guideline` is supported.
     """
 
     guideline: Optional[LegacyGuidelineInvoiceDataDTO] = None
@@ -643,6 +643,7 @@ class RelationshipKindDTO(Enum):
     ENTAILMENT = "entailment"
     PRIORITY = "priority"
     DEPENDENCY = "dependency"
+    DISAMBIGUATION = "disambiguation"
     OVERLAP = "overlap"
 
 

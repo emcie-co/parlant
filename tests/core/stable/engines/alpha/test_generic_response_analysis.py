@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -160,7 +174,7 @@ def create_guideline_with_tools(
     return guideline
 
 
-def base_test_that_correct_guidelines_are_detected_as_previously_applied(
+async def base_test_that_correct_guidelines_are_detected_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
     session_id: SessionId,
@@ -189,17 +203,15 @@ def base_test_that_correct_guidelines_are_detected_as_previously_applied(
     ]
 
     for e in interaction_history:
-        context.sync_await(
-            context.container[SessionStore].create_event(
-                session_id=session_id,
-                source=e.source,
-                kind=e.kind,
-                correlation_id=e.correlation_id,
-                data=e.data,
-            )
+        await context.container[SessionStore].create_event(
+            session_id=session_id,
+            source=e.source,
+            kind=e.kind,
+            correlation_id=e.correlation_id,
+            data=e.data,
         )
 
-    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+    session = await context.container[SessionStore].read_session(session_id)
 
     guideline_matches = [
         GuidelineMatch(
@@ -225,16 +237,16 @@ def base_test_that_correct_guidelines_are_detected_as_previously_applied(
         guideline_matches=guideline_matches,
     )
 
-    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+    session = await context.container[SessionStore].read_session(session_id)
 
-    result = context.sync_await(response_analysis.process())
+    result = await response_analysis.process()
 
-    assert set(
-        [p.guideline for p in result.previously_applied_guidelines if p.is_previously_applied]
-    ) == set(previously_applied_target_guidelines)
+    assert set([p.guideline for p in result.analyzed_guidelines if p.is_previously_applied]) == set(
+        previously_applied_target_guidelines
+    )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied(
+async def test_that_correct_guidelines_detect_as_previously_applied(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -253,7 +265,7 @@ def test_that_correct_guidelines_detect_as_previously_applied(
     ]
     guidelines: list[str] = ["offer_two_pizza_for_one"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -264,7 +276,7 @@ def test_that_correct_guidelines_detect_as_previously_applied(
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_also_depends_on_the_user_response(
+async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_also_depends_on_the_user_response(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -282,7 +294,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     ]
     guidelines: list[str] = ["register"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -293,7 +305,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has_partially_applied_but_behavioral(
+async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has_partially_applied_but_behavioral(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -311,7 +323,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has
     ]
     guidelines: list[str] = ["express_solidarity_and_discount"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -322,7 +334,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_has
     )
 
 
-def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guideline_has_partially_applied_and_functional(
+async def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guideline_has_partially_applied_and_functional(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -340,7 +352,7 @@ def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guide
     ]
     guidelines: list[str] = ["discount_and_check_status"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -351,7 +363,7 @@ def test_that_correct_guideline_does_not_detect_as_previously_applied_when_guide
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_has_several_parts_that_applied_in_different_interaction_messages(
+async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_has_several_parts_that_applied_in_different_interaction_messages(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -378,7 +390,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     ]
     guidelines: list[str] = ["discount_and_check_status"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -389,7 +401,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_1(
+async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_1(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -407,7 +419,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     ]
     guidelines: list[str] = ["late_so_discount", "cold_so_discount"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,
@@ -418,7 +430,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
     )
 
 
-def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_2(
+async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_applied_but_from_different_condition_2(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -437,7 +449,7 @@ def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_act
 
     guidelines: list[str] = ["link_when_asks_where_order"]
 
-    base_test_that_correct_guidelines_are_detected_as_previously_applied(
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,
         agent,
         new_session.id,

@@ -54,11 +54,13 @@ const MessageDetails = ({
 	closeLogs,
 	regenerateMessageFn,
 	resendMessageFn,
+	flaggedChanged,
 }: {
 	event?: EventInterface | null;
 	closeLogs?: VoidFunction;
 	regenerateMessageFn?: (sessionId: string) => void;
 	resendMessageFn?: (sessionId: string) => void;
+	flaggedChanged?: (flagged: boolean) => void;
 }): ReactNode => {
 	const [filters, setFilters] = useState<Record<string, any> | null>(null);
 	const [filterTabs, setFilterTabs] = useLocalStorage<Filter[]>('filters', []);
@@ -151,6 +153,7 @@ const MessageDetails = ({
 				resendMessageFn={resendMessageFn}
 				regenerateMessageFn={regenerateMessageFn}
 				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters || {}).length ? 'border-[#F3F5F9]' : '')}
+				flaggedChanged={flaggedChanged}
 			/>
 			<ResizablePanelGroup direction='vertical' className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 				<ResizablePanel ref={resizableRef} minSize={0} maxSize={isError ? 99 : 0} defaultSize={isError ? 50 : 0}>

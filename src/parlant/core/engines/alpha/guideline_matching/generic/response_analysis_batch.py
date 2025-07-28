@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 import json
 from itertools import chain
@@ -7,12 +21,16 @@ from more_itertools import chunked
 
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    GuidelineInternalRepresentation,
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
     _make_event,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
-    GuidelinePreviouslyApplied,
+    AnalyzedGuideline,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisBatch,
@@ -91,10 +109,8 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
             batch_results = await async_utils.safe_gather(*batch_tasks)
 
-            all_applied_guidelines = list(
-                chain.from_iterable(
-                    result.previously_applied_guidelines for result in batch_results
-                )
+            all_analyzed_guidelines = list(
+                chain.from_iterable(result.analyzed_guidelines for result in batch_results)
             )
 
             generation_info = (
@@ -113,7 +129,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             )
 
             return ResponseAnalysisBatchResult(
-                previously_applied_guidelines=all_applied_guidelines,
+                analyzed_guidelines=all_analyzed_guidelines,
                 generation_info=generation_info,
             )
 
@@ -127,7 +143,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             m.guideline for m in self._guideline_matches if m.guideline.id in batch_guideline_ids
         ]
 
-        guidelines = {g.id: g for g in batch_guidelines}
+        guidelines = {str(i): g for i, g in enumerate(batch_guidelines, start=1)}
 
         prompt = self._build_prompt(
             shots=await self.shots(),
@@ -140,28 +156,28 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
                 hints={"temperature": 0.15},
             )
 
-        previously_applied_guidelines: list[GuidelinePreviouslyApplied] = []
+        analyzed_guidelines: list[AnalyzedGuideline] = []
 
         for check in inference.content.checks:
             if check.guideline_applied:
                 self._logger.debug(f"Completion::Activated:\n{check.model_dump_json(indent=2)}")
-                previously_applied_guidelines.append(
-                    GuidelinePreviouslyApplied(
-                        guideline=guidelines[GuidelineId(check.guideline_id)],
+                analyzed_guidelines.append(
+                    AnalyzedGuideline(
+                        guideline=guidelines[check.guideline_id],
                         is_previously_applied=True,
                     )
                 )
             else:
                 self._logger.debug(f"Completion::Skipped:\n{check.model_dump_json(indent=2)}")
-                previously_applied_guidelines.append(
-                    GuidelinePreviouslyApplied(
+                analyzed_guidelines.append(
+                    AnalyzedGuideline(
                         guideline=guidelines[GuidelineId(check.guideline_id)],
                         is_previously_applied=False,
                     )
                 )
 
         return ResponseAnalysisBatchResult(
-            previously_applied_guidelines=previously_applied_guidelines,
+            analyzed_guidelines=analyzed_guidelines,
             generation_info=inference.info,
         )
 
@@ -173,7 +189,10 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             f"Example #{i}: ###\n{self._format_shot(shot)}" for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, shot: GenericResponseAnalysisShot) -> str:
+    def _format_shot(
+        self,
+        shot: GenericResponseAnalysisShot,
+    ) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 EventSource.CUSTOMER: "user",
@@ -219,10 +238,11 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
     def _add_guideline_matches_section(
         self,
-        guidelines: dict[GuidelineId, Guideline],
+        guidelines: dict[str, Guideline],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
     ) -> str:
         guidelines_text = "\n".join(
-            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
+            f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
             for i, g in guidelines.items()
         )
 
@@ -240,8 +260,10 @@ Guidelines:
     def _build_prompt(
         self,
         shots: Sequence[GenericResponseAnalysisShot],
-        guidelines: dict[GuidelineId, Guideline],
+        guidelines: dict[str, Guideline],
     ) -> PromptBuilder:
+        guideline_representations = {g.id: internal_representation(g) for g in guidelines.values()}
+
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
@@ -321,7 +343,7 @@ Examples of ...:
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
-            template=self._add_guideline_matches_section(guidelines),
+            template=self._add_guideline_matches_section(guidelines, guideline_representations),
             props={},
         )
 
@@ -341,23 +363,24 @@ OUTPUT FORMAT
 """,
             props={
                 "result_structure_text": self._format_of_guideline_check_json_description(
-                    guidelines=guidelines
+                    guidelines=guidelines,
+                    guideline_representations=guideline_representations,
                 ),
                 "guidelines_len": len(guidelines),
             },
         )
-
         return builder
 
     def _format_of_guideline_check_json_description(
         self,
-        guidelines: dict[GuidelineId, Guideline],
+        guidelines: dict[str, Guideline],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
     ) -> str:
         result_structure = [
             {
-                "guideline_id": g.id,
+                "guideline_id": i,
                 # "condition": g.content.condition,
-                "action": g.content.action,
+                "action": guideline_representations[g.id].action,
                 "guideline_applied_rationale": [
                     {
                         "action_segment": "<action_segment_description>",
@@ -369,7 +392,7 @@ OUTPUT FORMAT
                 "is_missing_part_functional_or_behavioral": "<str: only included if guideline_applied is 'partially'.>",
                 "guideline_applied": "<bool>",
             }
-            for g in guidelines.values()
+            for i, g in guidelines.items()
         ]
         result = {"checks": result_structure}
         return json.dumps(result, indent=4)

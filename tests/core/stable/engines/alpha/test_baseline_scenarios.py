@@ -30,6 +30,7 @@ load_steps(
     "customers",
     "tags",
     "journeys",
+    "capabilities",
 )
 
 scenarios(
@@ -49,6 +50,8 @@ scenarios(
             "context_variables",
             "triggered_utterances",
             "journeys",
+            "capabilities",
+            "strict_utterances_capabilities",
         )
     )
 )

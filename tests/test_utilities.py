@@ -560,6 +560,7 @@ async def run_service_server(
     plugin_data: Mapping[str, Any] = {},
 ) -> AsyncIterator[PluginServer]:
     port = get_random_port(50001, 65535)
+
     async with PluginServer(
         tools=tools,
         port=port,
@@ -646,7 +647,9 @@ def is_port_available(port: int, host: str = "localhost") -> bool:
 
 
 def get_random_port(
-    min_port: int = 1024, max_port: int = 65535, max_iterations: int = sys.maxsize
+    min_port: int = 1024,
+    max_port: int = 65535,
+    max_iterations: int = sys.maxsize,
 ) -> int:
     iter = 0
     while not is_port_available(port := randint(min_port, max_port)) and iter < max_iterations:

@@ -31,6 +31,7 @@ from tests.test_utilities import (
     SERVER_ADDRESS,
     run_openapi_server,
     run_service_server,
+    run_mcp_server,
 )
 
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
@@ -1749,3 +1750,214 @@ async def test_that_a_guideline_can_be_created_with_tool_id(
                 and assoc["tool_id"]["tool_name"] == tool_name
                 for assoc in guideline_details["tool_associations"]
             ), "Tool association was not created"
+
+
+async def test_that_a_mcp_service_can_be_added(
+    context: ContextOfTest,
+) -> None:
+    service_name = "test_mcp_service"
+    service_kind = "mcp"
+
+    def sample_tool(param: int) -> int:
+        return param * 2
+
+    with run_server(context):
+        async with run_mcp_server([sample_tool]) as server:
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "create",
+                    "--name",
+                    service_name,
+                    "--kind",
+                    service_kind,
+                    "--url",
+                    f"{server.url}:{server.port}",
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            async with context.api.make_client() as client:
+                response = await client.get("/services/")
+                response.raise_for_status()
+                services = response.json()
+                assert any(
+                    s["name"] == service_name and s["kind"] == service_kind for s in services
+                )
+
+
+async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_guideline(
+    context: ContextOfTest,
+) -> None:
+    with run_server(context):
+        guideline = await context.api.create_guideline(
+            condition="the customer wants to get meeting details",
+            action="get meeting event information",
+        )
+        guideline_id = guideline["id"]
+
+        service_name = "google_calendar"
+        tool_name = "fetch_event_data"
+        service_kind = "mcp"
+
+        def fetch_event_data(event_id: str) -> str:
+            return event_id
+
+        async with run_mcp_server([fetch_event_data]) as server:
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "create",
+                    "--name",
+                    service_name,
+                    "--kind",
+                    service_kind,
+                    "--url",
+                    f"{server.url}:{server.port}",
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "guideline",
+                    "tool-enable",
+                    "--id",
+                    guideline_id,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            guideline = await context.api.read_guideline(guideline_id=guideline_id)
+
+            assert any(
+                assoc["tool_id"]["service_name"] == service_name
+                and assoc["tool_id"]["tool_name"] == tool_name
+                for assoc in guideline["tool_associations"]
+            )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "guideline",
+                    "tool-disable",
+                    "--id",
+                    guideline_id,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            guideline = await context.api.read_guideline(guideline_id=guideline_id)
+
+            assert guideline["tool_associations"] == []
+
+
+async def test_that_a_variable_can_be_added_with_mcp_tool_then_updated(
+    context: ContextOfTest,
+) -> None:
+    name = "test_variable_cli_with mcp"
+    description = "Variable added via CLI bound with MCP tool"
+    new_description = "Variable (mcp-bound) updated via CLI"
+
+    with run_server(context):
+        service_name = "local_service"
+        tool_name = "fetch_event_data"
+        service_kind = "mcp"
+        freshness_rules = "0 0,6,12,18 * * *"
+
+        def fetch_event_data(event_id: str) -> str:
+            """Fetch event data based on event ID."""
+            return event_id
+
+        async with run_mcp_server([fetch_event_data]) as server:
+            assert (
+                await run_cli_and_get_exit_status(
+                    "service",
+                    "create",
+                    "--name",
+                    service_name,
+                    "--kind",
+                    service_kind,
+                    "--url",
+                    f"{server.url}:{server.port}",
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "variable",
+                    "create",
+                    "--description",
+                    description,
+                    "--name",
+                    name,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    "--freshness-rules",
+                    freshness_rules,
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+            variables = await context.api.list_context_variables()
+
+            variable = next(
+                (
+                    v
+                    for v in variables
+                    if v["name"] == name
+                    and v["description"] == description
+                    and v["tool_id"]
+                    == {
+                        "service_name": "local_service",
+                        "tool_name": "fetch_event_data",
+                    }
+                    and v["freshness_rules"] == freshness_rules
+                ),
+                None,
+            )
+            assert variable is not None, "Variable was not added"
+
+            assert (
+                await run_cli_and_get_exit_status(
+                    "variable",
+                    "update",
+                    "--id",
+                    variable["id"],
+                    "--description",
+                    new_description,
+                    "--service",
+                    service_name,
+                    "--tool",
+                    tool_name,
+                    "--freshness-rules",
+                    freshness_rules,
+                    address=context.api.server_address,
+                )
+                == os.EX_OK
+            )
+
+        updated_variable = await context.api.read_context_variable(variable_id=variable["id"])
+        assert updated_variable["context_variable"]["name"] == name
+        assert updated_variable["context_variable"]["description"] == new_description
+        assert updated_variable["context_variable"]["tool_id"] == {
+            "service_name": "local_service",
+            "tool_name": "fetch_event_data",
+        }
+        assert updated_variable["context_variable"]["freshness_rules"] == freshness_rules

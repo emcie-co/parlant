@@ -335,6 +335,7 @@ async def test_that_all_relationships_can_be_listed(
         (a_id, b_id, GuidelineRelationshipKind.ENTAILMENT),
         (b_id, c_id, GuidelineRelationshipKind.PRIORITY),
         (c_id, a_id, GuidelineRelationshipKind.DEPENDENCY),
+        (a_id, c_id, GuidelineRelationshipKind.DISAMBIGUATION),
     ]
 
     for source, target, kind in relationships_data:
@@ -368,6 +369,12 @@ async def test_that_relationships_can_be_listed_by_kind_without_entity_filters(
         source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
         kind=GuidelineRelationshipKind.PRIORITY,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=GuidelineRelationshipKind.DISAMBIGUATION,
     )
 
     entailments = await relationship_store.list_relationships(

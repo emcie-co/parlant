@@ -15,7 +15,6 @@
 from dataclasses import dataclass
 from itertools import chain
 from typing import Mapping, Optional, Sequence
-
 from parlant.core.customers import Customer
 from parlant.core.journeys import Journey
 from parlant.core.tools import ToolContext
@@ -99,7 +98,8 @@ class ToolEventGenerator:
     async def generate_events(
         self,
         preexecution_state: ToolPreexecutionState,
-        event_emitter: EventEmitter,
+        session_event_emitter: EventEmitter,
+        response_event_emitter: EventEmitter,
         session_id: SessionId,
         agent: Agent,
         customer: Customer,
@@ -156,24 +156,34 @@ class ToolEventGenerator:
                 insights=inference_result.insights,
             )
 
-        event_data: ToolEventData = {
-            "tool_calls": [
-                {
-                    "tool_id": r.tool_call.tool_id.to_string(),
-                    "arguments": r.tool_call.arguments,
-                    "result": r.result,
-                }
-                for r in tool_results
-            ]
-        }
-
-        event = await event_emitter.emit_tool_event(
-            correlation_id=self._correlator.correlation_id,
-            data=event_data,
-        )
+        events = []
+        for r in tool_results:
+            event_data: ToolEventData = {
+                "tool_calls": [
+                    {
+                        "tool_id": r.tool_call.tool_id.to_string(),
+                        "arguments": r.tool_call.arguments,
+                        "result": r.result,
+                    }
+                ]
+            }
+            if r.result["control"].get("lifespan", "session") == "session":
+                events.append(
+                    await session_event_emitter.emit_tool_event(
+                        correlation_id=self._correlator.correlation_id,
+                        data=event_data,
+                    )
+                )
+            else:
+                events.append(
+                    await response_event_emitter.emit_tool_event(
+                        correlation_id=self._correlator.correlation_id,
+                        data=event_data,
+                    )
+                )
 
         return ToolEventGenerationResult(
             generations=inference_result.batch_generations,
-            events=[event],
+            events=events,
             insights=inference_result.insights,
         )

@@ -36,6 +36,7 @@ from typing import (
     TypedDict,
     Union,
     get_args,
+    get_origin,
     overload,
 )
 from pydantic import BaseModel
@@ -138,7 +139,13 @@ class _ToolParameterInfo(NamedTuple):
 
 def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
     try:
-        parameter_type = param.annotation
+        parameter_type: type
+        if get_origin(param.annotation) is list:
+            # This way we handle typing.List[elem] as list[elem]
+            elem_type = get_args(param.annotation)[0]
+            parameter_type = list[elem_type]  # type: ignore[valid-type]
+        else:
+            parameter_type = param.annotation
         parameter_options: Optional[ToolParameterOptions] = None
 
         # If parameter has default then we'll consider it as optional (in terms of tool calling)

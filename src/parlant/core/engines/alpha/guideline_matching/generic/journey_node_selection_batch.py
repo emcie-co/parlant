@@ -354,10 +354,10 @@ TRANSITIONS:
             else:
                 flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
             if (
-                node.action == FORK_NODE_ACTION_STR
+                node.kind == JourneyNodeKind.FORK
             ):  # TODO change why I know how to recognize fork nodes
                 flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
-            if node.action != FORK_NODE_ACTION_STR and not node.customer_dependent_action:
+            if node.kind == JourneyNodeKind.CHAT and not node.customer_dependent_action:
                 flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
             nodes_str += f"""
 STEP {node_index}: {node.action}
@@ -421,6 +421,13 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                 score=10,
                                 rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
                                 guideline_previously_applied=PreviouslyAppliedType.IRRELEVANT,
+                                metadata={
+                                    "journey_path": [
+                                        last_visited_node.id,
+                                        last_visited_node.outgoing_edges[0].target_node_index,
+                                    ],
+                                    "step_selection_journey_id": self._examined_journey.id,
+                                },
                             )
                         ],
                         generation_info=generation_info,

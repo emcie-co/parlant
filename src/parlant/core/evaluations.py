@@ -545,7 +545,14 @@ class EvaluationDocumentStore(EvaluationStore):
                 progress=doc["progress"],
             )
 
-        return None
+        return await DocumentMigrationHelper[EvaluationDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
+            },
+        ).migrate(doc)
 
     async def __aenter__(self) -> Self:
         async with DocumentStoreMigrationHelper(

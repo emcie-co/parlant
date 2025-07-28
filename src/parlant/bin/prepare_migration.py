@@ -686,7 +686,9 @@ async def migrate_agents_0_2_0_to_0_3_0() -> None:
         if agent["version"] == "0.2.0":
             await agent_collection.update_one(
                 filters={"id": {"$eq": ObjectId(agent["id"])}},
-                params={"version": Version.String("0.3.0")},
+                params={
+                    "version": Version.String("0.3.0"),
+                },
             )
 
     await upgrade_document_database_metadata(agent_db, Version.String("0.3.0"))

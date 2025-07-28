@@ -17,8 +17,10 @@
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
+import datetime
 import importlib
 import os
+import shutil
 import traceback
 from lagom import Container, Singleton
 from typing import AsyncIterator, Awaitable, Callable, Iterable, Literal, Optional, Sequence, cast
@@ -28,6 +30,7 @@ from typing_extensions import NoReturn
 import click
 import click_completion
 from pathlib import Path
+import random
 import sys
 import uvicorn
 
@@ -116,7 +119,13 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
-from parlant.api.app import create_api_app, ASGIApplication
+from parlant.api.app import (
+    APIConfigurationSteps,
+    configure_test_router,
+    create_api_app,
+    ASGIApplication,
+    default_configuration_steps,
+)
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentDocumentStore, AgentStore
@@ -194,6 +203,7 @@ from parlant.core.version import VERSION
 
 
 DEFAULT_PORT = 8800
+TEST_PORT_RANGE = (8901, 8999)
 SERVER_ADDRESS = "https://localhost"
 CONFIG_FILE_PATH = Path("parlant.toml")
 
@@ -242,6 +252,7 @@ class StartupParameters:
     log_level: str | LogLevel
     modules: list[str]
     migrate: bool
+    test_modules: list[str]
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
 
@@ -420,6 +431,8 @@ async def setup_container() -> AsyncIterator[Container]:
 
     c[Engine] = Singleton(AlphaEngine)
     c[Application] = lambda rc: Application(rc)
+
+    c[APIConfigurationSteps] = default_configuration_steps
 
     yield c
 
@@ -709,7 +722,8 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         setup_container() as base_container,
         EXIT_STACK,
     ):
-        modules = set(await get_module_list_from_config() + params.modules)
+        test_modules = [m for m in params.test_modules if m != "None"]
+        modules = set(await get_module_list_from_config() + params.modules + test_modules)
 
         if modules:
             # Allow modules to return a different container
@@ -743,10 +757,14 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         )
 
         if not params.configure:
-            # Running in non-pico mode
             await create_agent_if_absent(actual_container[AgentStore])
 
-        yield await create_api_app(actual_container), actual_container
+        if len(params.test_modules) > 0:
+            actual_container[APIConfigurationSteps].append(configure_test_router)
+
+        app_wrapper = await create_api_app(actual_container)
+        async with app_wrapper as app:
+            yield app, actual_container
 
 
 async def serve_app(
@@ -789,6 +807,8 @@ def require_env_keys(keys: list[str]) -> None:
 
 @asynccontextmanager
 async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
+    global PARLANT_HOME_DIR
+
     LOGGER.set_level(
         params.log_level
         if isinstance(params.log_level, LogLevel)
@@ -802,7 +822,23 @@ async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
     )
 
     LOGGER.info(f"Parlant server version {VERSION}")
-    LOGGER.info(f"Using home directory '{PARLANT_HOME_DIR.absolute()}'")
+
+    def _filter(src: str, names: list[str]) -> list[str]:
+        return ["sessions.json"] + [name for name in names if name.startswith("test_")]
+
+    if params.test_modules:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        PARLANT_HOME_DIR_NEW = PARLANT_HOME_DIR / f"test_{timestamp}"
+        shutil.copytree(
+            PARLANT_HOME_DIR,
+            PARLANT_HOME_DIR_NEW,
+            ignore=_filter,
+        )
+        PARLANT_HOME_DIR = PARLANT_HOME_DIR_NEW
+        LOGGER.info(f"Copying data to separate folder for tests: {PARLANT_HOME_DIR.absolute()}")
+        LOGGER.debug(f"TEST MODULES: {params.test_modules}")
+    else:
+        LOGGER.info(f"Using home directory '{PARLANT_HOME_DIR.absolute()}'")
 
     if "PARLANT_HOME" not in os.environ and DEFAULT_HOME_DIR == "runtime-data":
         LOGGER.warning(
@@ -941,6 +977,17 @@ def main() -> None:
             "Disable to exit if the database schema is not up-to-date."
         ),
     )
+    @click.option(
+        "--test",
+        multiple=True,
+        default=[],
+        metavar="TEST_MODULE",
+        is_flag=False,
+        flag_value="None",
+        help=(
+            "Specify a test module to load. To load multiple modules, pass this argument multiple times."
+        ),
+    )
     @click.pass_context
     def run(
         ctx: click.Context,
@@ -958,6 +1005,7 @@ def main() -> None:
         module: tuple[str],
         version: bool,
         migrate: bool,
+        test: tuple[str],
     ) -> None:
         if version:
             print(f"Parlant v{VERSION}")
@@ -1001,12 +1049,16 @@ def main() -> None:
         else:
             assert False, "Should never get here"
 
+        if len(test) > 0 and port == DEFAULT_PORT:
+            port = random.randint(TEST_PORT_RANGE[0], TEST_PORT_RANGE[1])
+
         ctx.obj = StartupParameters(
             port=port,
             nlp_service=cast(NLPServiceName, nlp_service),
             log_level=log_level,
             modules=list(module),
             migrate=migrate,
+            test_modules=list(test),
         )
 
         async def start() -> None:

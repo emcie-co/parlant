@@ -16,6 +16,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+
 from typing import Mapping
 
 from parlant.core.common import JSONSerializable

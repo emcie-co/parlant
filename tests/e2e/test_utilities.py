@@ -170,8 +170,8 @@ def run_server(
 
 
 class API:
-    def __init__(self) -> None:
-        self.set_port(get_random_port(10000, 50000))
+    def __init__(self, port: int = -1) -> None:
+        self.set_port(port if port != -1 else get_random_port(10000, 50000))
 
     def set_port(self, port: int) -> None:
         self.server_address = f"{SERVER_BASE_URL}:{port}"

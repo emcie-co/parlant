@@ -187,9 +187,9 @@ class AgentDocumentStore(AgentStore):
                     name=doc["name"],
                     description=doc.get("description"),
                     max_engine_iterations=doc["max_engine_iterations"],
-                    composition_mode=utterance_to_canned_response_composition_mode[
-                        doc["composition_mode"]
-                    ],
+                    composition_mode=utterance_to_canned_response_composition_mode.get(
+                        doc["composition_mode"], CompositionMode.FLUID.value
+                    ),
                 )
 
             if doc["version"] == "0.4.0":
@@ -202,6 +202,7 @@ class AgentDocumentStore(AgentStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 

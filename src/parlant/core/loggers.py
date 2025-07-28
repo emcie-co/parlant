@@ -213,6 +213,15 @@ class CorrelationalLogger(Logger):
         props: dict[str, Any] = {},
         level: LogLevel = LogLevel.INFO,
     ) -> Iterator[None]:
+        log_func = {
+            LogLevel.TRACE: self.trace,
+            LogLevel.DEBUG: self.debug,
+            LogLevel.INFO: self.info,
+            LogLevel.WARNING: self.warning,
+            LogLevel.ERROR: self.error,
+            LogLevel.CRITICAL: self.critical,
+        }[level]
+
         t_start = time.time()
         try:
             if props:
@@ -225,9 +234,9 @@ class CorrelationalLogger(Logger):
             t_end = time.time()
 
             if props:
-                self.trace(f"{name} [{props}] finished in {t_end - t_start}s")
+                log_func(f"{name} [{props}] finished in {t_end - t_start}s")
             else:
-                self.trace(f"{name} finished in {round(t_end - t_start, 3)} seconds")
+                log_func(f"{name} finished in {round(t_end - t_start, 3)} seconds")
         except asyncio.CancelledError:
             self.warning(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
             raise

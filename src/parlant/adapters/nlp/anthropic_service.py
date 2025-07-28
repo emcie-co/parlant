@@ -30,6 +30,9 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
+from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+    JourneyNodeSelectionSchema,
+)
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
@@ -175,6 +178,19 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
         return 200 * 1024
 
 
+class Claude_Opus_4(AnthropicAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="claude-opus-4-20250514",
+            logger=logger,
+        )
+
+    @override
+    @property
+    def max_tokens(self) -> int:
+        return 200 * 1024
+
+
 class AnthropicService(NLPService):
     def __init__(self, logger: Logger) -> None:
         self._logger = logger
@@ -182,7 +198,9 @@ class AnthropicService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> AnthropicAISchematicGenerator[T]:
-        return Claude_Sonnet_3_5[t](self._logger)  # type: ignore
+        if t == JourneyNodeSelectionSchema:
+            return Claude_Opus_4[t](self._logger)
+        return Claude_Sonnet_3_5[t](self._logger)
 
     @override
     async def get_embedder(self) -> Embedder:

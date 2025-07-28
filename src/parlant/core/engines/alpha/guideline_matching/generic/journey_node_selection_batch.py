@@ -690,9 +690,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         if (
             journey_path and journey_path[-1] not in self._node_wrappers
         ):  # 'Exit journey' was selected, or illegal value returned (both should cause no guidelines to be active)
-            self._logger.warning(
-                f"WARNING: Last journey step in returned path is not legal. Full path: : {journey_path}"
-            )
             journey_path[-1] = None
 
         return journey_path

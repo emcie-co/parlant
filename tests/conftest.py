@@ -24,6 +24,7 @@ import pytest
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.adapters.nlp.anthropic_service import AnthropicService
 from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
@@ -364,7 +365,7 @@ async def container(
                 event_emitter_factory=container[EventEmitterFactory],
                 logger=container[Logger],
                 correlator=container[ContextualCorrelator],
-                nlp_services_provider=lambda: {"default": OpenAIService(container[Logger])},
+                nlp_services_provider=lambda: {"default": AnthropicService(container[Logger])},
             )
         )
 

@@ -1562,7 +1562,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             "3",
         ],  # Backtrack to account collection, then fast forward through email to good day
         expected_next_node_index="3",
-    )  # This test is slightly ambiguous, advancing to either node 3 or 5 (its followup) is considered valid, but we only test for node 3
+    )  # This test is ambiguous, advancing to either node 3 or 5 or None could be considered valid, but we only test for node 3. Consider deleting it
 
 
 async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_changes_earlier_choice_4(  # Sometimes skips a node in the returned path,  but outputs the correct decision

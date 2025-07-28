@@ -152,9 +152,10 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
                 if self.schema.__name__ == "MessageSchema":
                     last_message_match = re.search(r'"last_message_of_customer":\s*"([^"]*)"', prompt if isinstance(prompt, str) else prompt.build())
                     last_message = last_message_match.group(1) if last_message_match else None
+                    last_message_part = f': "{last_message}"' if last_message else ''
                     fallback_content = (
-                        f"I'm sorry, I couldn't fully understand your request{'' if not last_message else f': \"{last_message}\"'}. "
-                        "Could you clarify or provide more details?"
+                        f"I'm sorry, I couldn't fully understand your request{last_message_part}. "
+                        f"Could you clarify or provide more details?"
                     )
                     self._logger.info("Returning MessageSchema fallback response")
                     return SchematicGenerationResult(

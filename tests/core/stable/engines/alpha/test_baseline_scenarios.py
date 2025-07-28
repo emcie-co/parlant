@@ -23,7 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
-    "utterances",
+    "canned_responses",
     "sessions",
     "terms",
     "tools",
@@ -37,8 +37,8 @@ scenarios(
     *(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
-            "strict_utterances",
-            "fluid_utterances",
+            "strict_canned_responses",
+            "fluid_canned_responses",
             "conversation",
             "errors",
             "relationships",
@@ -51,7 +51,7 @@ scenarios(
             "triggered_utterances",
             "journeys",
             "capabilities",
-            "strict_utterances_capabilities",
+            "strict_canned_responses_capabilities",
         )
     )
 )

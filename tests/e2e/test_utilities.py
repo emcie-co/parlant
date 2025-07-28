@@ -585,10 +585,11 @@ class API:
             evaluation_response.raise_for_status()
             return evaluation_response.json()
 
-    async def list_utterances(self) -> Any:
+    async def list_canned_responses(self) -> Any:
         async with self.make_client() as client:
-            utterances_response = await client.get(
-                "/utterances",
+            response = await client.get(
+                "/canned_responses",
             )
-            utterances_response.raise_for_status()
-            return utterances_response.json()
+
+            response.raise_for_status()
+            return response.json()

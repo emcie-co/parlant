@@ -21,7 +21,7 @@ from lagom import Container
 
 from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
-from parlant.core.engines.types import UtteranceRequest
+from parlant.core.engines.types import CannedResponseRequest
 from parlant.core.journeys import Journey, JourneyNode
 from parlant.core.tools import Tool
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -39,7 +39,7 @@ class ContextOfTest:
     guidelines: dict[str, Guideline]
     guideline_matches: dict[str, GuidelineMatch]
     tools: dict[str, Tool]
-    actions: list[UtteranceRequest]
+    actions: list[CannedResponseRequest]
     journeys: dict[str, Journey]
     nodes: dict[str, JourneyNode]
 

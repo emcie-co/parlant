@@ -28,15 +28,15 @@ class Context:
     agent_id: AgentId
 
 
-class UtteranceReason(Enum):
+class CannedResponseReason(Enum):
     BUY_TIME = auto()
     FOLLOW_UP = auto()
 
 
 @dataclass(frozen=True)
-class UtteranceRequest:
+class CannedResponseRequest:
     action: str
-    reason: UtteranceReason
+    reason: CannedResponseReason
 
 
 class Engine(ABC):
@@ -52,5 +52,5 @@ class Engine(ABC):
         self,
         context: Context,
         event_emitter: EventEmitter,
-        requests: Sequence[UtteranceRequest],
+        requests: Sequence[CannedResponseRequest],
     ) -> bool: ...

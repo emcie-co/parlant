@@ -129,7 +129,12 @@ from parlant.core.sessions import (
     ToolEventData,
     ToolResult as _SessionToolResult,
 )
-from parlant.core.utterances import Utterance, UtteranceVectorStore, UtteranceId, UtteranceStore
+from parlant.core.canned_responses import (
+    CannedResponse,
+    CannedResponseVectorStore,
+    CannedResponseId,
+    CannedResponseStore,
+)
 from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStatus,
@@ -547,7 +552,7 @@ class _SdkAgentStore(AgentStore):
             creation_utc=creation_utc or datetime.now(timezone.utc),
             max_engine_iterations=max_engine_iterations or 1,
             tags=tags or [],
-            composition_mode=composition_mode or _CompositionMode.FLUID_UTTERANCE,
+            composition_mode=composition_mode or _CompositionMode.CANNED_FLUID,
         )
 
         self._agents[agent.id] = agent
@@ -1189,22 +1194,22 @@ class Journey:
 
         return guideline.id
 
-    async def create_utterance(
+    async def create_canned_response(
         self,
         template: str,
         tags: list[TagId] = [],
-        queries: list[str] = [],
-    ) -> UtteranceId:
+        signals: list[str] = [],
+    ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        utterance = await self._container[UtteranceStore].create_utterance(
+        canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
             tags=[_Tag.for_journey_id(self.id), *tags],
             fields=[],
-            queries=queries,
+            signals=signals,
         )
 
-        return utterance.id
+        return canrep.id
 
 
 @dataclass(frozen=True)
@@ -1212,7 +1217,7 @@ class Capability:
     id: CapabilityId
     title: str
     description: str
-    queries: Sequence[str]
+    signals: Sequence[str]
     tags: Sequence[TagId]
 
 
@@ -1316,14 +1321,14 @@ class RetrieverContext:
 class RetrieverResult:
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
-    utterances: Sequence[str] = field(default_factory=list)
-    utterance_fields: Mapping[str, Any] = field(default_factory=dict)
+    canned_responses: Sequence[str] = field(default_factory=list)
+    canned_response_fields: Mapping[str, Any] = field(default_factory=dict)
 
 
 class CompositionMode(enum.Enum):
-    FLUID = _CompositionMode.FLUID_UTTERANCE
-    COMPOSITED = _CompositionMode.COMPOSITED_UTTERANCE
-    STRICT = _CompositionMode.STRICT_UTTERANCE
+    FLUID = _CompositionMode.CANNED_FLUID
+    COMPOSITED = _CompositionMode.CANNED_COMPOSITED
+    STRICT = _CompositionMode.CANNED_STRICT
 
 
 @dataclass(frozen=True)
@@ -1448,35 +1453,35 @@ class Agent:
 
         return guideline.id
 
-    async def create_utterance(
+    async def create_canned_response(
         self,
         template: str,
         tags: list[TagId] = [],
-        queries: list[str] = [],
-    ) -> UtteranceId:
+        signals: list[str] = [],
+    ) -> CannedResponseId:
         self._server._advance_creation_progress()
 
-        utterance = await self._container[UtteranceStore].create_utterance(
+        canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
             tags=[_Tag.for_agent_id(self.id), *tags],
             fields=[],
-            queries=queries,
+            signals=signals,
         )
 
-        return utterance.id
+        return canrep.id
 
     async def create_capability(
         self,
         title: str,
         description: str,
-        queries: Sequence[str] | None = None,
+        signals: Sequence[str] | None = None,
     ) -> Capability:
         self._server._advance_creation_progress()
 
         capability = await self._container[CapabilityStore].create_capability(
             title=title,
             description=description,
-            queries=queries,
+            signals=signals,
             tags=[_Tag.for_agent_id(self.id)],
         )
 
@@ -1484,7 +1489,7 @@ class Agent:
             id=capability.id,
             title=capability.title,
             description=capability.description,
-            queries=capability.queries,
+            signals=capability.signals,
             tags=capability.tags,
         )
 
@@ -2049,8 +2054,8 @@ class Server:
                         retriever_result = RetrieverResult(
                             data=task_result,
                             metadata={},
-                            utterances=[],
-                            utterance_fields={},
+                            canned_responses=[],
+                            canned_response_fields={},
                         )
 
                     if not (
@@ -2077,18 +2082,18 @@ class Server:
                                             data=retriever_result.data,
                                             metadata=retriever_result.metadata,
                                             control={"lifespan": "response"},
-                                            utterances=[
-                                                Utterance(
-                                                    id=Utterance.TRANSIENT_ID,
+                                            canned_responses=[
+                                                CannedResponse(
+                                                    id=CannedResponse.TRANSIENT_ID,
                                                     creation_utc=datetime.now(timezone.utc),
                                                     value=u,
                                                     fields=[],
-                                                    queries=[],
+                                                    signals=[],
                                                     tags=[],
                                                 )
-                                                for u in retriever_result.utterances
+                                                for u in retriever_result.canned_responses
                                             ],
-                                            utterance_fields=retriever_result.utterance_fields,
+                                            canned_response_fields=retriever_result.canned_response_fields,
                                         ),
                                     )
                                 ]
@@ -2477,7 +2482,7 @@ class Server:
 
             for vector_store_interface, vector_store_type in [
                 (GlossaryStore, GlossaryVectorStore),
-                (UtteranceStore, UtteranceVectorStore),
+                (CannedResponseStore, CannedResponseVectorStore),
                 (CapabilityStore, CapabilityVectorStore),
                 (JourneyStore, JourneyVectorStore),
             ]:
@@ -2638,6 +2643,6 @@ __all__ = [
     "ToolParameterOptions",
     "ToolParameterType",
     "ToolResult",
-    "UtteranceId",
+    "CannedResponseId",
     "tool",
 ]

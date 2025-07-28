@@ -23,7 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
-    "utterances",
+    "canned_responses",
     "sessions",
     "terms",
     "tools",

@@ -108,7 +108,7 @@ async def test_that_an_agent_can_be_created_with_specific_composition_mode(
 ) -> None:
     response = await async_client.post(
         "/agents",
-        json={"name": "test-agent", "composition_mode": "strict_utterance"},
+        json={"name": "test-agent", "composition_mode": "strict_canned_response"},
     )
 
     assert response.status_code == status.HTTP_201_CREATED
@@ -116,7 +116,7 @@ async def test_that_an_agent_can_be_created_with_specific_composition_mode(
     agent = response.json()
 
     assert agent["name"] == "test-agent"
-    assert agent["composition_mode"] == "strict_utterance"
+    assert agent["composition_mode"] == "strict_canned_response"
 
 
 async def test_that_an_agent_can_be_created_with_tags(
@@ -217,7 +217,13 @@ async def test_that_an_agent_can_be_read(
             "fluid",
         ),
         ({"max_engine_iterations": 5}, "test-agent", None, 5, "fluid"),
-        ({"composition_mode": "strict_utterance"}, "test-agent", None, 1, "strict_utterance"),
+        (
+            {"composition_mode": "strict_canned_response"},
+            "test-agent",
+            None,
+            1,
+            "strict_canned_response",
+        ),
     ],
 )
 async def test_that_an_agent_can_be_updated(

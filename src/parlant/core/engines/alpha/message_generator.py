@@ -199,8 +199,8 @@ class MessageGenerator(MessageEventComposer):
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
                 tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
                 for tool_call in tool_calls:
-                    if "utterances" in tool_call.get("result", {}):
-                        del tool_call["result"]["utterances"]
+                    if "canned_responses" in tool_call.get("result", {}):
+                        del tool_call["result"]["canned_responses"]
 
         return staged_events
 

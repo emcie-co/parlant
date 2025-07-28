@@ -30,7 +30,7 @@ async def test_that_a_capability_can_be_created(
     payload = {
         "title": "Provide Replacement Phone",
         "description": "Provide a replacement phone when a customer needs repair for their phone.",
-        "queries": ["My phone is broken", "I need a replacement while my phone is being repaired"],
+        "signals": ["My phone is broken", "I need a replacement while my phone is being repaired"],
     }
 
     response = await async_client.post("/capabilities", json=payload)
@@ -39,7 +39,7 @@ async def test_that_a_capability_can_be_created(
     capability = response.json()
     assert capability["title"] == payload["title"]
     assert capability["description"] == payload["description"]
-    assert capability["queries"] == payload["queries"]
+    assert capability["signals"] == payload["signals"]
     assert capability["tags"] == []
 
 
@@ -66,7 +66,7 @@ async def test_that_a_capability_can_be_created_with_tags(
     payload = {
         "title": "Summarization",
         "description": "Summarizes long documents.",
-        "queries": ["Summarize this article", "Give me a summary"],
+        "signals": ["Summarize this article", "Give me a summary"],
         "tags": [tag1.id, tag2.id, agent_tag, journey_tag],
     }
 
@@ -88,7 +88,7 @@ async def test_that_capabilities_can_be_listed(
                 json={
                     "title": "Provide Replacement Phone",
                     "description": "Provide a replacement phone when a customer needs repair for their phone.",
-                    "queries": [
+                    "signals": [
                         "My phone is broken",
                         "I need a replacement while my phone is being repaired",
                     ],
@@ -115,7 +115,7 @@ async def test_that_a_capability_can_be_read(
                 json={
                     "title": "Q&A",
                     "description": "Answers questions.",
-                    "queries": ["What is Parlant?"],
+                    "signals": ["What is Parlant?"],
                 },
             )
         )
@@ -129,11 +129,11 @@ async def test_that_a_capability_can_be_read(
 
     assert capability_dto["title"] == "Q&A"
     assert capability_dto["description"] == "Answers questions."
-    assert capability_dto["queries"] == ["What is Parlant?"]
+    assert capability_dto["signals"] == ["What is Parlant?"]
 
 
 @mark.parametrize(
-    "update_payload, expected_title, expected_description, expected_queries",
+    "update_payload, expected_title, expected_description, expected_signals",
     [
         (
             {"title": "New Title"},
@@ -148,7 +148,7 @@ async def test_that_a_capability_can_be_read(
             ["What is Parlant?"],
         ),
         (
-            {"queries": ["How does it work?"]},
+            {"signals": ["How does it work?"]},
             "Q&A",
             "Answers questions.",
             ["How does it work?"],
@@ -160,7 +160,7 @@ async def test_that_a_capability_can_be_updated(
     update_payload: dict[str, str],
     expected_title: str,
     expected_description: str,
-    expected_queries: list[str],
+    expected_signals: list[str],
 ) -> None:
     capability = (
         (
@@ -169,7 +169,7 @@ async def test_that_a_capability_can_be_updated(
                 json={
                     "title": "Q&A",
                     "description": "Answers questions.",
-                    "queries": ["What is Parlant?"],
+                    "signals": ["What is Parlant?"],
                 },
             )
         )
@@ -183,7 +183,7 @@ async def test_that_a_capability_can_be_updated(
 
     assert updated_capability["title"] == expected_title
     assert updated_capability["description"] == expected_description
-    assert updated_capability["queries"] == expected_queries
+    assert updated_capability["signals"] == expected_signals
 
 
 async def test_that_tags_can_be_added_to_a_capability(
@@ -202,7 +202,7 @@ async def test_that_tags_can_be_added_to_a_capability(
                 json={
                     "title": "Provide Replacement Phone",
                     "description": "Provide a replacement phone when a customer needs repair for their phone.",
-                    "queries": [
+                    "signals": [
                         "My phone is broken",
                         "I need a replacement while my phone is being repaired",
                     ],
@@ -235,7 +235,7 @@ async def test_that_tags_can_be_removed_from_a_capability(
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
-        queries=["Translate this sentence"],
+        signals=["Translate this sentence"],
         tags=[tag1.id, tag2.id],
     )
 
@@ -265,7 +265,7 @@ async def test_that_agent_tag_can_be_added_to_a_capability(
                 json={
                     "title": "Provide Replacement Phone",
                     "description": "Provide a replacement phone when a customer needs repair for their phone.",
-                    "queries": [
+                    "signals": [
                         "My phone is broken",
                         "I need a replacement while my phone is being repaired",
                     ],
@@ -301,7 +301,7 @@ async def test_that_agent_tag_can_be_removed_from_a_capability(
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
-        queries=["Translate this sentence"],
+        signals=["Translate this sentence"],
         tags=[agent_tag, tag1.id],
     )
 
@@ -341,7 +341,7 @@ async def test_that_journey_tags_can_be_added_to_a_capability(
                 json={
                     "title": "Provide Replacement Phone",
                     "description": "Provide a replacement phone when a customer needs repair for their phone.",
-                    "queries": [
+                    "signals": [
                         "My phone is broken",
                         "I need a replacement while my phone is being repaired",
                     ],
@@ -381,7 +381,7 @@ async def test_that_journey_tags_can_be_removed_from_a_capability(
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
-        queries=["Translate this sentence"],
+        signals=["Translate this sentence"],
         tags=[tag1.id, journey_tag],
     )
 
@@ -407,7 +407,7 @@ async def test_that_a_capability_can_be_deleted(
     capability = await capability_store.create_capability(
         title="Provide Replacement Phone",
         description="Provide a replacement phone when a customer needs repair for their phone.",
-        queries=["My phone is broken", "I need a replacement while my phone is being repaired"],
+        signals=["My phone is broken", "I need a replacement while my phone is being repaired"],
     )
 
     delete_response = await async_client.delete(f"/capabilities/{capability.id}")
@@ -429,14 +429,14 @@ async def test_that_capabilities_can_be_filtered_by_tag(
     _ = await capability_store.create_capability(
         title="Provide Replacement Phone",
         description="Provide a replacement phone when a customer needs repair for their phone.",
-        queries=["My phone is broken", "I need a replacement while my phone is being repaired"],
+        signals=["My phone is broken", "I need a replacement while my phone is being repaired"],
         tags=[tag.id],
     )
 
     _ = await capability_store.create_capability(
         title="Reset Password",
         description="Helping customer reset their account password",
-        queries=["My password isn't what I thought"],
+        signals=["My password isn't what I thought"],
     )
 
     response = await async_client.get(f"/capabilities?tag_id={tag.id}")

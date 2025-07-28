@@ -14,34 +14,34 @@
 
 import re
 from pytest_bdd import given, parsers
-from parlant.core.utterances import UtteranceStore, UtteranceId, UtteranceField
+from parlant.core.canned_responses import CannedResponseStore, CannedResponseId, CannedResponseField
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
 
-@step(given, parsers.parse('an utterance, "{text}"'))
-def given_an_utterance(
+@step(given, parsers.parse('a canned response, "{text}"'))
+def given_a_canned_response(
     context: ContextOfTest,
     text: str,
-) -> UtteranceId:
-    utterance_store = context.container[UtteranceStore]
+) -> CannedResponseId:
+    canrep_store = context.container[CannedResponseStore]
 
-    utterance_field_pattern = r"\{(.*?)\}"
-    field_names = re.findall(utterance_field_pattern, text)
+    canrep_field_pattern = r"\{(.*?)\}"
+    field_names = re.findall(canrep_field_pattern, text)
 
-    utterance = context.sync_await(
-        utterance_store.create_utterance(
+    canrep = context.sync_await(
+        canrep_store.create_canned_response(
             value=text,
             fields=[
-                UtteranceField(
-                    name=utterance_field_name,
+                CannedResponseField(
+                    name=canrep_field_name,
                     description="",
                     examples=[],
                 )
-                for utterance_field_name in field_names
+                for canrep_field_name in field_names
             ],
         )
     )
 
-    return utterance.id
+    return canrep.id

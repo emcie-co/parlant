@@ -37,8 +37,13 @@ from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
-from parlant.core.persistence.vector_database import VectorCollection, VectorDatabase
+from parlant.core.persistence.vector_database import (
+    VectorCollection,
+    VectorDatabase,
+    BaseDocument as VectorDocument,
+)
 from parlant.core.persistence.vector_database_helper import (
+    VectorDocumentMigrationHelper,
     VectorDocumentStoreMigrationHelper,
     query_chunks,
 )
@@ -389,16 +394,17 @@ class JourneyVectorStore(JourneyStore):
 
         self._lock = ReaderWriterLock()
 
-    async def _vector_document_loader(self, doc: BaseDocument) -> Optional[JourneyVectorDocument]:
-        async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+    async def _vector_document_loader(self, doc: VectorDocument) -> Optional[JourneyVectorDocument]:
+        async def v0_1_0_to_v0_3_0(doc: VectorDocument) -> Optional[VectorDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        return await DocumentMigrationHelper[JourneyVectorDocument](
+        return await VectorDocumentMigrationHelper[JourneyVectorDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_3_0,
+                "0.2.0": v0_1_0_to_v0_3_0,
             },
         ).migrate(doc)
 
@@ -412,6 +418,7 @@ class JourneyVectorStore(JourneyStore):
             self,
             {
                 "0.1.0": v0_1_0_to_v0_3_0,
+                "0.2.0": v0_1_0_to_v0_3_0,
             },
         ).migrate(doc)
 

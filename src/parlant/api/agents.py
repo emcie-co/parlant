@@ -105,15 +105,15 @@ class CompositionModeDTO(Enum):
 
     Available options:
     - fluid
-    - strict_utterance
-    - composited_utterance
-    - fluid_utterance
+    - canned_fluid
+    - composited_canned
+    - strict_canned
     """
 
     FLUID = "fluid"
-    STRICT_UTTERANCE = "strict_utterance"
-    COMPOSITED_UTTERANCE = "composited_utterance"
-    FLUID_UTTERANCE = "fluid_utterance"
+    CANNED_FLUID = "canned_fluid"
+    CANNED_COMPOSITED = "composited_canned"
+    CANNED_STRICT = "strict_canned"
 
 
 class AgentDTO(
@@ -221,12 +221,12 @@ def _composition_mode_dto_to_composition_mode(dto: CompositionModeDTO) -> Compos
     match dto:
         case CompositionModeDTO.FLUID:
             return CompositionMode.FLUID
-        case CompositionModeDTO.STRICT_UTTERANCE:
-            return CompositionMode.STRICT_UTTERANCE
-        case CompositionModeDTO.COMPOSITED_UTTERANCE:
-            return CompositionMode.COMPOSITED_UTTERANCE
-        case CompositionModeDTO.FLUID_UTTERANCE:
-            return CompositionMode.FLUID_UTTERANCE
+        case CompositionModeDTO.CANNED_STRICT:
+            return CompositionMode.CANNED_STRICT
+        case CompositionModeDTO.CANNED_COMPOSITED:
+            return CompositionMode.CANNED_COMPOSITED
+        case CompositionModeDTO.CANNED_FLUID:
+            return CompositionMode.CANNED_FLUID
 
 
 def _composition_mode_to_composition_mode_dto(
@@ -235,12 +235,12 @@ def _composition_mode_to_composition_mode_dto(
     match composition_mode:
         case CompositionMode.FLUID:
             return CompositionModeDTO.FLUID
-        case CompositionMode.STRICT_UTTERANCE:
-            return CompositionModeDTO.STRICT_UTTERANCE
-        case CompositionMode.COMPOSITED_UTTERANCE:
-            return CompositionModeDTO.COMPOSITED_UTTERANCE
-        case CompositionMode.FLUID_UTTERANCE:
-            return CompositionModeDTO.FLUID_UTTERANCE
+        case CompositionMode.CANNED_STRICT:
+            return CompositionModeDTO.CANNED_STRICT
+        case CompositionMode.CANNED_COMPOSITED:
+            return CompositionModeDTO.CANNED_COMPOSITED
+        case CompositionMode.CANNED_FLUID:
+            return CompositionModeDTO.CANNED_FLUID
 
 
 def create_router(

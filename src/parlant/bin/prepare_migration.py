@@ -31,6 +31,13 @@ from rich.prompt import Confirm, Prompt
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.vector_db.chroma import ChromaDatabase
+from parlant.core.capabilities import (
+    CapabilityDocument,
+    CapabilityDocument_v0_1_0,
+    CapabilityTagAssociationDocument,
+    CapabilityVectorDocument,
+    CapabilityVectorStore,
+)
 from parlant.core.common import generate_id, md5_checksum, Version
 from parlant.core.context_variables import (
     ContextVariableDocument_v0_1_0,
@@ -91,10 +98,15 @@ from parlant.core.persistence.document_database import (
 )
 from parlant.core.persistence.document_database_helper import MetadataDocument
 from parlant.core.tags import Tag
-from parlant.core.utterances import (
-    UtteranceTagAssociationDocument,
+from parlant.core.canned_responses import (
+    CannedResponseDocument,
+    CannedResponseTagAssociationDocument,
+    CannedResponseVectorDocument,
+    UtteranceDocument_v0_2_0,
+    UtteranceDocument_v0_3_0,
+    UtteranceTagAssociationDocument_v0_3_0,
     UtteranceDocument_v0_1_0,
-    UtteranceVectorStore,
+    CannedResponseVectorStore,
 )
 
 DEFAULT_HOME_DIR = "runtime-data" if Path("runtime-data").exists() else "parlant-data"
@@ -245,11 +257,9 @@ async def get_component_versions() -> list[tuple[str, str]]:
                     "utterances",
                     chroma_db_metadata.get(
                         VectorDocumentStoreMigrationHelper.get_store_version_key(
-                            UtteranceVectorStore.__name__
+                            "UtteranceVectorStore"
                         ),
-                        chroma_db_metadata.get(
-                            "version", "0.1.0"
-                        ),  # Back off to the old version key method if not found
+                        "0.4.0",  # In case not exists, set to the last version of utterances
                     ),
                 )
             )
@@ -271,6 +281,24 @@ async def get_component_versions() -> list[tuple[str, str]]:
                     chroma_db_metadata.get(
                         VectorDocumentStoreMigrationHelper.get_store_version_key(
                             JourneyVectorStore.__name__
+                        ),
+                        chroma_db_metadata.get(
+                            "version", "0.1.0"
+                        ),  # Back off to the old version key method if not found
+                    ),
+                )
+            )
+
+    with suppress(chromadb.errors.InvalidCollectionException):
+        if chroma_db.chroma_client.get_collection("capabilities_unembedded"):
+            chroma_db_metadata = cast(dict[str, Any], await chroma_db.read_metadata())
+
+            versions.append(
+                (
+                    "capabilities",
+                    chroma_db_metadata.get(
+                        VectorDocumentStoreMigrationHelper.get_store_version_key(
+                            CapabilityVectorStore.__name__
                         ),
                         chroma_db_metadata.get(
                             "version", "0.1.0"
@@ -759,8 +787,8 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     async def _association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[UtteranceTagAssociationDocument]:
-        return cast(UtteranceTagAssociationDocument, doc)
+    ) -> Optional[UtteranceTagAssociationDocument_v0_3_0]:
+        return cast(UtteranceTagAssociationDocument_v0_3_0, doc)
 
     utterances_json_file = PARLANT_HOME_DIR / "utterances.json"
 
@@ -781,7 +809,7 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     utterance_tags_collection = await utterances_db.get_or_create_collection(
         "utterance_tag_associations",
-        UtteranceTagAssociationDocument,
+        UtteranceTagAssociationDocument_v0_3_0,
         _association_document_loader,
     )
 
@@ -809,7 +837,7 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     new_utterance_tags_collection = await utterance_tags_db.get_or_create_collection(
         "utterance_tags",
-        UtteranceTagAssociationDocument,
+        UtteranceTagAssociationDocument_v0_3_0,
         _association_document_loader,
     )
 
@@ -853,7 +881,9 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
     chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
     await db.upsert_metadata(
-        VectorDocumentStoreMigrationHelper.get_store_version_key(UtteranceVectorStore.__name__),
+        VectorDocumentStoreMigrationHelper.get_store_version_key(
+            CannedResponseVectorStore.__name__
+        ),
         Version.String("0.2.0"),
     )
     await upgrade_document_database_metadata(utterance_tags_db, Version.String("0.2.0"))
@@ -1406,6 +1436,340 @@ async def migrate_journeys_0_2_0_to_0_3_0() -> None:
     await upgrade_document_database_metadata(journey_associations_db, Version.String("0.3.0"))
 
     rich.print("[green]Successfully migrated journeys from 0.2.0 to 0.3.0")
+
+
+@register_migration("utterances", "0.2.0", "0.4.0")
+async def migrate_canned_responses_0_2_0_to_0_4_0() -> None:
+    rich.print("[green]Starting migration for canned responses 0.2.0 -> 0.4.0")
+
+    async def _old_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[UtteranceTagAssociationDocument_v0_3_0]:
+        return cast(UtteranceTagAssociationDocument_v0_3_0, doc)
+
+    async def _new_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[CannedResponseTagAssociationDocument]:
+        return cast(CannedResponseTagAssociationDocument, doc)
+
+    async def _document_loader(
+        doc: BaseDocument,
+    ) -> Optional[CannedResponseDocument]:
+        return cast(CannedResponseDocument, doc)
+
+    embedder_factory = EmbedderFactory(Container())
+
+    db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
+    )
+
+    utterance_tags_file = PARLANT_HOME_DIR / "utterance_tags.json"
+
+    utterance_tags_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, utterance_tags_file)
+    )
+
+    utterance_tags_collection = await utterance_tags_db.get_or_create_collection(
+        "utterance_tags",
+        UtteranceTagAssociationDocument_v0_3_0,
+        _old_association_document_loader,
+    )
+
+    canned_response_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "canned_responses.json")
+    )
+
+    canned_response_collection = await canned_response_db.get_or_create_collection(
+        "canned_responses",
+        CannedResponseDocument,
+        _document_loader,
+    )
+
+    canned_response_tags_collection = await canned_response_db.get_or_create_collection(
+        "canned_responses_tags",
+        CannedResponseTagAssociationDocument,
+        _new_association_document_loader,
+    )
+
+    chroma_utterances_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "utterances_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="utterances_unembedded")
+
+    chroma_canreps_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "canned_responses_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="canned_responses_unembedded")
+
+    migrated_count = 0
+    unique_docs = set()
+    vector_docs = []
+    docs = []
+
+    if metadatas := chroma_utterances_unembedded_collection.get()["metadatas"]:
+        for doc in metadatas:
+            if doc["version"] == "0.2.0":
+                u2_doc = cast(UtteranceDocument_v0_2_0, doc)
+
+                vector_docs.extend(
+                    [
+                        CannedResponseVectorDocument(
+                            id=ObjectId(generate_id()),
+                            canned_response_id=u2_doc["id"],
+                            version=Version.String("0.3.0"),
+                            checksum=md5_checksum(u2_doc["content"]),
+                            content=u2_doc["content"],
+                        )
+                    ]
+                )
+
+                docs.append(
+                    CannedResponseDocument(
+                        id=u2_doc["id"],
+                        version=Version.String("0.3.0"),
+                        creation_utc=u2_doc["creation_utc"],
+                        value=u2_doc["value"],
+                        fields=u2_doc["fields"],
+                        signals=[],
+                    )
+                )
+
+                unique_docs.add(u2_doc["id"])
+
+            if doc["version"] == "0.3.0":
+                u3_doc = cast(UtteranceDocument_v0_3_0, doc)
+
+                if u3_doc["utterance_id"] not in unique_docs:
+                    vector_docs.extend(
+                        [
+                            CannedResponseVectorDocument(
+                                id=ObjectId(generate_id()),
+                                canned_response_id=u3_doc["utterance_id"],
+                                version=Version.String("0.4.0"),
+                                checksum=md5_checksum(c),
+                                content=c,
+                            )
+                            for c in [u3_doc["value"], *json.loads(u3_doc["queries"])]
+                        ]
+                    )
+
+                    docs.append(
+                        CannedResponseDocument(
+                            id=u3_doc["id"],
+                            version=Version.String("0.4.0"),
+                            creation_utc=u3_doc["creation_utc"],
+                            value=u3_doc["value"],
+                            fields=u3_doc["fields"],
+                            signals=[*json.loads(u3_doc["queries"])],
+                        )
+                    )
+
+                    unique_docs.add(u3_doc["utterance_id"])
+
+        for v_doc in vector_docs:
+            chroma_canreps_unembedded_collection.add(
+                ids=[cast(str, v_doc["id"])],
+                documents=[v_doc["content"]],
+                metadatas=[cast(chromadb.Metadata, v_doc)],
+                embeddings=[0],
+            )
+
+            migrated_count += 1
+
+        for c_doc in docs:
+            await canned_response_collection.insert_one(c_doc)
+
+    for tag_doc in await utterance_tags_collection.find(filters={}):
+        await canned_response_tags_collection.insert_one(
+            {
+                "id": tag_doc["id"],
+                "version": Version.String("0.4.0"),
+                "creation_utc": tag_doc["creation_utc"],
+                "canned_response_id": tag_doc["utterance_id"],
+                "tag_id": tag_doc["tag_id"],
+            }
+        )
+
+    chroma_canreps_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(
+            CannedResponseVectorStore.__name__
+        ),
+        Version.String("0.4.0"),
+    )
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key("UtteranceVectorStore"),
+        Version.String("0.4.0"),
+    )
+
+    await upgrade_document_database_metadata(canned_response_db, Version.String("0.4.0"))
+
+    utterance_tags_file.unlink()
+
+    rich.print("[green]Successfully migrated canned responses from 0.2.0 to 0.4.0")
+
+
+@register_migration("capabilities", "0.1.0", "0.2.0")
+async def migrate_capabilities_0_1_0_to_0_2_0() -> None:
+    rich.print("[green]Starting migration for capabilities 0.1.0 -> 0.2.0")
+
+    async def _vector_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[CapabilityVectorDocument]:
+        return cast(CapabilityVectorDocument, doc)
+
+    async def _document_loader(
+        doc: BaseDocument,
+    ) -> Optional[CapabilityDocument]:
+        return cast(CapabilityDocument, doc)
+
+    async def _association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[CapabilityTagAssociationDocument]:
+        return cast(CapabilityTagAssociationDocument, doc)
+
+    embedder_factory = EmbedderFactory(Container())
+
+    db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(
+            LOGGER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
+    )
+
+    capability_tags_file = PARLANT_HOME_DIR / "capability_tags.json"
+
+    capability_tags_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, capability_tags_file)
+    )
+
+    old_capability_tags_collection = await capability_tags_db.get_or_create_collection(
+        "capability_tags",
+        CapabilityTagAssociationDocument,
+        _association_document_loader,
+    )
+
+    capabilities_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "capabilities.json")
+    )
+
+    capabilities_collection = await capabilities_db.get_or_create_collection(
+        "capabilities",
+        CapabilityDocument,
+        _document_loader,
+    )
+
+    capability_tags_collection = await capabilities_db.get_or_create_collection(
+        "capabilities_tags",
+        CapabilityTagAssociationDocument,
+        _association_document_loader,
+    )
+
+    chroma_capabilities_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "capabilities_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="capabilities_unembedded")
+
+    migrated_count = 0
+    unique_docs = set()
+    vector_docs = []
+    docs = []
+
+    if metadatas := chroma_capabilities_unembedded_collection.get()["metadatas"]:
+        for doc in metadatas:
+            old_doc = cast(CapabilityDocument_v0_1_0, doc)
+
+            if old_doc["capability_id"] not in unique_docs:
+                vector_docs.extend(
+                    [
+                        CannedResponseVectorDocument(
+                            id=ObjectId(generate_id()),
+                            canned_response_id=old_doc["capability_id"],
+                            version=Version.String("0.2.0"),
+                            checksum=md5_checksum(c),
+                            content=c,
+                        )
+                        for c in [
+                            f"{old_doc['title']}: {old_doc['description']}",
+                            *json.loads(old_doc["queries"]),
+                        ]
+                    ]
+                )
+
+                docs.append(
+                    CapabilityDocument(
+                        id=old_doc["capability_id"],
+                        version=Version.String("0.2.0"),
+                        creation_utc=old_doc["creation_utc"],
+                        title=old_doc["title"],
+                        description=old_doc["description"],
+                        signals=json.loads(old_doc["queries"]),
+                    )
+                )
+
+                unique_docs.add(old_doc["capability_id"])
+
+            chroma_capabilities_unembedded_collection.delete(
+                where=cast(chromadb.Where, {"id": {"$eq": cast(str, doc["id"])}})
+            )
+
+        for v_doc in vector_docs:
+            chroma_capabilities_unembedded_collection.add(
+                ids=[cast(str, v_doc["id"])],
+                documents=[v_doc["content"]],
+                metadatas=[cast(chromadb.Metadata, v_doc)],
+                embeddings=[0],
+            )
+
+            migrated_count += 1
+
+        for c_doc in docs:
+            await capabilities_collection.insert_one(c_doc)
+
+    for tag_doc in await old_capability_tags_collection.find(filters={}):
+        await capability_tags_collection.insert_one(
+            {
+                "id": tag_doc["id"],
+                "version": Version.String("0.2.0"),
+                "creation_utc": tag_doc["creation_utc"],
+                "capability_id": tag_doc["capability_id"],
+                "tag_id": tag_doc["tag_id"],
+            }
+        )
+
+    chroma_capabilities_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(CapabilityVectorStore.__name__),
+        Version.String("0.2.0"),
+    )
+
+    await upgrade_document_database_metadata(capabilities_db, Version.String("0.2.0"))
+
+    capability_tags_file.unlink()
+
+    rich.print("[green]Successfully migrated capabilities from 0.2.0 to 0.2.0")
 
 
 async def upgrade_document_database_metadata(

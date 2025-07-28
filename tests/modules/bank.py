@@ -25,7 +25,7 @@ server_instance: PluginServer | None = None
 
 @tool
 def read_account_balance(context: ToolContext) -> ToolResult:
-    return ToolResult(data="999", utterance_fields={"balance": 999})
+    return ToolResult(data="999", canned_response_fields={"balance": 999})
 
 
 @tool

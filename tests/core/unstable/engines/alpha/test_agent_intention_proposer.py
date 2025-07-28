@@ -384,7 +384,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             creation_utc=datetime.now(timezone.utc),
             title="Order Pizza",
             description="The ability to order a pizza to the customer's residence",
-            queries=["pizza", "food", "delivery"],
+            signals=["pizza", "food", "delivery"],
             tags=[],
         ),
         Capability(
@@ -392,7 +392,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             creation_utc=datetime.now(timezone.utc),
             title="Order Groceries",
             description="The ability to help the customer in ordering groceries",
-            queries=["groceries", "food", "delivery"],
+            signals=["groceries", "food", "delivery"],
             tags=[],
         ),
         Capability(
@@ -400,7 +400,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             creation_utc=datetime.now(timezone.utc),
             title="Provide customized recipe",
             description="The ability to provide the customer with a recipe based on their preferences and available groceries",
-            queries=["recipe", "food", "delivery", "hungry"],
+            signals=["recipe", "food", "delivery", "hungry"],
             tags=[],
         ),
     ]

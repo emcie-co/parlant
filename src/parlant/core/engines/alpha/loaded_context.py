@@ -15,7 +15,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Sequence, cast
+from typing import Optional, Sequence, cast
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
@@ -30,7 +30,15 @@ from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
-from parlant.core.sessions import Event, EventKind, EventSource, Session, ToolEventData
+from parlant.core.sessions import (
+    Event,
+    EventKind,
+    EventSource,
+    MessageEventData,
+    Participant,
+    Session,
+    ToolEventData,
+)
 from parlant.core.tools import ToolId, ToolResult
 
 
@@ -46,7 +54,10 @@ class InteractionMessage:
     """A message in the interaction history"""
 
     source: EventSource
-    """The source of the message (e.g., customer, AI agent, etc.)"""
+    """The source type of the message (e.g., customer, AI agent, etc.)"""
+
+    participant: Participant
+    """The participant who sent the message (includes display name and ID)"""
 
     correlation_id: str
     """The correlation ID of the message"""
@@ -56,6 +67,10 @@ class InteractionMessage:
 
     creation_utc: datetime
     """The timestamp when the message was created"""
+
+    def __str__(self) -> str:
+        """Returns a string representation of the message"""
+        return f"{self.participant['display_name']} ({self.source}): {self.content}"
 
 
 @dataclass(frozen=True)
@@ -73,8 +88,9 @@ class Interaction:
         return [
             InteractionMessage(
                 source=event.source,
+                participant=cast(MessageEventData, event.data)["participant"],
                 correlation_id=event.correlation_id,
-                content=cast(str, cast(dict[str, Any], event.data).get("message", "")),
+                content=cast(MessageEventData, event.data)["message"],
                 creation_utc=event.creation_utc,
             )
             for event in self.history
@@ -86,12 +102,13 @@ class Interaction:
         """Returns the last customer message in the interaction session, if it exists"""
         for event in reversed(self.history):
             if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
-                message = cast(str, cast(dict[str, Any], event.data).get("message"))
+                message_data = cast(MessageEventData, event.data)
 
                 return InteractionMessage(
                     source=event.source,
+                    participant=message_data["participant"],
                     correlation_id=event.correlation_id,
-                    content=message,
+                    content=message_data["message"],
                     creation_utc=event.creation_utc,
                 )
         return None

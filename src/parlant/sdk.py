@@ -157,6 +157,15 @@ from parlant.core.journeys import (
 )
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
+from parlant.core.engines.alpha.optimization_policy import (
+    OptimizationPolicy,
+    BasicOptimizationPolicy,
+)
+from parlant.core.engines.alpha.perceived_performance_policy import (
+    PerceivedPerformancePolicy,
+    NullPerceivedPerformancePolicy,
+    BasicPerceivedPerformancePolicy,
+)
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
 from parlant.core.tags import Tag as _Tag, TagDocumentStore, TagId, TagStore
@@ -1294,8 +1303,9 @@ class Customer:
 class RetrieverContext:
     correlation_id: str
     session: Session
+    agent: Agent
     customer: Customer
-    variables: Mapping[ContextVariableId, JSONSerializable]
+    variables: Mapping[Variable, JSONSerializable]
     interaction: Interaction
 
 
@@ -1592,6 +1602,11 @@ class Agent:
             _server=self._server,
             _container=self._container,
         )
+
+    async def get_variable(self, id: ContextVariableId | str) -> Variable:
+        if variable := await self.find_variable(id=id):
+            return variable
+        raise SDKError(f"Variable with id {id} not found.")
 
     async def attach_retriever(
         self,
@@ -1983,17 +1998,19 @@ class Server:
                             # If anything went unexpectedly here, whatever. Carry on.
                             pass
 
+                agent = await self.get_agent(id=ctx.agent.id)
+                customer = await self.get_customer(id=ctx.customer.id)
+
                 coroutine = retriever(
                     RetrieverContext(
                         correlation_id=ctx.correlation_id,
                         session=ctx.session,
-                        customer=Customer(
-                            id=ctx.customer.id,
-                            name=ctx.customer.name,
-                            metadata=ctx.customer.extra,
-                            tags=ctx.customer.tags,
-                        ),
-                        variables={var.id: val.data for var, val in ctx.state.context_variables},
+                        agent=agent,
+                        customer=customer,
+                        variables={
+                            await agent.get_variable(id=var.id): val.data
+                            for var, val in ctx.state.context_variables
+                        },
                         interaction=ctx.interaction,
                     )
                 )
@@ -2579,6 +2596,11 @@ __all__ = [
     "Logger",
     "MessageEventData",
     "NLPService",
+    "OptimizationPolicy",
+    "BasicOptimizationPolicy",
+    "PerceivedPerformancePolicy",
+    "BasicPerceivedPerformancePolicy",
+    "NullPerceivedPerformancePolicy",
     "PluginServer",
     "RelationshipEntity",
     "RelationshipEntityId",

@@ -302,7 +302,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         tool_ids=[ToolId(service_name="local", tool_name=tool.name) for tool in tools],
     )
 
-    guideline_with_action = create_guideline(
+    guideline_with_action = await create_guideline(
         context=context,
         condition=guideline_without_action.condition,
         action=result.content.action,
@@ -317,7 +317,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+    session = await context.container[SessionStore].read_session(session_id)
 
     guideline_matching_result = await context.container[GuidelineMatcher].match_guidelines(
         agent=agent,
@@ -326,6 +326,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         context_variables=[],
         interaction_history=interaction_history,
         terms=[],
+        capabilities=[],
         staged_events=[],
         guidelines=context.guidelines,
     )

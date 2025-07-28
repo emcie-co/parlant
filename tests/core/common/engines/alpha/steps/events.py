@@ -483,16 +483,21 @@ def then_the_tool_calls_event_contains_n_tool_calls(
     number_of_tool_calls: int,
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_calls_event = next(e for e in emitted_events if e.kind == EventKind.TOOL)
-    assert number_of_tool_calls == len(
-        cast(ToolEventData, tool_calls_event.data)["tool_calls"]
-    ), pformat(tool_calls_event, indent=2)
+    tool_calls = [
+        cast(ToolEventData, e.data)["tool_calls"]
+        for e in emitted_events
+        if e.kind == EventKind.TOOL
+    ]
+    assert number_of_tool_calls == len(tool_calls), pformat(tool_calls, indent=2)
 
 
 def _get_tool_calls(emitted_events: list[EmittedEvent]) -> list[ToolCall]:
-    tool_calls_event = next(e for e in emitted_events if e.kind == EventKind.TOOL)
-    tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_calls"]
-    return tool_calls
+    return [
+        tool_call
+        for e in emitted_events
+        if e.kind == EventKind.TOOL
+        for tool_call in cast(ToolEventData, e.data)["tool_calls"]
+    ]
 
 
 @step(then, parsers.parse("the tool calls event contains {expected_content}"))
@@ -546,7 +551,6 @@ def then_the_tool_calls_event_contains_call(
 @step(then, parsers.parse("the number of missing parameters is exactly {number_of_missing:d}"))
 def then_the_number_of_missing_is_exactly(
     context: ContextOfTest,
-    emitted_events: list[EmittedEvent],
     number_of_missing: int,
 ) -> None:
     latest_context = next(
@@ -562,7 +566,6 @@ def then_the_number_of_missing_is_exactly(
 @step(then, parsers.parse("the number of invalid parameters is exactly {number_of_invalid:d}"))
 def then_the_number_of_invalid_is_exactly(
     context: ContextOfTest,
-    emitted_events: list[EmittedEvent],
     number_of_invalid: int,
 ) -> None:
     latest_context = next(
@@ -573,3 +576,45 @@ def then_the_number_of_invalid_is_exactly(
     assert (
         len(invalid_data) == number_of_invalid
     ), f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"
+
+
+def _get_staged_events(context: ContextOfTest) -> list[EmittedEvent]:
+    return next(
+        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+    ).state.tool_events
+
+
+@step(then, "a single event is staged")
+def then_a_single_event_is_staged(
+    context: ContextOfTest,
+) -> None:
+    staged_events = _get_staged_events(context)
+
+    assert len(staged_events) == 1, f"Expected 1 staged event, but found {len(staged_events)}"
+
+
+@step(then, parsers.parse("the staged event contains {number_of_tool_calls:d} tool call(s)"))
+def then_the_staged_event_contains_n_tool_calls(
+    context: ContextOfTest,
+    number_of_tool_calls: int,
+) -> None:
+    staged_tool_events = _get_staged_events(context)
+    assert number_of_tool_calls == len(
+        cast(ToolEventData, staged_tool_events[0].data)["tool_calls"]
+    ), pformat(staged_tool_events, indent=2)
+
+
+@step(then, parsers.parse("the staged tool calls event contains {expected_content}"))
+def then_the_tool_calls_staged_event_contains_expected_content(
+    context: ContextOfTest,
+    expected_content: str,
+) -> None:
+    staged_tool_events = _get_staged_events(context)
+    tool_calls = cast(ToolEventData, staged_tool_events[0].data)["tool_calls"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"The following is the result of tool (function) calls: {tool_calls}",
+            condition=f"The calls contain {expected_content}",
+        )
+    ), pformat(tool_calls, indent=2)

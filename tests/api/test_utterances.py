@@ -81,6 +81,33 @@ async def test_that_an_utterance_can_be_created_with_tags(
     assert set(utterance_dto["tags"]) == {tag_1.id, tag_2.id}
 
 
+async def test_that_an_utterance_can_be_created_with_queries(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    payload = {
+        "value": "Your account balance is {{balance}}",
+        "fields": [
+            {
+                "name": "balance",
+                "description": "Account's balance",
+                "examples": ["9000"],
+            }
+        ],
+        "queries": ["One", "Two", "Three"],
+    }
+
+    response = await async_client.post("/utterances", json=payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    utterance_dto = (
+        (await async_client.get(f"/utterances/{response.json()['id']}")).raise_for_status().json()
+    )
+
+    assert len(utterance_dto["queries"]) == 3
+    assert set(utterance_dto["queries"]) == {"One", "Two", "Three"}
+
+
 async def test_that_an_utterance_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -137,6 +164,32 @@ async def test_that_all_utterances_can_be_listed(
     assert len(utterances) >= 2
     assert any(f["value"] == first_value for f in utterances)
     assert any(f["value"] == second_value for f in utterances)
+
+
+async def test_that_relevant_utterances_can_be_retrieved_based_on_closest_queries(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    utterance_store = container[UtteranceStore]
+
+    utterances = [
+        await utterance_store.create_utterance(value="Red", queries=[]),
+        await utterance_store.create_utterance(value="Green", queries=[]),
+        await utterance_store.create_utterance(value="Blue", queries=[]),
+        await utterance_store.create_utterance(value="Paneer Cheese", queries=["Colors"]),
+    ]
+
+    closest_utterance = next(
+        iter(
+            await utterance_store.find_relevant_utterances(
+                query="Colors",
+                available_utterances=utterances,
+                max_count=1,
+            )
+        )
+    )
+
+    assert closest_utterance.value == "Paneer Cheese"
 
 
 async def test_that_an_utterance_can_be_updated(

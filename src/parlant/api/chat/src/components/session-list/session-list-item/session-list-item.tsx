@@ -4,7 +4,7 @@ import Tooltip from '../../ui/custom/tooltip';
 import {Button} from '../../ui/button';
 import {BASE_URL, deleteData, patchData} from '@/utils/api';
 import {toast} from 'sonner';
-import {EventInterface, SessionCsvInterafce, SessionInterface} from '@/utils/interfaces';
+import {EventInterface, SessionCsvInterface, SessionInterface} from '@/utils/interfaces';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
@@ -13,7 +13,7 @@ import {spaceClick} from '@/utils/methods';
 import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
 import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom, sessionsAtom} from '@/store';
-import {copy, exportToCsv} from '@/lib/utils';
+import {copy, exportToCsv, getIndexedItemsFromIndexedDB} from '@/lib/utils';
 import Avatar from '@/components/avatar/avatar';
 
 interface Props {
@@ -116,30 +116,35 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 	};
 
 	const exportSessionToCsv = async (e: React.MouseEvent) => {
+		const flaggedItems = await getIndexedItemsFromIndexedDB('Parlant-flags', 'message_flags', 'sessionIndex', session.id, {name: 'sessionIndex', keyPath: 'sessionId'}, true);
+		
 		e.stopPropagation();
 		
 		try {
 			const sessionEvents: EventInterface[] = (await fetchSessionData(session.id)) || [];
 			const messages = sessionEvents.filter(sessionEvent => sessionEvent.kind === 'message');
 			
-			const exportData: SessionCsvInterafce[] = [];
-			
+			const exportData: SessionCsvInterface[] = [];
 			if (messages?.length) {
 				messages.forEach(message => {
 					exportData.push({
+						'Correlation ID': message.correlation_id,
 						Source: message.source === 'ai_agent' ? 'AI Agent' : 'Customer',
 						Participant: message?.data?.participant?.display_name || '',
 						Timestamp: message.creation_utc || '',
 						Message: message.data?.message || '',
+						Flag: flaggedItems?.[message.correlation_id] || ''
 					});
 				});
 			}
 			
 			const headers = [
+				'Correlation ID',
 				'Source',
 				'Participant',
 				'Timestamp',
 				'Message',
+				'Flag'
 			];
 			
 			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;

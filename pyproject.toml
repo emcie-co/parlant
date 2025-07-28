@@ -36,7 +36,7 @@ networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "1.1.21"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1748503807" }
+parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1750698861" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -64,13 +64,15 @@ transformers = { version = "^4.46.2", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
 jinja2 = "^3.1.6"
-mcp = {extras = ["cli"], version = "^1.7.1"}
-fastmcp = "^2.3.4"
+mcp = { extras = ["cli"], version = "^1.7.1" }
+fastmcp = "2.6.1"
+cachetools = "5.5.2"
+types-cachetools = "^6.0.0.20250525"
 
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"
-mypy = "^1.11.1"
+mypy = "^1.16.0"
 pep8-naming = "^0.13.3"
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.5"

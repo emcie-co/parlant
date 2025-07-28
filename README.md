@@ -1,14 +1,11 @@
 
 <div align="center">
-<!--<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />-->
+  
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/emcie-co/parlant/blob/develop/LogoTransparentLight.png?raw=true">
+  <img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/LogoTransparentDark.png?raw=true" width=400 />
+</picture>
 
-
-  <img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/banner.png?raw=true" />
-  <h2>Hello, Conversation Modeling!</h2>
-
-Parlant is the open-source engine for controlled, compliant, and purposeful generative AI conversations. It gives you the power of LLMs without the unpredictability.
-
-  <a href="https://trendshift.io/repositories/12768" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12768" alt="emcie-co%2Fparlant | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 
   <p>
@@ -16,11 +13,10 @@ Parlant is the open-source engine for controlled, compliant, and purposeful gene
     <a href="https://www.parlant.io/docs/quickstart/introduction" target="_blank">Introduction</a> —
     <a href="https://www.parlant.io/docs/tutorial/getting-started" target="_blank">Tutorial</a> —
     <a href="https://www.parlant.io/docs/about" target="_blank">About</a> —
-    <a href="https://www.reddit.com/r/parlant_official/" target="_blank">Reddit</a>
   </p>
 
 
-  
+
   <p>
     <a href="https://pypi.org/project/parlant/" alt="Parlant on PyPi"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/parlant"></a>
     <img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/parlant">
@@ -31,216 +27,254 @@ Parlant is the open-source engine for controlled, compliant, and purposeful gene
 </a>
   </p>
 
+<a href="https://trendshift.io/repositories/12768" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12768" alt="emcie-co%2Fparlant | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 </div>
 
-## Introduction Video
-[![Parlant Introduction](https://github.com/emcie-co/parlant/blob/develop/yt-preview.png?raw=true)](https://www.youtube.com/watch?v=_39ERIb0100)
+# Build a scalable AI chat agent—in minutes.
+Parlant is the open-source backbone for LLM agents that stay under control as you scale their complexity.
 
-#### Install
+## 💡 Bring control and consistency to LLM agents...
+
+You've built a conversational AI agent—that's great! However, when you actually test it, you see it's not handling many customer interactions properly, and your business experts are displeased with its behavior. We've all been there. What do you do?
+
+Parlant might be the answer you've been waiting for. It's an open-source conversation modeling engine that gives you unparalleled, scalable control over LLMs, enabling the creation of deliberate, predictable, and compliant Agentic User Experience (UX).
+
+## ✨ Why Parlant?
+
+Building good quality conversational AI means teaching your agents many facts, rules, and principles of behavior to follow when interacting with customers.
+
+Parlant lets you define your conversational rules and logic in natural language, and it manages the underlying LLM's context such that it knows exactly which rules it must conform to at any point in a conversation.
+
+- 🚀 Gets you up and running with a live conversational agent in minutes
+- ⚡️ Uses perceived-performance techniques to deliver responsive chat UX out-of-the-box
+- 🧱 A scalable foundation for scaling your agent's knowledge and rules
+- 🎯 Dramatically increases the LLM's consistency in following your instructions
+- 💬 Tailor-made framework for conversational, customer-facing use cases
+
+## 🚀 Getting started
+
+Getting Parlant up and running is straightforward.
+
+### Installation
+
 ```bash
 pip install parlant
 ```
 
-#### Option 1: Use the CLI
-Start the server and start interact with the default agent
-```bash
-parlant-server run
-# Now visit http://localhost:8800
-```
+### Code Example
 
-Add behavioral guidelines and let Parlant do the rest
-```bash
-parlant guideline create \
-    --condition "the user greets you" \
-    --action "thank them for checking out Parlant"
-# Now start a new conversation and greet the agent
-```
-
-#### Option 2: Use the Python SDK
 ```python
-# file: agent.py
-
-import parlant.sdk as p
 import asyncio
+from collections import defaultdict
 from textwrap import dedent
 
+CARTS: dict[str, list[str]] = defaultdict(list)
 
 @p.tool
-async def get_on_sale_car(context: p.ToolContext) -> p.ToolResult:
-    return p.ToolResult("Hyundai i20")
+async def add_item_to_cart(context: p.ToolContext, item_id: str) -> p.ToolResult:
+    # A tool function to add an item to a customer's cart.
+    cart = CARTS[context.customer_id]
+    cart.append(item_id)
+    # The tool's result will be stored in the current conversation session,
+    # informing the AI agent's understanding of what took place both in the
+    # conversation itself, as well as external events such as this.
+    return p.ToolResult(f"Item added successfully. {len(cart)} items in cart.")
 
 @p.tool
-async def human_handoff(context: p.ToolContext) -> p.ToolResult:
-    await notify_sales(context.customer_id, context.session_id)
+async def list_books(context: p.ToolContext, preference_query: str) -> p.ToolResult:
+  # Parlant automatically infers and fills up argument values from conversation context.
+  # In more advanced use cases, you can instruct Parlant what rules to follow when
+  # inferring argument values, such as whether they can be deduced or if they must
+  # be provided explicitly by the customer (to avoid mistakes).
+  books = await find_books(preference_query)
+  return p.ToolResult(books)
 
-    return p.ToolResult(
-        data="Session handed off to sales team",
-        # Disable auto-responding using the AI agent on this session
-        # following the next message.
-        control={"mode": "manual"},
-    )
+@p.tool
+async def human_handoff(context: p.ToolContext, reason: str) -> p.ToolResult:
+  # The context object contains important information, identifying the
+  # customer and session ID of the calling conversation.
+  await notify_human_operators(
+    context.customer_id,
+    context.session_id,
+    reason,
+  )
 
+  return p.ToolResult(
+    data="Session handed off to sales team",
+    # Disable auto-responding using the AI agent
+    # on this session, following the next message,
+    # by adding a control directive to transfer
+    # the session to manual mode.
+    control={"mode": "manual"},
+  )
+
+async def configure_agent(server: p.Server) -> None:
+  # Configure the AI agent with a name and description.
+  # There are more configuration options available, but this is a good start.
+  # This agent will be the container of our conversation logic.
+  agent = await server.create_agent(
+    name="Carlton",
+    description="Online bookstore service representative",
+  )
+
+  # A journey is  a sequence of steps that the AI agent will follow
+  # in the scope of a particular conversational use case.
+  #
+  # You can define as many journeys as you like, and they can be
+  # used to handle different conversational flows.
+  #
+  # Parlant will automatically select the most appropriate journey(s)
+  # to use based on the conversation context, keeping your prompts
+  # shorter, and more focused and consistent in their results.
+  recommend_book = await agent.create_journey(
+    title="Recommend Book",
+    description=dedent(
+      """\
+      A journey to recommend a book to a customer.
+
+      1. Ask the customer for their preferences.
+      2. Recommend a book based on the preferences, until the customer sounds interested.
+      3. Once the customer sounds interested, ask if they want to add it to their cart.
+      4. If they do, add the book to their cart.
+      5. If they don't, ask if they want to see more recommendations and repeat the process.
+      """,
+    ),
+    # The agent will follow the journey only when certain conditions are met.
+    # You decide what those conditions are, allowing for full control and customization.
+    conditions=[
+      "The customer is looking for a book recommendation",
+      "The customer isn't sure what book they want",
+    ],
+  )
+
+  # Attach tools to help the AI agent perform actions
+  # and retrieve data while following the journey.
+  # Tools only get evaluated if the associated condition
+  # currently holds in a conversation—significantly
+  # improving the accuracy of tool calls.
+  await recommend_book.attach_tool(
+    tool=list_books,
+    condition="You need to know what books are available",
+  )
+
+  await recommend_book.attach_tool(
+    tool=add_item_to_cart,
+    condition="The customer wants to add the book to their cart",
+  )
+
+  # Instruct the agent on how to handle conversational
+  # edge-cases in the journey, according to your needs.
+  await recommend_book.create_guideline(
+    condition="The customer wants a book that is not available",
+    action="Ask the customer if they'd like you to order it for them",
+  )
+
+  # Install agent-wide guidelines that apply to all journeys.
+  # Palant lets you add up to hundreds of guidelines. It takes
+  # care to only select and feed the most applicable ones to the
+  # underlying LLM calls at each point in the conversation,
+  # so you can scale your agent's complexity with ease.
+  await agent.create_guideline(
+    condition="The customer is frustrated or angry",
+    action="Hand off the conversation to a human operator and inform the customer",
+    tools=[human_handoff],
+  )
+
+  # And much more!
+  #
+  # Parlant supports:
+  # 1. Guideline relationships — allowing you to prioritize certain guidelines over others,
+  # make some guidelines activate only when others are in-context (dependency), and more.
+  # 2. Glossary — allowing you to define terms and phrases that the AI agent should understand
+  # about your context, either when interacting with customers or when making sense of guidelines.
+  # 3. Context variables — allowing you to define customer-specific variables that facilitate
+  # experience personalization and enable long-term memory across conversations.
+  # 4. Utterance templates — allowing you to define pre-written responses that the AI agent
+  # can use to respond to customers, ensuring zero output hallucinations and tailored language.
+  #
+  # And more!
 
 async def start_conversation_server() -> None:
-    async with p.Server() as server:
-        agent = await server.create_agent(
-            name="Johnny",
-            description="You work at a car dealership",
-        )
+  async with p.Server() as server:
+    await configure_agent(server)
 
-        journey = await agent.create_journey(
-            title="Research Car",
-            conditions=[
-                "The customer wants to buy a new car",
-                "The customer expressed general interest in new cars",
-            ],
-            description=dedent("""\
-                Help the customer come to a decision of what new car to get.
-
-                The process goes like this:
-                1. First try to actively understand their needs
-                2. Once needs are clarified, recommend relevant categories or specific models for consideration."""),
-        )
-
-        offer_on_sale_car = await journey.create_guideline(
-          condition="the customer indicates they're on a budget",
-          action="offer them a car that is on sale",
-          tools=[get_on_sale_cars],
-        )
-
-        transfer_to_sales = await journey.create_guideline(
-          condition="the customer clearly stated they wish to buy a specific car",
-          action="transfer them to the sales team",
-          tools=[human_handoff_to_sales],
-        )
-
-        await transfer_to_sales.prioritize_over(proactively_offer_on_sale_car)
-
-
-asyncio.run(start_conversation_server())
+if __name__ == "__main__":
+  asyncio.run(start_conversation_server())
+  # After running, visit http://localhost:8800
+  # for an integrated playground web UI.
 ```
 
-Run `python agent.py` and visit `http://localhost:8800`.
+## ⭐ Star Parlant to support our vision!
+Creating Parlant is a significant effort, as conversational semantics are extremely complex to get under control.
 
+Your star goes a long way to support our team's effort in creating a reality where generative AI agents reliably do what we tell them!
 
-## Quick Demo
-<img alt="Parlant Banner" src="https://github.com/emcie-co/parlant/blob/develop/ParlantGIF.gif?raw=true" />
+[![Star History Chart](https://api.star-history.com/svg?repos=emcie-co/parlant&type=Date)](https://www.star-history.com/#emcie-co/parlant&Date)
 
+## Integrated prototyping playground
+<img alt="Parlant Demo" src="https://github.com/emcie-co/parlant/blob/develop/demo.gif?raw=true" />
 
-## What is Conversation Modeling?
-You've built an AI agent—that's great! However, when you actually test it, you see it's not handling many customer interactions properly, and your business experts are displeased with it. What do you do?
+## 🛠️ Key features
 
-Enter Conversation Modeling (CM): a new powerful and reliable approach to controlling how your agents interact with your users.
+Parlant is ***packed*** with useful features for production conversational AI!
 
-A conversation model is a structured, domain-specific set of principles, actions, objectives, and terms that an agent applies to a given conversation.
+  * **Behavioral Guidelines:** Easily define rules and guardrails for agent interactions and **dictate and enforce exact conversation behavior**.
+  * **Semantic Relationships:** Define how different guidelines relate to each other (dependencies, prioritization, etc.), creating sophisticated and adaptive conversational flows.
+  * **Tool Integration:** Seamlessly attach external tools (APIs, databases, etc.) with specific guidance for agent usage.
+  * **Context Awareness:** Intelligently tracks conversation progress, understanding what instructions need to apply at each point, and when required actions have already been taken.
+  * **Dynamic Guideline Matching:** Ensures contextually relevant instruction execution, eliminating irrelevant instructions at any point in the conversation — solving LLM attention drift.
+  * **Utterance Templates:** Sanitize LLM outputs, preventing unpredictable or inaccurate messages and ensuring compliance and accuracy.
+  * **Glossary Management:** Control and manage the agent's vocabulary for consistent and accurate communication.
+  * **Contextual Information:** Inject customer-specific or domain-specific information for personalized and relevant responses.
+  * **Continuous Re-evaluation:** The Parlant engine constantly assesses the conversational situation, checks relevant guidelines, gathers necessary information, and re-evaluates its approach.
 
-### Why Conversation Modeling?
+**For more detailed installation instructions and advanced usage, please refer to our [Official Documentation](https://parlant.io).**
 
-The problem of getting your AI agent to say what _you_ want it to say is a hard one, experienced by virtually anyone building customer-facing agents. Here's how Conversation Modeling compares to other approaches to solving this problem.
+## React Widget
+Please see https://github.com/emcie-co/parlant-chat-react for our official, highly-customizable React widget to interact with your Parlant server on your app.
 
-- **Flow engines** _force_ the user to interact according to predefined flows. In contrast, a **CM engine** dynamically _adapts_ to a user's natural interaction patterns while conforming to your rules.
+![https://github.com/emcie-co/parlant-chat-react/raw/main/src/assets/chatbox.gif](https://github.com/emcie-co/parlant-chat-react/raw/main/src/assets/chatbox.gif)
 
-- **Free-form prompt engineering** leads to _inconsistency_, frequently failing to uphold requirements. Conversely, a **CM engine** leverages structure to _enforce_ conformance to a Conversation Model.
+```typescript
+import React from 'react';
+import ParlantChatbox from 'parlant-chat-react';
 
+function App() {
+  return (
+    <div>
+      <h1>My Application</h1>
+      <ParlantChatbox
+        float
+        agentId="AGENT_ID"
+        server="PARLANT_SERVER_URL"
+      />
+    </div>
+  );
+}
 
-## Who uses Parlant?
-Parlant is used to deliver complex conversational agents that reliably follow your business protocols in use cases such as:
-- 🏦 Regulated financial services
-- 🏥 Healthcare communications
-- 📜 Legal assistance
-- 🛡️ Compliance-focused use cases
-- 🎯 Brand-sensitive customer service
-- 🤝 Personal advocacy and representation
-
-## How is Parlant used?
-Developers and data-scientists are using Parlant to:
-
-- 🤖 Create custom-tailored conversational agents quickly and easily
-- 👣 Define behavioral guidelines for agents to follow (Parlant ensures they are followed reliably)
-- 🛠️ Attach tools with specific guidance on how to properly use them in different contexts
-- 📖 Manage their agents’ glossary to ensure strict interpretation of terms in a conversational context
-- 👤 Add customer-specific information to deliver personalized interactions
-
-#### How does Parlant work?
-```mermaid
-graph TD
-    API(Parlant REST API) -->|React to Session Trigger| Engine[AI Response Engine]
-    Engine -->|Load Domain Terminology| GlossaryStore
-    Engine -->|Match Guidelines| GuidelineMatcher
-    Engine -->|Infer & Call Tools| ToolCaller
-    Engine -->|Tailor Guided Message| MessageComposer
+export default App;
 ```
 
-When an agent needs to respond to a customer, Parlant's engine evaluates the situation, checks relevant guidelines, gathers necessary information through your tools, and continuously re-evaluates its approach based on your guidelines as new information emerges. When it's time to generate a message, Parlant implements self-critique mechanisms to ensure that the agent's responses precisely align with your intended behavior as given by the contextually-matched guidelines.
 
-***📚 More technical docs on the architecture and API are available under [docs/](./docs)***.
+## 🌐 Use cases & industries
 
-## 📦 Quickstart
-Parlant comes pre-built with responsive session (conversation) management, a detection mechanism for incoherence and contradictions in guidelines, content-filtering, jailbreak protection, an integrated sandbox UI for behavioral testing, native API clients in Python and TypeScript, and other goodies.
+Parlant is ideal for organizations that demand precision and reliability from their AI agents. It's currently being used to deliver complex conversational agents in:
 
-```bash
-$ pip install parlant
-$ parlant-server run
-$ # Open the sandbox UI at http://localhost:8800 and play
-```
+  * **Regulated Financial Services:** Ensuring compliance and accuracy in customer interactions.
+  * **Healthcare Communications:** Providing accurate, compliant, and sensitive patient information.
+  * **Legal Assistance:** Delivering reliable and verifiable legal guidance.
+  * **Compliance-Focused Use Cases:** Automating adherence to industry standards and strict protocols.
+  * **Brand-Sensitive Customer Service:** Maintaining consistent brand voice and policies across all interactions.
+  * **Personal Advocacy & Representation:** Supporting structured and goal-oriented dialogues for high-stakes scenarios.
 
-## 🙋‍♂️🙋‍♀️ Who Is Parlant For?
-Parlant is the right tool for the job if you're building an LLM-based chat agent, and:
-
-1. 🎯 Your use case places a **high importance on behavioral precision and consistency**, particularly in customer-facing scenarios
-1. 🔄 Your agent is expected to undergo **continuous behavioral refinements and changes**, and you need a way to implement those changes efficiently and confidently
-1. 📈 You're expected to maintain a **growing set of behavioral guidelines**, and you need to maintain them coherently and with version-tracking
-1. 💬 Conversational UX and user-engagmeent is an important concern for your use case, and you want to easily **control the flow and tone of conversations**
-
-## ⭐ Star Us: Your Support Goes a Long Way!
-[![Star History Chart](https://api.star-history.com/svg?repos=emcie-co/parlant&type=Date)](https://star-history.com/#emcie-co/parlant&Date)
-
-## 🤔 What Makes Parlant Different?
-
-In a word: **_Guidance._** 🧭🚦🤝
-
-Parlant's engine revolves around solving one key problem: How can we _reliably guide_ customer-facing agents to behave in alignment with our needs and intentions?
-
-Hence Parlant's fundamentally different approach to agent building: [Managed Guidelines](https://www.parlant.io/docs/concepts/customization/guidelines):
-
-```bash
-parlant guideline create \
-  --condition "the customer wants to return an item" \
-  --action "get the order number and item name and then help them return it"
-```
-
-By giving structure to behavioral guidelines, and _granularizing_ guidelines (i.e. making each behavioral guideline a first-class entity in the engine), Parlant's engine is able to offer unprecedented control, quality, and efficiency in building LLM-based agents:
-
-1. 🛡️ **Reliability:** Running focused self-critique in real-time, per guideline, to ensure it is actually followed
-1. 💡 **Explainability:** Providing feedback around its interpretation of guidelines in each real-life context, which helps in troubleshooting and improvement
-1. 🔧 **Maintainability:** Helping you maintain a coherent set of guidelines by detecting and alerting you to possible contradictions (gross or subtle) in your instructions
-
-## 🤖 Works with all major LLM providers
-- [OpenAI](https://platform.openai.com/docs/overview) (also via [Azure](https://learn.microsoft.com/en-us/azure/ai-services/openai/))
-- [Gemini](https://ai.google.dev/)
-- [Meta Llama 3](https://www.llama.com/) (via [Together AI](https://www.together.ai/) or [Cerebras](https://cerebras.ai/))
-- [Anthropic](https://www.anthropic.com/api) (also via [AWS Bedrock](https://aws.amazon.com/bedrock/))
-- And more are added regularly
-
-## 📚 Learning Parlant
-
-To start learning and building with Parlant, visit our [documentation portal](https://parlant.io/docs/quickstart/introduction).
-
-Need help? Ask us anything on [Discord](https://discord.gg/duxWqxKk6J). We're happy to answer questions and help you get up and running!
-
-## 💻 Usage Example
-Adding a guideline for an agent—for example, to ask a counter-question to get more info when a customer asks a question:
-```bash
-parlant guideline create \
-    --condition "a free-tier customer is asking how to use our product" \
-    --action "first seek to understand what they're trying to achieve"
-```
-
-## 👋 Contributing
-We use the Linux-standard Developer Certificate of Origin ([DCO.md](DCO.md)), so that, by contributing, you confirm that you have the rights to submit your contribution under the Apache 2.0 license (i.e., that the code you're contributing is truly yours to share with the project).
+## 🤝 Contributing
+We use the Linux-standard Developer Certificate of Origin (DCO.md), so that, by contributing, you confirm that you have the rights to submit your contribution under the Apache 2.0 license (i.e., that the code you're contributing is truly yours to share with the project).
 
 Please consult [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 
-Can't wait to get involved? Join us on [Discord](https://discord.gg/duxWqxKk6J) and let's discuss how you can help shape Parlant. We're excited to work with contributors directly while we set up our formal processes!
+Can't wait to get involved? Join us on Discord and let's discuss how you can help shape Parlant. We're excited to work with contributors directly while we set up our formal processes!
 
-Otherwise, feel free to start a discussion or open an issue here on GitHub—freestyle 😎.
+## 📧 Contact & support
+
+Need help? Ask us anything on [Discord](https://discord.gg/duxWqxKk6J). We're happy to answer questions and help you get up and running!

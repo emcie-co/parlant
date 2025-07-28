@@ -17,7 +17,7 @@ import httpx
 from lagom import Container
 from pytest import raises
 
-from parlant.core.agents import AgentId
+from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import ItemNotFoundError
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
@@ -1445,6 +1445,18 @@ async def test_that_a_guideline_can_be_created_with_tags(
     container: Container,
 ) -> None:
     tag_store = container[TagStore]
+    agent_store = container[AgentStore]
+    journey_store = container[JourneyStore]
+
+    agent = await agent_store.create_agent("Test Agent")
+    agent_tag = Tag.for_agent_id(agent.id)
+
+    journey = await journey_store.create_journey(
+        title="Customer Support Journey",
+        description="A journey for customer support interactions.",
+        conditions=[],
+    )
+    journey_tag = Tag.for_journey_id(journey.id)
 
     tag_1 = await tag_store.create_tag(name="pricing")
     tag_2 = await tag_store.create_tag(name="sales")
@@ -1454,7 +1466,13 @@ async def test_that_a_guideline_can_be_created_with_tags(
         json={
             "condition": "the customer asks about pricing",
             "action": "provide current pricing information",
-            "tags": [tag_1.id, tag_1.id, tag_2.id],
+            "tags": [
+                tag_1.id,
+                tag_1.id,
+                tag_2.id,
+                agent_tag,
+                journey_tag,
+            ],
         },
     )
 
@@ -1467,8 +1485,8 @@ async def test_that_a_guideline_can_be_created_with_tags(
     assert guideline_dto["guideline"]["condition"] == "the customer asks about pricing"
     assert guideline_dto["guideline"]["action"] == "provide current pricing information"
 
-    assert len(guideline_dto["guideline"]["tags"]) == 2
-    assert set(guideline_dto["guideline"]["tags"]) == {tag_1.id, tag_2.id}
+    assert len(guideline_dto["guideline"]["tags"]) == 4
+    assert set(guideline_dto["guideline"]["tags"]) == {tag_1.id, tag_2.id, agent_tag, journey_tag}
 
 
 async def test_that_guidelines_can_be_listed(
@@ -1695,6 +1713,72 @@ async def test_that_a_tag_can_be_removed_from_guideline(
 
     assert updated_guideline["id"] == guideline.id
     assert "test_tag" not in updated_guideline["tags"]
+
+
+async def test_that_an_agent_tag_can_be_added_to_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    agent_store = container[AgentStore]
+
+    agent = await agent_store.create_agent("test_agent")
+    agent_tag = Tag.for_agent_id(agent.id)
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "tags": {
+                "add": [agent_tag],
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert agent_tag in updated_guideline["tags"]
+
+
+async def test_that_a_journey_tag_can_be_added_to_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    journey_store = container[JourneyStore]
+
+    journey = await journey_store.create_journey(
+        title="test_journey",
+        description="test_description",
+        conditions=[],
+    )
+    journey_tag = Tag.for_journey_id(journey.id)
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "tags": {
+                "add": [journey_tag],
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert journey_tag in updated_guideline["tags"]
 
 
 async def test_that_a_guideline_can_be_deleted(
@@ -1954,3 +2038,38 @@ async def test_that_guideline_relationships_can_be_read(
     assert relationships[0]["source_guideline"]["id"] == guideline.id
     assert relationships[0]["target_guideline"]["id"] == connected_guideline.id
     assert relationships[0]["kind"] == "entailment"
+
+
+async def test_that_guideline_with_relationships_can_be_deleted(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants to get meeting details",
+        action="get meeting event information",
+    )
+
+    connected_guideline = await guideline_store.create_guideline(
+        condition="reply with 'Hello'",
+        action="finish with a smile",
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        target=RelationshipEntity(
+            id=connected_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        kind=GuidelineRelationshipKind.ENTAILMENT,
+    )
+
+    (await async_client.delete(f"/guidelines/{guideline.id}")).raise_for_status()
+
+    response = await async_client.get(f"/guidelines/{guideline.id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND

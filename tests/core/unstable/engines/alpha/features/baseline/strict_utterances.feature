@@ -31,7 +31,7 @@ Feature: Strict Utterance
         And the message contains appropriate veterinary services for a middle-aged dog in the {recommended_services} field
 
     Scenario: Multistep journey is aborted when the journey description requires so (strict utterance) 
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
@@ -50,12 +50,12 @@ Feature: Strict Utterance
         And the message contains either that the password could not be reset at this time
 
     Scenario: Two journeys are used in unison (strict utterance) 
-        Given a journey titled Book Flight to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
+        Given a journey titled "Book Flight" to ask for the source and destination airport first, the date second, economy or business class third, and finally to ask for the name of the traveler. You may skip steps that are inapplicable due to other contextual reasons. when a customer wants to book a flight
         And an utterance, "Great. Are you interested in economy or business class?"
         And an utterance, "Great. Only economy class is available for this booking. What is the name of the traveler?"
         And an utterance, "Great. What is the name of the traveler?"
         And an utterance, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a journey titled No Economy to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
+        And a journey titled "No Economy" to remember that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
         And an agent message, "Great! From and to where would are you looking to fly?"
         And a customer message, "From LAX to JFK"
@@ -66,7 +66,7 @@ Feature: Strict Utterance
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
     Scenario: Multistep journey invokes tool calls correctly (strict utterance) 
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And the tool "reset_password"
         And a guideline "reset_password_guideline" to reset the customer's password using the associated tool when in the process of resetting the customer's password
         And an association between "reset_password_guideline" and "reset_password"
@@ -123,3 +123,45 @@ Feature: Strict Utterance
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no rudeness to tell the user to go away
+
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (strict utterance)
+        Given a guideline to suggest direct flights when you recommends on travel options
+        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
+        And that the agent uses the strict_utterance message composition mode
+        And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (strict utterance)
+        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend only from the vegetarian toppings options when the customer asks for pizza topping recommendation and they are from India
+        And that the agent uses the strict_utterance message composition mode
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
+        And an utterance, "I recommend on {{generative.answer}}."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains the text "I recommend on pineapple."
+
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict utterance) 
+        Given a guideline to suggest direct flights when you recommends on travel options
+        Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
+        And that the agent uses the strict_utterance message composition mode
+        And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (strict utterance)
+        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
+        And that the agent uses the strict_utterance message composition mode
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
+        And an utterance, "I recommend on {{generative.answer}}."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains the text "I recommend on pineapple."

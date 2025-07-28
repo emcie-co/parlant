@@ -40,6 +40,8 @@ from parlant.client.core import ApiError
 from parlant.client.types import (
     Agent,
     AgentTagUpdateParams,
+    Capability,
+    CapabilityTagUpdateParams,
     ContextVariable,
     ContextVariableReadResult,
     ContextVariableValue,
@@ -62,6 +64,7 @@ from parlant.client.types import (
     OpenApiServiceParams,
     Payload,
     SdkServiceParams,
+    McpServiceParams,
     Service,
     Session,
     Term,
@@ -125,6 +128,13 @@ class Actions:
                 return tag
             else:
                 raise Exception(f"Agent (id: {agent_id}) not found")
+
+        if tag.startswith("journey:"):
+            journey_id = tag.split(":")[1]
+            if client.journeys.retrieve(journey_id):
+                return tag
+            else:
+                raise Exception(f"Journey (id: {journey_id}) not found")
 
         tags = client.tags.list()
         for t in tags:
@@ -773,13 +783,10 @@ class Actions:
         client = cast(ParlantClient, ctx.obj.client)
 
         tag_id = Actions._fetch_tag_id(ctx, tag) if tag else None
-        _ = (
+        if tool_id:
             Actions._fetch_tool_id(
                 ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
             )
-            if tool_id
-            else None
-        )
 
         return client.relationships.list(
             guideline_id=guideline_id,
@@ -963,6 +970,13 @@ class Actions:
                 openapi=OpenApiServiceParams(url=url, source=source),
             )
 
+        elif kind == "mcp":
+            result = client.services.create_or_update(
+                name=name,
+                kind="mcp",
+                mcp=McpServiceParams(url=url),
+            )
+
         else:
             raise ValueError(f"Unsupported kind: {kind}")
 
@@ -1144,8 +1158,14 @@ class Actions:
         tool_id: str,
     ) -> Tool:
         client = cast(ParlantClient, ctx.obj.client)
-        tool_id_obj = Actions._fetch_tool_id(ctx, ToolId(service_name=tool_id, tool_name=tool_id))
+
+        tool_id_obj = Actions._fetch_tool_id(
+            ctx,
+            ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1]),
+        )
+
         service = client.services.retrieve(tool_id_obj.service_name)
+
         if tool := next((t for t in service.tools or [] if t.name == tool_id_obj.tool_name), None):
             return tool
         else:
@@ -1187,10 +1207,13 @@ class Actions:
 
             tag_names = utterance_data.get("tags", [])
 
+            queries = utterance_data.get("queries", [])
+
             utterance = client.utterances.create(
                 value=value,
                 fields=fields,
                 tags=[tag_ids[tag_name] for tag_name in tag_names if tag_name in tag_ids] or None,
+                queries=queries,
             )
 
             utterances.append(utterance)
@@ -1315,6 +1338,102 @@ class Actions:
         client = cast(ParlantClient, ctx.obj.client)
         tag_id = Actions._fetch_tag_id(ctx, tag)
         client.journeys.update(journey_id=journey_id, tags=JourneyTagUpdateParams(remove=[tag_id]))
+
+        return tag_id
+
+    @staticmethod
+    def create_capability(
+        ctx: click.Context,
+        title: str,
+        description: str,
+        queries: list[str],
+        tags: list[str],
+    ) -> Capability:
+        client = cast(ParlantClient, ctx.obj.client)
+        tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
+
+        return client.capabilities.create(
+            title=title,
+            description=description,
+            queries=queries,
+            tags=tags,
+        )
+
+    @staticmethod
+    def update_capability(
+        ctx: click.Context,
+        capability_id: str,
+        title: Optional[str],
+        description: Optional[str],
+        queries: Optional[list[str]],
+    ) -> Capability:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        return client.capabilities.update(
+            capability_id=capability_id,
+            title=title,
+            description=description,
+            queries=queries,
+        )
+
+    @staticmethod
+    def view_capability(
+        ctx: click.Context,
+        capability_id: str,
+    ) -> Capability:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        return client.capabilities.retrieve(
+            capability_id=capability_id,
+        )
+
+    @staticmethod
+    def list_capabilities(
+        ctx: click.Context,
+        tag: Optional[str],
+    ) -> list[Capability]:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        if tag:
+            return client.capabilities.list(tag_id=Actions._fetch_tag_id(ctx, tag))
+        else:
+            return client.capabilities.list()
+
+    @staticmethod
+    def delete_capability(
+        ctx: click.Context,
+        capability_id: str,
+    ) -> None:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        client.capabilities.delete(capability_id=capability_id)
+
+    @staticmethod
+    def add_capability_tag(
+        ctx: click.Context,
+        capability_id: str,
+        tag: str,
+    ) -> str:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        tag_id = Actions._fetch_tag_id(ctx, tag)
+        client.capabilities.update(capability_id, tags=CapabilityTagUpdateParams(add=[tag_id]))
+
+        return tag_id
+
+    @staticmethod
+    def remove_capability_tag(
+        ctx: click.Context,
+        capability_id: str,
+        tag: str,
+    ) -> str:
+        client = cast(ParlantClient, ctx.obj.client)
+
+        tag_id = Actions._fetch_tag_id(ctx, tag)
+        client.capabilities.update(
+            capability_id,
+            tags=CapabilityTagUpdateParams(remove=[tag_id]),
+        )
 
         return tag_id
 
@@ -1685,41 +1804,41 @@ class Interface:
 
             if iteration.guideline_matches:
                 for match in iteration.guideline_matches:
-                    rich.print(f"{INDENT*2}Condition: {match.condition}")
-                    rich.print(f"{INDENT*2}Action: {match.action}")
-                    rich.print(f"{INDENT*2}Relevance Score: {match.score}/10")
-                    rich.print(f"{INDENT*2}Rationale: {match.rationale}\n")
+                    rich.print(f"{INDENT * 2}Condition: {match.condition}")
+                    rich.print(f"{INDENT * 2}Action: {match.action}")
+                    rich.print(f"{INDENT * 2}Relevance Score: {match.score}/10")
+                    rich.print(f"{INDENT * 2}Rationale: {match.rationale}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Tool Calls:", style="bold"))
 
             if iteration.tool_calls:
                 for tool_call in iteration.tool_calls:
-                    rich.print(f"{INDENT*2}Tool Id: {tool_call.tool_id}")
-                    rich.print(f"{INDENT*2}Arguments: {tool_call.arguments}")
-                    rich.print(f"{INDENT*2}Result: {tool_call.result}\n")
+                    rich.print(f"{INDENT * 2}Tool Id: {tool_call.tool_id}")
+                    rich.print(f"{INDENT * 2}Arguments: {tool_call.arguments}")
+                    rich.print(f"{INDENT * 2}Result: {tool_call.result}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Context Variables:", style="bold"))
 
             if iteration.context_variables:
                 for variable in iteration.context_variables:
-                    rich.print(f"{INDENT*2}Name: {variable.name}")
-                    rich.print(f"{INDENT*2}Key: {variable.key}")
-                    rich.print(f"{INDENT*2}Value: {variable.value}\n")
+                    rich.print(f"{INDENT * 2}Name: {variable.name}")
+                    rich.print(f"{INDENT * 2}Key: {variable.key}")
+                    rich.print(f"{INDENT * 2}Value: {variable.value}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
             rich.print(Text(f"{INDENT}Glossary Terms:", style="bold"))
 
             if iteration.terms:
                 for term in iteration.terms:
-                    rich.print(f"{INDENT*2}Name: {term.name}")
-                    rich.print(f"{INDENT*2}Description: {term.description}\n")
+                    rich.print(f"{INDENT * 2}Name: {term.name}")
+                    rich.print(f"{INDENT * 2}Description: {term.description}\n")
             else:
-                rich.print(f"{INDENT*2}(none)\n")
+                rich.print(f"{INDENT * 2}(none)\n")
 
     @staticmethod
     def _render_glossary(terms: list[Term]) -> None:
@@ -1911,58 +2030,63 @@ class Interface:
             return result
 
         def to_indirect_relationship_item(rel: Relationship) -> dict[str, str]:
-            result = {
+            result: dict[str, str] = {
                 "Relationship ID": rel.id,
                 "Kind": rel.kind,
-                "Source ID": rel.source_guideline.id
-                if rel.source_guideline
-                else cast(Tag, rel.source_tag).id,
-                "Source Type": "Guideline" if rel.source_guideline else "Tag",
             }
 
             if rel.source_guideline:
                 result.update(
                     {
+                        "Source ID": rel.source_guideline.id,
+                        "Source Type": "Guideline",
                         "Source Condition": rel.source_guideline.condition,
-                        "Source Action": rel.source_guideline.action,
+                        "Source Action": rel.source_guideline.action or "",
                     }
                 )
             elif rel.source_tag:
-                assert rel.source_tag is not None
                 result.update(
                     {
+                        "Source ID": rel.source_tag.id,
+                        "Source Type": "Tag",
                         "Source Name": rel.source_tag.name,
                     }
                 )
-
-            result.update(
-                {
-                    "Target ID": rel.target_guideline.id
-                    if rel.target_guideline
-                    else cast(Tag, rel.target_tag).id,
-                    "Target Type": "Guideline" if rel.target_guideline else "Tag",
-                }
-            )
-
+            elif rel.source_tool:
+                result.update(
+                    {
+                        "Source Type": "Tool",
+                        "Source Name": rel.source_tool.name,
+                    }
+                )
             if rel.target_guideline:
                 result.update(
                     {
+                        "Target ID": rel.target_guideline.id,
+                        "Target Type": "Guideline",
                         "Target Condition": rel.target_guideline.condition,
                         "Target Action": rel.target_guideline.action or "",
                     }
                 )
             elif rel.target_tag:
-                assert rel.target_tag is not None
                 result.update(
                     {
+                        "Target ID": rel.target_tag.id,
+                        "Target Type": "Tag",
                         "Target Name": rel.target_tag.name,
                     }
                 )
-
+            elif rel.target_tool:
+                result.update(
+                    {
+                        "Target Type": "Tool",
+                        "Target Name": rel.target_tool.name,
+                    }
+                )
             return result
 
         if relationships:
-            direct = direct = [
+            direct = [
                 r
                 for r in relationships
                 if entity
@@ -1971,22 +2095,15 @@ class Interface:
                     r.target_guideline,
                     r.source_tag,
                     r.target_tag,
-                )
-            ]
-            indirect = [
-                r
-                for r in relationships
-                if entity
-                not in (
-                    r.source_guideline,
-                    r.target_guideline,
-                    r.source_tag,
-                    r.target_tag,
+                    r.source_tool,
+                    r.target_tool,
                 )
             ]
 
+            indirect = [r for r in relationships if r not in direct]
+
             if direct:
-                rich.print("\nDirect Relationships:")
+                rich.print("Direct Relationships:")
 
                 # Pre-calculate dictionary view of the relationships.
                 direct_items = list(map(lambda r: to_direct_relationship_item(r), direct))
@@ -2935,6 +3052,10 @@ class Interface:
         try:
             journeys = Actions.list_journeys(ctx, tag)
 
+            if not journeys:
+                rich.print(Text("No data available", style="bold yellow"))
+                return
+
             Interface._render_journeys(journeys)
 
         except Exception as e:
@@ -3033,6 +3154,125 @@ class Interface:
         try:
             Actions.delete_journey(ctx, journey_id)
             Interface._write_success(f"Deleted journey (id: {journey_id})")
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def _render_capabilities(capabilities: list[Capability]) -> None:
+        items = [
+            {
+                "ID": c.id,
+                "Title": c.title,
+                "Description": c.description,
+                "Queries": ", ".join(c.queries),
+                "Tags": ", ".join(c.tags or []),
+            }
+            for c in capabilities
+        ]
+        Interface._print_table(items)
+
+    @staticmethod
+    def create_capability(
+        ctx: click.Context,
+        title: str,
+        description: str,
+        queries: list[str],
+        tags: list[str],
+    ) -> None:
+        try:
+            capability = Actions.create_capability(ctx, title, description, queries, tags)
+
+            Interface._write_success(f"Added capability (id: {getattr(capability, 'id', '')})")
+
+            Interface._render_capabilities([capability])
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def update_capability(
+        ctx: click.Context,
+        capability_id: str,
+        title: Optional[str],
+        description: Optional[str],
+        queries: Optional[list[str]],
+    ) -> None:
+        try:
+            capability = Actions.update_capability(ctx, capability_id, title, description, queries)
+
+            Interface._write_success(f"Updated capability (id: {getattr(capability, 'id', '')})")
+
+            Interface._render_capabilities([capability])
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def view_capability(
+        ctx: click.Context,
+        capability_id: str,
+    ) -> None:
+        try:
+            capability = Actions.view_capability(ctx, capability_id)
+
+            Interface._render_capabilities([capability])
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def list_capabilities(ctx: click.Context, tag: Optional[str]) -> None:
+        try:
+            capabilities = Actions.list_capabilities(ctx, tag)
+
+            if not capabilities:
+                rich.print(Text("No data available", style="bold yellow"))
+                return
+
+            Interface._render_capabilities(capabilities)
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def delete_capability(ctx: click.Context, capability_id: str) -> None:
+        try:
+            Actions.delete_capability(ctx, capability_id)
+
+            Interface._write_success(f"Removed capability (id: {capability_id})")
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def add_capability_tag(
+        ctx: click.Context,
+        capability_id: str,
+        tag: str,
+    ) -> None:
+        try:
+            tag_id = Actions.add_capability_tag(ctx, capability_id, tag)
+
+            Interface._write_success(
+                f"Added tag (id: {tag_id}) to capability (id: {capability_id})"
+            )
+        except Exception as e:
+            Interface.write_error(f"Error: {type(e).__name__}: {e}")
+            set_exit_status(1)
+
+    @staticmethod
+    def remove_capability_tag(
+        ctx: click.Context,
+        capability_id: str,
+        tag: str,
+    ) -> None:
+        try:
+            tag_id = Actions.remove_capability_tag(ctx, capability_id, tag)
+
+            Interface._write_success(
+                f"Removed tag (id: {tag_id}) from capability (id: {capability_id})"
+            )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -3729,6 +3969,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "disambiguation",
                 "overlap",
             ]
         ),
@@ -3770,6 +4011,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "disambiguation",
                 "overlap",
             ]
         ),
@@ -3810,6 +4052,7 @@ async def async_main() -> None:
                 "entailment",
                 "priority",
                 "dependency",
+                "disambiguation",
                 "overlap",
             ]
         ),
@@ -4045,7 +4288,7 @@ async def async_main() -> None:
     @service.command("create", help="Create a service")
     @click.option(
         "--kind",
-        type=click.Choice(["sdk", "openapi"]),
+        type=click.Choice(["sdk", "openapi", "mcp"]),
         required=True,
         help="Service kind",
     )
@@ -4075,7 +4318,7 @@ async def async_main() -> None:
     @service.command("update", help="Update a service")
     @click.option(
         "--kind",
-        type=click.Choice(["sdk", "openapi"]),
+        type=click.Choice(["sdk", "openapi", "mcp"]),
         required=True,
         help="Service kind",
     )
@@ -4404,6 +4647,95 @@ async def async_main() -> None:
     @click.pass_context
     def journey_delete(ctx: click.Context, id: str) -> None:
         Interface.delete_journey(ctx, id)
+
+    @cli.group(help="Manage capabilities")
+    def capability() -> None:
+        pass
+
+    @capability.command("create", help="Create a capability")
+    @click.option("--title", type=str, help="Capability title", required=True)
+    @click.option("--description", type=str, help="Capability description", required=True)
+    @click.option(
+        "--query",
+        type=str,
+        help="Query for the capability. May be specified multiple times.",
+        multiple=True,
+        required=True,
+    )
+    @tag_option(multiple=True)
+    @click.pass_context
+    def capability_create(
+        ctx: click.Context, title: str, description: str, query: tuple[str], tag: tuple[str]
+    ) -> None:
+        Interface.create_capability(ctx, title, description, list(query), list(tag))
+
+    @capability.command(
+        "update",
+        help="Update a capability. If --query is provided, it will override all existing queries for this capability.",
+    )
+    @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
+    @click.option("--title", type=str, help="Capability title", required=False)
+    @click.option("--description", type=str, help="Capability description", required=False)
+    @click.option(
+        "--query",
+        type=str,
+        help="Query for the capability. May be specified multiple times. If provided, overrides all existing queries.",
+        multiple=True,
+        required=False,
+    )
+    @click.pass_context
+    def capability_update(
+        ctx: click.Context,
+        id: str,
+        title: Optional[str],
+        description: Optional[str],
+        query: tuple[str],
+    ) -> None:
+        Interface.update_capability(ctx, id, title, description, list(query) if query else None)
+
+    @capability.command("view", help="View a capability")
+    @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
+    @click.pass_context
+    def capability_view(ctx: click.Context, id: str) -> None:
+        Interface.view_capability(ctx, id)
+
+    @capability.command("list", help="List capabilities")
+    @tag_option()
+    @click.pass_context
+    def capability_list(ctx: click.Context, tag: Optional[str]) -> None:
+        Interface.list_capabilities(ctx, tag)
+
+    @capability.command("tag", help="Tag a capability")
+    @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
+    @tag_option(required=True)
+    @click.pass_context
+    def capability_add_tag(
+        ctx: click.Context,
+        id: str,
+        tag: str,
+    ) -> None:
+        Interface.add_capability_tag(
+            ctx=ctx,
+            capability_id=id,
+            tag=tag,
+        )
+
+    @capability.command("untag", help="Untag from a capability")
+    @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
+    @tag_option(required=True)
+    @click.pass_context
+    def capability_untag(ctx: click.Context, id: str, tag: str) -> None:
+        Interface.remove_capability_tag(
+            ctx=ctx,
+            capability_id=id,
+            tag=tag,
+        )
+
+    @capability.command("delete", help="Delete a capability")
+    @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
+    @click.pass_context
+    def capability_delete(ctx: click.Context, id: str) -> None:
+        Interface.delete_capability(ctx, id)
 
     @cli.command(
         "log",

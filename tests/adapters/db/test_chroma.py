@@ -34,7 +34,6 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.tags import Tag, TagId
-from parlant.core.utterances import UtteranceField, UtteranceVectorStore
 from tests.test_utilities import SyncAwaiter
 
 
@@ -388,29 +387,14 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
                     description="a type of horse",
                 )
 
-                await glossary_chroma_store.upsert_tag(
-                    term_id=kazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
-                await glossary_chroma_store.upsert_tag(
-                    term_id=shazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
-                await glossary_chroma_store.upsert_tag(
-                    term_id=bazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
                 terms = await glossary_chroma_store.find_relevant_terms(
-                    ("walla " * 5000)
+                    query=("walla " * 5000)
                     + "Kazoo"
                     + ("balla " * 5000)
                     + "Shazoo"
                     + ("kalla " * 5000)
                     + "Bazoo",
-                    tags=[Tag.for_agent_id(agent_id)],
+                    available_terms=[bazoo, shazoo, kazoo],
                     max_terms=3,
                 )
 
@@ -838,64 +822,3 @@ async def test_that_in_filter_works_with_single_tag(
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"
-
-
-async def test_that_utterance_chroma_store_correctly_finds_relevant_utterances_from_large_query_input(
-    container: Container,
-    agent_id: AgentId,
-) -> None:
-    async def embedder_type_provider() -> type[Embedder]:
-        return type(await container[NLPService].get_embedder())
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        async with ChromaDatabase(
-            container[Logger], Path(temp_dir), EmbedderFactory(container)
-        ) as chroma_db:
-            async with UtteranceVectorStore(
-                vector_db=chroma_db,
-                document_db=TransientDocumentDatabase(),
-                embedder_factory=EmbedderFactory(container),
-                embedder_type_provider=embedder_type_provider,
-            ) as utterance_chroma_store:
-                foo = await utterance_chroma_store.create_utterance(
-                    value="Foo is a kind of greeting",
-                    fields=[
-                        UtteranceField(name="greeting", description="A hello", examples=["foo"])
-                    ],
-                )
-                bar = await utterance_chroma_store.create_utterance(
-                    value="Bar is a kind of farewell",
-                    fields=[
-                        UtteranceField(name="farewell", description="A goodbye", examples=["bar"])
-                    ],
-                )
-                baz = await utterance_chroma_store.create_utterance(
-                    value="Baz is a kind of question",
-                    fields=[
-                        UtteranceField(name="question", description="A query", examples=["baz"])
-                    ],
-                )
-
-                await utterance_chroma_store.upsert_tag(
-                    utterance_id=foo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-                await utterance_chroma_store.upsert_tag(
-                    utterance_id=bar.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-                await utterance_chroma_store.upsert_tag(
-                    utterance_id=baz.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
-                utterances = await utterance_chroma_store.find_relevant_utterances(
-                    ("hello " * 5000) + "Baz" + ("bye " * 5000) + "Bar" + ("ask " * 5000) + "Foo",
-                    tags=[Tag.for_agent_id(agent_id)],
-                    max_utterances=3,
-                )
-
-                assert len(utterances) == 3
-                assert any(u.id == foo.id for u in utterances)
-                assert any(u.id == bar.id for u in utterances)
-                assert any(u.id == baz.id for u in utterances)

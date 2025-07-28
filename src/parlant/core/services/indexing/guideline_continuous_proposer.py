@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Optional
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
@@ -56,15 +70,20 @@ class GuidelineContinuousProposer:
             name="guideline-continuous-proposer-general-instructions",
             template="""
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
-Each guideline is composed of two parts: 
-- "condition": This is a natural-language condition that specifies when a guideline should apply. We look at each conversation at any particular state, and we test against this condition to understand 
+Each guideline is composed of two parts:
+- "condition": This is a natural-language condition that specifies when a guideline should apply. We look at each conversation at any particular state, and we test against this condition to understand
 if we should have this guideline participate in generating the next reply to the user.
 - "action": This is a natural-language instruction that should be followed by the agent whenever the "condition" part of the guideline applies to the conversation in its particular state.
 Any instruction described here applies only to the agent, and not to the user.
 
-A condition typically no longer applies if its corresponding action has already been executed. However, for actions that involve continuous behavior (e.g., "do not ask the user for their age",
-or guidelines involving the language the agent should use) there’s no clear point at which the action is considered complete, since it involves behavior that must be consistently maintained. 
-These guidelines will be called ‘continuous’.
+A condition typically no longer applies if its corresponding action has already been executed.
+However, for actions that involve continuous behavior, such as:
+1. General principles: "Do not ask the user for their age"
+2. Guidelines regarding the language the agent should use
+3. Guidelines that involve behavior that must be consistently maintained.
+4. Guidelines in which at least one part of their action must apply for multiple turns until circumstances change, such as "Do this until <something happens>"
+
+Such guidelines will be called ‘continuous’.
 
 Your task is to evaluate if a given guideline is continuous.
 """,
@@ -74,12 +93,12 @@ Your task is to evaluate if a given guideline is continuous.
             name="guideline-continuous-proposer-notes",
             template="""
 Note that:
-    1. If a guideline's condition has multiple requirements, mark it as continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and ensure all communications are polite and supportive." 
+    1. If a guideline's condition has multiple requirements, mark it as continuous if at least one of them is continuous. Actions like "tell the customer they are pretty and ensure all communications are polite and supportive."
     should be marked as continuous, since 'ensure all communications are polite and supportive' is continuous.
-    2. Actions that forbid certain behaviors are generally considered continuous, as they must be consistently upheld throughout the conversation. Unlike tasks with an end point, 
+    2. Actions that forbid certain behaviors are generally considered continuous, as they must be consistently upheld throughout the conversation. Unlike tasks with an end point,
     forbidden actions remain active throughout to ensure ongoing compliance.
     3. Guidelines that only require you to say a specific thing are generally not continuous. Once you said the required thing - the guideline is fulfilled.
-    4. Some guidelines may involve actions that unfold over multiple steps and require several responses to complete. These actions might require ongoing interaction with the user throughout the conversation. 
+    4. Some guidelines may involve actions that unfold over multiple steps and require several responses to complete. These actions might require ongoing interaction with the user throughout the conversation.
     However, if the steps can be fully completed at some point in the exchange, the guideline should NOT be considered continuous — since the action, once fulfilled, does not need to be repeated.
 """,
         )

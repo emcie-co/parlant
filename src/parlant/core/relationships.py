@@ -47,6 +47,7 @@ class GuidelineRelationshipKind(Enum):
     PRIORITY = "priority"
     PERSISTENCE = "persistence"
     DEPENDENCY = "dependency"
+    DISAMBIGUATION = "disambiguation"
 
 
 class ToolRelationshipKind(Enum):
@@ -81,6 +82,9 @@ class Relationship:
     source: RelationshipEntity
     target: RelationshipEntity
     kind: RelationshipKind
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 class RelationshipStore(ABC):

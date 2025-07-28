@@ -14,9 +14,11 @@
 
 # This is a separate module to avoid circular dependencies
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Mapping
 
+from parlant.core.common import JSONSerializable
 from parlant.core.guidelines import Guideline
 
 
@@ -33,9 +35,13 @@ class GuidelineMatch:
     score: int
     rationale: str
     guideline_previously_applied: PreviouslyAppliedType = PreviouslyAppliedType.NO
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+
+    def __hash__(self) -> int:
+        return hash(f"{self.guideline.id}_{self.score}_{self.rationale}")
 
 
 @dataclass(frozen=True)
-class GuidelinePreviouslyApplied:
+class AnalyzedGuideline:
     guideline: Guideline
     is_previously_applied: bool

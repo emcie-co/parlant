@@ -37,7 +37,7 @@ from tests.core.common.utils import ContextOfTest
 def get_guideline_properties(
     context: ContextOfTest,
     condition: str,
-    action: str,
+    action: str | None,
 ) -> dict[str, JSONSerializable]:
     guideline_evaluator = context.container[GuidelineEvaluator]
     guideline_evaluation_data = context.sync_await(
@@ -132,6 +132,30 @@ def given_a_guideline_name_to_when(
         guideline_store.upsert_tag(
             context.guidelines[guideline_name].id,
             Tag.for_agent_id(agent_id),
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a disambiguation group head "{disambiguation_name}" to activate when {a_condition_holds}'
+    ),
+)
+def given_an_observation_name_of(
+    context: ContextOfTest,
+    disambiguation_name: str,
+    a_condition_holds: str,
+) -> None:
+    guideline_store = context.container[GuidelineStore]
+
+    metadata = get_guideline_properties(context, a_condition_holds, None)
+
+    context.guidelines[disambiguation_name] = context.sync_await(
+        guideline_store.create_guideline(
+            condition=a_condition_holds,
+            action=None,
+            metadata=metadata,
         )
     )
 
@@ -539,5 +563,60 @@ def given_an_entailment_guideline_relationship(
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
             kind=GuidelineRelationshipKind.ENTAILMENT,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('a guideline "{guideline}" is grouped under "{disambiguation_head}"'),
+)
+def given_an_guideline_grouped_under(
+    context: ContextOfTest,
+    guideline: str,
+    disambiguation_head: str,
+) -> None:
+    store = context.container[RelationshipStore]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[disambiguation_head].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=context.guidelines[guideline].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            kind=GuidelineRelationshipKind.DISAMBIGUATION,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a dependency relationship between the guideline "{guideline_name}" and the "{journey_title}" journey'
+    ),
+)
+def given_an_dependency_between_guideline_and_a_journey(
+    context: ContextOfTest,
+    guideline_name: str,
+    journey_title: str,
+) -> None:
+    store = context.container[RelationshipStore]
+    journey = context.journeys[journey_title]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[guideline_name].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=Tag.for_journey_id(journey.id),
+                kind=RelationshipEntityKind.TAG,
+            ),
+            kind=GuidelineRelationshipKind.DEPENDENCY,
         )
     )

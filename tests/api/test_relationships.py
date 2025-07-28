@@ -464,6 +464,73 @@ async def test_that_priority_relationship_can_be_deleted(
         await relationship_store.read_relationship(id=relationship.id)
 
 
+async def test_that_disambiguation_relationship_can_be_created(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    response = await async_client.post(
+        "/relationships",
+        json={
+            "source_guideline": source_guideline.id,
+            "target_guideline": target_guideline.id,
+            "kind": "disambiguation",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    relationship = response.json()
+    assert relationship["source_guideline"]["id"] == source_guideline.id
+    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["kind"] == "disambiguation"
+
+
+async def test_that_disambiguation_relationship_can_be_deleted(
+    async_client: httpx.AsyncClient, container: Container
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    relationship = await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=source_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        target=RelationshipEntity(
+            id=target_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        kind=GuidelineRelationshipKind.DISAMBIGUATION,
+    )
+
+    response = await async_client.delete(f"/relationships/{relationship.id}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    with raises(ItemNotFoundError):
+        await relationship_store.read_relationship(id=relationship.id)
+
+
 async def test_that_overlap_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -560,6 +627,12 @@ async def test_that_all_relationships_can_be_listed(
         kind=GuidelineRelationshipKind.DEPENDENCY,
     )
 
+    r3 = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=GuidelineRelationshipKind.DISAMBIGUATION,
+    )
+
     response = await async_client.get("/relationships")
     assert response.status_code == status.HTTP_200_OK
 
@@ -569,6 +642,7 @@ async def test_that_all_relationships_can_be_listed(
 
     assert r1.id in returned_ids
     assert r2.id in returned_ids
+    assert r3.id in returned_ids
 
 
 async def test_that_relationships_can_be_listed_by_kind_only(

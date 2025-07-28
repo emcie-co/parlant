@@ -33,8 +33,7 @@ Feature: Tools
         And an association between "check_stock" and "get_available_product_by_type"
         And a customer message, "Hey, Can I order a large pizza with pepperoni and Sprite on the side?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola as drinks, and Pepperoni, Mushrooms and Olives as toppings
 
@@ -44,8 +43,7 @@ Feature: Tools
         And an association between "calculate_sum" and "add"
         And a customer message, "What is 8+2 and 4+6?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains the numbers 8 and 2 in the first tool call
         And the tool calls event contains the numbers 4 and 6 in the second tool call
@@ -59,8 +57,7 @@ Feature: Tools
         And an association between "check_drinks_or_toppings_in_stock" and "get_available_toppings"
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
@@ -75,8 +72,7 @@ Feature: Tools
         And an association between "check_toppings_in_stock" and "get_available_toppings"
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
@@ -89,8 +85,7 @@ Feature: Tools
         And an association between "calculate_addition_or_multiplication" and "multiply"
         And a customer message, "What is 8+2 and 4*6?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains the numbers 8 and 2 in the "add" tool call
         And the tool calls event contains the numbers 4 and 6 in the "multiply" tool call
@@ -103,8 +98,7 @@ Feature: Tools
         And an association between "calculate_addition_or_multiplication" and "multiply"
         And a customer message, "What is 8+2 and 4*6? also, 9+5 and 10+2 and 3*5"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 5 tool call(s)
         And the tool calls event contains 3 calls to "add", one with 8 and 2, the second with 9 and 5, and the last with 10 and 2
         And the tool calls event contains 2 calls to "multiply", one with 4 and 6, and the other with 3 and 5
@@ -128,8 +122,8 @@ Feature: Tools
         And an association between "check_stock" and "get_available_product_by_type"
         And a customer message, "Hey, Can I order large pepperoni pizza with Sprite?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
+        And the tool calls event contains 2 tool call(s)
         And a single message event is emitted
         And the tool calls event is correlated with the message event
 
@@ -190,8 +184,7 @@ Feature: Tools
         # And an association between "retrieve_account_information" and "multiply"
         And a customer message, "Does Larry David have enough money in his account to buy a kilogram of apples?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:get_account_balance" with Larry David's current balance
         And the tool calls event contains a call to "local:check_fruit_price" with the price of apples
@@ -602,8 +595,7 @@ Feature: Tools
         And an association between "filter_electronic_products" and "search_electronic_products"
         And a customer message, "Hey, do you have Dell laptop or Samsung SSD?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And no tool error has occurred
+        Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:search_electronic_products" with Dell vendor and laptop keyword
         And the tool calls event contains a call to "local:search_electronic_products" with Samsung vendor and SSD keyword
@@ -674,8 +666,7 @@ Feature: Tools
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
         And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
 
     Scenario: Drinks and toppings tools called from same guideline
@@ -687,8 +678,7 @@ Feature: Tools
         And an association between "check_drinks_or_toppings_in_stock" and "get_available_toppings"
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
     
@@ -737,8 +727,7 @@ Feature: Tools
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300? my name is Fredric"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller use tools multiple times for the right transfer when two overlap 
@@ -751,8 +740,7 @@ Feature: Tools
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300 and also 100 shekels to Bob? my name is Fredric"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
+        Then the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller use the more suitable tool for transfer when three overlap directly 
@@ -768,8 +756,7 @@ Feature: Tools
         And a tool relationship whereby "transfer_dollars" overlaps with "transfer_shekels"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Dan $40 and to my friend Ali 500 Dinar? my name is Fredric"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
+        Then the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_dollars" with 40 from Fredric to Dan and a call to "transfer_money" with 500 from Fredric to Ali
 
     Scenario: Tool caller use the more suitable tool for transfer when three overlap indirectly 
@@ -784,8 +771,7 @@ Feature: Tools
         And a tool relationship whereby "transfer_dollars" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Dan $40 and to my friend Ali 500 Dinar? my name is Fredric"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
+        Then the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_dollars" with 40 from Fredric to Dan and a call to "transfer_money" with 500 from Fredric to Ali
 
     Scenario: Tool caller user the more suitable tool for searching when two overlap (1)
@@ -865,8 +851,7 @@ Feature: Tools
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
         And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
 
     Scenario: Drinks and toppings tools called from same guideline
@@ -878,8 +863,7 @@ Feature: Tools
         And an association between "check_drinks_or_toppings_in_stock" and "get_available_toppings"
         And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
         And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
     
@@ -928,8 +912,7 @@ Feature: Tools
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300? my name is Fredric"
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 2 tool call(s)
+        Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller use tools multiple times for the right transfer when two overlap 
@@ -942,8 +925,7 @@ Feature: Tools
         And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
         And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300 and also 100 shekels to Bob? my name is Fredric"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 3 tool call(s)
+        Then the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
     Scenario: Tool caller user the more suitable tool for searching when two overlap (1)
@@ -991,7 +973,7 @@ Feature: Tools
 
     Scenario: The agent correctly chooses to call the right tool based on journeys
         Given an agent whose job is to sell groceries
-        And a journey titled Orange things are Fruit to be aware that all orange vegetables are classified as fruits when an orange pruducts is mentioned
+        And a journey titled "Orange things are Fruit" to be aware that all orange vegetables are classified as fruits when an orange products is mentioned
         And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
         And the tool "check_fruit_price"
         And the tool "check_vegetable_price"
@@ -1057,3 +1039,23 @@ Scenario: Tool caller calls a tool with list of booleans and optional boolean
         Then a single tool calls event is emitted
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
+
+Scenario: Tool returns a result with transient lifespan and its event is not emitted
+        Given a guideline "current_time" to get the current time when a customer wants to know the time
+        And the tool "check_current_time"
+        And an association between "current_time" and "check_current_time"
+        And a customer message, "Hey, I have a meeting in 10:00, but I lost my watch. Am I late for the meeting ?"
+        When processing is triggered
+        Then the message contains the text "you are late"
+        And a single event is staged
+        And no tool calls event is emitted
+        And the staged tool calls event contains "18:03"
+
+Scenario: Tool returns a result with explicit long-term lifespan and its event is emitted
+        Given a guideline "current_time" to get the current time when a customer wants to know the time
+        And the tool "check_current_time_emit"
+        And an association between "current_time" and "check_current_time_emit"
+        And a customer message, "Hey, I have a meeting in 10:00, but I lost my watch. Am I late for the meeting ?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the message contains the text "9:59"

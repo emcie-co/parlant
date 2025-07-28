@@ -1,4 +1,19 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
+from ast import literal_eval
 from datetime import datetime, timezone
 from mailbox import FormatError
 from types import TracebackType
@@ -27,6 +42,16 @@ from parlant.core.emissions import EventEmitterFactory
 
 DEFAULT_MCP_PORT: int = 8181
 
+StringBasedTypes = [
+    "string",
+    "enum",
+    "date",
+    "datetime",
+    "timedelta",
+    "path",
+    "uuid",
+]
+
 
 class MCPToolServer:
     """This class is a wrapper around the FastMCP server, mainly to be used in testing the MCP client"""
@@ -54,7 +79,7 @@ class MCPToolServer:
     async def __aenter__(self) -> MCPToolServer:
         self._task = asyncio.create_task(self._server.run_async(transport=self.transport))
 
-        start_timeout = 5
+        start_timeout = 10
         sample_frequency = 0.1
 
         for _ in range(int(start_timeout / sample_frequency)):
@@ -118,7 +143,7 @@ class MCPToolClient(ToolService):
     async def __aenter__(self) -> MCPToolClient:
         try:
             self._client = Client(StreamableHttpTransport(url=f"{self.url}:{self.port}/mcp"))
-            await asyncio.wait_for(self._client.__aenter__(), timeout=5.0)  # type: ignore
+            await asyncio.wait_for(self._client.__aenter__(), timeout=10.0)  # type: ignore
             return self
         except asyncio.TimeoutError:
             raise ConnectionError(f"Connection to MCP service at {self.url}:{self.port} timed out")
@@ -174,6 +199,8 @@ class MCPToolClient(ToolService):
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
         try:
+            tool = await self.read_tool(name)
+            arguments = prepare_tool_arguments(arguments, tool.parameters)
             result = await self._client.call_tool(name, dict(arguments))
             text = next((r.text for r in result if r.type == "text"), None)
             return ToolResult(data=text)
@@ -219,6 +246,10 @@ def mcp_parameter_to_parlant_parameter(
     parameter_name: str, schema: dict[str, Any]
 ) -> ToolParameterDescriptor:
     mcp_param = schema["properties"][parameter_name]
+    if "anyOf" in mcp_param:
+        """ Union of types - currently only optional is supported"""
+        mcp_param = resolve_optional(mcp_param["anyOf"])
+
     param_type = mcp_param.get("type", None)
     param_format = mcp_param.get("format", None)
     description = mcp_param.get("title", None)
@@ -261,19 +292,28 @@ def mcp_parameter_to_parlant_parameter(
             **({"enum": enum_desc["enum"]} if enum_desc is not None else {}),
             description=mcp_param.get("title", ""),
         )
+    raise FormatError(f"Unsupported parameter type: {param_type} (parameter is {parameter_name})")
 
-    raise FormatError(f"Unsupported parameter type: {param_type}")
 
-
-def resolve_ref(ref: str, schema: dict[str, Any]) -> dict[str, Any]:
-    if not ref.startswith("#/"):
-        raise FormatError(f"Invalid reference format: {ref}")
-    ref = ref[2:]
-    for part in ref.split("/"):
+def resolve_ref(ref_: str, schema: dict[str, Any]) -> dict[str, Any]:
+    if not ref_.startswith("#/"):
+        raise FormatError(f"Invalid reference format: {ref_}")
+    ref_ = ref_[2:]
+    for part in ref_.split("/"):
         if part not in schema:
-            raise FormatError(f"Reference #{ref} not found in schema")
+            raise FormatError(f"Reference #{ref_} not found in schema")
         schema = schema[part]
     return schema
+
+
+def resolve_optional(schema: list[dict[str, Any]]) -> dict[str, bool]:
+    if (
+        len(schema) != 2
+        or not (any(k.get("type") == "null" for k in schema))
+        or all(k.get("type") == "null" for k in schema)
+    ):
+        raise FormatError("Union types are not supported, unless optional")
+    return next(k for k in schema if k["type"] != "null")
 
 
 def parse_enum_def(def_: dict[str, Any]) -> ToolParameterDescriptor:
@@ -281,5 +321,46 @@ def parse_enum_def(def_: dict[str, Any]) -> ToolParameterDescriptor:
         raise FormatError("Only enum references are supported")
     if def_.get("type", None) != "string":
         raise FormatError("Only string enums are supported")
-    description = def_.get("description", None)
-    return ToolParameterDescriptor(type="string", description=description, enum=def_["enum"])
+    description = def_.get("description", "")
+    return ToolParameterDescriptor(
+        type="string",
+        description=description,
+        enum=def_["enum"],
+    )
+
+
+def split_arg_list(argument: str | list[Any], item_type: str) -> list[str]:
+    if isinstance(argument, list):
+        return argument
+    if item_type in StringBasedTypes:
+        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
+        return list(literal_eval(argument))
+    else:
+        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
+        list_str = argument.strip()
+        if list_str.startswith("[") and list_str.endswith("]"):
+            return list_str[1:-1].split(", ")
+        raise ValueError(f"Invalid list format for argument '{argument}'")
+
+
+def prepare_tool_arguments(
+    arguments: Mapping[str, JSONSerializable],
+    parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]],
+) -> Mapping[str, JSONSerializable]:
+    fixed_args = dict(arguments)
+    for arg in arguments:
+        if arg not in parameters:
+            raise ToolError(f"Argument '{arg}' not found in tool parameters")
+
+        descriptor = parameters[arg][0]
+
+        if descriptor["type"] == "array":
+            arg_value = arguments[arg]
+            if isinstance(arg_value, (str, list)):
+                fixed_args[arg] = split_arg_list(arg_value, descriptor["item_type"])
+            else:
+                raise ToolError(
+                    f"Argument '{arg}' must be a string or list for array type, got {type(arg_value).__name__}"
+                )
+
+    return fixed_args

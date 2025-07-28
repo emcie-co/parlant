@@ -101,6 +101,16 @@ TagIdSequenceField: TypeAlias = Annotated[
     ),
 ]
 
+UtteranceQuerySequenceField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="A sequence of queries associated with the utterance, to help with filtering and matching.",
+        examples=[
+            ["What is your name?", "Where are you located?", "Let me know if I can help you."],
+        ],
+    ),
+]
+
 UtteranceIdField: TypeAlias = Annotated[
     UtteranceId,
     Field(
@@ -144,6 +154,7 @@ class UtteranceDTO(
     value: UtteranceValueField
     fields: UtteranceFieldSequenceField
     tags: TagIdSequenceField
+    queries: UtteranceQuerySequenceField
 
 
 utterance_creation_params_example: ExampleJson = {
@@ -167,6 +178,7 @@ class UtteranceCreationParamsDTO(
     value: UtteranceValueField
     fields: UtteranceFieldSequenceField
     tags: Optional[TagIdSequenceField] = None
+    queries: Optional[UtteranceQuerySequenceField] = None
 
 
 UtteranceTagUpdateAddField: TypeAlias = Annotated[
@@ -289,6 +301,7 @@ def create_router(
             value=params.value,
             fields=[_dto_to_utterance_field(s) for s in params.fields],
             tags=tags or None,
+            queries=params.queries or None,
         )
 
         return UtteranceDTO(
@@ -297,6 +310,7 @@ def create_router(
             value=utterance.value,
             fields=[_utterance_field_to_dto(s) for s in utterance.fields],
             tags=utterance.tags,
+            queries=utterance.queries,
         )
 
     @router.get(
@@ -326,6 +340,7 @@ def create_router(
             value=utterance.value,
             fields=[_utterance_field_to_dto(s) for s in utterance.fields],
             tags=utterance.tags,
+            queries=utterance.queries,
         )
 
     @router.get(
@@ -353,6 +368,7 @@ def create_router(
                 value=f.value,
                 fields=[_utterance_field_to_dto(s) for s in f.fields],
                 tags=f.tags,
+                queries=f.queries,
             )
             for f in utterances
         ]
@@ -418,6 +434,7 @@ def create_router(
             value=updated_utterance.value,
             fields=[_utterance_field_to_dto(s) for s in updated_utterance.fields],
             tags=updated_utterance.tags,
+            queries=updated_utterance.queries,
         )
 
     @router.delete(

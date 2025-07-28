@@ -30,11 +30,19 @@ load_steps(
     "customers",
     "tags",
     "journeys",
+    "capabilities",
 )
 
 scenarios(
     *(
         f"core/unstable/engines/alpha/features/baseline/{feature}.feature"
-        for feature in ("supervision", "glossary", "tools", "fluid_utterances", "strict_utterances")
+        for feature in (
+            "supervision",
+            "glossary",
+            "tools",
+            "fluid_utterances",
+            "strict_utterances",
+            "conversation",
+        )
     )
 )

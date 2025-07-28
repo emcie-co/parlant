@@ -6,7 +6,7 @@ Feature: Fluid Utterance
         And an empty session
 
     Scenario: Multistep journey is aborted when the journey description requires so (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise let them know that the password could not be reset. 4. use the tool reset_password with the provided information 5. report the result to the customer when the customer wants to reset their password
         And an utterance, "What is the name of your account?"
         And an utterance, "can you please provide the email address or phone number attached to this account?"
         And an utterance, "Your password was successfully reset. An email with further instructions will be sent to your address."
@@ -34,7 +34,7 @@ Feature: Fluid Utterance
         And an utterance, "I recommend mushrooms"
         And an utterance, "I recommend mushrooms or pepperoni"
         And an utterance, "I recommend pepperoni"
-        And a journey titled Vegetarian Customers to Be aware that the customer is vegetarian. Only discuss vegetarian options with them. when the customer has a name that begins with R
+        And a journey titled "Vegetarian Customers" to Be aware that the customer is vegetarian. Only discuss vegetarian options with them. when the customer has a name that begins with R
         And a customer message, "Hey, there. How are you?"
         And an agent message, "I'm doing alright, thank you! What's your name?"
         And a customer message, "Rajon, have we spoken before? I want one large pie but I'm not sure which topping to get, what do you recommend?"
@@ -43,7 +43,7 @@ Feature: Fluid Utterance
         And the message contains recommendations for either mushrooms or tomatoes, but not pepperoni
 
     Scenario: Multistep journey invokes tool calls correctly (fluid utterance)
-        Given a journey titled Reset Password Journey to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
+        Given a journey titled "Reset Password Journey" to follow these steps to reset a customers password: 1. ask for their account name 2. ask for their email or phone number 3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort. 3. use the tool reset_password with the provided information 4. report the result to the customer when the customer wants to reset their password
         And the tool "reset_password"
         And a guideline "reset_password_guideline" to reset the customer's password using the associated tool when the customer requested to reset their password
         And an association between "reset_password_guideline" and "reset_password"
@@ -101,3 +101,48 @@ Feature: Fluid Utterance
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains no rudeness to tell the user to go away
+    
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (fluid utterance)
+        Given a guideline to suggest direct flights when you recommends on travel options
+        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a suggestion to travel with bus or train but not with a flight
+
+    Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (fluid utterance)
+        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend only from the recommended vegetarian toppings options when the customer asks about topping recommendation and the customer is from India
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
+        And an utterance, "I recommend on {{generative.answer}}."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a recommendation only on pineapple as topping  
+
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (fluid utterance)
+        Given a guideline to suggest direct flights when you recommends on travel options
+        Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
+        And an utterance, "I recommend taking a direct flight. It's the most efficient and comfortable option."
+        And an utterance, "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a suggestion to travel with bus or train but not with a flight
+
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (fluid utterance)
+        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
+        And that the agent uses the fluid_utterance message composition mode
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
+        And an utterance, "I recommend on {{generative.answer}}."
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a recommendation on pineapple pizza only
+        And the message contains no recommendation on pepperoni pizza 
+
+    

@@ -18,11 +18,15 @@ import json
 import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
-
+from parlant.core.capabilities import Capability
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    GuidelineInternalRepresentation,
+    internal_representation,
+)
 from parlant.core.engines.alpha.message_event_composer import (
     MessageCompositionError,
     MessageEventComposer,
@@ -33,11 +37,12 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolInsights,
     InvalidToolData,
 )
+from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder, SectionStatus
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.sessions import Event, EventKind, EventSource
@@ -103,6 +108,7 @@ class MessageSchema(DefaultBaseModel):
     produced_reply: Optional[bool] = None
     produced_reply_rationale: Optional[str] = None
     guidelines: Optional[list[str]] = None
+    current_journey_step: Optional[str] = None
     context_evaluation: Optional[ContextEvaluation] = None
     insights: Optional[list[str]] = None
     evaluation_for_each_instruction: Optional[list[InstructionEvaluation]] = None
@@ -137,6 +143,7 @@ class MessageGenerator(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -154,6 +161,7 @@ class MessageGenerator(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -165,18 +173,19 @@ class MessageGenerator(MessageEventComposer):
             with self._logger.scope("MessageGenerator"):
                 with self._logger.operation("Message generation"):
                     return await self._do_generate_events(
-                        event_emitter,
-                        agent,
-                        customer,
-                        context_variables,
-                        interaction_history,
-                        terms,
-                        ordinary_guideline_matches,
-                        journeys,
-                        tool_enabled_guideline_matches,
-                        tool_insights,
-                        staged_events,
-                        latch,
+                        event_emitter=event_emitter,
+                        agent=agent,
+                        customer=customer,
+                        context_variables=context_variables,
+                        interaction_history=interaction_history,
+                        terms=terms,
+                        capabilities=capabilities,
+                        ordinary_guideline_matches=ordinary_guideline_matches,
+                        journeys=journeys,
+                        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+                        tool_insights=tool_insights,
+                        staged_events=staged_events,
+                        latch=latch,
                     )
 
     def _format_staged_events(
@@ -201,6 +210,7 @@ class MessageGenerator(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
@@ -227,6 +237,7 @@ class MessageGenerator(MessageEventComposer):
             ordinary_guideline_matches=ordinary_guideline_matches,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             journeys=journeys,
+            capabilities=capabilities,
             staged_events=staged_events,
             tool_insights=tool_insights,
             shots=await self.shots(),
@@ -282,54 +293,6 @@ class MessageGenerator(MessageEventComposer):
 
         raise MessageCompositionError() from last_generation_exception
 
-    def get_guideline_matches_text(
-        self,
-        ordinary: Sequence[GuidelineMatch],
-        tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
-    ) -> tuple[str, dict[str, Any]]:
-        all_matches = [
-            match for match in chain(ordinary, tool_enabled) if match.guideline.content.action
-        ]
-
-        if not all_matches:
-            return (
-                """
-In formulating your reply, you are normally required to follow a number of behavioral guidelines.
-However, in this case, no special behavioral guidelines were provided. Therefore, when generating revisions,
-you don't need to specifically double-check if you followed or broke any guidelines.
-""",
-                {},
-            )
-        guidelines = []
-
-        for i, p in enumerate(all_matches, start=1):
-            guideline = f"Guideline #{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
-
-            guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
-            guidelines.append(guideline)
-
-        guideline_list = "\n".join(guidelines)
-
-        return (
-            """
-When crafting your reply, you must follow the behavioral guidelines provided below, which have been identified as relevant to the current state of the interaction.
-These guidelines were provided by the business you are representing.
-Each guideline includes a priority score to indicate its importance and a rationale for its relevance.
-
-You may choose not to follow a guideline only in the following cases:
-    - It conflicts with a previous customer request.
-    - It contradicts another guideline of equal or higher priority.
-    - It is clearly inappropriate given the current context of the conversation.
-In all other situations, you are expected to adhere to the guidelines.
-These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
-Do not disregard a guideline because you believe its 'when' condition or rationale does not apply—this filtering has already been handled.
-
-- **Guidelines**:
-{guideline_list}
-""",
-            {"guideline_list": guideline_list},
-        )
-
     def _format_shots(self, shots: Sequence[MessageGeneratorShot]) -> str:
         return "\n".join(
             f"""
@@ -356,6 +319,7 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -363,6 +327,11 @@ Do not disregard a guideline because you believe its 'when' condition or rationa
         tool_insights: ToolInsights,
         shots: Sequence[MessageGeneratorShot],
     ) -> PromptBuilder:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline)
+            for m in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
+        }
+
         builder = PromptBuilder(on_build=lambda prompt: self._logger.debug(f"Prompt:\n{prompt}"))
 
         builder.add_section(
@@ -455,7 +424,8 @@ To generate an optimal response that aligns with all guidelines and the current 
 2. INITIAL RESPONSE
    - Draft an initial response based on:
      * Primary customer needs
-     * Applicable guidelines, journeys and observations
+     * Applicable guidelines
+     * The relevant journey step, if there is one
      * Gathered insights
    - Focus on addressing the core request first
 
@@ -487,11 +457,14 @@ To generate an optimal response that aligns with all guidelines and the current 
 
 PRIORITIZING INSTRUCTIONS (GUIDELINES VS. INSIGHTS)
 -----------------
-Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization, based on:
-    - Conflicts with a higher-priority guideline (according to their priority scores).
-    - Contradictions with a customer request.
-    - Lack of sufficient context or data.
-    - Conflicts with an insight (see below).
+Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization. 
+Consider the following valid reasons for such deviations:
+    - The instruction contradicts a customer request.
+    - The instruction lacks sufficient context or data to apply reliably.
+    - The instruction conflicts with an insight (see below).
+    - The instruction depends on an agent intention condition that does not apply in the current situation.
+    - When a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), 
+    follow both by choosing the permitted alternative (i.e., do Y). 
 In all other cases, even if you believe that a guideline's condition does not apply, you must follow it.
 If fulfilling a guideline is not possible, explicitly justify why in your response.
 
@@ -531,20 +504,17 @@ INTERACTION CONTEXT
         )
         builder.add_context_variables(context_variables)
         builder.add_glossary(terms)
+        builder.add_capabilities_for_message_generation(
+            capabilities,
+            extra_instructions=[
+                'When providing your full response, list offered capabilities under the "offered_services" key, and not under "factual_information_provided".'
+            ],
+        )
         builder.add_journeys(journeys)
-        builder.add_section(
-            name="message-generator-guideline-descriptions",
-            template=self.get_guideline_matches_text(
-                ordinary_guideline_matches,
-                tool_enabled_guideline_matches,
-            )[0],
-            props=self.get_guideline_matches_text(
-                ordinary_guideline_matches,
-                tool_enabled_guideline_matches,
-            )[1],
-            status=SectionStatus.ACTIVE
-            if ordinary_guideline_matches or tool_enabled_guideline_matches
-            else SectionStatus.PASSIVE,
+        builder.add_guidelines_for_message_generation(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            guideline_representations,
         )
         builder.add_interaction_history(interaction_history)
         builder.add_staged_events(staged_events)
@@ -591,7 +561,7 @@ You should inform the user about this invalid data and if it includes choices th
         actionable_guidelines = [
             g
             for g in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
-            if g.guideline.content.action
+            if guideline_representations[g.guideline.id].action
         ]
         builder.add_section(
             name="message-generator-output-format",
@@ -608,6 +578,7 @@ Produce a valid JSON object in the following format: ###
                 "default_output_format": self._get_output_format(
                     interaction_history,
                     actionable_guidelines,
+                    guideline_representations,
                 ),
                 "interaction_history": interaction_history,
                 "guidelines": actionable_guidelines,
@@ -646,7 +617,10 @@ Produce a valid JSON object in the following format: ###
         )
 
     def _get_output_format(
-        self, interaction_history: Sequence[Event], guidelines: Sequence[GuidelineMatch]
+        self,
+        interaction_history: Sequence[Event],
+        guidelines: Sequence[GuidelineMatch],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
     ) -> str:
         last_customer_message = next(
             (
@@ -666,7 +640,7 @@ Produce a valid JSON object in the following format: ###
                 f"""
         {{
             "number": {i},
-            "instruction": "{g.guideline.content.action}",
+            "instruction": "{guideline_representations[g.guideline.id].action}",
             "evaluation": "<your evaluation of how the guideline should be followed>",
             "data_available": "<explanation whether you are provided with the required data to follow this guideline now>"
         }},"""
@@ -696,6 +670,7 @@ Produce a valid JSON object in the following format: ###
     "produced_reply": "<BOOL, should be true unless the customer explicitly asked you not to respond>",
     "produced_reply_rationale": "<str, optional. required only if produced_reply is false>",
     "guidelines": [{guidelines_list_text}],
+    "current_journey_step": <STR, the next step to take according to the active journey/s, if there are ones. Otherwise, this field can be omitted>
     "context_evaluation": {{
         "most_recent_customer_inquiries_or_needs": "<fill out accordingly>",
         "parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs": "<fill out accordingly>",
@@ -927,6 +902,7 @@ example_2_expected = MessageSchema(
     guidelines=[
         "When the customer chooses and orders a burger, then provide it",
         "When the customer chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order",
+        "Agent intention guideline: When processing a new order, confirm the order details and price with the customer",
     ],
     context_evaluation=ContextEvaluation(
         most_recent_customer_inquiries_or_needs="The customer ordered an American burger with cheese",
@@ -949,6 +925,12 @@ example_2_expected = MessageSchema(
             instruction="When the customer chooses specific ingredients on the burger, only provide those ingredients if we have them fresh in stock; otherwise, reject the order.",
             evaluation="The customer chose cheese on the burger, but all of the cheese we currently have is expired",
             data_available="The relevant stock availability is given in the tool calls' data. Our cheese has expired.",
+        ),
+        InstructionEvaluation(
+            number=3,
+            instruction="When you processes a new order, confirm with the customer the order details and the price",
+            evaluation="The agent is not going to process the order, so no need to make a confirmation",
+            data_available="No relevant data",
         ),
     ],
     revisions=[
@@ -1517,7 +1499,76 @@ example_9_expected = MessageSchema(
 
 example_9_shot = MessageGeneratorShot(
     description="Handling a frustrated customer when no options for assistance are available to the agent. Assume the agent works for a large electronic store, and that its role (as described in its prompt) is to assist potential customers. Assume the prompt did not specify a method for transferring customers to human representatives",
-    expected_result=example_7_expected,
+    expected_result=example_9_expected,
+)
+
+
+example_10_expected = MessageSchema(
+    last_message_of_customer=("I want to return my shoes, I purchased them a month ago"),
+    guidelines=[
+        "When you suggests refund options, suggest a refund either as website credit or to their credit card.",
+        "When the customer wants to return an item they purchased more than a week ago, do not suggest a refund to the credit card",
+    ],
+    context_evaluation=ContextEvaluation(
+        most_recent_customer_inquiries_or_needs="The customer wants to return their shoes",
+        parts_of_the_context_i_have_here_if_any_with_specific_information_on_how_to_address_these_needs="I can offer a return according to the guidelines",
+        topics_for_which_i_have_sufficient_information_and_can_therefore_help_with="I can refund the order to website credit",
+        what_i_do_not_have_enough_information_to_help_with_with_based_on_the_provided_information_that_i_have=None,
+        was_i_given_specific_information_here_on_how_to_address_some_of_these_specific_needs=True,
+        should_i_tell_the_customer_i_cannot_help_with_some_of_those_needs=False,
+    ),
+    insights=["The customer purchased the item over a week ago"],
+    evaluation_for_each_instruction=[
+        InstructionEvaluation(
+            number=1,
+            instruction="do not suggest a refund to the credit card",
+            evaluation="It's been purchased more than a week ago so can't offer return to credit card",
+            data_available="Not needed",
+        ),
+        InstructionEvaluation(
+            number=2,
+            instruction="suggest a refund either as website credit or to their credit card.",
+            evaluation="Refunds are usually to credit or card. Since this purchase was over a week ago, I’ll offer website credit",
+            data_available="Not needed",
+        ),
+        InstructionEvaluation(
+            number=3,
+            instruction="The customer purchased the item over a week ago",
+            evaluation="As mentioned by the user they purchased more than a week ago, so the more restrictive refund option should apply",
+            data_available="Not needed",
+        ),
+    ],
+    revisions=[
+        Revision(
+            revision_number=1,
+            content=(
+                "Sure, I can help with that.Since the shoes were purchased over a month ago, I can offer a refund in the form of website credit. Let me know if you’d like to proceed, or if you have any questions"
+            ),
+            factual_information_provided=[],
+            offered_services=[
+                OfferedServiceEvaluation(
+                    service="Do a refund",
+                    source="Guideline",
+                    is_source_based_in_this_prompt=True,
+                )
+            ],
+            instructions_followed=[
+                "#1; do not suggest a refund to the credit card",
+                "#2; suggest a refund either as website credit or to their credit card",
+                "#3; The customer purchased the item over a week ago",
+            ],
+            instructions_broken=[],
+            is_repeat_message=False,
+            followed_all_instructions=True,
+            all_facts_and_services_sourced_from_prompt=True,
+            further_revisions_required=False,
+        ),
+    ],
+)
+
+example_10_shot = MessageGeneratorShot(
+    description="Follow the more specific guideline when multiple guidelines apply to a situation, especially if one addresses a narrower scenario within the broader case",
+    expected_result=example_10_expected,
 )
 
 _baseline_shots: Sequence[MessageGeneratorShot] = [
@@ -1530,6 +1581,7 @@ _baseline_shots: Sequence[MessageGeneratorShot] = [
     example_7_shot,
     example_8_shot,
     example_9_shot,
+    example_10_shot,
 ]
 
 shot_collection = ShotCollection[MessageGeneratorShot](_baseline_shots)

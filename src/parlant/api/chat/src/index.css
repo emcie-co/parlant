@@ -41,6 +41,7 @@
 		--main: rgb(1, 37, 21);
 	}
 }
+
 @layer utilities {
 	.no-scrollbar::-webkit-scrollbar {
 		display: none;

@@ -32,6 +32,7 @@ from parlant.core.persistence.vector_database import (
 from parlant.core.persistence.vector_database_helper import (
     VectorDocumentMigrationHelper,
     VectorDocumentStoreMigrationHelper,
+    query_chunks,
 )
 from parlant.core.persistence.document_database import (
     DocumentCollection,
@@ -110,7 +111,8 @@ class GlossaryStore:
     async def find_relevant_terms(
         self,
         query: str,
-        tags: Optional[Sequence[TagId]] = None,
+        available_terms: Sequence[Term],
+        max_terms: int = 20,
     ) -> Sequence[Term]: ...
 
     @abstractmethod
@@ -387,7 +389,13 @@ class GlossaryVectorStore(GlossaryStore):
                         doc["term_id"]
                         for doc in await self._association_collection.find(filters={})
                     }
-                    filters = {"$and": [{"id": {"$ne": id}} for id in term_ids]} if term_ids else {}
+                    if not term_ids:
+                        filters = {}
+                    elif len(term_ids) == 1:
+                        filters = {"id": {"$ne": term_ids.pop()}}
+                    else:
+                        filters = {"$and": [{"id": {"$ne": id}} for id in term_ids]}
+
                 else:
                     tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
                     tag_associations = await self._association_collection.find(filters=tag_filters)
@@ -425,43 +433,20 @@ class GlossaryVectorStore(GlossaryStore):
                     filters={"id": {"$eq": tag_association["id"]}}
                 )
 
-    async def _query_chunks(self, query: str) -> list[str]:
-        max_length = self._embedder.max_tokens // 5
-        total_token_count = await self._embedder.tokenizer.estimate_token_count(query)
-
-        words = query.split()
-        total_word_count = len(words)
-
-        tokens_per_word = total_token_count / total_word_count
-
-        words_per_chunk = max(int(max_length / tokens_per_word), 1)
-
-        chunks = []
-        for i in range(0, total_word_count, words_per_chunk):
-            chunk_words = words[i : i + words_per_chunk]
-            chunk = " ".join(chunk_words)
-            chunks.append(chunk)
-
-        return [
-            text if await self._embedder.tokenizer.estimate_token_count(text) else ""
-            for text in chunks
-        ]
-
     @override
     async def find_relevant_terms(
         self,
         query: str,
-        tags: Optional[Sequence[TagId]] = None,
+        available_terms: Sequence[Term],
         max_terms: int = 20,
     ) -> Sequence[Term]:
+        if not available_terms:
+            return []
+
         async with self._lock.reader_lock:
-            queries = await self._query_chunks(query)
+            queries = await query_chunks(query, self._embedder)
 
-            filters: Where = {}
-
-            terms = await self.list_terms(tags=tags)
-            if terms:
-                filters = {"id": {"$in": [str(t.id) for t in terms]}}
+            filters: Where = {"id": {"$in": [str(t.id) for t in available_terms]}}
 
             tasks = [
                 self._collection.find_similar_documents(

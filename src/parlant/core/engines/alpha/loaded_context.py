@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Sequence, cast
 
 from parlant.core.agents import Agent
+from parlant.core.capabilities import Capability
 from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -54,6 +55,7 @@ class ResponseState:
 
     context_variables: list[tuple[ContextVariable, ContextVariableValue]]
     glossary_terms: set[Term]
+    capabilities: list[Capability]
     ordinary_guideline_matches: list[GuidelineMatch]
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
     journeys: list[Journey]
@@ -102,8 +104,11 @@ class LoadedContext:
     session: Session
     """The session being processed"""
 
-    event_emitter: EventEmitter
+    session_event_emitter: EventEmitter
     """Emits new events into the loaded session"""
+
+    response_event_emitter: EventEmitter
+    """Emits new events that are scoped to the current response"""
 
     interaction: Interaction
     """A snapshot of the interaction history in the loaded session"""

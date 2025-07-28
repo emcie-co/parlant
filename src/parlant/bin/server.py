@@ -32,12 +32,16 @@ import sys
 import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.guideline_matching.generic import (
     guideline_actionable_batch,
     guideline_previously_applied_actionable_batch,
     guideline_previously_applied_actionable_customer_dependent_batch,
     response_analysis_batch,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
+    DisambiguationGuidelineMatchesSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -74,7 +78,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 )
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import (
-    DefaultPerceivedPerformancePolicy,
+    BasicPerceivedPerformancePolicy,
     PerceivedPerformancePolicy,
 )
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
@@ -90,7 +94,10 @@ from parlant.core.engines.alpha.utterance_selector import (
     UtteranceRevisionSchema,
     UtteranceSelector,
 )
-from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.services.indexing.guideline_agent_intention_proposer import (
+    AgentIntentionProposerSchema,
+)
+from parlant.core.journeys import JourneyStore, JourneyVectorStore
 from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -400,11 +407,14 @@ async def setup_container() -> AsyncIterator[Container]:
     c[EngineHooks] = EngineHooks()
     c[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
+    c[EntityQueries] = Singleton(EntityQueries)
+    c[EntityCommands] = Singleton(EntityCommands)
+
     c[ToolEventGenerator] = Singleton(ToolEventGenerator)
     c[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
     c[UtteranceSelector] = Singleton(UtteranceSelector)
     c[MessageGenerator] = Singleton(MessageGenerator)
-    c[PerceivedPerformancePolicy] = Singleton(DefaultPerceivedPerformancePolicy)
+    c[PerceivedPerformancePolicy] = Singleton(BasicPerceivedPerformancePolicy)
 
     c[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
     c[CoherenceChecker] = Singleton(CoherenceChecker)
@@ -415,9 +425,6 @@ async def setup_container() -> AsyncIterator[Container]:
     c[LegacyBehavioralChangeEvaluator] = Singleton(LegacyBehavioralChangeEvaluator)
     c[BehavioralChangeEvaluator] = Singleton(BehavioralChangeEvaluator)
     c[EvaluationListener] = Singleton(PollingEvaluationListener)
-
-    c[EntityQueries] = Singleton(EntityQueries)
-    c[EntityCommands] = Singleton(EntityCommands)
 
     c[Engine] = Singleton(AlphaEngine)
     c[Application] = lambda rc: Application(rc)
@@ -528,7 +535,6 @@ async def initialize_container(
                 GuidelineToolAssociationDocumentStore,
                 "guideline_tool_associations.json",
             ),
-            (JourneyStore, JourneyDocumentStore, "journeys.json"),
             (RelationshipStore, RelationshipDocumentStore, "relationships.json"),
             (SessionStore, SessionDocumentStore, "sessions.json"),
         ]:
@@ -581,6 +587,8 @@ async def initialize_container(
         for store_type, store_class, document_db_filename in [
             (GlossaryStore, GlossaryVectorStore, "glossary_tags.json"),
             (UtteranceStore, UtteranceVectorStore, "utterance_tags.json"),
+            (JourneyStore, JourneyVectorStore, "journey_associations.json"),
+            (CapabilityStore, CapabilityVectorStore, "capability_tags.json"),
         ]:
             await try_define_vector_store(
                 store_type,
@@ -620,6 +628,8 @@ async def initialize_container(
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,
         CustomerDependentActionSchema,
+        AgentIntentionProposerSchema,
+        DisambiguationGuidelineMatchesSchema,
     ):
         try_define(
             SchematicGenerator[schema],  # type: ignore

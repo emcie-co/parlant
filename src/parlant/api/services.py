@@ -43,6 +43,8 @@ class ToolServiceKindDTO(Enum):
             like bidirectional communication and streaming results.
         "openapi": Integration via OpenAPI specification. Simpler to set up but limited
             to basic request/response patterns.
+        "mcp": Integration with tool servers using the popular MCP (Model Context Protocol)
+            implemented by wide variety of 3rd parties.
     """
 
     SDK = "sdk"
@@ -114,6 +116,9 @@ class MCPServiceParamsDTO(
 ):
     """
     Configuration parameters for MCP-based service integration.
+
+    MCP services use the MCP protocol, which enables advanced features
+    and supports a wide variety of variable types. It is widely adopted by third parties worldwide.
     """
 
     url: ServiceParamsURLField

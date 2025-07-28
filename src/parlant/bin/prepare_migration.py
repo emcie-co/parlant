@@ -49,9 +49,17 @@ from parlant.core.evaluations import (
     InvoiceGuidelineDataDocument,
 )
 from parlant.core.glossary import (
+    GlossaryVectorStore,
     TermDocument_v0_1_0,
     TermTagAssociationDocument,
     TermId,
+)
+from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
+from parlant.core.journeys import (
+    JourneyConditionAssociationDocument,
+    JourneyDocument_v0_1_0,
+    JourneyTagAssociationDocument,
+    JourneyVectorStore,
 )
 from parlant.core.relationships import (
     GuidelineRelationshipDocument_v0_1_0,
@@ -77,9 +85,8 @@ from parlant.core.persistence.document_database import (
 from parlant.core.persistence.document_database_helper import MetadataDocument
 from parlant.core.tags import Tag
 from parlant.core.utterances import (
-    _UtteranceTagAssociationDocument,
-    UtteranceDocument_v_0_1_0,
-    UtteranceField,
+    UtteranceTagAssociationDocument,
+    UtteranceDocument_v0_1_0,
     UtteranceVectorStore,
 )
 
@@ -189,13 +196,25 @@ async def get_component_versions() -> list[tuple[str, str]]:
         versions.append(("guideline_relationships", guideline_relationships_version))
 
     embedder_factory = EmbedderFactory(Container())
-    glossary_db = await EXIT_STACK.enter_async_context(
+    chroma_db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
     )
     with suppress(chromadb.errors.InvalidCollectionException):
-        if glossary_db.chroma_client.get_collection("glossary_unembedded"):
+        if chroma_db.chroma_client.get_collection("glossary_unembedded"):
+            chroma_db_metadata = cast(dict[str, Any], await chroma_db.read_metadata())
+
             versions.append(
-                ("glossary", cast(dict[str, Any], await glossary_db.read_metadata())["version"])
+                (
+                    "glossary",
+                    chroma_db_metadata.get(
+                        VectorDocumentStoreMigrationHelper.get_store_version_key(
+                            GlossaryVectorStore.__name__
+                        ),
+                        chroma_db_metadata.get(
+                            "version", "0.1.0"
+                        ),  # Back off to the old version key method if not found
+                    ),
+                )
             )
 
     utterances_version = _get_version_from_json_file(
@@ -204,6 +223,49 @@ async def get_component_versions() -> list[tuple[str, str]]:
     )
     if utterances_version:
         versions.append(("utterances", utterances_version))
+
+    with suppress(chromadb.errors.InvalidCollectionException):
+        if chroma_db.chroma_client.get_collection("utterances_unembedded"):
+            chroma_db_metadata = cast(dict[str, Any], await chroma_db.read_metadata())
+
+            versions.append(
+                (
+                    "utterances",
+                    chroma_db_metadata.get(
+                        VectorDocumentStoreMigrationHelper.get_store_version_key(
+                            UtteranceVectorStore.__name__
+                        ),
+                        chroma_db_metadata.get(
+                            "version", "0.1.0"
+                        ),  # Back off to the old version key method if not found
+                    ),
+                )
+            )
+
+    journeys_version = _get_version_from_json_file(
+        PARLANT_HOME_DIR / "journeys.json",
+        "journeys",
+    )
+    if journeys_version:
+        versions.append(("journeys", journeys_version))
+
+    with suppress(chromadb.errors.InvalidCollectionException):
+        if chroma_db.chroma_client.get_collection("journeys_unembedded"):
+            chroma_db_metadata = cast(dict[str, Any], await chroma_db.read_metadata())
+
+            versions.append(
+                (
+                    "journeys",
+                    chroma_db_metadata.get(
+                        VectorDocumentStoreMigrationHelper.get_store_version_key(
+                            JourneyVectorStore.__name__
+                        ),
+                        chroma_db_metadata.get(
+                            "version", "0.1.0"
+                        ),  # Back off to the old version key method if not found
+                    ),
+                )
+            )
 
     return versions
 
@@ -349,7 +411,9 @@ async def migrate_glossary_with_metadata() -> None:
             chroma_new_collection.modify(metadata={"version": 1 + len(all_items["metadatas"])})
 
             await db.upsert_metadata(
-                "version",
+                VectorDocumentStoreMigrationHelper.get_store_version_key(
+                    GlossaryVectorStore.__name__
+                ),
                 version,
             )
             rich.print("[green]Successfully migrated glossary data")
@@ -619,6 +683,7 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
         None,
     ) or db.chroma_client.create_collection(name="glossary_unembedded")
 
+    migrated_count = 0
     if metadatas := chroma_unembedded_collection.get()["metadatas"]:
         for doc in metadatas:
             new_doc = {
@@ -643,6 +708,9 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
                 metadatas=[cast(chromadb.Metadata, new_doc)],
                 embeddings=[0],
             )
+            migrated_count += 1
+
+            migrated_count += 1
 
             await glossary_tags_collection.insert_one(
                 {
@@ -654,7 +722,13 @@ async def migrate_glossary_0_1_0_to_0_2_0() -> None:
                 }
             )
 
-    await db.upsert_metadata("version", Version.String("0.2.0"))
+    chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(GlossaryVectorStore.__name__),
+        Version.String("0.2.0"),
+    )
+    await upgrade_document_database_metadata(glossary_tags_db, Version.String("0.2.0"))
 
     rich.print("[green]Successfully migrated glossary from 0.1.0 to 0.2.0")
 
@@ -665,8 +739,8 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     async def _association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[_UtteranceTagAssociationDocument]:
-        return cast(_UtteranceTagAssociationDocument, doc)
+    ) -> Optional[UtteranceTagAssociationDocument]:
+        return cast(UtteranceTagAssociationDocument, doc)
 
     utterances_json_file = PARLANT_HOME_DIR / "utterances.json"
 
@@ -687,7 +761,7 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     utterance_tags_collection = await utterances_db.get_or_create_collection(
         "utterance_tag_associations",
-        _UtteranceTagAssociationDocument,
+        UtteranceTagAssociationDocument,
         _association_document_loader,
     )
 
@@ -710,19 +784,16 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     new_utterance_tags_collection = await utterance_tags_db.get_or_create_collection(
         "utterance_tags",
-        _UtteranceTagAssociationDocument,
+        UtteranceTagAssociationDocument,
         _association_document_loader,
     )
 
     migrated_count = 0
     for doc in await utterances_collection.find(filters={}):
         if doc["version"] == "0.1.0":
-            doc = cast(UtteranceDocument_v_0_1_0, doc)
+            doc = cast(UtteranceDocument_v0_1_0, doc)
 
-            content = UtteranceVectorStore.assemble_content(
-                value=doc["value"],
-                fields=[UtteranceField(**f) for f in doc["fields"]],
-            )
+            content = doc["value"]
 
             new_doc = {
                 "id": doc["id"],
@@ -756,12 +827,156 @@ async def migrate_utterances_0_1_0_to_0_2_0() -> None:
 
     chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
-    await db.upsert_metadata("version", Version.String("0.2.0"))
+    await db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(UtteranceVectorStore.__name__),
+        Version.String("0.2.0"),
+    )
     await upgrade_document_database_metadata(utterance_tags_db, Version.String("0.2.0"))
 
     utterances_json_file.unlink()
 
     rich.print("[green]Successfully migrated utterances from 0.1.0 to 0.2.0")
+
+
+@register_migration("journeys", "0.1.0", "0.2.0")
+async def migrate_journeys_0_1_0_to_0_2_0() -> None:
+    rich.print("[green]Starting migration for journeys 0.1.0 -> 0.2.0")
+
+    async def _tag_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyTagAssociationDocument]:
+        return cast(JourneyTagAssociationDocument, doc)
+
+    async def _condition_association_document_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyConditionAssociationDocument]:
+        return cast(JourneyConditionAssociationDocument, doc)
+
+    journeys_json_file = PARLANT_HOME_DIR / "journeys.json"
+
+    embedder_factory = EmbedderFactory(Container())
+
+    journeys_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(
+            LOGGER,
+            journeys_json_file,
+        )
+    )
+
+    journeys_collection = await journeys_db.get_or_create_collection(
+        "journeys",
+        BaseDocument,
+        identity_loader,
+    )
+
+    journey_tags_collection = await journeys_db.get_or_create_collection(
+        "journey_tag_associations",
+        JourneyTagAssociationDocument,
+        _tag_association_document_loader,
+    )
+
+    journey_conditions_collection = await journeys_db.get_or_create_collection(
+        "journey_condition_associations",
+        JourneyConditionAssociationDocument,
+        _condition_association_document_loader,
+    )
+
+    db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(LOGGER, PARLANT_HOME_DIR, embedder_factory)
+    )
+
+    journey_associations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "journey_associations.json")
+    )
+
+    chroma_unembedded_collection = next(
+        (
+            collection
+            for collection in db.chroma_client.list_collections()
+            if collection.name == "journeys_unembedded"
+        ),
+        None,
+    ) or db.chroma_client.create_collection(name="journeys_unembedded")
+
+    new_journey_tags_collection = await journey_associations_db.get_or_create_collection(
+        "journey_tags",
+        JourneyTagAssociationDocument,
+        _tag_association_document_loader,
+    )
+
+    new_journey_conditions_collection = await journey_associations_db.get_or_create_collection(
+        "journey_conditions",
+        JourneyConditionAssociationDocument,
+        _condition_association_document_loader,
+    )
+
+    migrated_count = 0
+    for doc in await journeys_collection.find(filters={}):
+        if doc["version"] == "0.1.0":
+            doc = cast(JourneyDocument_v0_1_0, doc)
+
+            conditions = [
+                c["condition"]
+                for c in await journey_conditions_collection.find(
+                    filters={"journey_id": {"$eq": ObjectId(doc["id"])}}
+                )
+            ]
+
+            content = JourneyVectorStore.assemble_content(
+                title=doc["title"],
+                description=doc["description"],
+                conditions=conditions,
+            )
+
+            new_doc = {
+                "id": doc["id"],
+                "version": Version.String("0.2.0"),
+                "content": content,
+                "checksum": md5_checksum(content),
+                "creation_utc": doc["creation_utc"],
+                "title": doc["title"],
+                "description": doc["description"],
+            }
+
+            chroma_unembedded_collection.add(
+                ids=[str(doc["id"])],
+                documents=[content],
+                metadatas=[cast(chromadb.Metadata, new_doc)],
+                embeddings=[0],
+            )
+
+            migrated_count += 1
+
+    for tag_doc in await journey_tags_collection.find(filters={}):
+        await new_journey_tags_collection.insert_one(
+            {
+                "id": tag_doc["id"],
+                "version": Version.String("0.2.0"),
+                "creation_utc": tag_doc["creation_utc"],
+                "journey_id": tag_doc["journey_id"],
+                "tag_id": tag_doc["tag_id"],
+            }
+        )
+
+    for condition_doc in await journey_conditions_collection.find(filters={}):
+        await new_journey_conditions_collection.insert_one(
+            {
+                "id": condition_doc["id"],
+                "version": Version.String("0.2.0"),
+                "creation_utc": condition_doc["creation_utc"],
+                "journey_id": condition_doc["journey_id"],
+                "condition": condition_doc["condition"],
+            }
+        )
+
+    chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
+
+    await db.upsert_metadata("version", Version.String("0.2.0"))
+    await upgrade_document_database_metadata(journey_associations_db, Version.String("0.2.0"))
+
+    journeys_json_file.unlink()
+
+    rich.print("[green]Successfully migrated journeys from 0.1.0 to 0.2.0")
 
 
 @register_migration("evaluations", "0.1.0", "0.2.0")

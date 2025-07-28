@@ -27,6 +27,7 @@ from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
+from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -47,11 +48,14 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 from parlant.core.engines.alpha.guideline_matching.generic import (
     response_analysis_batch,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
+    DisambiguationGuidelineMatchesSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
 )
 from parlant.core.engines.alpha.perceived_performance_policy import (
-    DefaultPerceivedPerformancePolicy,
+    BasicPerceivedPerformancePolicy,
     PerceivedPerformancePolicy,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_customer_dependent_batch import (
@@ -94,7 +98,7 @@ from parlant.core.evaluations import (
     EvaluationDocumentStore,
     EvaluationStore,
 )
-from parlant.core.journeys import JourneyDocumentStore, JourneyStore
+from parlant.core.journeys import JourneyStore, JourneyVectorStore
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
     CustomerDependentActionSchema,
@@ -102,6 +106,10 @@ from parlant.core.services.indexing.customer_dependent_action_detector import (
 from parlant.core.services.indexing.guideline_action_proposer import (
     GuidelineActionProposer,
     GuidelineActionPropositionSchema,
+)
+from parlant.core.services.indexing.guideline_agent_intention_proposer import (
+    AgentIntentionProposer,
+    AgentIntentionProposerSchema,
 )
 from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
@@ -283,9 +291,6 @@ async def container(
         container[GuidelineStore] = await stack.enter_async_context(
             GuidelineDocumentStore(TransientDocumentDatabase())
         )
-        container[JourneyStore] = await stack.enter_async_context(
-            JourneyDocumentStore(TransientDocumentDatabase())
-        )
         container[RelationshipStore] = await stack.enter_async_context(
             RelationshipDocumentStore(TransientDocumentDatabase())
         )
@@ -329,6 +334,15 @@ async def container(
 
         embedder_factory = EmbedderFactory(container)
 
+        container[JourneyStore] = await stack.enter_async_context(
+            JourneyVectorStore(
+                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                document_db=TransientDocumentDatabase(),
+                embedder_factory=embedder_factory,
+                embedder_type_provider=get_embedder_type,
+            )
+        )
+
         container[GlossaryStore] = await stack.enter_async_context(
             GlossaryVectorStore(
                 vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
@@ -347,8 +361,18 @@ async def container(
             )
         )
 
+        container[CapabilityStore] = await stack.enter_async_context(
+            CapabilityVectorStore(
+                vector_db=TransientVectorDatabase(container[Logger], embedder_factory),
+                document_db=TransientDocumentDatabase(),
+                embedder_factory=embedder_factory,
+                embedder_type_provider=get_embedder_type,
+            )
+        )
+
         container[EntityQueries] = Singleton(EntityQueries)
         container[EntityCommands] = Singleton(EntityCommands)
+
         for generation_schema in (
             GenericObservationalGuidelineMatchesSchema,
             GenericActionableGuidelineMatchesSchema,
@@ -369,6 +393,8 @@ async def container(
             GuidelineContinuousPropositionSchema,
             CustomerDependentActionSchema,
             GenericResponseAnalysisSchema,
+            AgentIntentionProposerSchema,
+            DisambiguationGuidelineMatchesSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -404,7 +430,7 @@ async def container(
         container[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
         container[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
         container[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
-
+        container[AgentIntentionProposer] = Singleton(AgentIntentionProposer)
         container[LocalToolService] = cast(
             LocalToolService,
             await container[ServiceRegistry].update_tool_service(
@@ -439,7 +465,7 @@ async def container(
         container[UtteranceFieldExtractor] = Singleton(UtteranceFieldExtractor)
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
-        container[PerceivedPerformancePolicy] = Singleton(DefaultPerceivedPerformancePolicy)
+        container[PerceivedPerformancePolicy] = Singleton(BasicPerceivedPerformancePolicy)
 
         hooks = JournalingEngineHooks()
         container[JournalingEngineHooks] = hooks
@@ -605,4 +631,12 @@ def no_cache(container: Container) -> None:
         cast(
             CachedSchematicGenerator[GuidelineConnectionPropositionsSchema],
             container[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
+        ).use_cache = False
+    if isinstance(
+        container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[DisambiguationGuidelineMatchesSchema],
+            container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
         ).use_cache = False

@@ -71,6 +71,7 @@ def context(
         guideline_matches=dict(),
         tools=dict(),
         actions=list(),
+        journeys=dict(),
     )
 
 

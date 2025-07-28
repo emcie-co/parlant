@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 from itertools import chain
 import ast
@@ -558,27 +572,23 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         candidate_tool: tuple[ToolId, Tool],
         reference_tools: Sequence[tuple[ToolId, Tool]],
     ) -> tuple[str, dict[str, Any]]:
-        def _get_type_suffix(descriptor_type: str) -> str:
+        def _format_type(descriptor_type: str) -> str:
             """Return the type-specific format suffix for the given descriptor type."""
             if descriptor_type == "datetime":
-                return ": year-month-day hour:minute:second"
+                return f"{descriptor_type}: year-month-day hour:minute:second"
             if descriptor_type == "date":
-                return ": year-month-day"
+                return f"{descriptor_type}: year-month-day"
             if descriptor_type == "timedelta":
-                return ": hours:minutes:seconds"
-            return ""
+                return f"{descriptor_type}: hours:minutes:seconds"
+            return descriptor_type
 
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:
             descriptor, options = spec
 
-            result: dict[str, Any] = {
-                "schema": {"type": descriptor["type"] + _get_type_suffix(descriptor["type"])}
-            }
+            result: dict[str, Any] = {"schema": {"type": _format_type(descriptor["type"])}}
 
             if descriptor["type"] == "array":
-                result["schema"]["items"] = {
-                    "type": descriptor["item_type"] + _get_type_suffix(descriptor["item_type"])
-                }
+                result["schema"]["items"] = {"type": _format_type(descriptor["item_type"])}
 
                 if enum := descriptor.get("enum"):
                     result["schema"]["items"]["enum"] = enum

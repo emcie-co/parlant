@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import enum
 from itertools import chain
-from typing import Annotated, Any, Mapping, Optional, Sequence
+from typing import Annotated, Any, Mapping, Optional, Sequence, List
 import uuid
 from pathlib import Path
 from lagom import Container
@@ -360,6 +360,79 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
     @tool
     def available_products_by_category(
         context: ToolContext, categories: list[ProductCategory]
+    ) -> ToolResult:
+        products_by_category = {
+            ProductCategory.LAPTOPS: ["Lenovo", "Dell"],
+            ProductCategory.PERIPHERALS: ["Razer Keyboard", "Logitech Mouse"],
+        }
+
+        return ToolResult([products_by_category[category] for category in categories])
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Are you selling computers products?"),
+        (EventSource.AI_AGENT, "Yes"),
+        (EventSource.CUSTOMER, "What available keyboards and laptops do you have?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="get all products by a specific category",
+            action="a customer asks for the availability of products from a certain category",
+            score=9,
+            rationale="customer asks for keyboards availability",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
+    }
+
+    async with run_service_server([available_products_by_category]) as server:
+        await service_registry.update_tool_service(
+            name="my_sdk_service",
+            kind="sdk",
+            url=server.url,
+        )
+
+        inference_tool_calls_result = await tool_caller.infer_tool_calls(
+            agent=agent,
+            context_variables=[],
+            interaction_history=interaction_history,
+            terms=[],
+            ordinary_guideline_matches=[],
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=[],
+            staged_events=[],
+            tool_context=await tool_context(container, agent),
+        )
+
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
+
+    assert "categories" in tool_call.arguments
+    assert isinstance(tool_call.arguments["categories"], str)
+    assert literal_eval(tool_call.arguments["categories"]) == [
+        ProductCategory.LAPTOPS.value,
+        ProductCategory.PERIPHERALS.value,
+    ]
+    assert ProductCategory.LAPTOPS.value in tool_call.arguments["categories"]
+    assert ProductCategory.PERIPHERALS.value in tool_call.arguments["categories"]
+
+
+async def test_that_a_tool_is_called_with_typing_lists(
+    container: Container,
+    agent: Agent,
+) -> None:
+    tool_caller = container[ToolCaller]
+    service_registry = container[ServiceRegistry]
+
+    class ProductCategory(enum.Enum):
+        LAPTOPS = "laptops"
+        PERIPHERALS = "peripherals"
+
+    @tool
+    def available_products_by_category(
+        context: ToolContext, categories: List[ProductCategory]
     ) -> ToolResult:
         products_by_category = {
             ProductCategory.LAPTOPS: ["Lenovo", "Dell"],
@@ -889,6 +962,88 @@ async def test_that_mcp_tool_with_uuid_path_timedelta_and_datetime_parameters_in
         results[0].result["data"]
         == "Agent deadface-fade-cafe-9876-000decade000 reported a duration of 2:03:31 for /secret/path/to.file started from 1999-11-01 03:22:41"
     )
+
+
+async def test_that_mcp_tool_with_optional_lists_of_enum_date_and_bool_can_run(
+    container: Container,
+    agent: Agent,
+) -> None:
+    service_registry = container[ServiceRegistry]
+    tool_caller = container[ToolCaller]
+
+    class BirdType(enum.Enum):
+        Angry = "AngryBird"
+        Chatty = "Parrot"
+        Funny = "Kakadu"
+        Extinct = "Dodo"
+        Fried = "Schnitzel"
+
+    async def prepare_bird_delivery(
+        date: Optional[date],
+        birds: Optional[list[BirdType]],
+        alive: list[bool],
+    ) -> str:
+        if birds is None:
+            return "No birds to deliver"
+        return (
+            "Delivering birds: "
+            + ", ".join(str(bird) for bird in birds)
+            + f" on {date}, alive: {alive}"
+        )
+
+    conversation_context = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, please prepare the following list of birds for delivery for 1/1/25: AngryBird, Parrot, Kakadu and Schnitzel. first 3 are alive, but the schnitzel is not alive",
+        ),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer wants to prepare birds for delivery",
+            action="prepare the birds for delivery as customer requested",
+            score=9,
+            rationale="customer wants to deliver a list of birds",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="my_mcp_service", tool_name="prepare_bird_delivery")]
+    }
+
+    async with MCPToolServer([prepare_bird_delivery], port=get_random_port()) as server:
+        await service_registry.update_tool_service(
+            name="my_mcp_service",
+            kind="mcp",
+            url=f"http://localhost:{server.get_port()}",
+        )
+
+        context = await tool_context(container, agent)
+        inference_tool_calls_result = await tool_caller.infer_tool_calls(
+            agent=agent,
+            context_variables=[],
+            interaction_history=interaction_history,
+            terms=[],
+            ordinary_guideline_matches=[],
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+            journeys=[],
+            staged_events=[],
+            tool_context=context,
+        )
+
+        tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+        assert len(tool_calls) == 1
+        assert len(tool_calls[0].arguments) == 3
+
+        tc = tool_calls[0]
+        assert tc.arguments["date"] == str(date(2025, 1, 1))
+        assert "birds" in tc.arguments
+        assert str(tc.arguments["alive"]).lower() == str([True, True, True, False]).lower()
+
+        results = await tool_caller.execute_tool_calls(context, tool_calls)
+
+    assert len(results) == 1
+    result_data = results[0].result["data"]
+    assert isinstance(result_data, str) and "Delivering birds: " in result_data
 
 
 async def test_that_tool_calling_batchers_can_be_overridden(

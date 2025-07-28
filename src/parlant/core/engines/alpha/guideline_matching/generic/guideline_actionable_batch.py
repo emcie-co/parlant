@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -5,6 +19,10 @@ import json
 import math
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    GuidelineInternalRepresentation,
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
@@ -12,11 +30,14 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingContext,
+    GuidelineMatchingBatchContext,
     GuidelineMatchingStrategy,
+    GuidelineMatchingStrategyContext,
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
+from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -26,7 +47,6 @@ from parlant.core.shots import Shot, ShotCollection
 class GenericActionableBatch(DefaultBaseModel):
     guideline_id: str
     condition: str
-    action: str
     rationale: str
     applies: bool
 
@@ -48,11 +68,13 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         logger: Logger,
         schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema],
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        journeys: Sequence[Journey],
+        context: GuidelineMatchingBatchContext,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
+        self._journeys = journeys
         self._context = context
 
     @override
@@ -80,7 +102,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                 matches.append(
                     GuidelineMatch(
-                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        guideline=self._guidelines[match.guideline_id],
                         score=10 if match.applies else 1,
                         rationale=f'''Not previously applied matcher rationale: "{match.rationale}"''',
                         guideline_previously_applied=PreviouslyAppliedType.NO,
@@ -152,8 +174,12 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         self,
         shots: Sequence[GenericActionableGuidelineGuidelineMatchingShot],
     ) -> PromptBuilder:
+        guideline_representations = {
+            g.id: internal_representation(g) for g in self._guidelines.values()
+        }
+
         guidelines_text = "\n".join(
-            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
+            f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
             for i, g in self._guidelines.items()
         )
 
@@ -212,7 +238,9 @@ Examples of Guideline Match Evaluations:
         builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
+        builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
+        builder.add_journeys(self._journeys)
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
@@ -240,23 +268,27 @@ OUTPUT FORMAT
 ```
 """,
             props={
-                "result_structure_text": self._format_of_guideline_check_json_description(),
+                "result_structure_text": self._format_of_guideline_check_json_description(
+                    guideline_representations=guideline_representations
+                ),
                 "guidelines_len": len(self._guidelines),
             },
         )
 
         return builder
 
-    def _format_of_guideline_check_json_description(self) -> str:
+    def _format_of_guideline_check_json_description(
+        self,
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+    ) -> str:
         result_structure = [
             {
-                "guideline_id": g.id,
-                "condition": g.content.condition,
-                "action": g.content.action,
+                "guideline_id": i,
+                "condition": guideline_representations[g.id].condition,
                 "rationale": "<Explanation for why the condition is or isn't met when focusing on the most recent interaction>",
                 "applies": "<BOOL>",
             }
-            for g in self._guidelines.values()
+            for i, g in self._guidelines.items()
         ]
         result = {"checks": result_structure}
         return json.dumps(result, indent=4)
@@ -266,17 +298,27 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
+        entity_queries: EntityQueries,
         schematic_generator: SchematicGenerator[GenericActionableGuidelineMatchesSchema],
     ) -> None:
         self._logger = logger
+        self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
 
     @override
     async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        context: GuidelineMatchingStrategyContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        journeys = (
+            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
+                guidelines[0].id, []
+            )
+            if guidelines
+            else []
+        )
+
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
@@ -291,7 +333,18 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
             batches.append(
                 self._create_batch(
                     guidelines=list(batch.values()),
-                    context=context,
+                    journeys=journeys,
+                    context=GuidelineMatchingBatchContext(
+                        agent=context.agent,
+                        session=context.session,
+                        customer=context.customer,
+                        context_variables=context.context_variables,
+                        interaction_history=context.interaction_history,
+                        terms=context.terms,
+                        capabilities=context.capabilities,
+                        staged_events=context.staged_events,
+                        relevant_journeys=journeys,
+                    ),
                 )
             )
 
@@ -312,14 +365,23 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
     def _create_batch(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        journeys: Sequence[Journey],
+        context: GuidelineMatchingBatchContext,
     ) -> GenericActionableGuidelineMatchingBatch:
         return GenericActionableGuidelineMatchingBatch(
             logger=self._logger,
             schematic_generator=self._schematic_generator,
             guidelines=guidelines,
+            journeys=journeys,
             context=context,
         )
+
+    @override
+    async def transform_matches(
+        self,
+        matches: Sequence[GuidelineMatch],
+    ) -> Sequence[GuidelineMatch]:
+        return matches
 
 
 def _make_event(e_id: str, source: EventSource, message: str) -> Event:
@@ -378,21 +440,18 @@ example_1_expected = GenericActionableGuidelineMatchesSchema(
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer is looking for flight or accommodation booking assistance",
-            action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
             rationale="There’s no mention of booking logistics like flights or hotels",
             applies=False,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer ask for activities recommendations",
-            action="Guide them in refining their preferences and suggest options that match what they're looking for",
             rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
             applies=False,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer asks for logistical or legal requirements.",
-            action="Provide a clear answer or direct them to a trusted official source if uncertain.",
             rationale="The customer now asked about visas and documents which are legal requirements",
             applies=True,
         ),
@@ -448,21 +507,18 @@ example_2_expected = GenericActionableGuidelineMatchesSchema(
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer mentions a constraint that related to commitment to the course",
-            action="Emphasize flexible learning options",
-            rationale="The customer mentions that they work full time which is a constraint",
+            rationale="In the most recent message the customer mentions that they work full time which is a constraint",
             applies=True,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The user expresses hesitation or self-doubt.",
-            action="Affirm that it’s okay to be uncertain and provide confidence-building context",
-            rationale="The user still sounds hesitating about their fit to the course",
+            rationale="In the most recent message the user still sounds hesitating about their fit to the course",
             applies=True,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The user asks about certification or course completion benefits.",
-            action="Clearly explain what the user receives",
             rationale="The user didn't ask about certification or course completion benefits",
             applies=False,
         ),
@@ -510,8 +566,7 @@ example_3_expected = GenericActionableGuidelineMatchesSchema(
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="When the user is having a problem with login.",
-            action="Help then identify the problem and solve it",
-            rationale="The customer is still pursuing their login problem, making the mail access problem a sub-issue rather than a new topic",
+            rationale="In the most recent message the customer is still pursuing their login problem, making the mail access problem a sub-issue rather than a new topic",
             applies=True,
         ),
     ]
@@ -548,8 +603,7 @@ example_4_expected = GenericActionableGuidelineMatchesSchema(
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="When the customer asks about how to return an item.",
-            action="Mention both in-store and delivery service return options.",
-            rationale="In the most recent message the customer about what happens when they wore the item, which an inquiry regarding returning an item",
+            rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
             applies=True,
         ),
     ]

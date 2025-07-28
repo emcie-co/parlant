@@ -28,10 +28,15 @@ from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
+from parlant.core.capabilities import Capability
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    GuidelineInternalRepresentation,
+    internal_representation,
+)
 from parlant.core.engines.alpha.message_event_composer import (
     MessageCompositionError,
     MessageEventComposer,
@@ -40,14 +45,14 @@ from parlant.core.engines.alpha.message_event_composer import (
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.alpha.utils import context_variables_to_json
+from parlant.core.entity_cq import EntityQueries
+from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
-from parlant.core.tags import Tag
 from parlant.core.utterances import Utterance, UtteranceId, UtteranceStore
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection, SectionStatus
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.sessions import (
@@ -77,7 +82,7 @@ class UtteranceDraftSchema(DefaultBaseModel):
 
 
 class UtteranceSelectionSchema(DefaultBaseModel):
-    reasoning: Optional[str] = None
+    tldr: Optional[str] = None
     chosen_template_id: Optional[str] = None
     match_quality: Optional[str] = None
 
@@ -119,6 +124,7 @@ class UtteranceContext:
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
     interaction_history: Sequence[Event]
     terms: Sequence[Term]
+    capabilities: Sequence[Capability]
     ordinary_guideline_matches: Sequence[GuidelineMatch]
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]]
     journeys: Sequence[Journey]
@@ -263,11 +269,14 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
         field_name: str,
         context: UtteranceContext,
     ) -> Optional[str]:
-        def _get_field_extraction_guidelines_text(all_matches: Sequence[GuidelineMatch]) -> str:
+        def _get_field_extraction_guidelines_text(
+            all_matches: Sequence[GuidelineMatch],
+            guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+        ) -> str:
             guidelines_texts = []
             for i, p in enumerate(all_matches, start=1):
                 if p.guideline.content.action:
-                    guideline = f"Guideline #{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
+                    guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
                     guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
                     guidelines_texts.append(guideline)
             return "\n".join(guidelines_texts)
@@ -283,9 +292,15 @@ class GenerativeFieldExtraction(UtteranceFieldExtractionMethod):
         builder.add_customer_identity(context.customer)
         builder.add_context_variables(context.context_variables)
         builder.add_journeys(context.journeys)
+
         all_guideline_matches = list(
             chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches)
         )
+
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline) for m in all_guideline_matches
+        }
+
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
             template="""
@@ -296,7 +311,7 @@ The guidelines are not necessarily intended to aid your current task of field ge
 """,
             props={
                 "all_guideline_matches_text": _get_field_extraction_guidelines_text(
-                    all_guideline_matches
+                    all_guideline_matches, guideline_representations
                 )
             },
         )
@@ -405,6 +420,7 @@ class UtteranceSelector(MessageEventComposer):
         utterance_store: UtteranceStore,
         field_extractor: UtteranceFieldExtractor,
         message_generator: MessageGenerator,
+        entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._correlator = correlator
@@ -417,6 +433,7 @@ class UtteranceSelector(MessageEventComposer):
         self._field_extractor = field_extractor
         self._message_generator = message_generator
         self._cached_utterance_fields: dict[UtteranceId, set[str]] = {}
+        self._entity_queries = entity_queries
 
     async def shots(
         self, composition_mode: CompositionMode
@@ -434,6 +451,7 @@ class UtteranceSelector(MessageEventComposer):
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -521,6 +539,7 @@ You will now be given the current state of the interaction to which you must gen
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -541,6 +560,7 @@ You will now be given the current state of the interaction to which you must gen
                             terms=terms,
                             ordinary_guideline_matches=ordinary_guideline_matches,
                             journeys=journeys,
+                            capabilities=capabilities,
                             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
                             tool_insights=tool_insights,
                             staged_events=staged_events,
@@ -554,6 +574,7 @@ You will now be given the current state of the interaction to which you must gen
                     context_variables,
                     interaction_history,
                     terms,
+                    capabilities,
                     ordinary_guideline_matches,
                     tool_enabled_guideline_matches,
                     journeys,
@@ -566,34 +587,9 @@ You will now be given the current state of the interaction to which you must gen
         self,
         context: UtteranceContext,
     ) -> list[Utterance]:
-        query = ""
-
-        if context.context_variables:
-            query += f"\n{context_variables_to_json(context.context_variables)}"
-
-        if context.interaction_history:
-            query += str([e.data for e in context.interaction_history])
-
-        if context.guidelines:
-            query += str(
-                [
-                    f"When {g.guideline.content.condition}, then {g.guideline.content.action}"
-                    if g.guideline.content.action
-                    else f"When {g.guideline.content.condition}"
-                    for g in context.guidelines
-                ]
-            )
-
-        if context.staged_events:
-            query += str([e.data for e in context.staged_events])
-
-        tags = [Tag.for_agent_id(context.agent.id)]
-
-        stored_utterances = list(
-            await self._utterance_store.find_relevant_utterances(
-                query,
-                tags=tags,
-            )
+        stored_utterances = await self._entity_queries.find_utterances_for_context(
+            agent_id=context.agent.id,
+            journeys=context.journeys,
         )
 
         # Add utterances from staged tool events (transient)
@@ -610,6 +606,7 @@ You will now be given the current state of the interaction to which you must gen
                             fields=f.fields,
                             creation_utc=datetime.now(),
                             tags=[],
+                            queries=[],
                         )
                         for f in tool_call["result"].get("utterances", [])
                     )
@@ -658,6 +655,7 @@ You will now be given the current state of the interaction to which you must gen
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         journeys: Sequence[Journey],
@@ -685,6 +683,7 @@ You will now be given the current state of the interaction to which you must gen
             ordinary_guideline_matches=ordinary_guideline_matches,
             tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             journeys=journeys,
+            capabilities=capabilities,
             tool_insights=tool_insights,
             staged_events=staged_events,
         )
@@ -743,18 +742,18 @@ You will now be given the current state of the interaction to which you must gen
                             },
                         )
 
-                        await self._perceived_performance_policy.get_follow_up_delay()
-
-                        await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
-                            data={
-                                "acknowledged_offset": 0,
-                                "status": "typing",
-                                "data": {},
-                            },
-                        )
-
                         if next_message := sub_messages[0] if sub_messages else None:
+                            await self._perceived_performance_policy.get_follow_up_delay()
+
+                            await context.event_emitter.emit_status_event(
+                                correlation_id=self._correlator.correlation_id,
+                                data={
+                                    "acknowledged_offset": 0,
+                                    "status": "typing",
+                                    "data": {},
+                                },
+                            )
+
                             typing_speed_in_words_per_minute = 50
 
                             initial_delay = 0.0
@@ -799,6 +798,7 @@ You will now be given the current state of the interaction to which you must gen
         self,
         ordinary: Sequence[GuidelineMatch],
         tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
     ) -> str:
         all_matches = [
             match for match in chain(ordinary, tool_enabled) if match.guideline.content.action
@@ -810,30 +810,53 @@ In formulating your reply, you are normally required to follow a number of behav
 However, in this case, no special behavioral guidelines were provided.
 """
         guidelines = []
+        agent_intention_guidelines = []
 
         for i, p in enumerate(all_matches, start=1):
             if p.guideline.content.action:
-                guideline = f"Guideline #{i}) When {p.guideline.content.condition}, then {p.guideline.content.action}"
+                guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
                 guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
-                guidelines.append(guideline)
+                if p.guideline.metadata.get("agent_intention_condition"):
+                    agent_intention_guidelines.append(guideline)
+                else:
+                    guidelines.append(guideline)
 
         guideline_list = "\n".join(guidelines)
+        agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
 
-        return f"""
+        guideline_instruction = """
 When crafting your reply, you must follow the behavioral guidelines provided below, which have been identified as relevant to the current state of the interaction.
-Each guideline includes a priority score to indicate its importance and a rationale for its relevance.
+"""
+        if agent_intention_guidelines_list:
+            guideline_instruction += f"""
+Some guidelines are tied to condition that related to you, the agent. These guidelines are considered relevant because it is likely that you intends to output
+a message that will trigger the associated condition. You should only follow these guidelines if you are actually going to output a message that activates the condition.
+- **Guidelines with agent intention condition**:
+{agent_intention_guidelines_list}
 
-You may choose not to follow a guideline only in the following cases:
-    - It conflicts with a previous user request.
-    - It contradicts another guideline of equal or higher priority.
-    - It is clearly inappropriate given the current context of the conversation.
-In all other situations, you are expected to adhere to the guidelines.
-These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
-Never disregard a guideline, even if you believe its 'when' condition or rationale does not apply. All of the guidelines necessarily apply right now.
+"""
+        if guideline_list:
+            guideline_instruction += f"""
 
+For any other guidelines, do not disregard a guideline because you believe its 'when' condition or rationale does not apply—this filtering has already been handled.
 - **Guidelines**:
 {guideline_list}
+
 """
+        guideline_instruction += """
+
+You may choose not to follow a guideline only in the following cases:
+    - It conflicts with a previous customer request.
+    - It is clearly inappropriate given the current context of the conversation.
+    - It lacks sufficient context or data to apply reliably.
+    - It conflicts with an insight.
+    - It depends on an agent intention condition that does not apply in the current situation (as mentioned above)
+    - If a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), follow both by
+        choosing the permitted alternative (i.e., do Y).
+In all other situations, you are expected to adhere to the guidelines.
+These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
+"""
+        return guideline_instruction
 
     def _format_shots(
         self,
@@ -865,6 +888,7 @@ Example {i} - {shot.description}: ###
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
+        capabilities: Sequence[Capability],
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
@@ -873,6 +897,11 @@ Example {i} - {shot.description}: ###
         utterances: Sequence[Utterance],
         shots: Sequence[UtteranceSelectorDraftShot],
     ) -> PromptBuilder:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline)
+            for m in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
+        }
+
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.debug(f"Utterance Draft Prompt:\n{prompt}")
         )
@@ -959,11 +988,14 @@ The final output must be a JSON document detailing the message development proce
 
 PRIORITIZING INSTRUCTIONS (GUIDELINES VS. INSIGHTS)
 ---------------------------------------------------
-Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization, based on:
-    - Conflicts with a higher-priority guideline (according to their priority scores).
-    - Contradictions with a user request.
-    - Lack of sufficient context or data.
-    - Conflicts with an insight (see below).
+Deviating from an instruction (either guideline or insight) is acceptable only when the deviation arises from a deliberate prioritization.
+Consider the following valid reasons for such deviations:
+    - The instruction contradicts a customer request.
+    - The instruction lacks sufficient context or data to apply reliably.
+    - The instruction conflicts with an insight (see below).
+    - The instruction depends on an agent intention condition that does not apply in the current situation.
+    - When a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"),
+    follow both by choosing the permitted alternative (i.e., do Y).
 In all other cases, even if you believe that a guideline's condition does not apply, you must follow it.
 If fulfilling a guideline is not possible, explicitly justify why in your response.
 
@@ -992,20 +1024,12 @@ EXAMPLES
         )
         builder.add_glossary(terms)
         builder.add_context_variables(context_variables)
+        builder.add_capabilities_for_message_generation(capabilities)
         builder.add_journeys(journeys)
-        builder.add_section(
-            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
-            template=self._get_guideline_matches_text(
-                ordinary_guideline_matches,
-                tool_enabled_guideline_matches,
-            ),
-            props={
-                "ordinary_guideline_matches": ordinary_guideline_matches,
-                "tool_enabled_guideline_matches": tool_enabled_guideline_matches,
-            },
-            status=SectionStatus.ACTIVE
-            if ordinary_guideline_matches or tool_enabled_guideline_matches
-            else SectionStatus.PASSIVE,
+        builder.add_guidelines_for_message_generation(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            guideline_representations,
         )
         builder.add_interaction_history(interaction_history)
         builder.add_staged_events(staged_events)
@@ -1084,6 +1108,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
                     for g in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
                     if g.guideline.content.action
                 ],
+                "guideline_representations": guideline_representations,
             },
         )
 
@@ -1148,8 +1173,15 @@ Produce a valid JSON object according to the following spec. Use the values prov
         self,
         context: UtteranceContext,
         draft_message: str,
-        utterances: Sequence[Utterance],
+        utterances: Sequence[tuple[UtteranceId, str]],
     ) -> PromptBuilder:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline)
+            for m in chain(
+                context.ordinary_guideline_matches, context.tool_enabled_guideline_matches
+            )
+        }
+
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.debug(f"Utterance Selection Prompt:\n{prompt}")
         )
@@ -1157,15 +1189,15 @@ Produce a valid JSON object according to the following spec. Use the values prov
         if context.guidelines:
             formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
 
-            for guideline in [g for g in context.guidelines if g.guideline.content.action]:
-                formatted_guidelines += f"\n- When {guideline.guideline.content.condition}, then {guideline.guideline.content.action}."
+            for match in [g for g in context.guidelines if g.guideline.content.action]:
+                formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
 
             formatted_guidelines += "\n###"
         else:
             formatted_guidelines = ""
 
         formatted_utterances = "\n".join(
-            [f'Template ID: {u.id} """\n{u.value}\n"""\n' for u in utterances]
+            [f'Template ID: {u[0]} """\n{u[1]}\n"""' for u in utterances]
         )
 
         builder.add_section(
@@ -1197,7 +1229,7 @@ Draft reply message: ###
 ###
 
 Output a JSON object with three properties:
-1. "reasoning": consider 1-3 best candidate templates for a match (in view of the draft message and the additional behavioral guidelines) and reason about the most appropriate one choice to capture the draft message's main intent while also ensuring to take the behavioral guidelines into account
+1. "tldr": consider 1-3 best candidate templates for a match (in view of the draft message and the additional behavioral guidelines) and reason about the most appropriate one choice to capture the draft message's main intent while also ensuring to take the behavioral guidelines into account. Be very pithy and concise in your reasoning, like a newsline heading stating logical notes and conclusions.
 2. "chosen_template_id" containing the selected template ID.
 3. "match_quality": which can be ONLY ONE OF "low", "partial", "high".
     a. "low": You couldn't find a template that even comes close
@@ -1211,6 +1243,7 @@ Output a JSON object with three properties:
                 "guidelines": [g for g in context.guidelines if g.guideline.content.action],
                 "formatted_guidelines": formatted_guidelines,
                 "composition_mode": context.agent.composition_mode,
+                "guideline_representations": guideline_representations,
             },
         )
         return builder
@@ -1222,10 +1255,17 @@ Output a JSON object with three properties:
         composition_mode: CompositionMode,
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_UtteranceSelectionResult]]:
+        # This will be needed throughout the process for emitting status events
         last_known_event_offset = (
             context.interaction_history[-1].offset if context.interaction_history else -1
         )
 
+        direct_draft_output_mode = (
+            not utterances
+            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
+        )
+
+        # Step 1: Generate the draft message
         draft_prompt = self._build_draft_prompt(
             agent=context.agent,
             context_variables=context.context_variables,
@@ -1234,6 +1274,7 @@ Output a JSON object with three properties:
             terms=context.terms,
             ordinary_guideline_matches=context.ordinary_guideline_matches,
             journeys=context.journeys,
+            capabilities=context.capabilities,
             tool_enabled_guideline_matches=context.tool_enabled_guideline_matches,
             staged_events=context.staged_events,
             tool_insights=context.tool_insights,
@@ -1241,10 +1282,7 @@ Output a JSON object with three properties:
             shots=await self.shots(context.agent.composition_mode),
         )
 
-        if (
-            not utterances
-            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
-        ):
+        if direct_draft_output_mode:
             await context.event_emitter.emit_status_event(
                 correlation_id=self._correlator.correlation_id,
                 data={
@@ -1266,10 +1304,7 @@ Output a JSON object with three properties:
         if not draft_response.content.response_body:
             return {"draft": draft_response.info}, None
 
-        if (
-            not utterances
-            and context.agent.composition_mode == CompositionMode.COMPOSITED_UTTERANCE
-        ):
+        if direct_draft_output_mode:
             return {
                 "draft": draft_response.info,
             }, _UtteranceSelectionResult(
@@ -1287,11 +1322,32 @@ Output a JSON object with three properties:
             },
         )
 
+        # Step 2: Select the most relevant utterance templates based on the draft message
+        top_relevant_utterances = await self._utterance_store.find_relevant_utterances(
+            query=draft_response.content.response_body,
+            available_utterances=utterances,
+            max_count=10,
+        )
+
+        # Step 3: Pre-render these templates so that matching works better
+        rendered_utterances = []
+
+        for u in top_relevant_utterances:
+            try:
+                rendered_utterance = await self._render_utterance(context, u.value)
+                rendered_utterances.append((u.id, rendered_utterance))
+            except Exception as exc:
+                self._logger.error(
+                    f"Failed to pre-render utterance for matching '{u.id}' ('{u.value}')"
+                )
+                self._logger.error(f"Utterance rendering failed: {traceback.format_exception(exc)}")
+
+        # Step 4: Try to match the draft message with one of the rendered utterances
         selection_response = await self._utterance_selection_generator.generate(
             prompt=self._build_selection_prompt(
                 context=context,
                 draft_message=draft_response.content.response_body,
-                utterances=utterances,
+                utterances=rendered_utterances,
             ),
             hints={"temperature": 0.1},
         )
@@ -1300,6 +1356,7 @@ Output a JSON object with three properties:
             f"Utterance Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
         )
 
+        # Step 5: Respond based on the match quality
         if (
             selection_response.content.match_quality not in ["partial", "high"]
             or not selection_response.content.chosen_template_id

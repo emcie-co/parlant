@@ -1,3 +1,17 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -5,6 +19,10 @@ import math
 from typing import Optional, Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    GuidelineInternalRepresentation,
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     PreviouslyAppliedType,
@@ -12,11 +30,14 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingContext,
+    GuidelineMatchingBatchContext,
     GuidelineMatchingStrategy,
+    GuidelineMatchingStrategyContext,
 )
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
+from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -52,11 +73,13 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema
         ],
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        journeys: Sequence[Journey],
+        context: GuidelineMatchingBatchContext,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._guidelines = {g.id: g for g in guidelines}
+        self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
+        self._journeys = journeys
         self._context = context
 
     @override
@@ -84,7 +107,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
 
                 matches.append(
                     GuidelineMatch(
-                        guideline=self._guidelines[GuidelineId(match.guideline_id)],
+                        guideline=self._guidelines[match.guideline_id],
                         score=10 if match.should_reapply else 1,
                         rationale='''reapply rational: ""''',
                         guideline_previously_applied=PreviouslyAppliedType.FULLY,
@@ -159,8 +182,12 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
         self,
         shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot],
     ) -> PromptBuilder:
+        guideline_representations = {
+            g.id: internal_representation(g) for g in self._guidelines.values()
+        }
+
         guidelines_text = "\n".join(
-            f"{i}) Condition: {g.content.condition}. Action: {g.content.action}"
+            f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
             for i, g in self._guidelines.items()
         )
 
@@ -228,7 +255,9 @@ Examples of Guideline Match Evaluations:
         builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
+        builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_interaction_history(self._context.interaction_history)
+        builder.add_journeys(self._journeys)
         builder.add_staged_events(self._context.staged_events)
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
@@ -256,25 +285,28 @@ OUTPUT FORMAT
 ```
 """,
             props={
-                "result_structure_text": self._format_of_guideline_check_json_description(),
+                "result_structure_text": self._format_of_guideline_check_json_description(
+                    guideline_representations=guideline_representations,
+                ),
                 "guidelines_len": len(self._guidelines),
             },
         )
-
         return builder
 
-    def _format_of_guideline_check_json_description(self) -> str:
+    def _format_of_guideline_check_json_description(
+        self,
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+    ) -> str:
         result_structure = [
             {
-                "guideline_id": g.id,
-                "condition": g.content.condition,
-                "action": g.content.action,
+                "guideline_id": i,
+                "condition": guideline_representations[g.id].condition,
+                "action": guideline_representations[g.id].action,
                 "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
-                # "tldr": "<str, Explanation for why the guideline condition is met AGAIN and should reapply when focusing on the MOST RECENT interaction>",
                 "should_reapply": "<BOOL>",
             }
-            for g in self._guidelines.values()
+            for i, g in self._guidelines.items()
         ]
         result = {"checks": result_structure}
         return json.dumps(result, indent=4)
@@ -284,19 +316,29 @@ class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrat
     def __init__(
         self,
         logger: Logger,
+        entity_queries: EntityQueries,
         schematic_generator: SchematicGenerator[
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema
         ],
     ) -> None:
         self._logger = logger
+        self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
 
     @override
     async def create_matching_batches(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        context: GuidelineMatchingStrategyContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        journeys = (
+            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
+                guidelines[0].id, []
+            )
+            if guidelines
+            else []
+        )
+
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
@@ -311,7 +353,18 @@ class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrat
             batches.append(
                 self._create_batch(
                     guidelines=list(batch.values()),
-                    context=context,
+                    journeys=journeys,
+                    context=GuidelineMatchingBatchContext(
+                        agent=context.agent,
+                        session=context.session,
+                        customer=context.customer,
+                        context_variables=context.context_variables,
+                        interaction_history=context.interaction_history,
+                        terms=context.terms,
+                        capabilities=context.capabilities,
+                        staged_events=context.staged_events,
+                        relevant_journeys=journeys,
+                    ),
                 )
             )
 
@@ -332,14 +385,23 @@ class GenericPreviouslyAppliedActionableGuidelineMatching(GuidelineMatchingStrat
     def _create_batch(
         self,
         guidelines: Sequence[Guideline],
-        context: GuidelineMatchingContext,
+        journeys: Sequence[Journey],
+        context: GuidelineMatchingBatchContext,
     ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
             logger=self._logger,
             schematic_generator=self._schematic_generator,
             guidelines=guidelines,
+            journeys=journeys,
             context=context,
         )
+
+    @override
+    async def transform_matches(
+        self,
+        matches: Sequence[GuidelineMatch],
+    ) -> Sequence[GuidelineMatch]:
+        return matches
 
 
 def _make_event(e_id: str, source: EventSource, message: str) -> Event:

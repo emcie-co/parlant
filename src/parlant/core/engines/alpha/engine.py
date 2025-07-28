@@ -25,13 +25,16 @@ from typing import Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
+from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, CompositionMode
+from parlant.core.capabilities import Capability
 from parlant.core.common import CancellationSuppressionLatch
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,
     ContextVariableStore,
 )
+from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
@@ -80,7 +83,6 @@ from parlant.core.emissions import EventEmitter, EmittedEvent
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
-from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolId
 
 
@@ -146,7 +148,7 @@ class AlphaEngine(Engine):
 
         try:
             with self._logger.operation(f"Processing context for session {context.session_id}"):
-                await self._do_process(loaded_context, event_emitter)
+                await self._do_process(loaded_context)
             return True
         except asyncio.CancelledError:
             return False
@@ -218,7 +220,6 @@ class AlphaEngine(Engine):
     async def _do_process(
         self,
         context: LoadedContext,
-        event_emitter: EventEmitter,
     ) -> None:
         if not await self._hooks.call_on_acknowledging(context):
             return  # Hook requested to bail out
@@ -282,6 +283,9 @@ class AlphaEngine(Engine):
                 # all of the information we have prepared.
                 message_generation_inspections = await self._generate_messages(context, latch)
 
+                # Mark that the agent is ready to receive and respond to new events.
+                await self._emit_ready_event(context)
+
                 # Save results for later inspection.
                 await self._entity_commands.create_inspection(
                     session_id=context.session.id,
@@ -310,10 +314,12 @@ class AlphaEngine(Engine):
             #      processing context is likely to be obsolete
             self._logger.warning("Processing cancelled")
             await self._emit_cancellation_event(context)
+            await self._emit_ready_event(context)
             raise
-        finally:
+        except Exception:
             # Mark that the agent is ready to receive and respond to new events.
             await self._emit_ready_event(context)
+            raise
 
     async def _do_utter(
         self,
@@ -374,11 +380,13 @@ class AlphaEngine(Engine):
             agent=agent,
             customer=customer,
             session=session,
-            event_emitter=event_emitter,
+            session_event_emitter=event_emitter,
+            response_event_emitter=EventBuffer(agent),
             interaction=interaction,
             state=ResponseState(
                 context_variables=[],
                 glossary_terms=set(),
+                capabilities=[],
                 ordinary_guideline_matches=[],
                 journeys=[],
                 tool_enabled_guideline_matches={},
@@ -397,9 +405,15 @@ class AlphaEngine(Engine):
         # Load the relevant context variable values.
         context.state.context_variables = await self._load_context_variables(context)
 
-        # Load relevant glossary terms, initially based
+        # Load relevant glossary terms and capabilities, initially based
         # mostly on the current interaction history.
-        context.state.glossary_terms.update(await self._load_glossary_terms(context))
+        glossary, capabilities = await async_utils.safe_gather(
+            self._load_glossary_terms(context),
+            self._load_capabilities(context),
+        )
+
+        context.state.glossary_terms.update(glossary)
+        context.state.capabilities = list(capabilities)
 
     async def _run_preparation_iteration(
         self,
@@ -592,12 +606,13 @@ class AlphaEngine(Engine):
         for event_generation_result in await self._get_message_composer(
             context.agent
         ).generate_preamble(
-            event_emitter=context.event_emitter,
+            event_emitter=context.session_event_emitter,
             agent=context.agent,
             customer=context.customer,
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
+            capabilities=context.state.capabilities,
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
             journeys=context.state.journeys,
@@ -619,12 +634,13 @@ class AlphaEngine(Engine):
         for event_generation_result in await self._get_message_composer(
             context.agent
         ).generate_response(
-            event_emitter=context.event_emitter,
+            event_emitter=context.session_event_emitter,
             agent=context.agent,
             customer=context.customer,
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
+            capabilities=context.state.capabilities,
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
             journeys=context.state.journeys,
@@ -649,7 +665,7 @@ class AlphaEngine(Engine):
         return message_generation_inspections
 
     async def _emit_error_event(self, context: LoadedContext, exception_details: str) -> None:
-        await context.event_emitter.emit_status_event(
+        await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
                 "status": "error",
@@ -659,7 +675,7 @@ class AlphaEngine(Engine):
         )
 
     async def _emit_acknowledgement_event(self, context: LoadedContext) -> None:
-        await context.event_emitter.emit_status_event(
+        await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
                 "acknowledged_offset": context.interaction.last_known_event_offset,
@@ -669,7 +685,7 @@ class AlphaEngine(Engine):
         )
 
     async def _emit_processing_event(self, context: LoadedContext) -> None:
-        await context.event_emitter.emit_status_event(
+        await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
                 "acknowledged_offset": context.interaction.last_known_event_offset,
@@ -679,7 +695,7 @@ class AlphaEngine(Engine):
         )
 
     async def _emit_cancellation_event(self, context: LoadedContext) -> None:
-        await context.event_emitter.emit_status_event(
+        await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
                 "acknowledged_offset": context.interaction.last_known_event_offset,
@@ -689,7 +705,7 @@ class AlphaEngine(Engine):
         )
 
     async def _emit_ready_event(self, context: LoadedContext) -> None:
-        await context.event_emitter.emit_status_event(
+        await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
                 "acknowledged_offset": context.interaction.last_known_event_offset,
@@ -719,8 +735,10 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
     ) -> list[tuple[ContextVariable, ContextVariableValue]]:
-        variables_supported_by_agent = await self._entity_queries.find_context_variables_for_agent(
-            agent_id=context.agent.id,
+        variables_supported_by_agent = (
+            await self._entity_queries.find_context_variables_for_context(
+                agent_id=context.agent.id,
+            )
         )
 
         result = []
@@ -745,7 +763,7 @@ class AlphaEngine(Engine):
         self, context: LoadedContext
     ) -> ToolPreexecutionState:
         return await self._tool_event_generator.create_preexecution_state(
-            context.event_emitter,
+            context.session_event_emitter,
             context.session.id,
             context.agent,
             context.customer,
@@ -766,50 +784,86 @@ class AlphaEngine(Engine):
         dict[GuidelineMatch, list[ToolId]],
         list[Journey],
     ]:
-        # Step 1: Retrieve all of the journeys for this agent.
-        all_journeys = await self._entity_queries.find_journeys_for_agent(
-            agent_id=context.agent.id,
-        )
+        # Step 1: Retrieve the journeys likely to be activated for this agent
+        relevant_journeys = await self._load_journeys(context)
 
         # Step 2:
-        all_stored_guidelines = [
-            g
-            for g in await self._entity_queries.find_guidelines_for_agent(
+        all_stored_guidelines = {
+            g.id: g
+            for g in await self._entity_queries.find_guidelines_for_context(
                 agent_id=context.agent.id,
-                journeys=all_journeys,
+                journeys=relevant_journeys,
             )
             if g.enabled
-        ]
+        }
 
-        # Step 3: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(
+        # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
+        # (everything beyond the first journey). Removing these low-probability
+        # dependencies up-front keeps the first matching pass fast and focused.
+        top_k = 3
+        relevant_guidelines = await self._prune_low_probability_journey_guidelines(
+            relevant_journeys=relevant_journeys,
+            all_stored_guidelines=all_stored_guidelines,
+            top_k=top_k,
+        )
+
+        # Step 4: Filter the best matches out of those.
+        matching_result = await self._guideline_matcher.match_guidelines(  # TODO HERE BAR
             agent=context.agent,
             session=context.session,
             customer=context.customer,
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
+            capabilities=context.state.capabilities,
             staged_events=context.state.tool_events,
-            guidelines=all_stored_guidelines,
+            guidelines=relevant_guidelines,
         )
 
-        # Step 4: Filter the journeys that are activated by the matched guidelines.
+        # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = [j for j in all_journeys if set(j.conditions).intersection(match_ids)]
+        journeys = [j for j in relevant_journeys if set(j.conditions).intersection(match_ids)]
 
-        # Step 5: Resolve guideline matches by loading related guidelines that may not have
+        # Step 6: If any of the lower-probability journeys (those originally filtered out)
+        # have in fact been activated, run an additional matching pass for the guidelines
+        # that depend on them so we don’t miss relevant behavior.
+        if second_match_result := await self._process_activated_low_probability_journey_guidelines(
+            context=context,
+            all_stored_guidelines=all_stored_guidelines,
+            relevant_journeys=relevant_journeys,
+            activated_journeys=journeys,
+            top_k=top_k,
+        ):
+            batches = list(chain(matching_result.batches, second_match_result.batches))
+            matches = list(chain.from_iterable(batches))
+
+            matching_result = GuidelineMatchingResult(
+                total_duration=matching_result.total_duration + second_match_result.total_duration,
+                batch_count=matching_result.batch_count + second_match_result.batch_count,
+                batch_generations=list(
+                    chain(
+                        matching_result.batch_generations,
+                        second_match_result.batch_generations,
+                    )
+                ),
+                batches=batches,
+                matches=matches,
+            )
+
+        # Step 7: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
-            usable_guidelines=all_stored_guidelines,
+            usable_guidelines=list(all_stored_guidelines.values()),
             matches=matching_result.matches,
             journeys=journeys,
         )
 
-        # Step 6: Distinguish between ordinary and tool-enabled guidelines.
+        # Step 8: Distinguish between ordinary and tool-enabled guidelines.
         # We do this here as it creates a better subsequent control flow in the engine.
         tool_enabled_guidelines = await self._find_tool_enabled_guideline_matches(
             guideline_matches=all_relevant_guidelines,
         )
+
         ordinary_guidelines = list(
             set(all_relevant_guidelines).difference(tool_enabled_guidelines),
         )
@@ -841,6 +895,101 @@ class AlphaEngine(Engine):
 
         return dict(tools_for_guidelines)
 
+    async def _prune_low_probability_journey_guidelines(
+        self,
+        relevant_journeys: Sequence[Journey],
+        all_stored_guidelines: dict[GuidelineId, Guideline],
+        top_k: int,
+    ) -> list[Guideline]:
+        # Prune low-probability journey-dependent guidelines
+        # by only keeping those that are either not dependent on any journey
+        # or are dependent on the top K most relevant journeys.
+        relevant_journeys_dependent_ids = set(
+            chain.from_iterable(
+                [
+                    await self._entity_queries.find_journey_scoped_guidelines(j)
+                    for j in relevant_journeys
+                ]
+            )
+        )
+
+        high_prob_journey_dependent_ids = set(
+            chain.from_iterable(
+                [
+                    await self._entity_queries.find_journey_scoped_guidelines(j)
+                    for j in relevant_journeys[:top_k]
+                ]
+            )
+        )
+
+        return [
+            g
+            for id, g in all_stored_guidelines.items()
+            if id in high_prob_journey_dependent_ids or id not in relevant_journeys_dependent_ids
+        ]
+
+    async def _process_activated_low_probability_journey_guidelines(
+        self,
+        context: LoadedContext,
+        all_stored_guidelines: dict[GuidelineId, Guideline],
+        relevant_journeys: Sequence[Journey],
+        activated_journeys: Sequence[Journey],
+        top_k: int,
+    ) -> Optional[GuidelineMatchingResult]:
+        activated_low_priority_dep_ids = set(
+            chain.from_iterable(
+                [
+                    await self._entity_queries.find_journey_scoped_guidelines(j)
+                    for j in [
+                        activated_journey
+                        for activated_journey in activated_journeys
+                        if activated_journey in relevant_journeys[top_k:]
+                    ]
+                ]
+            )
+        )
+
+        if activated_low_priority_dep_ids:
+            self._logger.operation(
+                "Second-pass: matching guidelines dependent on activated low-priority journeys"
+            )
+            additional_matching_guidelines = [
+                g for id, g in all_stored_guidelines.items() if id in activated_low_priority_dep_ids
+            ]
+            return await self._guideline_matcher.match_guidelines(
+                agent=context.agent,
+                session=context.session,
+                customer=context.customer,
+                context_variables=context.state.context_variables,
+                interaction_history=context.interaction.history,
+                terms=list(context.state.glossary_terms),
+                capabilities=context.state.capabilities,
+                staged_events=context.state.tool_events,
+                guidelines=additional_matching_guidelines,
+            )
+
+        return None
+
+    async def _load_capabilities(self, context: LoadedContext) -> Sequence[Capability]:
+        # Capabilities are retrieved using semantic similarity.
+        # The querying process is done with a text query, for which
+        # the K most relevant terms are retrieved.
+        #
+        # We thus build an optimized query here based on our context.
+        query = ""
+
+        if context.interaction.history:
+            query += str([e.data for e in context.interaction.history])
+
+        if query:
+            return await self._entity_queries.find_capabilities_for_agent(
+                agent_id=context.agent.id,
+                query=query,
+                max_count=3,
+            )
+
+        return []
+
     async def _load_glossary_terms(self, context: LoadedContext) -> Sequence[Term]:
         # Glossary terms are retrieved using semantic similarity.
         # The querying process is done with a text query, for which
@@ -869,9 +1018,54 @@ class AlphaEngine(Engine):
             query += str([e.data for e in context.state.tool_events])
 
         if query:
-            return await self._entity_queries.find_relevant_glossary_terms(
+            return await self._entity_queries.find_glossary_terms_for_context(
+                agent_id=context.agent.id,
                 query=query,
-                tags=[Tag.for_agent_id(context.agent.id)],
+            )
+
+        return []
+
+    async def _load_journeys(
+        self,
+        context: LoadedContext,
+    ) -> Sequence[Journey]:
+        # Journeys are retrieved using semantic similarity.
+        # The querying process is done with a text query, for which
+        # the K most relevant terms are retrieved.
+        #
+        # We thus build an optimized query here based on our context and state.
+        all_journeys = await self._entity_queries.finds_journeys_for_context(
+            agent_id=context.agent.id,
+        )
+
+        query = ""
+
+        if context.state.context_variables:
+            query += f"\n{context_variables_to_json(context.state.context_variables)}"
+
+        if context.state.guidelines:
+            query += str(
+                [
+                    f"When {g.content.condition}, then {g.content.action}"
+                    if g.content.action
+                    else f"When {g.content.condition}"
+                    for g in context.state.guidelines
+                ]
+            )
+
+        if context.state.all_events:
+            query += str([e.data for e in context.state.all_events])
+
+        if context.state.glossary_terms:
+            query += str([t.name for t in context.state.glossary_terms])
+
+        if context.interaction.history:
+            query += str([e.data for e in context.interaction.history])
+
+        if query:
+            return await self._entity_queries.find_relevant_journeys_for_context(
+                available_journeys=all_journeys,
+                query=query,
             )
 
         return []
@@ -883,7 +1077,8 @@ class AlphaEngine(Engine):
     ) -> tuple[ToolEventGenerationResult, list[EmittedEvent], ToolInsights] | None:
         result = await self._tool_event_generator.generate_events(
             preexecution_state,
-            event_emitter=context.event_emitter,
+            session_event_emitter=context.session_event_emitter,
+            response_event_emitter=context.response_event_emitter,
             session_id=context.session.id,
             agent=context.agent,
             customer=context.customer,
@@ -963,6 +1158,10 @@ class AlphaEngine(Engine):
 
         return [m for m in problematic_parameters if m.precedence == min(precedence_values)]
 
+    def _todo_add_associated_guidelines(self, guideline_matches: Sequence[GuidelineMatch]) -> None:
+        # TODO write this method - it should add guidelines that are associated with the previously matched guidelines (due to having similar actions, as flagged by the conversation designer)
+        return
+
     async def _add_agent_state(
         self,
         context: LoadedContext,
@@ -977,7 +1176,9 @@ class AlphaEngine(Engine):
             and match.guideline.content.action
         ]
 
-        analysis_result = await self._guideline_matcher.analyze_response(
+        self._todo_add_associated_guidelines(matches_to_analyze)
+
+        result = await self._guideline_matcher.analyze_response(
             agent=context.agent,
             session=session,
             customer=context.customer,
@@ -989,9 +1190,7 @@ class AlphaEngine(Engine):
         )
 
         applied_guideline_ids = [
-            p.guideline.id
-            for p in analysis_result.previously_applied_guidelines
-            if p.is_previously_applied
+            a.guideline.id for a in result.analyzed_guidelines if a.is_previously_applied
         ]
 
         applied_guideline_ids.extend(session.agent_state["applied_guideline_ids"])

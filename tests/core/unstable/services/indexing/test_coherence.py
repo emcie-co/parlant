@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from parlant.core.agents import Agent
-from parlant.core.glossary import GlossaryStore
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.coherence_checker import (
     CoherenceChecker,
@@ -129,6 +128,4 @@ def test_that_contradictory_next_message_commands_are_detected_as_incoherencies(
     assert len(incoherencies_to_detect) == 0
 
     for incoherence in incoherence_results:
-        assert context.sync_await(
-            incoherence_nlp_test(agent, context.container[GlossaryStore], incoherence)
-        )
+        assert context.sync_await(incoherence_nlp_test(context, agent, incoherence))

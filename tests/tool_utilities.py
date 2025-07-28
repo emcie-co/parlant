@@ -95,6 +95,7 @@ def multiply(first_number: int, second_number: int) -> ToolResult:
                 value="asd",
                 fields=[],
                 tags=[],
+                queries=[],
             )
         ],
     )
@@ -377,14 +378,20 @@ async def search_products(
 def book_flight(
     departure_city: str,
     destination_city: str,
-    departure_date: str,
-    return_date: Optional[str] = None,
-    passenger_name: Optional[str] = None,
 ) -> ToolResult:
-    # Imagine this performs some flight booking logic
     return ToolResult(
-        data=f"Flight booked from {departure_city} to {destination_city} on {departure_date}."
+        data={
+            "departure_city": departure_city,
+            "destination_city": destination_city,
+        }
     )
+
+
+def class_access_validator(age: int) -> ToolResult:
+    if age >= 21:
+        return ToolResult(data={"class": "business class"})
+    else:
+        return ToolResult(data={"class": "economy class"})
 
 
 def send_email(to: str, subject: str, body: Optional[str] = None) -> ToolResult:
@@ -487,3 +494,11 @@ def give_boolean_types(
     return ToolResult(
         f"Types for boolean is: {type(boolean[0])} and optional boolean: {type(optional_boolean)}"
     )
+
+
+def check_current_time() -> ToolResult:
+    return ToolResult(data="Current time is 18:03", control={"lifespan": "response"})
+
+
+def check_current_time_emit() -> ToolResult:
+    return ToolResult(data="Current time is 9:59", control={"lifespan": "session"})

@@ -129,8 +129,10 @@ def get_pruned_nodes(
             result.add(current)
 
             # If node run tools, no need to show the steps further.
-            if nodes[current].kind == JourneyNodeKind.TOOL and (
-                not previous_path or current not in previous_path
+            if (
+                nodes[current].kind == JourneyNodeKind.TOOL
+                and (not previous_path or current not in previous_path)
+                and (not previous_path or current == previous_path[-1])
             ):
                 continue
 

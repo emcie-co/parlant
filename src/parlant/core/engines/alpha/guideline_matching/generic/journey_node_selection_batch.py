@@ -132,7 +132,9 @@ def get_pruned_nodes(
             if (
                 nodes[current].kind == JourneyNodeKind.TOOL
                 and (not previous_path or current not in previous_path)
-                and (not previous_path or current == previous_path[-1])
+                and (
+                    not previous_path or (current in previous_path and current == previous_path[-1])
+                )
             ):
                 continue
 
@@ -463,7 +465,8 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
-
+                    with open("journey step selection output.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
                     journey_path = self._get_verified_node_advancement(inference.content)
 
                     # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
@@ -813,7 +816,8 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
-
+        with open("journey step selection prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

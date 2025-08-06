@@ -82,24 +82,24 @@ class _JourneyNode:  # Refactor after node type is implemented
 
 class JourneyNodeAdvancement(DefaultBaseModel):
     id: str
-    customer_dependent_action: bool
-    requires_tool_calls: bool
-    requires_agent_action: bool
-    completed_rational: str
-    completed: bool
+    customer_dependent_action: bool | None = None
+    requires_tool_calls: bool | None = None
+    requires_agent_action: bool | None = None
+    completed_rational: str | None = None
+    completed: bool | None = None
     follow_ups: Optional[list[str]] = None
-    next_step_rational: str
+    next_step_rational: str | None = None
 
 
 class JourneyNodeSelectionSchema(DefaultBaseModel):
-    rationale: str
+    rationale: str | None = None
     journey_applies: bool
     requires_backtracking: bool | None = None
     backtracking_rational: Optional[str] | None = None
     backtracking_target_step: Optional[str] | None = None
     step_advancement_after_backtracking_rational: Optional[str] | None = None
     step_advancement: Optional[Sequence[JourneyNodeAdvancement]] = None
-    next_step: str
+    next_step: str | None = None
 
 
 @dataclass

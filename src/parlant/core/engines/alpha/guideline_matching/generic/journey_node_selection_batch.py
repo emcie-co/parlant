@@ -755,9 +755,9 @@ Check if the customer has changed a previous decision that requires returning to
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete:
-- For CUSTOMER_DEPENDENT steps: Customer has provided the required information (either after being asked or proactively in earlier messages. If so, set completed to 'completed'.
- If not, set completed to 'needs_customer_input' and do not advance past this step.
-- For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set completed to 'completed'. If not, set completed to 'needs_agent_action'
+- For CUSTOMER_DEPENDENT steps: Customer has provided the required information (either after being asked or proactively in earlier messages. If so, set completed to true.
+ If not, set completed to false and do not advance past this step.
+- For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set completed to true. If not, set completed to false.
 and do not advance past this step.
 - For REQUIRES_TOOL_CALLS steps: The step requires a tool call to execute for it to be completed. If you begin your advancement at this step, mark it as complete if the tool executed, and move onwards. Otherwise, always set completed to false and return it as next_step.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.

@@ -109,6 +109,15 @@ class CannedResponseSelectionSchema(DefaultBaseModel):
     match_quality: Optional[str] = None
 
 
+class SupplementalCannedResponseSchema(DefaultBaseModel):
+    draft: str
+    remaining_message_draft: str
+    additional_response_required: bool
+    additional_canned_response: Optional[str] = None
+    additional_canned_response_id: Optional[str] = None
+    match_quality: Optional[str] = None
+
+
 class CannedResponsePreambleSchema(DefaultBaseModel):
     preamble: str
 
@@ -455,6 +464,9 @@ class CannedResponseGenerator(MessageEventComposer):
         canned_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
         canned_response_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
         canned_response_fluid_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
+        supplemental_canned_response_generator: SchematicGenerator[
+            SupplementalCannedResponseSchema
+        ],
         perceived_performance_policy: PerceivedPerformancePolicy,
         canned_response_store: CannedResponseStore,
         field_extractor: CannedResponseFieldExtractor,
@@ -470,6 +482,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_selection_generator = canned_selection_generator
         self._canrep_composition_generator = canned_response_composition_generator
         self._canrep_fluid_preamble_generator = canned_response_fluid_preamble_generator
+        self._supplemental_canrep_generator = supplemental_canned_response_generator
         self._canned_response_store = canned_response_store
         self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
@@ -822,11 +835,15 @@ You will now be given the current state of the interaction to which you must gen
                     latch.enable()
 
                 if result is not None:
+                    draft_message = result.draft
                     sub_messages = result.message.strip().split("\n\n")
                     events = []
 
                     while sub_messages:
                         m = sub_messages.pop(0)
+
+                        if await self._hooks.call_on_message_generated(loaded_context, payload=m):
+                            # If we're in, the hook did not bail out.
 
                         if await self._hooks.call_on_message_generated(loaded_context, payload=m):
                             # If we're in, the hook did not bail out.
@@ -892,6 +909,17 @@ You will now be given the current state of the interaction to which you must gen
                                 initial_delay
                                 + (word_count_for_next_message / typing_speed_in_words_per_minute)
                             )
+                            (
+                                generation_info,
+                                result,
+                            ) = await self._generate_supplemental_canned_response(
+                                context=context,
+                                draft=draft_message,
+                            )
+                            events = []
+                            if result.events:
+                                events.extend(result.events)
+                            return [MessageEventComposition(generation_info, events)]
 
                     return [MessageEventComposition(generation_info, events)]
                 else:
@@ -1762,6 +1790,26 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         self._logger.trace(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")
 
         return result.info, result.content.revised_canned_response
+
+    def _build_supplemental_canned_response_prompt(
+        self,
+        context: CannedResponseContext,
+        draft: str,
+        canned_responses: Sequence[CannedResponse],
+    ) -> PromptBuilder:
+        builder = PromptBuilder()
+
+        return builder
+
+    async def _generate_supplemental_canned_response(
+        self,
+        context: CannedResponseContext,
+        draft: str,
+    ) -> Sequence[MessageEventComposition]:
+        canned_responses = await self._get_relevant_canned_responses(context)
+        prompt = self._build_supplemental_canned_response_prompt(context, draft, canned_responses)
+        supp_canrep_response = await self._supplemental_canrep_generator.generate(prompt=prompt)
+        supp_canrep_response
 
 
 def shot_canned_canned_response_id(number: int) -> str:

@@ -34,7 +34,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     ResponseAnalysisContext,
 )
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import (
+    Interaction,
+    InternalState,
+    LoadedContext,
+    ResponseState,
+)
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
@@ -54,6 +59,7 @@ from parlant.core.sessions import (
     SessionStore,
     SessionUpdateParams,
 )
+from parlant.core.tracing import Tracer
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -87,6 +93,7 @@ class ContextOfTest:
     sync_await: SyncAwaiter
     guidelines: list[Guideline]
     logger: Logger
+    tracer: Tracer
 
 
 @fixture
@@ -99,6 +106,7 @@ def context(
         sync_await,
         guidelines=list(),
         logger=container[Logger],
+        tracer=container[Tracer],
     )
 
 
@@ -118,6 +126,7 @@ def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
+        tracer=context.tarcer,
         correlator=context.container[ContextualCorrelator],
         agent=agent,
         customer=customer,
@@ -143,6 +152,11 @@ def match_guidelines(
             tool_insights=ToolInsights(),
             prepared_to_respond=False,
             message_events=[],
+            _internal=InternalState(
+                evaluated_guidelines=[],
+                evaluated_tools=[],
+                generations=[],
+            ),
         ),
     )
 

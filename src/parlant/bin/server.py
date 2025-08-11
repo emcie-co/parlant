@@ -42,6 +42,7 @@ import sys
 import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.adapters.tracing.opentelemetry import OpenTelemetryTracer
 from parlant.api.authorization import (
     AuthorizationPolicy,
     DevelopmentAuthorizationPolicy,
@@ -228,6 +229,7 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
     GuidelineConnectionPropositionsSchema,
 )
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
+from parlant.core.tracing import Tracer
 from parlant.core.application import Application
 from parlant.core.version import VERSION
 
@@ -538,6 +540,14 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, ToolCaller, ToolCaller)
 
     _define_singleton(c, RelationalGuidelineResolver, RelationalGuidelineResolver)
+
+    otel = await EXIT_STACK.enter_async_context(
+        OpenTelemetryTracer(
+            exporter="local",
+        )
+    )
+
+    c[Tracer] = otel
 
     _define_singleton(
         c,

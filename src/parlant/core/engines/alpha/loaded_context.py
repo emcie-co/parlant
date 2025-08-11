@@ -31,6 +31,7 @@ from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -41,6 +42,7 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.tools import ToolId, ToolResult
+from parlant.core.tracing import Tracer
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,19 @@ class Interaction:
 
 
 @dataclass(frozen=False)
+class InternalState:
+    """Internal state used to track the response process"""
+
+    evaluated_guidelines: list[Guideline]
+    """Set of guidelines that have been evaluated in the current response"""
+
+    evaluated_tools: list[ToolId]
+    """Set of tools that have been evaluated in the current response"""
+
+    generations: list[GenerationInfo]
+
+
+@dataclass(frozen=False)
 class ResponseState:
     """Used to access and update the state needed for responding properly"""
 
@@ -140,6 +155,7 @@ class ResponseState:
     tool_insights: ToolInsights
     prepared_to_respond: bool
     message_events: list[EmittedEvent]
+    _internal: InternalState
 
     @property
     def ordinary_guidelines(self) -> list[Guideline]:
@@ -167,6 +183,9 @@ class LoadedContext:
 
     logger: Logger
     """The logger used to log messages in the current context"""
+
+    tracer: Tracer
+    """The tracer used to trace info and metrics in the current context"""
 
     correlator: ContextualCorrelator
     """The correlator used to track the correlation ID and properties in the current context"""

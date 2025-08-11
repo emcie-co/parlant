@@ -213,6 +213,7 @@ from parlant.core.shots import ShotCollection
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.core.tools import LocalToolService
+from parlant.core.tracing import NoOpTracer, Tracer
 
 from .test_utilities import (
     GLOBAL_EMBEDDER_CACHE_FILE,
@@ -563,6 +564,8 @@ async def container(
         container[EngineHooks] = hooks
 
         container[AuthorizationPolicy] = Singleton(DevelopmentAuthorizationPolicy)
+
+        container[Tracer] = Singleton(NoOpTracer)
 
         container[Engine] = Singleton(AlphaEngine)
 

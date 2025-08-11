@@ -50,6 +50,7 @@ from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.sessions import Event, Session
 from parlant.core.loggers import Logger
+from parlant.core.tracing import Tracer
 
 
 class GuidelineMatchingBatchError(Exception):
@@ -162,9 +163,11 @@ class GuidelineMatcher:
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         strategy_resolver: GuidelineMatchingStrategyResolver,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self.strategy_resolver = strategy_resolver
 
     @policy(
@@ -179,7 +182,8 @@ class GuidelineMatcher:
         self, batch: GuidelineMatchingBatch
     ) -> GuidelineMatchingBatchResult:
         with self._logger.scope(batch.__class__.__name__):
-            return await batch.process()
+            async with self._tracer.meter.measure_duration(batch.__class__.__name__):
+                return await batch.process()
 
     @policy(
         [

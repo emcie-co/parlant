@@ -38,6 +38,7 @@ from parlant.core.context_variables import (
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.loaded_context import (
     Interaction,
+    InternalState,
     IterationState,
     LoadedContext,
     ResponseState,
@@ -48,6 +49,7 @@ from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPer
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
+    ToolCallEvaluation,
     ToolInsights,
     InvalidToolData,
     ProblematicToolData,
@@ -62,6 +64,7 @@ from parlant.core.journey_guideline_projection import (
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import (
     AgentState,
     ContextVariable as StoredContextVariable,
@@ -93,6 +96,7 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
+from parlant.core.tracing import AttributeValue, Span, Tracer
 
 
 class _PreparationIterationResolution(Enum):
@@ -124,6 +128,7 @@ class AlphaEngine(Engine):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         correlator: ContextualCorrelator,
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
@@ -136,6 +141,7 @@ class AlphaEngine(Engine):
         hooks: EngineHooks,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._correlator = correlator
 
         self._entity_queries = entity_queries
@@ -170,7 +176,16 @@ class AlphaEngine(Engine):
                 level=LogLevel.INFO,
                 create_scope=False,
             ):
-                await self._do_process(loaded_context)
+                async with self._tracer.span(
+                    "engine.process",
+                    attributes={
+                        "correlation_id": self._correlator.correlation_id,
+                        "customer_id": loaded_context.customer.id,
+                        "session_id": context.session_id,
+                        "agent_id": context.agent_id,
+                    },
+                ) as span:
+                    await self._do_process(loaded_context, span)
             return True
         except asyncio.CancelledError:
             return False
@@ -242,6 +257,7 @@ class AlphaEngine(Engine):
     async def _do_process(
         self,
         context: LoadedContext,
+        span: Span,
     ) -> None:
         if not await self._hooks.call_on_acknowledging(context):
             return  # Hook requested to bail out
@@ -271,7 +287,11 @@ class AlphaEngine(Engine):
                 # This happens in iterations in order to support a feedback loop
                 # where particular tool-call results may trigger new or different
                 # guidelines that we need to follow.
-                iteration_result = await self._run_preparation_iteration(context, preamble_task)
+                iteration_result = await self._run_preparation_iteration(
+                    context,
+                    preamble_task,
+                    span,
+                )
 
                 if iteration_result.resolution == _PreparationIterationResolution.BAIL:
                     return
@@ -306,6 +326,14 @@ class AlphaEngine(Engine):
                 # all of the information we have prepared.
                 message_generation_inspections = await self._generate_messages(context, latch)
 
+                context.state._internal.generations.extend(
+                    list(
+                        chain.from_iterable(
+                            list(m.generations.values()) for m in message_generation_inspections
+                        )
+                    )
+                )
+
                 # Mark that the agent is ready to receive and respond to new events.
                 await self._emit_ready_event(context)
 
@@ -329,6 +357,8 @@ class AlphaEngine(Engine):
                 )
 
                 await self._hooks.call_on_messages_emitted(context)
+
+            await self._record_process_summary(context, span)
 
         except asyncio.CancelledError:
             # Task was cancelled. This usually happens for 1 of 2 reasons:
@@ -399,6 +429,7 @@ class AlphaEngine(Engine):
         return LoadedContext(
             info=context,
             logger=self._logger,
+            tracer=self._tracer,
             correlator=self._correlator,
             agent=agent,
             customer=customer,
@@ -423,6 +454,11 @@ class AlphaEngine(Engine):
                 tool_insights=ToolInsights(),
                 prepared_to_respond=False,
                 message_events=[],
+                _internal=InternalState(
+                    evaluated_guidelines=[],
+                    evaluated_tools=[],
+                    generations=[],
+                ),
             ),
         )
 
@@ -447,15 +483,16 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
         preamble_task: asyncio.Task[bool],
+        span: Span,
     ) -> _PreparationIterationResult:
         with self._correlator.properties({"engine_iteration": len(context.state.iterations) + 1}):
             if len(context.state.iterations) == 0:
                 # This is the first iteration, so we need to run the initial preparation iteration.
-                result = await self._run_initial_preparation_iteration(context, preamble_task)
+                result = await self._run_initial_preparation_iteration(context, preamble_task, span)
 
             else:
                 # This is an additional iteration, so we run the additional preparation iteration.
-                result = await self._run_additional_preparation_iteration(context)
+                result = await self._run_additional_preparation_iteration(context, span)
 
             context.state.iterations.append(result.state)
             context.state.journey_paths = self._list_journey_paths(
@@ -512,6 +549,7 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
         preamble_task: asyncio.Task[bool],
+        span: Span,
     ) -> _PreparationIterationResult:
         matching_finished = False
 
@@ -544,7 +582,9 @@ class AlphaEngine(Engine):
             # structured format such that we can distinguish
             # between ordinary and tool-enabled ones.
             guideline_and_journey_matching_result = (
-                await self._load_matched_guidelines_and_journeys(context)
+                await self._load_matched_guidelines_and_journeys(
+                    context,
+                )
             )
 
             matching_finished = True
@@ -586,7 +626,7 @@ class AlphaEngine(Engine):
 
         # Infer any needed tool calls and execute them,
         # adding the resulting tool events to the session.
-        if tool_calling_result := await self._call_tools(context, tool_preexecution_state):
+        if tool_calling_result := await self._call_tools(context, tool_preexecution_state, span):
             (
                 tool_event_generation_result,
                 new_tool_events,
@@ -667,6 +707,7 @@ class AlphaEngine(Engine):
     async def _run_additional_preparation_iteration(
         self,
         context: LoadedContext,
+        span: Span,
     ) -> _PreparationIterationResult:
         # For optimization concerns, it's useful to capture the exact state
         # we were in before matching guidelines.
@@ -674,7 +715,7 @@ class AlphaEngine(Engine):
 
         # Match and retrieve guidelines and journeys based on the results of the previous iteration.
         guideline_and_journey_matching_result = (
-            await self._load_additional_matched_guidelines_and_journeys(context)
+            await self._load_additional_matched_guidelines_and_journeys(context, span)
         )
 
         # FIXME: There might be cases where a journey got ACTIVATED, and then, during
@@ -706,7 +747,7 @@ class AlphaEngine(Engine):
 
         # Infer any needed tool calls and execute them,
         # adding the resulting tool events to the session.
-        if tool_calling_result := await self._call_tools(context, tool_preexecution_state):
+        if tool_calling_result := await self._call_tools(context, tool_preexecution_state, span):
             (
                 tool_event_generation_result,
                 new_tool_events,
@@ -863,6 +904,9 @@ class AlphaEngine(Engine):
         ).generate_preamble(context=context):
             generated_messages = True
             context.state.message_events += [e for e in event_generation_result.events if e]
+            context.state._internal.generations.extend(
+                list(event_generation_result.generation_info.values())
+            )
 
         return generated_messages
 
@@ -1009,6 +1053,7 @@ class AlphaEngine(Engine):
     async def _load_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,
+        span: Span,
     ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve the journeys likely to be activated for this agent
         sorted_journeys_by_relevance = await self._find_journeys_sorted_by_relevance(context)
@@ -1039,11 +1084,28 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=high_prob_journeys,  # Only consider the top K journeys
-            guidelines=relevant_guidelines,
-        )
+        async with self._tracer.span(
+            "guideline_matching",
+            attributes={"phase": "initial", "iteration": len(context.state.iterations) + 1},
+        ) as gm_span:
+            # Match the guidelines against the context and the active journeys.
+            # This will return a GuidelineMatchingResult with the matched guidelines.
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=high_prob_journeys,  # Only consider the top K journeys
+                guidelines=relevant_guidelines,
+            )
+
+            context.state._internal.evaluated_guidelines.extend(relevant_guidelines)
+            context.state._internal.generations.extend(matching_result.batch_generations)
+
+            await self._record_guideline_matching(
+                matching_result=matching_result,
+                evaluated_guidelines=relevant_guidelines,
+                span=gm_span,
+                phase="initial",
+                iteration=len(context.state.iterations) + 1,
+            )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
@@ -1058,9 +1120,10 @@ class AlphaEngine(Engine):
             relevant_journeys=sorted_journeys_by_relevance,
             activated_journeys=journeys,
             top_k=len(high_prob_journeys),
+            span=span,
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
-            matches = list(chain.from_iterable(batches))
+            matches = list(chain(matching_result.matches, second_match_result.matches))
 
             matching_result = GuidelineMatchingResult(
                 total_duration=matching_result.total_duration + second_match_result.total_duration,
@@ -1105,6 +1168,7 @@ class AlphaEngine(Engine):
     async def _load_additional_matched_guidelines_and_journeys(
         self,
         context: LoadedContext,
+        span: Span,
     ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve all the possible journeys for this agent
         all_journeys = await self._entity_queries.finds_journeys_for_context(
@@ -1132,11 +1196,29 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Reevaluate those guidelines using the latest context.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=context.state.journeys,
-            guidelines=guidelines_to_reevaluate,
-        )
+        async with self._tracer.span(
+            "guideline_matching",
+            attributes={
+                "phase": "reevaluation",
+                "iteration": len(context.state.iterations) + 1,
+            },
+        ) as gm_span:
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=context.state.journeys,
+                guidelines=guidelines_to_reevaluate,
+            )
+
+            context.state._internal.evaluated_guidelines.extend(guidelines_to_reevaluate)
+            context.state._internal.generations.extend(matching_result.batch_generations)
+
+            await self._record_guideline_matching(
+                matching_result=matching_result,
+                evaluated_guidelines=guidelines_to_reevaluate,
+                span=gm_span,
+                phase="initial",
+                iteration=len(context.state.iterations) + 1,
+            )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         # If a journey was already active in a previous iteration, we still retrieve its steps
@@ -1152,6 +1234,7 @@ class AlphaEngine(Engine):
             all_stored_guidelines=all_stored_guidelines,
             already_examined_guidelines={g.id for g in guidelines_to_reevaluate},
             activated_journeys=activated_journeys,
+            span=span,
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
             matches = list(chain.from_iterable(batches))
@@ -1446,6 +1529,7 @@ class AlphaEngine(Engine):
         relevant_journeys: Sequence[Journey],
         activated_journeys: Sequence[Journey],
         top_k: int,
+        span: Span,
     ) -> Optional[GuidelineMatchingResult]:
         activated_low_priority_related_ids = set(
             chain.from_iterable(
@@ -1471,11 +1555,35 @@ class AlphaEngine(Engine):
                 if id in activated_low_priority_related_ids or id in journey_conditions
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=additional_matching_guidelines,
-            )
+            async with self._tracer.span(
+                "guideline_matching",
+                attributes={
+                    "phase": "low_prob",
+                    "iteration": len(context.state.iterations) + 1,
+                },
+            ) as gm_span:
+                guideline_and_journey_matching_result = (
+                    await self._guideline_matcher.match_guidelines(
+                        context=context,
+                        active_journeys=activated_journeys,
+                        guidelines=additional_matching_guidelines,
+                    )
+                )
+
+                context.state._internal.evaluated_guidelines.extend(additional_matching_guidelines)
+                context.state._internal.generations.extend(
+                    guideline_and_journey_matching_result.batch_generations
+                )
+
+                await self._record_guideline_matching(
+                    matching_result=guideline_and_journey_matching_result,
+                    evaluated_guidelines=additional_matching_guidelines,
+                    span=gm_span,
+                    phase="low_prob",
+                    iteration=len(context.state.iterations) + 1,
+                )
+
+            return guideline_and_journey_matching_result
 
         return None
 
@@ -1485,6 +1593,7 @@ class AlphaEngine(Engine):
         all_stored_guidelines: dict[GuidelineId, Guideline],
         already_examined_guidelines: set[GuidelineId],
         activated_journeys: Sequence[Journey],
+        span: Span,
     ) -> Optional[GuidelineMatchingResult]:
         related_guidelines = list(
             chain.from_iterable(
@@ -1504,11 +1613,31 @@ class AlphaEngine(Engine):
                 g for g in additional_matching_guidelines if g.id not in already_examined_guidelines
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=filtered_guidelines,
-            )
+            async with self._tracer.span(
+                "guideline_matching",
+                attributes={
+                    "phase": "dependent",
+                    "iteration": len(context.state.iterations) + 1,
+                },
+            ) as gm_span:
+                matching_result = await self._guideline_matcher.match_guidelines(
+                    context=context,
+                    active_journeys=activated_journeys,
+                    guidelines=filtered_guidelines,
+                )
+
+                context.state._internal.evaluated_guidelines.extend(filtered_guidelines)
+                context.state._internal.generations.extend(matching_result.batch_generations)
+
+                await self._record_guideline_matching(
+                    matching_result=matching_result,
+                    evaluated_guidelines=filtered_guidelines,
+                    span=gm_span,
+                    phase="dependent",
+                    iteration=len(context.state.iterations) + 1,
+                )
+
+                return matching_result
 
         return None
 
@@ -1615,8 +1744,22 @@ class AlphaEngine(Engine):
         self,
         context: LoadedContext,
         preexecution_state: ToolPreexecutionState,
+        span: Span,
     ) -> tuple[ToolEventGenerationResult, list[EmittedEvent], ToolInsights] | None:
         result = await self._tool_event_generator.generate_events(preexecution_state, context)
+
+        tool_ids = chain.from_iterable(context.state.tool_enabled_guideline_matches.values())
+
+        context.state._internal.evaluated_tools.extend(tool_ids)
+
+        if result:
+            context.state._internal.generations.extend(result.generations)
+
+        await self._record_tool_calling(
+            tool_event_result=result,
+            tools_evaluated=list(tool_ids),
+            span=span,
+        )
 
         tool_events = [e for e in result.events if e] if result else []
 
@@ -1774,6 +1917,130 @@ class AlphaEngine(Engine):
             journey_paths[j] = [None]
 
         return journey_paths
+
+    def _metric_attrs(self, **extra: AttributeValue) -> dict[str, AttributeValue]:
+        return {k: v for k, v in extra.items() if v is not None}
+
+    async def _record_generation_infos(
+        self,
+        span: Span,
+        generations: Sequence[GenerationInfo],
+        base_attrs: dict[str, AttributeValue] | None = None,  # NEW
+    ) -> None:
+        base_attrs = base_attrs or {}
+        total_in = total_out = total_cached_in = 0
+        models: dict[str, int] = defaultdict(int)
+
+        for i, info in enumerate(generations):
+            cached_in = (info.usage.extra or {}).get("cached_input_tokens", 0)
+
+            attrs = {**base_attrs, "model": info.model, "request_index": i}
+
+            await self._tracer.meter.record_counter(
+                "llm.input_tokens", info.usage.input_tokens, attrs
+            )
+            await self._tracer.meter.record_counter(
+                "llm.output_tokens", info.usage.output_tokens, attrs
+            )
+            await self._tracer.meter.record_counter("llm.cached_input_tokens", cached_in, attrs)
+            await self._tracer.meter.record_histogram(
+                "llm.request_duration_ms", info.duration * 1000, attrs
+            )
+
+            total_in += info.usage.input_tokens
+            total_out += info.usage.output_tokens
+            total_cached_in += cached_in
+            models[info.model] += 1
+
+        if generations:
+            await self._tracer.meter.record_counter("llm.requests", len(generations), base_attrs)
+            await self._tracer.meter.record_counter("llm.input_tokens.sum", total_in, base_attrs)
+            await self._tracer.meter.record_counter("llm.output_tokens.sum", total_out, base_attrs)
+            await self._tracer.meter.record_counter(
+                "llm.cached_input_tokens.sum", total_cached_in, base_attrs
+            )
+            await span.add_event("llm.requests_by_model", models)
+
+    async def _record_guideline_matching(
+        self,
+        matching_result: GuidelineMatchingResult,
+        evaluated_guidelines: Sequence[Guideline],
+        span: Span,
+        phase: str,
+        iteration: int,
+    ) -> None:
+        base_attrs: dict[str, AttributeValue] = {"phase": phase, "iteration": iteration}
+
+        await self._tracer.meter.record_counter(
+            "guidelines.evaluated", len(evaluated_guidelines), base_attrs
+        )
+
+        await self._record_generation_infos(span, matching_result.batch_generations, base_attrs)
+
+        await self._tracer.meter.record_counter(
+            "guidelines.activated", len(matching_result.matches), base_attrs
+        )
+
+    async def _record_tool_calling(
+        self,
+        tool_event_result: ToolEventGenerationResult,
+        tools_evaluated: list[ToolId],
+        span: Span,
+    ) -> None:
+        if not tool_event_result:
+            await self._tracer.meter.record_counter("tools.evaluated", len(tools_evaluated))
+            await self._tracer.meter.record_counter("tools.activated", 0)
+
+            return
+
+        await self._tracer.meter.record_counter("tools.evaluated", len(tools_evaluated))
+
+        await self._record_generation_infos(span, tool_event_result.generations)
+
+        activated = sum(
+            1
+            for _, e in tool_event_result.insights.evaluations
+            if e == ToolCallEvaluation.NEEDS_TO_RUN
+        )
+
+        await self._tracer.meter.record_counter("tools.activated", activated)
+
+    async def _record_process_summary(
+        self,
+        context: LoadedContext,
+        span: Span,
+    ) -> None:
+        models: dict[str, int] = defaultdict(int)
+
+        for info in context.state._internal.generations:
+            models[info.model] += 1
+
+        await span.add_event("Total schema/requests", models)
+
+        await span.set_attribute(
+            "guidelines_evaluated_count",
+            len(context.state._internal.evaluated_guidelines),
+        )
+        await span.set_attribute(
+            "guidelines_activated_count",
+            len(context.state.guidelines),
+        )
+        await span.set_attribute(
+            "journeys_activated",
+            [j.title for j in context.state.journeys],
+        )
+        await span.set_attribute(
+            "journeys_activated_count",
+            len(context.state.journeys),
+        )
+        await span.set_attribute(
+            "tool_evaluated_count",
+            len(context.state._internal.evaluated_tools),
+        )
+        await span.set_attribute(
+            "tool_activated_count",
+            len(context.state.tool_enabled_guideline_matches),
+        )
 
 
 # This is module-level and public for isolated testability purposes.

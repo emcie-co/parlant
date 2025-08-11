@@ -41,7 +41,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     ResponseAnalysisContext,
 )
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import (
+    Interaction,
+    InternalState,
+    LoadedContext,
+    ResponseState,
+)
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
@@ -322,6 +327,11 @@ async def match_guidelines(
             tool_insights=ToolInsights(),
             prepared_to_respond=False,
             message_events=[],
+            _internal=InternalState(
+                evaluated_guidelines=[],
+                evaluated_tools=[],
+                generations=[],
+            ),
         ),
     )
 

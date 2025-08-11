@@ -35,7 +35,12 @@ from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_bat
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisContext,
 )
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import (
+    Interaction,
+    InternalState,
+    LoadedContext,
+    ResponseState,
+)
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
@@ -58,6 +63,7 @@ from parlant.core.sessions import (
     SessionUpdateParams,
 )
 
+from parlant.core.tracing import Tracer
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
@@ -353,6 +359,7 @@ def when_messages_are_emitted(
             agent_id=agent.id,
         ),
         logger=context.container[Logger],
+        tracer=context.container[Tracer],
         correlator=context.container[ContextualCorrelator],
         agent=agent,
         customer=customer,
@@ -378,6 +385,11 @@ def when_messages_are_emitted(
             tool_insights=ToolInsights(),
             prepared_to_respond=False,
             message_events=[],
+            _internal=InternalState(
+                evaluated_guidelines=[],
+                evaluated_tools=[],
+                generations=[],
+            ),
         ),
     )
 

@@ -835,15 +835,11 @@ You will now be given the current state of the interaction to which you must gen
                     latch.enable()
 
                 if result is not None:
-                    draft_message = result.draft
                     sub_messages = result.message.strip().split("\n\n")
                     events = []
 
                     while sub_messages:
                         m = sub_messages.pop(0)
-
-                        if await self._hooks.call_on_message_generated(loaded_context, payload=m):
-                            # If we're in, the hook did not bail out.
 
                         if await self._hooks.call_on_message_generated(loaded_context, payload=m):
                             # If we're in, the hook did not bail out.
@@ -909,18 +905,28 @@ You will now be given the current state of the interaction to which you must gen
                                 initial_delay
                                 + (word_count_for_next_message / typing_speed_in_words_per_minute)
                             )
-                            (
-                                generation_info,
-                                result,
-                            ) = await self._generate_supplemental_canned_response(
-                                context=context,
-                                draft=draft_message,
-                            )
-                            events = []
-                            if result.events:
-                                events.extend(result.events)
-                            return [MessageEventComposition(generation_info, events)]
 
+                    (
+                        supp_canrep_generation_info,
+                        supp_canrep_response,
+                    ) = await self._generate_supplemental_canned_response(
+                        context=context,
+                        draft=result.draft,
+                    )
+                    if supp_canrep_response and supp_canrep_response.response:
+                        events.append(
+                            await event_emitter.emit_message_event(
+                                correlation_id=self._correlator.correlation_id,
+                                data=MessageEventData(
+                                    message=supp_canrep_response.response.value
+                                    if supp_canrep_response
+                                    else "",
+                                    participant=Participant(id=agent.id, display_name=agent.name),
+                                    draft=result.draft,
+                                    canned_responses=result.canned_responses,
+                                ),
+                            )
+                        )  # TODO I was here
                     return [MessageEventComposition(generation_info, events)]
                 else:
                     self._logger.debug("Skipping response; no response deemed necessary")
@@ -1805,7 +1811,7 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         self,
         context: CannedResponseContext,
         draft: str,
-    ) -> Sequence[MessageEventComposition]:
+    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseRenderResult]]:
         canned_responses = await self._get_relevant_canned_responses(context)
         prompt = self._build_supplemental_canned_response_prompt(context, draft, canned_responses)
         supp_canrep_response = await self._supplemental_canrep_generator.generate(prompt=prompt)

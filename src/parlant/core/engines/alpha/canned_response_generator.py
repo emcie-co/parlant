@@ -113,8 +113,8 @@ class SupplementalCannedResponseSchema(DefaultBaseModel):
     draft: str
     remaining_message_draft: str
     additional_response_required: bool
-    additional_canned_response: Optional[str] = None
-    additional_canned_response_id: Optional[str] = None
+    additional_template: Optional[str] = None
+    additional_template_id: Optional[str] = None
     match_quality: Optional[str] = None
 
 
@@ -1325,30 +1325,11 @@ Produce a valid JSON object according to the following spec. Use the values prov
         draft_message: str,
         canned_responses: Sequence[tuple[CannedResponseId, str]],
     ) -> PromptBuilder:
-        guideline_representations = {
-            m.guideline.id: internal_representation(m.guideline)
-            for m in chain(
-                context.ordinary_guideline_matches, context.tool_enabled_guideline_matches
-            )
-        }
-
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
                 f"Canned Response Selection Prompt:\n{prompt}"
             )
         )
-
-        if context.guideline_matches:
-            formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
-
-            for match in [
-                g for g in context.guideline_matches if internal_representation(g.guideline).action
-            ]:
-                formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
-
-            formatted_guidelines += "\n###"
-        else:
-            formatted_guidelines = ""
 
         formatted_canreps = "\n".join(
             [f'Template ID: {canrep[0]} """\n{canrep[1]}\n"""' for canrep in canned_responses]
@@ -1368,6 +1349,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
 9. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
         )
 
+        builder.add_agent_identity(context.agent)
+        builder.add_customer_identity(context.customer)
         builder.add_glossary(context.terms)
         builder.add_interaction_history_for_message_generation(
             context.interaction_history,
@@ -1375,14 +1358,22 @@ Produce a valid JSON object according to the following spec. Use the values prov
         )
 
         builder.add_section(
-            name="canned-response-generator-selection-inputs",
+            name="canned-response-generator-selection-templates",
             template="""
 Pre-approved reply templates: ###
 {formatted_canned_responses}
 ###
-
-{formatted_guidelines}
-
+""",
+            props={
+                "formatted_canned_responses": formatted_canreps,
+            },
+        )
+        builder.add_guideliens_for_canrep_selection(
+            list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
+        )
+        builder.add_section(
+            name="canned-response-generator-selection-task-description",
+            template="""
 Draft reply message: ###
 {draft_message}
 ###
@@ -1397,16 +1388,6 @@ Output a JSON object with three properties:
 """,
             props={
                 "draft_message": draft_message,
-                "canned_responses": canned_responses,
-                "formatted_canned_responses": formatted_canreps,
-                "guidelines": [
-                    g
-                    for g in context.guideline_matches
-                    if internal_representation(g.guideline).action
-                ],
-                "formatted_guidelines": formatted_guidelines,
-                "composition_mode": context.agent.composition_mode,
-                "guideline_representations": guideline_representations,
             },
         )
         return builder
@@ -1798,7 +1779,103 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         draft: str,
         canned_responses: Mapping[str, str],
     ) -> PromptBuilder:
-        builder = PromptBuilder()
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Supplemental Canned Response Selection Prompt:\n{prompt}"
+            )
+        )
+
+        formatted_canreps = "\n".join(
+            [f'Template ID: {canrep[0]} """\n{canrep[1]}\n"""' for canrep in canned_responses]
+        )
+
+        builder.add_section(
+            name="supplemental-canned-response-generator-selection-general_instructions",
+            template="""
+
+GENERAL INSTRUCTIONS
+-----------------
+You are an AI agent who is part of a system that interacts with a user. The current state of this interaction will be provided to you later in this message.
+A draft reply to the user has been generated by a human operator. Based on this draft, a pre-approved template response was previously selected and sent to the customer.
+In certain cases, this singular template does not fully transmit the draft the crafted by the human operator. 
+In those cases, an additional template can be transmitted to cover whatever part of the draft that was not covered by the pre-approved template.
+""",
+        )
+
+        builder.add_section(
+            name="supplemental-canned-response-generator-selection-task-description",
+            template="""
+TASK DESCRIPTION
+-----------------
+Your task is to evaluate whether an additional template should be transmitted to the customer, and, if necessary, choose the specific template that best captures remainder of the human operator's draft reply.
+You are provided with a number of Jinja2 reply templates to choose from. These templates have been pre-approved by business stakeholders for producing fluent customer-facing AI conversations. 
+Perform your task as follows:
+1. Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under they key "remaining_message_draft".
+2. Decide whether an additional template can capture the your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
+3. If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template, exactly as it is given in the prompt, under the key "additional_template". Do not alter the provided template at all. Additionally, output the key of your chosen template under the key "additional_template_id".
+4. Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality. You must choose one of the following option "fully", "partial", "low":
+    a. "low": You couldn't find a template that even comes close
+    b. "partial": You found a template that conveys at least some of the draft message's content
+    c. "high": You found a template that captures the draft message in both form and functionSome nuances regarding choosing the correct template:
+    - Note that there may be multiple relevant choices. Out of those, you must choose the MOST suitable one that is MOST LIKE the human operator's draft reply.
+    - In cases where there are multiple templates that provide a partial match, you may encounter different types of partial matches. Prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message. They are better than a template that would have captured multiple of the remaining parts of the draft message while introducing semantic deviations. In other words, better to match fewer parts with higher semantic fidelity than to match more parts with lower semantic fidelity.
+    - If there is any noticeable semantic deviation between the draft message and the template, i.e., the draft says "Do X" and the template says "Do Y" (even if Y is a sibling concept under the same category as X), you should not choose that template, even if it captures other parts of the remaining message draft. We want to maintain true fidelity with the draft message.
+""",
+        )
+
+        builder.add_section(
+            name="supplemental-canned-response-generator-selection-output_format",
+            template="""
+OUTPUT FORMAT
+-----------------
+Output a JSON object with three properties:
+{{
+    "
+}}
+""",
+        )
+        builder.add_agent_identity(context.agent)
+        builder.add_customer_identity(context.customer)
+        builder.add_interaction_history(context.interaction_history)
+
+        builder.add_section(
+            name="supplemental-canned-response-generator-selection-templates",
+            template="""
+Pre-approved reply templates: ###
+{formatted_canned_responses}
+###
+""",
+            props={
+                "formatted_canned_responses": formatted_canreps,
+            },
+        )
+        builder.add_guideliens_for_canrep_selection(
+            list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
+        )
+        builder.add_section(
+            name="canned-response-generator-selection-task-description",
+            template="""
+Draft message used for the last message generated by you, the agent: ###
+{draft_message}
+###
+
+You may choose to supplement it with one of the following pre-approved templates: ###
+{formatted_canned_responses}
+###
+
+
+Output a JSON object with three properties:
+1. "tldr": consider 1-3 best candidate templates for a match (in view of the draft message and the additional behavioral guidelines) and reason about the most appropriate one choice to capture the draft message's main intent while also ensuring to take the behavioral guidelines into account. Be very pithy and concise in your reasoning, like a newsline heading stating logical notes and conclusions.
+2. "chosen_template_id" containing the selected template ID.
+3. "match_quality": which can be ONLY ONE OF "low", "partial", "high".
+    a. "low": You couldn't find a template that even comes close
+    b. "partial": You found a template that conveys at least some of the draft message's content
+    c. "high": You found a template that captures the draft message in both form and function
+""",
+            props={
+                "draft_message": draft,
+            },
+        )
 
         return builder
 
@@ -1832,11 +1909,11 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
             )
             if (
                 response.content.additional_response_required
-                and response.content.additional_canned_response_id
+                and response.content.additional_template_id
                 and response.content.match_quality in ["partial", "high"]
             ):
                 chosen_canrep = chronological_id_canreps.get(
-                    response.content.additional_canned_response_id, None
+                    response.content.additional_template_id, None
                 )
                 if chosen_canrep is None:
                     self._logger.warning(

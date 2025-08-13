@@ -26,6 +26,7 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
+    internal_representation,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.sessions import Event, EventKind, EventSource, MessageEventData, ToolEventData
@@ -582,6 +583,31 @@ These guidelines have already been pre-filtered based on the interaction's conte
                 "guideline_list": guideline_list,
                 "agent_intention_guidelines_list": agent_intention_guidelines_list,
             },
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
+    def add_guideliens_for_canrep_selection(
+        self, guideline_matches: Sequence[GuidelineMatch]
+    ) -> PromptBuilder:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline) for m in guideline_matches
+        }
+
+        if guideline_matches:
+            formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
+
+            for match in [
+                g for g in guideline_matches if internal_representation(g.guideline).action
+            ]:
+                formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
+
+            formatted_guidelines += "\n###"
+        else:
+            formatted_guidelines = ""
+        self.add_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=formatted_guidelines,
             status=SectionStatus.ACTIVE,
         )
         return self

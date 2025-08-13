@@ -245,7 +245,7 @@ class NLPServices:
         from parlant.adapters.nlp.together_service import TogetherService
 
         return TogetherService(container[Logger])
-    
+
     @staticmethod
     def gemini(container: Container) -> NLPService:
         """Creates a Gemini NLPService instance using the provided container."""

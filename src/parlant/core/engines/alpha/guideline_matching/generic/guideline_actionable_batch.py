@@ -108,6 +108,8 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                         self._logger.trace(
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
+                        with open("guideline actionable batch output.txt", "w") as f:
+                            f.write(inference.content.model_dump_json(indent=2))
 
                     matches = []
 
@@ -297,6 +299,8 @@ OUTPUT FORMAT
             },
         )
 
+        with open("guideline actionable batch.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _format_of_guideline_check_json_description(

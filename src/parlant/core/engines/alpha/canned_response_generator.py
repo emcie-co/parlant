@@ -771,6 +771,82 @@ You will now be given the current state of the interaction to which you must gen
         loaded_context: LoadedContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
+        async def output_messages(
+            generation_result: Optional[_CannedResponseSelectionResult],
+        ) -> list[EmittedEvent]:
+            emitted_events: list[EmittedEvent] = []
+            if generation_result is not None:
+                sub_messages = generation_result.message.strip().split("\n\n")
+
+                while sub_messages:
+                    m = sub_messages.pop(0)
+
+                    if await self._hooks.call_on_message_generated(loaded_context, payload=m):
+                        # If we're in, the hook did not bail out.
+
+                        event = await event_emitter.emit_message_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data=MessageEventData(
+                                message=m,
+                                participant=Participant(id=agent.id, display_name=agent.name),
+                                draft=generation_result.draft,
+                                canned_responses=generation_result.canned_responses,
+                            )
+                            if generation_result.draft
+                            else MessageEventData(
+                                message=m,
+                                participant=Participant(id=agent.id, display_name=agent.name),
+                            ),
+                        )
+
+                        emitted_events.append(event)
+
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "ready",
+                                "data": {},
+                            },
+                        )
+
+                    if next_message := sub_messages[0] if sub_messages else None:
+                        await self._perceived_performance_policy.get_follow_up_delay()
+
+                            await context.event_emitter.emit_status_event(
+                                correlation_id=self._correlator.correlation_id,
+                                data={
+                                    "status": "typing",
+                                    "data": {},
+                                },
+                            )
+
+                        typing_speed_in_words_per_minute = 50
+
+                        initial_delay = 0.0
+
+                        word_count_for_the_message_that_was_just_sent = len(m.split())
+
+                        if word_count_for_the_message_that_was_just_sent <= 10:
+                            initial_delay += 0.5
+                        else:
+                            initial_delay += (
+                                word_count_for_the_message_that_was_just_sent
+                                / typing_speed_in_words_per_minute
+                            ) * 2
+
+                        word_count_for_next_message = len(next_message.split())
+
+                        if word_count_for_next_message <= 10:
+                            initial_delay += 1
+                        else:
+                            initial_delay += 2
+
+                        await asyncio.sleep(
+                            initial_delay
+                            + (word_count_for_next_message / typing_speed_in_words_per_minute)
+                        )
+            return emitted_events
+
         event_emitter = loaded_context.session_event_emitter
         agent = loaded_context.agent
         customer = loaded_context.customer
@@ -823,7 +899,8 @@ You will now be given the current state of the interaction to which you must gen
 
         for generation_attempt in range(3):
             try:
-                generation_info, result = await self._generate_response(
+                events: list[EmittedEvent] = []
+                generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
                     responses,
@@ -833,104 +910,22 @@ You will now be given the current state of the interaction to which you must gen
 
                 if latch:
                     latch.enable()
-
-                if result is not None:
-                    sub_messages = result.message.strip().split("\n\n")
-                    events = []
-
-                    while sub_messages:
-                        m = sub_messages.pop(0)
-
-                        if await self._hooks.call_on_message_generated(loaded_context, payload=m):
-                            # If we're in, the hook did not bail out.
-
-                            event = await event_emitter.emit_message_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data=MessageEventData(
-                                    message=m,
-                                    participant=Participant(id=agent.id, display_name=agent.name),
-                                    draft=result.draft,
-                                    canned_responses=result.canned_responses,
-                                )
-                                if result.draft
-                                else MessageEventData(
-                                    message=m,
-                                    participant=Participant(id=agent.id, display_name=agent.name),
-                                ),
-                            )
-
-                            events.append(event)
-
-                        await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
-                            data={
-                                "status": "ready",
-                                "data": {},
-                            },
-                        )
-
-                        if next_message := sub_messages[0] if sub_messages else None:
-                            await self._perceived_performance_policy.get_follow_up_delay()
-
-                            await context.event_emitter.emit_status_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data={
-                                    "status": "typing",
-                                    "data": {},
-                                },
-                            )
-
-                            typing_speed_in_words_per_minute = 50
-
-                            initial_delay = 0.0
-
-                            word_count_for_the_message_that_was_just_sent = len(m.split())
-
-                            if word_count_for_the_message_that_was_just_sent <= 10:
-                                initial_delay += 0.5
-                            else:
-                                initial_delay += (
-                                    word_count_for_the_message_that_was_just_sent
-                                    / typing_speed_in_words_per_minute
-                                ) * 2
-
-                            word_count_for_next_message = len(next_message.split())
-
-                            if word_count_for_next_message <= 10:
-                                initial_delay += 1
-                            else:
-                                initial_delay += 2
-
-                            await asyncio.sleep(
-                                initial_delay
-                                + (word_count_for_next_message / typing_speed_in_words_per_minute)
-                            )
-
-                    (
-                        supp_canrep_generation_info,
-                        supp_canrep_response,
-                    ) = await self._generate_supplemental_canned_response(
-                        context=context,
-                        draft=result.draft,
-                    )
-                    if supp_canrep_response and supp_canrep_response.response:
-                        events.append(
-                            await event_emitter.emit_message_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data=MessageEventData(
-                                    message=supp_canrep_response.response.value
-                                    if supp_canrep_response
-                                    else "",
-                                    participant=Participant(id=agent.id, display_name=agent.name),
-                                    draft=result.draft,
-                                    canned_responses=result.canned_responses,
-                                ),
-                            )
-                        )  # TODO I was here
-                    return [MessageEventComposition(generation_info, events)]
-                else:
+                events += await output_messages(generation_result)
+                (
+                    supp_canrep_generation_info,
+                    supp_canrep_response,
+                ) = await self._generate_supplemental_canned_response(
+                    context=context,
+                    last_generation_response=generation_result,
+                )
+                events += await output_messages(supp_canrep_response)
+                if not events:
                     self._logger.debug("Skipping response; no response deemed necessary")
-                    return [MessageEventComposition(generation_info, [])]
+                return [
+                    MessageEventComposition(
+                        {**generation_info, **supp_canrep_generation_info}, events
+                    )
+                ]
             except Exception as exc:
                 self._logger.warning(
                     f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -1801,7 +1796,7 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         self,
         context: CannedResponseContext,
         draft: str,
-        canned_responses: Sequence[CannedResponse],
+        canned_responses: Mapping[str, str],
     ) -> PromptBuilder:
         builder = PromptBuilder()
 
@@ -1810,12 +1805,57 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
     async def _generate_supplemental_canned_response(
         self,
         context: CannedResponseContext,
-        draft: str,
-    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseRenderResult]]:
-        canned_responses = await self._get_relevant_canned_responses(context)
-        prompt = self._build_supplemental_canned_response_prompt(context, draft, canned_responses)
-        supp_canrep_response = await self._supplemental_canrep_generator.generate(prompt=prompt)
-        supp_canrep_response
+        last_generation_response: _CannedResponseSelectionResult | None,
+    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
+        selection_result: Optional[_CannedResponseSelectionResult] = None
+        if (
+            context.agent.composition_mode != CompositionMode.CANNED_STRICT
+            or last_generation_response is None
+        ):
+            return {}, None
+        try:
+            filtered_canned_responses = [
+                (crid, canrep)
+                for crid, canrep in last_generation_response.canned_responses
+                if canrep != last_generation_response.message
+            ]  # remove last outputted response
+            chronological_id_canreps = {
+                str(i): canrep
+                for i, (crid, canrep) in enumerate(filtered_canned_responses, start=1)
+            }
+            prompt = self._build_supplemental_canned_response_prompt(
+                context, last_generation_response.draft, chronological_id_canreps
+            )
+            response = await self._supplemental_canrep_generator.generate(prompt=prompt)
+            self._logger.trace(
+                f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
+            )
+            if (
+                response.content.additional_response_required
+                and response.content.additional_canned_response_id
+                and response.content.match_quality in ["partial", "high"]
+            ):
+                chosen_canrep = chronological_id_canreps.get(
+                    response.content.additional_canned_response_id, None
+                )
+                if chosen_canrep is None:
+                    self._logger.warning(
+                        "Supplemental canned response returned an Illegal canned response ID"
+                    )
+                selection_result = (
+                    _CannedResponseSelectionResult(
+                        message=chosen_canrep,
+                        draft=response.content.remaining_message_draft,
+                        canned_responses=filtered_canned_responses,
+                    )
+                    if chosen_canrep
+                    else None
+                )
+            return ({"supplemental": response.info}, selection_result)
+
+        except Exception:
+            self._logger.error("Failed to choose supplemental canned response")
+            return ({}, None)
 
 
 def shot_canned_canned_response_id(number: int) -> str:

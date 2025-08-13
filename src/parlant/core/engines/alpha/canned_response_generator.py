@@ -109,10 +109,13 @@ class CannedResponseSelectionSchema(DefaultBaseModel):
     match_quality: Optional[str] = None
 
 
-class SupplementalCannedResponseSchema(DefaultBaseModel):
-    draft: str
-    remaining_message_draft: str
-    additional_response_required: bool
+class SupplementalCannedResponseSelectionSchema(DefaultBaseModel):
+    draft: Optional[str] = None
+    last_agent_message: Optional[str] = None
+    remaining_message_draft: Optional[str] = None
+    unsatisfied_guidelines: Optional[str] = None
+    rationale: Optional[str] = None
+    additional_response_required: Optional[bool] = False
     additional_template: Optional[str] = None
     additional_template_id: Optional[str] = None
     match_quality: Optional[str] = None
@@ -128,6 +131,12 @@ class CannedResponseRevisionSchema(DefaultBaseModel):
 
 @dataclass
 class CannedResponseGeneratorDraftShot(Shot):
+    composition_modes: list[CompositionMode]
+    expected_result: CannedResponseDraftSchema
+
+
+@dataclass
+class SupplementalCannedResponseSelectionShot(Shot):
     composition_modes: list[CompositionMode]
     expected_result: CannedResponseDraftSchema
 
@@ -463,9 +472,9 @@ class CannedResponseGenerator(MessageEventComposer):
         canned_response_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
         canned_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
         canned_response_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
-        canned_response_fluid_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
+        canned_response_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
         supplemental_canned_response_generator: SchematicGenerator[
-            SupplementalCannedResponseSchema
+            SupplementalCannedResponseSelectionSchema
         ],
         perceived_performance_policy: PerceivedPerformancePolicy,
         canned_response_store: CannedResponseStore,
@@ -481,7 +490,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_draft_generator = canned_response_draft_generator
         self._canrep_selection_generator = canned_selection_generator
         self._canrep_composition_generator = canned_response_composition_generator
-        self._canrep_fluid_preamble_generator = canned_response_fluid_preamble_generator
+        self._canrep_preamble_generator = canned_response_preamble_generator
         self._supplemental_canrep_generator = supplemental_canned_response_generator
         self._canned_response_store = canned_response_store
         self._perceived_performance_policy = perceived_performance_policy
@@ -643,7 +652,7 @@ You will now be given the current state of the interaction to which you must gen
             },
         )
 
-        canrep = await self._canrep_fluid_preamble_generator.generate(
+        canrep = await self._canrep_preamble_generator.generate(
             prompt=prompt_builder, hints={"temperature": 0.1}
         )
 
@@ -916,7 +925,7 @@ You will now be given the current state of the interaction to which you must gen
                     supp_canrep_response,
                 ) = await self._generate_supplemental_canned_response(
                     context=context,
-                    last_generation_response=generation_result,
+                    last_response_generation=generation_result,
                 )
                 events += await output_messages(supp_canrep_response)
                 if not events:
@@ -1008,7 +1017,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
 """
         return guideline_instruction
 
-    def _format_shots(
+    def _format_draft_shots(
         self,
         shots: Sequence[CannedResponseGeneratorDraftShot],
     ) -> str:
@@ -1168,7 +1177,7 @@ EXAMPLES
 {formatted_shots}
 """,
             props={
-                "formatted_shots": self._format_shots(shots),
+                "formatted_shots": self._format_draft_shots(shots),
                 "shots": shots,
             },
         )
@@ -1773,12 +1782,29 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
 
         return result.info, result.content.revised_canned_response
 
+    def _format_supplemental_generation_shots(
+        self,
+        shots: Sequence[SupplementalCannedResponseSelectionSchema],
+    ):
+        return "\n".join(
+            f"Example #{i}: ###\n{self._format_supplemental_generation_shot(shot)}"
+            for i, shot in enumerate(shots, start=1)
+        )
+
     def _build_supplemental_canned_response_prompt(
         self,
         context: CannedResponseContext,
         draft: str,
         canned_responses: Mapping[str, str],
     ) -> PromptBuilder:
+        last_agent_message = next(
+            (
+                e
+                for e in reversed(context.interaction_history)
+                if e.kind == EventKind.MESSAGE and e.source in {EventSource.AI_AGENT}
+            ),
+            None,
+        )
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
                 f"Supplemental Canned Response Selection Prompt:\n{prompt}"
@@ -1797,12 +1823,12 @@ GENERAL INSTRUCTIONS
 -----------------
 You are an AI agent who is part of a system that interacts with a user. The current state of this interaction will be provided to you later in this message.
 A draft reply to the user has been generated by a human operator. Based on this draft, a pre-approved template response was previously selected and sent to the customer.
-In certain cases, this singular template does not fully transmit the draft the crafted by the human operator. 
-In those cases, an additional template can be transmitted to cover whatever part of the draft that was not covered by the pre-approved template.
+In certain cases, this singular template does not fully transmit the draft crafted by the human operator. 
+In those cases, an additional template may be transmitted to cover whatever part of the draft that was not covered by the previously outputted pre-approved template.
 """,
         )
 
-        builder.add_section(
+        builder.add_section(  # Emphasize guidelines that were not captured by the last message
             name="supplemental-canned-response-generator-selection-task-description",
             template="""
 TASK DESCRIPTION
@@ -1810,10 +1836,15 @@ TASK DESCRIPTION
 Your task is to evaluate whether an additional template should be transmitted to the customer, and, if necessary, choose the specific template that best captures remainder of the human operator's draft reply.
 You are provided with a number of Jinja2 reply templates to choose from. These templates have been pre-approved by business stakeholders for producing fluent customer-facing AI conversations. 
 Perform your task as follows:
-1. Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under they key "remaining_message_draft".
-2. Decide whether an additional template can capture the your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
-3. If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template, exactly as it is given in the prompt, under the key "additional_template". Do not alter the provided template at all. Additionally, output the key of your chosen template under the key "additional_template_id".
-4. Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality. You must choose one of the following option "fully", "partial", "low":
+1. Document which behavioral guidelines aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
+2. Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under they key "remaining_message_draft".
+3. Examine whether an additional response is required, and if so, which template best captures the remaining message draft. 
+   Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available canned responses.
+   If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft.
+   Document your thought process under the key "rationale".
+4. Decide whether an additional template can capture the your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
+5. If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template, exactly as it is given in the prompt, under the key "additional_template". Do not alter the provided template at all. Additionally, output the key of your chosen template under the key "additional_template_id".
+6. Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality. You must choose one of the following option "fully", "partial", "low":
     a. "low": You couldn't find a template that even comes close
     b. "partial": You found a template that conveys at least some of the draft message's content
     c. "high": You found a template that captures the draft message in both form and functionSome nuances regarding choosing the correct template:
@@ -1822,30 +1853,40 @@ Perform your task as follows:
     - If there is any noticeable semantic deviation between the draft message and the template, i.e., the draft says "Do X" and the template says "Do Y" (even if Y is a sibling concept under the same category as X), you should not choose that template, even if it captures other parts of the remaining message draft. We want to maintain true fidelity with the draft message.
 """,
         )
-
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-output_format",
+            name="supplemental-canned-response-generator-selection-examples",
             template="""
-OUTPUT FORMAT
+EXAMPLES
 -----------------
-Output a JSON object with three properties:
-{{
-    "
-}}
+{formatted_shots}
 """,
+            props={
+                "formatted_shots": self._format_supplemental_generation_shots([]),
+            },
         )
+
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer)
         builder.add_interaction_history(context.interaction_history)
 
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-templates",
+            name="supplemental-canned-response-generator-inputs",
             template="""
+INPUTS
+---------------
+Draft message: ###
+{draft}
+###
+Message already sent to the customer: ###
+{last_agent_message}
+###
 Pre-approved reply templates: ###
 {formatted_canned_responses}
 ###
 """,
             props={
+                "draft": draft,
+                "last_agent_message": last_agent_message,
                 "formatted_canned_responses": formatted_canreps,
             },
         )
@@ -1853,27 +1894,25 @@ Pre-approved reply templates: ###
             list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
         )
         builder.add_section(
-            name="canned-response-generator-selection-task-description",
+            name="supplemental-canned-response-generator-selection-output_format",
             template="""
-Draft message used for the last message generated by you, the agent: ###
-{draft_message}
-###
-
-You may choose to supplement it with one of the following pre-approved templates: ###
-{formatted_canned_responses}
-###
-
-
+OUTPUT FORMAT
+-----------------
 Output a JSON object with three properties:
-1. "tldr": consider 1-3 best candidate templates for a match (in view of the draft message and the additional behavioral guidelines) and reason about the most appropriate one choice to capture the draft message's main intent while also ensuring to take the behavioral guidelines into account. Be very pithy and concise in your reasoning, like a newsline heading stating logical notes and conclusions.
-2. "chosen_template_id" containing the selected template ID.
-3. "match_quality": which can be ONLY ONE OF "low", "partial", "high".
-    a. "low": You couldn't find a template that even comes close
-    b. "partial": You found a template that conveys at least some of the draft message's content
-    c. "high": You found a template that captures the draft message in both form and function
+{{
+    "draft": "{draft}",
+    "last_agent_message": "{last_agent_message}",
+    "remaining_message_draft": <str, rephrasing of the part of the draft that isn't covered by the last outputted message>
+    "rationale": <str, explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>,
+    "additional_response_required": <bool, if False, all remaining keys should be omitted>,
+    "additional_template": Optional[str] = "<str, exact restatement of the relevant template>",
+    "additional_template_id": "<str, ID of the chosen template>",
+    "match_quality": "<str, either "high", "partial" or "low" depending on how similar the chosen template is to the remaining message draft>",
+}}
 """,
             props={
-                "draft_message": draft,
+                "draft": draft,
+                "last_agent_message": last_agent_message,
             },
         )
 
@@ -1882,26 +1921,26 @@ Output a JSON object with three properties:
     async def _generate_supplemental_canned_response(
         self,
         context: CannedResponseContext,
-        last_generation_response: _CannedResponseSelectionResult | None,
+        last_response_generation: _CannedResponseSelectionResult | None,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         selection_result: Optional[_CannedResponseSelectionResult] = None
         if (
             context.agent.composition_mode != CompositionMode.CANNED_STRICT
-            or last_generation_response is None
+            or last_response_generation is None
         ):
             return {}, None
         try:
             filtered_canned_responses = [
                 (crid, canrep)
-                for crid, canrep in last_generation_response.canned_responses
-                if canrep != last_generation_response.message
-            ]  # remove last outputted response
+                for crid, canrep in last_response_generation.canned_responses
+                if canrep != last_response_generation.message
+            ]  # remove last outputted response  # TODO change to rendered responses from _do_generate_events
             chronological_id_canreps = {
                 str(i): canrep
                 for i, (crid, canrep) in enumerate(filtered_canned_responses, start=1)
             }
             prompt = self._build_supplemental_canned_response_prompt(
-                context, last_generation_response.draft, chronological_id_canreps
+                context, last_response_generation.draft, chronological_id_canreps
             )
             response = await self._supplemental_canrep_generator.generate(prompt=prompt)
             self._logger.trace(

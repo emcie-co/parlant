@@ -246,7 +246,7 @@ async def test_that_a_guideline_whose_condition_is_partially_satisfied_not_match
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
-        guidelines_target_names=[],
+        guidelines_target_names=["first_order_and_order_more_than_2"],
         guidelines_names=guidelines,
     )
 

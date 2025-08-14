@@ -1303,7 +1303,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
-        journey_previous_path=["1", "2", "7", "8"],
+        journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=["8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,

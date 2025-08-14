@@ -747,8 +747,7 @@ Evaluate whether the last executed step is complete:
  If not, set completed to 'needs_customer_input' and do not advance past this step.
 - For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set completed to 'completed'. If not, set completed to 'needs_agent_action'
 and do not advance past this step.
-- For REQUIRES_TOOL_CALLS steps: The step requires a tool call that has been executed. If so, set completed to 'completed'. If not, set completed to 'needs_tool_call' and do not
-advance past this step.
+- For REQUIRES_TOOL_CALLS steps: The step requires a tool call to be executed. Always stop at this step and mark it as not complete, even if the tool it requires was already executed. If you get to such a step while traversing the journey, stop and return it as the next_step.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
 
 ## 4: Journey Advancement

@@ -1303,7 +1303,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
-        journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
+        journey_previous_path=["1", "2", "7", "8"],
         expected_path=["8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,
@@ -1982,4 +1982,84 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_back
         journey_previous_path=["1", "1", "2", "3", "5", "8"],
         expected_path=["3", "4", "7"],
         expected_next_node_index="7",
+    )
+
+
+async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_before(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'd like to place an order",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "4 calzones please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Classic Italian",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What size would you like - small, medium, or large?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Large for all of them, please. I don't want any drinks btw",
+        ),
+    ]
+
+    stock_check_result = cast(
+        JSONSerializable,
+        {
+            "tool_calls": [
+                {
+                    "tool_id": "local:check_stock",
+                    "arguments": {"items": ["4 large Classic Italian Calzones"]},
+                    "result": {
+                        "data": {
+                            "all_available": True,
+                            "available_items": ["4 large Classic Italian Calzones"],
+                        },
+                        "metadata": {},
+                        "control": {},
+                    },
+                }
+            ]
+        },
+    )
+
+    staged_events = [
+        EmittedEvent(
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            correlation_id="",
+            data=stock_check_result,
+        ),
+    ]
+
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="calzone_journey",
+        journey_previous_path=["1", "2", "7", "8"],
+        expected_path=["8", "9", "10"],
+        expected_next_node_index="10",  # Should check stock again
+        staged_events=staged_events,
     )

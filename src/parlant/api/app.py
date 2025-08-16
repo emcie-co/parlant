@@ -41,6 +41,7 @@ from parlant.api import customers
 from parlant.api import logs
 from parlant.api import canned_responses
 from parlant.api.authorization import (
+    AuthorizationException,
     AuthorizationPolicy,
     Operation,
     RateLimitExceededException,
@@ -178,10 +179,21 @@ async def create_api_app(container: Container) -> ASGIApplication:
     async def rate_limit_exceeded_handler(
         request: Request, exc: RateLimitExceededException
     ) -> HTTPException:
-        logger.warning(f"Rate limit exceeded: {exc}")
+        logger.trace(f"Rate limit exceeded: {exc}")
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        )
+
+    @api_app.exception_handler(AuthorizationException)
+    async def authorization_error_handler(
+        request: Request, exc: AuthorizationException
+    ) -> HTTPException:
+        logger.trace(f"Authorization error: {exc}")
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
         )
 

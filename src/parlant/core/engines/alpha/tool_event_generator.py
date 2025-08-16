@@ -104,7 +104,7 @@ class ToolEventGenerator:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
 
         if not context.state.tool_enabled_guideline_matches:
-            self._logger.debug("Skipping tool calling; no tools associated with guidelines found")
+            self._logger.trace("Skipping tool calling; no tools associated with guidelines found")
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
         await context.session_event_emitter.emit_status_event(

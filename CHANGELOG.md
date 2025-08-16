@@ -6,9 +6,21 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.0.1] - 2025-08-16
+
+### Changed
+
+- Move tool call success log to DEBUG level
+
+### Fixed
+
+- Fix tool-based variable not enabling the associated tool on the server
+- Fix authorization errors throwing 500 instead of 403
+- Changed OpenAI LLM request operation level to TRACE to fix evaluation progress bars
+
 ## [3.0.0] - 2025-08-15
 
-Please see the announcement at https://parlant.io/blog/parlant-3-0-release
+- Please see the announcement at https://parlant.io/blog/parlant-3-0-release
 
 ## [2.2.0] - 2025-05-20
 

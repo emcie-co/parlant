@@ -219,8 +219,8 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
         return "production"
 
     @override
-    async def check_permission(self, request: Request, permission: Operation) -> bool:
-        if permission in [
+    async def check_permission(self, request: Request, operation: Operation) -> bool:
+        if operation in [
             Operation.CREATE_GUEST_SESSION,
             Operation.READ_SESSION,
             Operation.LIST_EVENTS,

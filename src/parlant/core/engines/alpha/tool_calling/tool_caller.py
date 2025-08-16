@@ -266,7 +266,7 @@ class ToolCaller:
                     tool_call.arguments,
                 )
 
-                self._logger.trace(
+                self._logger.debug(
                     f"Execution::Result: Tool call succeeded ({tool_call.tool_id.to_string()}/{tool_call.id})\n{json.dumps(asdict(result), indent=2, default=str)}"
                 )
             except Exception as exc:

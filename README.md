@@ -28,8 +28,6 @@
 
 </div>
 
----
-
 ## 🎯 The Problem Every AI Developer Faces
 
 You build an AI agent. It works great in testing. Then real users start talking to it and...
@@ -89,7 +87,9 @@ async def main():
             tools=[get_weather]
         )
 
-        # 🎉 Agent ready at http://localhost:8800
+        # 🎉 Test playground ready at http://localhost:8800
+        # Integrate the official React widget into your app,
+        # or follow the tutorial to build your own frontend!
 
 if __name__ == "__main__":
     import asyncio
@@ -100,32 +100,40 @@ if __name__ == "__main__":
 
 ## 🎬 See It In Action
 
-<img alt="Parlant Demo" src="https://www.parlant.io/img/example-scheduling-journey.gif" width="100%" />
+<img alt="Parlant Demo" src="https://github.com/emcie-co/parlant/blob/develop/docs/demo.gif?raw=true" width="100%" />
 
 ## 🔥 Why Developers Are Switching to Parlant
 
-<table>
+<table width="100%">
 <tr>
-<td width="50%">
+  <td width="50%">
 
 ### 🏗️ **Traditional AI Frameworks**
+
+  </td>
+  <td width="50%">
+
+### ⚡ **Parlant**
+
+  </td>
+</tr>
+<tr>
+<td width="50%">
 
 - Write complex system prompts
 - Hope the LLM follows them
 - Debug unpredictable behaviors
-- Scale by adding more prompt engineering
-- Cross fingers for production reliability
+- Scale by prompt engineering
+- Cross fingers for reliability
 
 </td>
 <td width="50%">
 
-### ⚡ **Parlant**
-
 - Define rules in natural language
 - **Guaranteed** rule compliance
 - Predictable, consistent behavior
-- Scale by adding more guidelines
-- Production-ready reliability from day one
+- Scale by adding guidelines
+- Production-ready from day one
 
 </td>
 </tr>
@@ -138,18 +146,19 @@ if __name__ == "__main__":
 |  **Financial Services**  |     **Healthcare**      |       **E-commerce**        |       **Legal Tech**       |
 | :----------------------: | :---------------------: | :-------------------------: | :------------------------: |
 | Compliance-first design  |   HIPAA-ready agents    |  Customer service at scale  |   Precise legal guidance   |
-| Risk management built-in | Patient data protection | Order processing automation | Document review assistance |
+| Built-in risk management | Patient data protection | Order processing automation | Document review assistance |
 
 </div>
 
 ## 🛠️ Enterprise-Grade Features
 
+- **🧭 Conversational Journeys** - Lead the customer step-by-step to a goal
 - **🎯 Dynamic Guideline Matching** - Context-aware rule application
 - **🔧 Reliable Tool Integration** - APIs, databases, external services
 - **📊 Conversation Analytics** - Deep insights into agent behavior
 - **🔄 Iterative Refinement** - Continuously improve agent responses
 - **🛡️ Built-in Guardrails** - Prevent hallucination and off-topic responses
-- **📱 React Widget** - Drop-in chat UI for any web app
+- **📱 React Widget** - [Drop-in chat UI for any web app](https://github.com/emcie-co/parlant-chat-react)
 - **🔍 Full Explainability** - Understand every decision your agent makes
 
 ## 📈 Join 1000+ Developers Building Better AI
@@ -166,7 +175,7 @@ _Financial institutions • Healthcare providers • Legal firms • E-commerce 
 
 ## 🏃‍♂️ Quick Start Paths
 
-<table>
+<table border="0">
 <tr>
 <td><strong>🎯 I want to test it myself</strong></td>
 <td><a href="https://www.parlant.io/docs/quickstart/installation">→ 5-minute quickstart</a></td>
@@ -183,9 +192,7 @@ _Financial institutions • Healthcare providers • Legal firms • E-commerce 
 
 ## 🌟 What Developers Are Saying
 
-> _"Finally! An AI framework that actually works in production. Parlant solved our consistency issues overnight."_ > **— Sarah Chen, Lead AI Engineer @ FinTech Startup**
-
-> _"The difference is night and day. Our agents went from 60% accuracy to 95%+ with Parlant's guideline system."_ > **— Marcus Rodriguez, CTO @ HealthTech Company**
+> _"By far the most elegant conversational AI framework that I've come across! Developing with Parlant is pure joy."_ **— Vishal Ahuja, Senior Lead, Customer-Facing Conversational AI @ JPMorgan Chase**
 
 ## 🤝 Community & Support
 

@@ -1761,6 +1761,9 @@ class Agent:
 
         self._server._advance_creation_progress()
 
+        if tool:
+            await self._server._plugin_server.enable_tool(tool)
+
         variable = await self._container[ContextVariableStore].create_variable(
             name=name,
             description=description,

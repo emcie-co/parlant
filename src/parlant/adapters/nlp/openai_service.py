@@ -132,7 +132,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope("OpenAISchematicGenerator"):
             with self._logger.operation(
-                f"LLM Request ({self.schema.__name__})", level=LogLevel.DEBUG
+                f"LLM Request ({self.schema.__name__})", level=LogLevel.TRACE
             ):
                 return await self._do_generate(prompt, hints)
 
@@ -399,7 +399,7 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.DEBUG):
+        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.TRACE):
             response = await self._client.moderations.create(
                 input=content,
                 model=self.model_name,

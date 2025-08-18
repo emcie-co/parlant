@@ -925,7 +925,7 @@ You will now be given the current state of the interaction to which you must gen
                 (
                     supp_canrep_generation_info,
                     supp_canrep_response,
-                ) = await self._generate_supplemental_canned_response(
+                ) = await self.generate_supplemental_canned_response(
                     context=context,
                     last_response_generation=generation_result,
                 )
@@ -1909,7 +1909,10 @@ EXAMPLES
 
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer)
-        builder.add_interaction_history(context.interaction_history)
+        builder.add_interaction_history(
+            context.interaction_history,
+            staged_events=context.staged_message_events,
+        )
 
         builder.add_section(
             name="supplemental-canned-response-generator-inputs",
@@ -1960,7 +1963,7 @@ Output a JSON object with three properties:
 
         return builder
 
-    async def _generate_supplemental_canned_response(
+    async def generate_supplemental_canned_response(
         self,
         context: CannedResponseContext,
         last_response_generation: _CannedResponseSelectionResult | None,

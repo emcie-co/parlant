@@ -289,6 +289,13 @@ class NLPServices:
             raise SDKError(error)
 
         return GeminiService(container[Logger])
+    
+    @staticmethod
+    def vertex(container: Container) -> NLPService:
+        """Creates a Vertex NLPService instance using the provided container."""
+        from parlant.adapters.nlp.vertex_service import VertexAIService
+
+        return VertexAIService(container[Logger])
 
     @staticmethod
     def litellm(container: Container) -> NLPService:

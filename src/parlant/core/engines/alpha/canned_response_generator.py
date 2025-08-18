@@ -137,8 +137,10 @@ class CannedResponseGeneratorDraftShot(Shot):
 
 @dataclass
 class SupplementalCannedResponseSelectionShot(Shot):
-    composition_modes: list[CompositionMode]
-    expected_result: CannedResponseDraftSchema
+    description: str
+    canned_responses: Mapping[str, str]
+    draft: str
+    expected_result: SupplementalCannedResponseSelectionSchema
 
 
 @dataclass
@@ -500,10 +502,10 @@ class CannedResponseGenerator(MessageEventComposer):
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
 
-    async def shots(
+    async def draft_generation_shots(
         self, composition_mode: CompositionMode
     ) -> Sequence[CannedResponseGeneratorDraftShot]:
-        shots = await shot_collection.list()
+        shots = await draft_generation_shot_collection.list()
         supported_shots = [s for s in shots if composition_mode in s.composition_modes]
         return supported_shots
 
@@ -1024,13 +1026,13 @@ These guidelines have already been pre-filtered based on the interaction's conte
         return "\n".join(
             f"""
 Example {i} - {shot.description}: ###
-{self._format_shot(shot)}
+{self._format_draft_shot(shot)}
 ###
 """
             for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(
+    def _format_draft_shot(
         self,
         shot: CannedResponseGeneratorDraftShot,
     ) -> str:
@@ -1428,7 +1430,7 @@ Output a JSON object with three properties:
             staged_tool_events=context.staged_tool_events,
             staged_message_events=context.staged_message_events,
             tool_insights=context.tool_insights,
-            shots=await self.shots(context.agent.composition_mode),
+            shots=await self.draft_generation_shots(context.agent.composition_mode),
         )
 
         if direct_draft_output_mode:
@@ -1782,20 +1784,62 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
 
         return result.info, result.content.revised_canned_response
 
+    def _format_supplemental_generation_shot(
+        self, shot: SupplementalCannedResponseSelectionShot
+    ) -> str:
+        def adapt_event(e: Event) -> JSONSerializable:
+            source_map: dict[EventSource, str] = {
+                EventSource.CUSTOMER: "user",
+                EventSource.CUSTOMER_UI: "frontend_application",
+                EventSource.HUMAN_AGENT: "human_service_agent",
+                EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: "ai_agent",
+                EventSource.AI_AGENT: "ai_agent",
+                EventSource.SYSTEM: "system-provided",
+            }
+
+            return {
+                "event_kind": e.kind.value,
+                "event_source": source_map[e.source],
+                "data": e.data,
+            }
+
+        formatted_shot = ""
+        candidate_canreps = "\n".join(
+            f"{canrep_id}) {canrep}" for canrep_id, canrep in shot.canned_responses.items()
+        )
+        formatted_shot += f"""
+- **Candidate Canned Responses**:
+{candidate_canreps}
+
+"""
+
+        formatted_shot += f"""
+- **Expected Result**:
+```json
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```
+"""
+
+        return formatted_shot
+
     def _format_supplemental_generation_shots(
         self,
-        shots: Sequence[SupplementalCannedResponseSelectionSchema],
-    ):
+        shots: Sequence[SupplementalCannedResponseSelectionShot],
+    ) -> str:
         return "\n".join(
-            f"Example #{i}: ###\n{self._format_supplemental_generation_shot(shot)}"
-            for i, shot in enumerate(shots, start=1)
+            f"""
+    Example {i} - {shot.description}: ###
+    {self._format_supplemental_generation_shot(shot)}
+    ###"""
+            for i, shot in enumerate(shots, 1)
         )
 
     def _build_supplemental_canned_response_prompt(
         self,
         context: CannedResponseContext,
-        draft: str,
+        draft_message: str,
         canned_responses: Mapping[str, str],
+        shots: Sequence[SupplementalCannedResponseSelectionShot],
     ) -> PromptBuilder:
         last_agent_message = next(
             (
@@ -1828,7 +1872,7 @@ In those cases, an additional template may be transmitted to cover whatever part
 """,
         )
 
-        builder.add_section(  # Emphasize guidelines that were not captured by the last message
+        builder.add_section(
             name="supplemental-canned-response-generator-selection-task-description",
             template="""
 TASK DESCRIPTION
@@ -1861,7 +1905,9 @@ EXAMPLES
 {formatted_shots}
 """,
             props={
-                "formatted_shots": self._format_supplemental_generation_shots([]),
+                "formatted_shots": self._format_supplemental_generation_shots(
+                    supplemental_generation_shots,
+                ),
             },
         )
 
@@ -1885,7 +1931,7 @@ Pre-approved reply templates: ###
 ###
 """,
             props={
-                "draft": draft,
+                "draft": draft_message,
                 "last_agent_message": last_agent_message,
                 "formatted_canned_responses": formatted_canreps,
             },
@@ -1911,7 +1957,7 @@ Output a JSON object with three properties:
 }}
 """,
             props={
-                "draft": draft,
+                "draft": draft_message,
                 "last_agent_message": last_agent_message,
             },
         )
@@ -1927,6 +1973,7 @@ Output a JSON object with three properties:
         if (
             context.agent.composition_mode != CompositionMode.CANNED_STRICT
             or last_response_generation is None
+            or last_response_generation.draft is None
         ):
             return {}, None
         try:
@@ -1940,7 +1987,10 @@ Output a JSON object with three properties:
                 for i, (crid, canrep) in enumerate(filtered_canned_responses, start=1)
             }
             prompt = self._build_supplemental_canned_response_prompt(
-                context, last_response_generation.draft, chronological_id_canreps
+                context=context,
+                draft_message=last_response_generation.draft,
+                canned_responses=chronological_id_canreps,
+                shots=await self.supplemental_generation_shots(),
             )
             response = await self._supplemental_canrep_generator.generate(prompt=prompt)
             self._logger.trace(
@@ -1978,7 +2028,7 @@ def shot_canned_canned_response_id(number: int) -> str:
     return f"<example-only-canned-response--{number}--do-not-use-in-your-completion>"
 
 
-example_1_expected = CannedResponseDraftSchema(
+draft_generation_example_1_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi, I'd like an onion cheeseburger please.",
     guidelines=[
         "When the user chooses and orders a burger, then provide it",
@@ -1992,14 +2042,14 @@ example_1_expected = CannedResponseDraftSchema(
     response_body="Unfortunately we're out of cheese. Would you like anything else instead?",
 )
 
-example_1_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_1_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[CompositionMode.CANNED_FLUID],
     description="A reply where one instruction was prioritized over another",
-    expected_result=example_1_expected,
+    expected_result=draft_generation_example_1_expected,
 )
 
 
-example_2_expected = CannedResponseDraftSchema(
+draft_generation_example_2_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
     insights=[
@@ -2010,18 +2060,18 @@ example_2_expected = CannedResponseDraftSchema(
     response_body="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
 )
 
-example_2_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_2_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
         CompositionMode.CANNED_FLUID,
     ],
     description="Non-adherence to guideline due to missing data",
-    expected_result=example_2_expected,
+    expected_result=draft_generation_example_2_expected,
 )
 
 
-example_3_expected = CannedResponseDraftSchema(
+draft_generation_example_3_expected = CannedResponseDraftSchema(
     last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
     insights=[
@@ -2031,21 +2081,80 @@ example_3_expected = CannedResponseDraftSchema(
     response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
-example_3_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_3_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
         CompositionMode.CANNED_FLUID,
     ],
     description="An insight is derived and followed on not offering to help with something you don't know about",
-    expected_result=example_3_expected,
+    expected_result=draft_generation_example_3_expected,
 )
 
 
-_baseline_shots: Sequence[CannedResponseGeneratorDraftShot] = [
-    example_1_shot,
-    example_2_shot,
-    example_3_shot,
+_draft_generation_baseline_shots: Sequence[CannedResponseGeneratorDraftShot] = [
+    draft_generation_example_1_shot,
+    draft_generation_example_2_shot,
+    draft_generation_example_3_shot,
 ]
 
-shot_collection = ShotCollection[CannedResponseGeneratorDraftShot](_baseline_shots)
+draft_generation_shot_collection = ShotCollection[CannedResponseGeneratorDraftShot](
+    _draft_generation_baseline_shots
+)
+
+
+supp_generation_example_1_expected = SupplementalCannedResponseSelectionSchema(
+    draft="You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
+    last_agent_message="I can assist you with altering the status of your account, or you can call a human representative.",
+    remaining_message_draft="You can call a human representative at 1-800-123-1234.",
+    unsatisfied_guidelines="",
+    rationale="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
+    additional_response_required=True,
+    additional_template="Our customer support number is 1-800-123-1234. You can call a human representative at this number.",
+    additional_template_id="2",
+    match_quality="high",
+)
+
+supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
+    description="A simple example where a supplemental response is not necessary",
+    draft=cast(str, supp_generation_example_1_expected.remaining_message_draft),
+    canned_responses={
+        "1": "Your account status is currently set to Active. You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
+        "2": "Our customer support number is 1-800-123-1234. You can call a human representative at this number.",
+        "3": "Sorry, I didn't catch that. Could you please ask again in a different way?",
+        "4": "You can change your account status to either Active, Automatic, or Closed.",
+        "5": "Our customer support line is open from 8 AM to 8 PM Monday through Friday. You can call us at 1-800-123-1234.",
+    },
+    expected_result=supp_generation_example_1_expected,
+)
+
+
+supp_generation_example_2_expected = SupplementalCannedResponseSelectionSchema(
+    draft="The order will be shipped to you in 5-7 business days. Thank you for your purchase!",
+    last_agent_message="The order will be shipped to you in 5-7 business days",
+    remaining_message_draft="Thank you for your purchase!",
+    unsatisfied_guidelines="",
+    rationale="The remaining part of the draft does not contain any critical information, and no canned response matches it, so no further response is necessary.",
+    additional_response_required=False,
+)
+
+supp_generation_example_2_shot = SupplementalCannedResponseSelectionShot(
+    description="A simple example where a supplemental response is not necessary",
+    draft=cast(str, supp_generation_example_2_expected.remaining_message_draft),
+    canned_responses={
+        "1": "The order will be shipped to you in up to 10 business days. Thank you for your purchase!",
+        "2": "Domestic orders are shipped through UPS",
+        "3": "I'm here to help! What can I do for you today?",
+        "4": "Your purchase is complete and will be shipped to you shortly!",
+        "5": "You can track your order status on our website at verygoodstore.com",
+    },
+    expected_result=supp_generation_example_2_expected,
+)
+
+supplemental_generation_shots: Sequence[SupplementalCannedResponseSelectionShot] = [
+    supp_generation_example_1_shot,
+    supp_generation_example_2_shot,
+]
+
+# TODO add few shot for low quality match
+# TODO add few shot for unsatisfied guideline based additional response

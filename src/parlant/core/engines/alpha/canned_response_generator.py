@@ -1904,11 +1904,7 @@ EXAMPLES
 -----------------
 {formatted_shots}
 """,
-            props={
-                "formatted_shots": self._format_supplemental_generation_shots(
-                    supplemental_generation_shots,
-                ),
-            },
+            props={"formatted_shots": self._format_supplemental_generation_shots(shots)},
         )
 
         builder.add_agent_identity(context.agent)
@@ -1990,7 +1986,7 @@ Output a JSON object with three properties:
                 context=context,
                 draft_message=last_response_generation.draft,
                 canned_responses=chronological_id_canreps,
-                shots=await self.supplemental_generation_shots(),
+                shots=supplemental_generation_shots,
             )
             response = await self._supplemental_canrep_generator.generate(prompt=prompt)
             self._logger.trace(

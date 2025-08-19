@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO change few shots to not rely on journeys
+# TODO Ask if there's no debug prints on purpose
+
 
 from __future__ import annotations
 
@@ -1961,6 +1962,8 @@ Output a JSON object with three properties:
             },
         )
 
+        with open("SupplementalCannedResponsePrompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     async def generate_supplemental_canned_response(
@@ -2016,6 +2019,7 @@ Output a JSON object with three properties:
                     if chosen_canrep
                     else None
                 )
+
             return ({"supplemental": response.info}, selection_result)
 
         except Exception:

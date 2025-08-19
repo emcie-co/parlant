@@ -17,12 +17,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from lagom import Container
 from pytest import fixture
-from parlant.core.agents import Agent
+from parlant.core.agents import Agent, AgentStore, CompositionMode
 from parlant.core.canned_responses import CannedResponseId
-from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer
-from parlant.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
+from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.canned_response_generator import (
     _CannedResponseSelectionResult,
     CannedResponseContext,
@@ -30,11 +29,6 @@ from parlant.core.engines.alpha.canned_response_generator import (
     SupplementalCannedResponseSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatchingContext,
-)
-
-from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
@@ -44,22 +38,43 @@ from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
-GUIDELINES_DICT = {
-    "transfer_to_manager": {
-        "condition": "When customer ask to talk with a manager",
-        "action": "Hand them over to a manager immediately.",
-    },
-}
-
 
 @dataclass
 class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
-    canned_responses: list[str]
-    guidelines: list[Guideline]
     schematic_generator: SchematicGenerator[SupplementalCannedResponseSelectionSchema]
     logger: Logger
+
+
+@fixture
+def context(
+    sync_await: SyncAwaiter,
+    container: Container,
+) -> ContextOfTest:
+    return ContextOfTest(
+        sync_await=sync_await,
+        container=container,
+        schematic_generator=container[
+            SchematicGenerator[SupplementalCannedResponseSelectionSchema]
+        ],
+        logger=container[Logger],
+    )
+
+
+@fixture
+def agent(
+    context: ContextOfTest,
+) -> Agent:
+    store = context.container[AgentStore]
+    agent = context.sync_await(
+        store.create_agent(
+            name="test-agent",
+            max_engine_iterations=2,
+            composition_mode=CompositionMode.CANNED_STRICT,
+        )
+    )
+    return agent
 
 
 def create_guideline(

@@ -113,7 +113,7 @@ vertex = [
 
 ollama = ["ollama"]
 
-vertex = ["google-genai", "google-api-core", "torch", "anthropic", "transformers"]
+vertex = ["google-genai", "google-api-core", "google-auth", "torch", "anthropic", "transformers"]
 
 litellm = ["litellm", "torch", "transformers"]
 

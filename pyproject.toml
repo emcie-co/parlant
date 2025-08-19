@@ -113,6 +113,8 @@ vertex = [
 
 ollama = ["ollama"]
 
+vertex = ["google-genai", "google-api-core", "torch", "anthropic", "transformers"]
+
 litellm = ["litellm", "torch", "transformers"]
 
 mongo = ["pymongo"]

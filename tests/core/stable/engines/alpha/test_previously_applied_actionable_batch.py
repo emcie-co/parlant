@@ -268,6 +268,40 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_n
     )
 
 
+async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_matched_again(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, can you reset my password?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure, for that I will need your email please so I will send you the password. What's your email address?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Ah look! a squirrel! I forgot what I was going to say.",
+        ),
+    ]
+
+    guidelines: list[str] = ["reset_password"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
 async def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_1(
     context: ContextOfTest,
     agent: Agent,
@@ -343,7 +377,7 @@ async def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_
         ),
         (
             EventSource.CUSTOMER,
-            "Okay, thanks. I also have another order from a different store—what’s the status of that one?",
+            "Okay, thanks. I also have another order from a different store, what’s the status of that one?",
         ),
         (
             EventSource.AI_AGENT,
@@ -456,6 +490,48 @@ async def test_that_guideline_that_should_reapply_is_matched_when_condition_hold
         customer,
         conversation_context,
         guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_that_previously_applied_is_not_applied_if_subtopic_is_not_resolved_explicitly(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I’d like to book a table for 2 at 7 PM tonight.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Got it — a table for 2 at 7 PM. Would you like to add anything else before I confirm the reservation?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes, actually — it’s for a birthday. Can we get a small cake? Do you have chocolate cakes?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Yes we have chocolate and cheese cakes. What would you want?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Great so add one strawberry chocolate cake please.",
+        ),
+    ]
+
+    guidelines: list[str] = ["confirm_reservation", "unsupported_capability"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=[],
         guidelines_names=guidelines,
     )
 

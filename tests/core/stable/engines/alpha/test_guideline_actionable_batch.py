@@ -44,12 +44,24 @@ GUIDELINES_DICT = {
         "condition": "When customer ask to talk with a manager",
         "action": "Hand them over to a manager immediately.",
     },
+    "problem_so_restart": {
+        "condition": "The customer has a problem with the app and hasn't tried anything yet",
+        "action": "Suggest to do restart",
+    },
+    "frustrated_so_discount": {
+        "condition": "The customer expresses frustration, impatience, or dissatisfaction",
+        "action": "apologize and offer a discount",
+    },
     "don't_transfer_to_manager": {
         "condition": "When customer ask to talk with a manager",
         "action": "Explain that it's not possible to talk with a manager and that you are here to help",
     },
     "first_order_and_order_more_than_2": {
         "condition": "When this is the customer first order and they order more than 2 pizzas",
+        "action": "offer 2 for 1 sale",
+    },
+    "first_order_and_order_exactly_2": {
+        "condition": "When this is the customer first order and they order exactly 2 pizzas",
         "action": "offer 2 for 1 sale",
     },
     "identify_problem": {
@@ -246,7 +258,41 @@ async def test_that_a_guideline_whose_condition_is_partially_satisfied_not_match
         session_id=new_session.id,
         customer=customer,
         conversation_context=conversation_context,
-        guidelines_target_names=["first_order_and_order_more_than_2"],
+        guidelines_target_names=[],
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_are_not_matched_when_there_is_no_reason(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, the app keeps crashing on my phone.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sorry to hear that! Let’s try restarting the app and clearing the cache.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It worked. That was so frustrating!",
+        ),
+    ]
+
+    guidelines: list[str] = ["frustrated_so_discount"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=[],
         guidelines_names=guidelines,
     )
 
@@ -293,6 +339,158 @@ async def test_that_guideline_whose_condition_was_partially_fulfilled_now_matche
     )
 
 
+async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_matches(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, it's my first time here!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to our pizza store! what would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I want 3 pizzas please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Cool so I will process your order right away. Anything else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Actually I want 2 pizzas please.",
+        ),
+    ]
+
+    guidelines: list[str] = ["first_order_and_order_exactly_2"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_matches_with_subtopic(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, it's my first time here!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to our pizza store! what would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I want 3 pizzas please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Cool so I will process your order right away. Anything else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I went to this other pizza place and they had some great pizza/",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Happy to hear that! We also have some great pizzas here. Would you like anything else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Actually I want 2 pizzas please.",
+        ),
+    ]
+
+    guidelines: list[str] = ["first_order_and_order_exactly_2"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_matches_after_long_conversation(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, it's my first time here!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to our pizza store! what would you like?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Can you tell me about your menu?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Our menu includes a variety of pizzas, sandwiches, and drinks. What are you in the mood for?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "When was this place opened?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "We opened in 2020. Would you like to order something?",
+        ),
+        {EventSource.CUSTOMER, "Are you guys open on weekends?"},
+        {EventSource.AI_AGENT, "Yes, we are open on weekends. What would you like to order?"},
+        (
+            EventSource.CUSTOMER,
+            "I want 2 pizzas please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Cool so I will process your order right away. Anything else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Actually I want another pizza please.",
+        ),
+    ]
+
+    guidelines: list[str] = ["first_order_and_order_more_than_2"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
 async def test_that_conflicting_actions_with_similar_conditions_are_both_matched(
     context: ContextOfTest,
     agent: Agent,
@@ -302,7 +500,7 @@ async def test_that_conflicting_actions_with_similar_conditions_are_both_matched
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
-            "Look it's been over an hour and my problem was not solve. You are not helping and "
+            "Look it's been over an hour and my problem was not solved. You are not helping and "
             "I want to talk with a manager immediately!",
         ),
     ]
@@ -479,6 +677,37 @@ async def test_that_guideline_is_still_matched_when_conversation_still_on_sub_to
         (EventSource.CUSTOMER, "Yeah, it's not just cold — the box was crushed too."),
         (EventSource.AI_AGENT, "That's really unacceptable. Let me make this right."),
         (EventSource.CUSTOMER, "And this isn’t the first time, honestly."),
+    ]
+    guidelines: list[str] = ["problem_with_order"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold_3(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hi, I just received my order, and the pizza is cold."),
+        (
+            EventSource.AI_AGENT,
+            "I'm so sorry to hear that. Could you tell me more about the issue?",
+        ),
+        (EventSource.CUSTOMER, "Yeah, it's not just cold — the box was crushed too."),
+        (EventSource.AI_AGENT, "That's really unacceptable. Let me make this right."),
+        (EventSource.CUSTOMER, "And I got a parking ticket before coming."),
+        (EventSource.AI_AGENT, "I'm sorry to hear that. "),
+        (EventSource.CUSTOMER, "And this isn’t the first time you've ruined my order, honestly."),
     ]
     guidelines: list[str] = ["problem_with_order"]
 

@@ -239,7 +239,7 @@ class GPT_4o(AzureSchematicGenerator[T]):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2024-08-01-preview",
+            api_version=os.environ["AZURE_API_VERSION"] or "2024-08-01-preview",
         )
         super().__init__(model_name="gpt-4o", logger=logger, client=_client)
 
@@ -253,7 +253,7 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2024-08-01-preview",
+            api_version=os.environ["AZURE_API_VERSION"] or "2024-08-01-preview",
         )
         super().__init__(model_name="gpt-4o-mini", logger=logger, client=_client)
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -319,7 +319,7 @@ class AzureTextEmbedding3Large(AzureEmbedder):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2023-05-15",
+            api_version=os.environ["AZURE_EMBEDDING_API_VERSION"] or "2023-05-15",
         )
         super().__init__(model_name="text-embedding-3-large", logger=logger, client=_client)
 
@@ -338,7 +338,7 @@ class AzureTextEmbedding3Small(AzureEmbedder):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2023-05-15",
+            api_version=os.environ["AZURE_EMBEDDING_API_VERSION"] or "2023-05-15",
         )
         super().__init__(model_name="text-embedding-3-small", logger=logger, client=_client)
 

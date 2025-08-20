@@ -1051,7 +1051,7 @@ def main() -> None:
     @click.option(
         "--azure",
         is_flag=True,
-        help="Run with Azure OpenAI. The following environment variables must be set: AZURE_API_KEY, AZURE_ENDPOINT",
+        help="Run with Azure OpenAI. The following environment variables must be set: AZURE_API_KEY, AZURE_ENDPOINT (optinally AZURE_API_VERSION, AZURE_EMBEDDING_API_VERSION if you are using a different version of the API).",
         default=False,
     )
     @click.option(

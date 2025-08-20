@@ -903,9 +903,9 @@ You will now be given the current state of the interaction to which you must gen
 
         generation_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "canned-response-selection"}
+                hints={"type": "canned-response-generation"}
             )
-        )
+        )  # TODO Duplicate for supplemental generation
 
         last_generation_exception: Exception | None = None
 
@@ -922,22 +922,27 @@ You will now be given the current state of the interaction to which you must gen
 
                 if latch:
                     latch.enable()
+
+                # TODO separate try for initial and supplemental generation
                 events += await output_messages(generation_result)
-                (
-                    supp_canrep_generation_info,
-                    supp_canrep_response,
-                ) = await self.generate_supplemental_canned_response(
-                    context=context,
-                    last_response_generation=generation_result,
-                )
-                events += await output_messages(supp_canrep_response)
-                if not events:
-                    self._logger.debug("Skipping response; no response deemed necessary")
-                return [
-                    MessageEventComposition(
-                        {**generation_info, **supp_canrep_generation_info}, events
+                # TODO add if for if the previous generation resulted in non None, comment
+                if generation_result:
+                    (
+                        supp_canrep_generation_info,
+                        supp_canrep_response,
+                    ) = await self.generate_supplemental_response(  # TODO add temperature (canned-response-supplemental-selection)
+                        context=context,
+                        last_response_generation=generation_result,
                     )
-                ]
+                    events += await output_messages(supp_canrep_response)
+                    if not events:
+                        self._logger.debug("Skipping response; no response deemed necessary")
+                    return [
+                        MessageEventComposition(
+                            {**generation_info, **supp_canrep_generation_info}, events
+                        )
+                    ]
+                return [MessageEventComposition({**generation_info}, events)]
             except Exception as exc:
                 self._logger.warning(
                     f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -1966,38 +1971,42 @@ Output a JSON object with three properties:
             f.write(builder.build())
         return builder
 
-    async def generate_supplemental_canned_response(
+    async def generate_supplemental_response(
         self,
         context: CannedResponseContext,
-        last_response_generation: _CannedResponseSelectionResult | None,
+        last_response_generation: _CannedResponseSelectionResult,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         selection_result: Optional[_CannedResponseSelectionResult] = None
+
         if (
             context.agent.composition_mode != CompositionMode.CANNED_STRICT
-            or last_response_generation is None
             or last_response_generation.draft is None
         ):
             return {}, None
+
         try:
-            filtered_canned_responses = [
+            filtered_canreps = [
                 (crid, canrep)
                 for crid, canrep in last_response_generation.canned_responses
                 if canrep != last_response_generation.message
             ]  # remove last outputted response  # TODO change to rendered responses from _do_generate_events
+
             chronological_id_canreps = {
-                str(i): canrep
-                for i, (crid, canrep) in enumerate(filtered_canned_responses, start=1)
+                str(i): canrep for i, (crid, canrep) in enumerate(filtered_canreps, start=1)
             }
+
             prompt = self._build_supplemental_canned_response_prompt(
                 context=context,
                 draft_message=last_response_generation.draft,
                 canned_responses=chronological_id_canreps,
                 shots=supplemental_generation_shots,
             )
+
             response = await self._supplemental_canrep_generator.generate(prompt=prompt)
             self._logger.trace(
                 f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )
+
             if (
                 response.content.additional_response_required
                 and response.content.additional_template_id
@@ -2010,11 +2019,12 @@ Output a JSON object with three properties:
                     self._logger.warning(
                         "Supplemental canned response returned an Illegal canned response ID"
                     )
+
                 selection_result = (
                     _CannedResponseSelectionResult(
                         message=chosen_canrep,
                         draft=response.content.remaining_message_draft,
-                        canned_responses=filtered_canned_responses,
+                        canned_responses=filtered_canreps,
                     )
                     if chosen_canrep
                     else None

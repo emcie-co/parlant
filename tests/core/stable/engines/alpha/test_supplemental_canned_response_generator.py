@@ -176,7 +176,7 @@ async def base_test_that_correct_canrep_is_selected(
 
     canrep_generator: CannedResponseGenerator = context.container[CannedResponseGenerator]
 
-    _, response = await canrep_generator.generate_supplemental_canned_response(
+    _, response = await canrep_generator.generate_supplemental_response(
         context=supplemental_canrep_context,
         last_response_generation=last_response_generation,
     )

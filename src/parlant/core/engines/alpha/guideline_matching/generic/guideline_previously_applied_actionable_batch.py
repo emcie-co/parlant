@@ -310,6 +310,8 @@ OUTPUT FORMAT
                 "guidelines_len": len(self._guidelines),
             },
         )
+        with open("previously applied actionable batch prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _format_of_guideline_check_json_description(

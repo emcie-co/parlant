@@ -230,3 +230,168 @@ async def test_that_simple_correct_supplemental_canned_response_is_chosen_1(
         target_canned_response=canned_responses[0],
         conversation_context=conversation_context,
     )
+
+
+async def test_that_simple_correct_supplemental_canned_response_is_chosen_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'm on your app trying to report a problem with a transaction but I can't",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I see. Let me check that for you.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What is the issue with the transaction?",
+        ),
+    ]
+
+    last_generation_draft = "Sorry to hear that. What is the problem you're trying to report? There's a 'report problem' button on your transactions dashboard that lets you quickly flag issues with specific transactions. Can you find it?"
+    canned_responses: list[str] = [
+        "I'm sorry but I didn't catch that.",
+        "What is the problem you're experiencing?",
+        "You can report a problem with a transaction by clicking on the 'report problem' button on your transactions dashboard.",
+        "Please report your problem using the 'report problem' button",
+        "The capital of France is Paris",
+        "Disputing a transaction can be done through the transactions dashboard on our app or through this chat",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[2],
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_simple_correct_supplemental_canned_response_is_chosen_3(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Are you the bot that helps you remember song lyrics?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Yes, that's me!",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "What's that song that goes daboodeedaboodee",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm sorry but that could apply to multiple songs.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Do you remember anything else about the song? Such as lyrics or genre",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It's this electronic song with chipmunk-like vocals",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm not sure. Could it possibly be the Ketchup song?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I listened to it but that's not it. I think it starts with 'Im boo...' and then the daboodee part ",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm not sure. Could it possibly be the Ketchup song?",
+        ),
+    ]
+
+    last_generation_draft = "Sorry to hear that. What is the problem you're trying to report? There's a 'report problem' button on your transactions dashboard that lets you quickly flag issues with specific transactions. Can you find it?"
+    canned_responses: list[str] = [
+        "I'm sorry but I didn't catch that.",
+        "What is the problem you're experiencing?",
+        "You can report a problem with a transaction by clicking on the 'report problem' button on your transactions dashboard.",
+        "Please report your problem using the 'report problem' button",
+        "The capital of France is Paris",
+        "Disputing a transaction can be done through the transactions dashboard on our app or through this chat",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[2],
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_most_crucial_supplemental_canned_response_is_selected_when_multiple_canned_responses_apply(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'm having trouble with my online banking login",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can help you with that. What specific issue are you experiencing?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I keep getting locked out after entering my password wrong",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "That's frustrating. Let me help you resolve this login issue.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Yes please, I need to check my account urgently",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can unlock your account right now through this chat system.",
+        ),
+    ]
+
+    last_generation_draft = "I can unlock your account right now through this chat system. After I unlock it, please wait 15 minutes before trying to log in again to ensure the system updates properly. To verify your identity, can you provide me with your account recovery number?"
+    canned_responses: list[str] = [
+        "Please allow up to 15 minutes for account changes to take effect before attempting to log in.",
+        "Can you please provide me with your account recovery number?",
+        "Your account has been successfully unlocked and is ready for use.",
+        "For security reasons, we recommend changing your password after regaining access.",
+        "You can also visit any branch location for in-person assistance with account issues.",
+        "Sorry, I need more information to help you with that request.",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[1],
+        conversation_context=conversation_context,
+    )

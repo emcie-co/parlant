@@ -784,7 +784,7 @@ You will now be given the current state of the interaction to which you must gen
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         async def output_messages(
-            generation_result: Optional[_CannedResponseSelectionResult],
+            generation_result: _CannedResponseSelectionResult,
         ) -> list[EmittedEvent]:
             emitted_events: list[EmittedEvent] = []
             if generation_result is not None:
@@ -908,24 +908,35 @@ You will now be given the current state of the interaction to which you must gen
         )  # TODO Duplicate for supplemental generation
 
         last_generation_exception: Exception | None = None
+        generation_result: _CannedResponseSelectionResult | None = None
+        generation_info: Mapping[str, GenerationInfo] = {}
+        events: list[EmittedEvent] = []
 
-        for generation_attempt in range(3):
+        for supplemental_generation_attempt in range(3):
             try:
-                events: list[EmittedEvent] = []
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
                     responses,
                     agent.composition_mode,
-                    temperature=generation_attempt_temperatures[generation_attempt],
+                    temperature=generation_attempt_temperatures[supplemental_generation_attempt],
                 )
-
                 if latch:
                     latch.enable()
 
                 # TODO separate try for initial and supplemental generation
-                events += await output_messages(generation_result)
-                # TODO add if for if the previous generation resulted in non None, comment
+                if generation_result:
+                    events += await output_messages(generation_result)
+                    break
+            except Exception as exc:
+                self._logger.warning(
+                    f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
+
+                last_generation_exception = exc
+
+        for supplemental_generation_attempt in range(3):
+            try:
                 if generation_result:
                     (
                         supp_canrep_generation_info,
@@ -934,9 +945,13 @@ You will now be given the current state of the interaction to which you must gen
                         context=context,
                         last_response_generation=generation_result,
                     )
-                    events += await output_messages(supp_canrep_response)
-                    if not events:
-                        self._logger.debug("Skipping response; no response deemed necessary")
+                    if supp_canrep_response:
+                        supplemental_response_events = await output_messages(supp_canrep_response)
+                        events += supplemental_response_events
+                        if not supplemental_response_events:
+                            self._logger.debug(
+                                "Skipping supplemental response; no additional response deemed necessary"
+                            )
                     return [
                         MessageEventComposition(
                             {**generation_info, **supp_canrep_generation_info}, events
@@ -945,7 +960,7 @@ You will now be given the current state of the interaction to which you must gen
                 return [MessageEventComposition({**generation_info}, events)]
             except Exception as exc:
                 self._logger.warning(
-                    f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
                 last_generation_exception = exc
 
@@ -1814,7 +1829,7 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
             f"{canrep_id}) {canrep}" for canrep_id, canrep in shot.canned_responses.items()
         )
         formatted_shot += f"""
-- **Candidate Canned Responses**:
+- **Candidate Templates**:
 {candidate_canreps}
 
 """
@@ -1834,9 +1849,10 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
     ) -> str:
         return "\n".join(
             f"""
-    Example {i} - {shot.description}: ###
-    {self._format_supplemental_generation_shot(shot)}
-    ###"""
+Example {i} - {shot.description}: ###
+{self._format_supplemental_generation_shot(shot)}
+###
+    """
             for i, shot in enumerate(shots, 1)
         )
 
@@ -1847,13 +1863,13 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         canned_responses: Mapping[str, str],
         shots: Sequence[SupplementalCannedResponseSelectionShot],
     ) -> PromptBuilder:
-        last_agent_message = next(
+        last_agent_message: str = next(
             (
-                e
+                str(cast(dict[str, str], e.data).get("message", ""))
                 for e in reversed(context.interaction_history)
                 if e.kind == EventKind.MESSAGE and e.source in {EventSource.AI_AGENT}
             ),
-            None,
+            "",
         )
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
@@ -1862,7 +1878,7 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         )
 
         formatted_canreps = "\n".join(
-            [f'Template ID: {canrep[0]} """\n{canrep[1]}\n"""' for canrep in canned_responses]
+            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses.items()]
         )
 
         builder.add_section(
@@ -1873,8 +1889,11 @@ GENERAL INSTRUCTIONS
 -----------------
 You are an AI agent who is part of a system that interacts with a user. The current state of this interaction will be provided to you later in this message.
 A draft reply to the user has been generated by a human operator. Based on this draft, a pre-approved template response was previously selected and sent to the customer.
-In certain cases, this singular template does not fully transmit the draft crafted by the human operator. 
-In those cases, an additional template may be transmitted to cover whatever part of the draft that was not covered by the previously outputted pre-approved template.
+In certain cases, this singular template does not fully transmit the draft crafted by the human operator. In those cases, an additional template may be transmitted to cover whatever part of the draft that was not covered by the previously outputted pre-approved template.
+Key Terms:
+- Template: Pre-approved response patterns in Jinja2 format that have been vetted by business stakeholders for customer-facing AI conversations
+- Draft message: The original response crafted by the human operator
+- Behavioral guidelines: Instructions in the form of "when <X> then do <Y>" which you must follow
 """,
         )
 
@@ -1883,25 +1902,28 @@ In those cases, an additional template may be transmitted to cover whatever part
             template="""
 TASK DESCRIPTION
 -----------------
-Your task is to evaluate whether an additional template should be transmitted to the customer, and, if necessary, choose the specific template that best captures remainder of the human operator's draft reply.
-You are provided with a number of Jinja2 reply templates to choose from. These templates have been pre-approved by business stakeholders for producing fluent customer-facing AI conversations. 
+Your task is to evaluate whether an additional template should be transmitted to the customer, and if necessary, choose the specific template that best captures the remainder of the human operator's draft reply.
+You are provided with a number of pre-approved templates to choose from. These templates have been vetted by business stakeholders for producing fluent customer-facing AI conversations.
 Perform your task as follows:
-1. Document which behavioral guidelines aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
-2. Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under they key "remaining_message_draft".
-3. Examine whether an additional response is required, and if so, which template best captures the remaining message draft. 
-   Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available canned responses.
-   If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft.
-   Document your thought process under the key "rationale".
-4. Decide whether an additional template can capture the your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
-5. If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template, exactly as it is given in the prompt, under the key "additional_template". Do not alter the provided template at all. Additionally, output the key of your chosen template under the key "additional_template_id".
-6. Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality. You must choose one of the following option "fully", "partial", "low":
-    a. "low": You couldn't find a template that even comes close
-    b. "partial": You found a template that conveys at least some of the draft message's content
-    c. "high": You found a template that captures the draft message in both form and functionSome nuances regarding choosing the correct template:
-    - Note that there may be multiple relevant choices. Out of those, you must choose the MOST suitable one that is MOST LIKE the human operator's draft reply.
-    - In cases where there are multiple templates that provide a partial match, you may encounter different types of partial matches. Prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message. They are better than a template that would have captured multiple of the remaining parts of the draft message while introducing semantic deviations. In other words, better to match fewer parts with higher semantic fidelity than to match more parts with lower semantic fidelity.
-    - If there is any noticeable semantic deviation between the draft message and the template, i.e., the draft says "Do X" and the template says "Do Y" (even if Y is a sibling concept under the same category as X), you should not choose that template, even if it captures other parts of the remaining message draft. We want to maintain true fidelity with the draft message.
-""",
+1. Identify Unsatisfied Guidelines: Document which behavioral guidelines (instructions in the form of "when <X> then do <Y>" which you must follow) aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
+2. Analyze Coverage Gap: Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under the key "remaining_message_draft".
+3. Evaluate Need for Additional Response: Examine whether an additional response is required, and if so, which template best captures the remaining message draft. Document your thought process under the key "rationale".
+ - Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available templates
+ - If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft
+4. Make Decision: Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
+5. Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
+6. Select Template (if needed): If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template exactly as it is given in the prompt under the key "additional_template". Do not alter the provided template at all. Additionally, output the ID of your chosen template under the key "additional_template_id".
+7. Assess Match Quality: Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
+    a. "low": You couldn't find a template that even comes close, or any such template also adds new information that is not in the draft.
+    b. "partial": You found a template that conveys at least some of the draft message's content, without adding information that is not in the draft or the active guidelines.
+    c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
+Some nuances regarding choosing the correct template:
+ - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the human operator's draft reply
+ - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
+ - If the missing part of the draft includes multiple unrelated components that would each require different templates, prioritize the template that addresses the most critical information for customer understanding and conversation progression. Choose the component that is essential for the customer to take their next action or properly understand the agent's response.
+ - If there is any noticeable semantic deviation between the draft message and a template (e.g., the draft says "Do X" and the template says "Do Y"), do not choose that template, even if it captures other parts of the remaining message draft
+
+ """,
         )
         builder.add_section(
             name="supplemental-canned-response-generator-selection-examples",
@@ -2006,6 +2028,8 @@ Output a JSON object with three properties:
             self._logger.trace(
                 f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )
+            with open("supplemental canrep output.txt", "w") as f:
+                f.write(response.content.model_dump_json(indent=2))
 
             if (
                 response.content.additional_response_required
@@ -2032,8 +2056,8 @@ Output a JSON object with three properties:
 
             return ({"supplemental": response.info}, selection_result)
 
-        except Exception:
-            self._logger.error("Failed to choose supplemental canned response")
+        except Exception as e:
+            self._logger.error(f"Failed to choose supplemental canned response: {e}")
             return ({}, None)
 
 
@@ -2147,7 +2171,7 @@ supp_generation_example_2_expected = SupplementalCannedResponseSelectionSchema(
     last_agent_message="The order will be shipped to you in 5-7 business days",
     remaining_message_draft="Thank you for your purchase!",
     unsatisfied_guidelines="",
-    rationale="The remaining part of the draft does not contain any critical information, and no canned response matches it, so no further response is necessary.",
+    rationale="The remaining part of the draft does not contain any critical information, and no template matches it, so no further response is necessary.",
     additional_response_required=False,
 )
 

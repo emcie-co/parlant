@@ -289,7 +289,7 @@ class NLPServices:
             raise SDKError(error)
 
         return GeminiService(container[Logger])
-    
+
     @staticmethod
     def litellm(container: Container) -> NLPService:
         """Creates a Litellm NLPService instance using the provided container."""

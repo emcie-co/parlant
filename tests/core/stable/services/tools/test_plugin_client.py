@@ -33,7 +33,7 @@ from parlant.core.tools import (
 )
 from parlant.core.services.tools.plugins import PluginServer, tool
 from parlant.core.agents import Agent, AgentId, AgentStore
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import BasicContextualCorrelator
 from parlant.core.emission.event_buffer import EventBuffer, EventBufferFactory
 from parlant.core.emissions import EventEmitter, EventEmitterFactory
 from parlant.core.services.tools.plugins import PluginClient
@@ -79,7 +79,7 @@ def create_client(
     server: PluginServer,
     event_emitter_factory: EventEmitterFactory,
 ) -> PluginClient:
-    correlator = ContextualCorrelator()
+    correlator = BasicContextualCorrelator()
     logger = StdoutLogger(correlator)
     return PluginClient(
         url=server.url,

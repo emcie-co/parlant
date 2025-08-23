@@ -21,7 +21,7 @@ from parlant.core.services.tools.mcp_service import MCPToolServer, MCPToolClient
 from lagom import Container
 from parlant.core.agents import Agent
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import BasicContextualCorrelator
 from parlant.core.loggers import StdoutLogger
 from parlant.sdk import ToolContext
 from tests.test_utilities import SERVER_BASE_URL, get_random_port
@@ -32,7 +32,7 @@ def create_client(
     server: MCPToolServer,
     container: Container,
 ) -> MCPToolClient:
-    correlator = ContextualCorrelator()
+    correlator = BasicContextualCorrelator()
     logger = StdoutLogger(correlator)
     return MCPToolClient(
         url=SERVER_BASE_URL,

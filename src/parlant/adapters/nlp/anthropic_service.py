@@ -182,8 +182,8 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
             logger=logger,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 
@@ -195,8 +195,8 @@ class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
             logger=logger,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 
@@ -208,8 +208,8 @@ class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
             logger=logger,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 

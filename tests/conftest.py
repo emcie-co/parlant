@@ -33,7 +33,7 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import BasicContextualCorrelator, ContextualCorrelator
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
@@ -230,7 +230,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 @fixture
 def correlator(request: pytest.FixtureRequest) -> Iterator[ContextualCorrelator]:
-    correlator = ContextualCorrelator()
+    correlator = BasicContextualCorrelator()
 
     with correlator.properties({"scope": request.node.name}):
         yield correlator

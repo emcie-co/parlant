@@ -153,7 +153,7 @@ from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import BasicContextualCorrelator, ContextualCorrelator
 from parlant.core.agents import AgentDocumentStore, AgentStore
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -241,7 +241,7 @@ DEFAULT_AGENT_NAME = "Default Agent"
 sys.path.append(PARLANT_HOME_DIR.as_posix())
 sys.path.append(".")
 
-CORRELATOR = ContextualCorrelator()
+CORRELATOR = BasicContextualCorrelator()
 
 LOGGER = FileLogger(PARLANT_HOME_DIR / "parlant.log", CORRELATOR, LogLevel.INFO)
 

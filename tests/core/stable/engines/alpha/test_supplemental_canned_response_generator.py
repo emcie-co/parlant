@@ -885,3 +885,150 @@ It’s clear the bot needs helping too.""",
         conversation_context=conversation_context,
         guidelines=guidelines,
     )
+
+
+async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_has_multiple_uncovered_parts_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I want to cancel my gym membership",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I understand you'd like to cancel your membership.",
+        ),
+        (EventSource.AI_AGENT, "Can you tell me what's prompting this decision?"),
+        (
+            EventSource.CUSTOMER,
+            "I'm moving to another city next month",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I see, relocating can definitely affect your membership",
+        ),
+        (
+            EventSource.AI_AGENT,
+            ". Let me help you with the cancellation process. Please allow the system a few minutes to process your request.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "How soon can I cancel it? And will I get a refund?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "You can cancel your membership effective at the end of your current billing cycle.",
+        ),
+    ]
+
+    last_generation_draft = "You can cancel your membership at the end of your current billing cycle. You'll need to fill out a cancellation form at the front desk or through our mobile app. Regarding refunds, we offer prorated refunds for annual memberships only, not monthly plans."
+
+    canned_responses: list[str] = [
+        "We're sorry to see you go!",
+        "You can submit a cancellation request through our website.",
+        "Cancellation forms are available at the front desk or through our mobile app.",
+        "Refunds are calculated based on your membership type.",
+        "Monthly memberships do not qualify for refunds.",
+        "Would you consider freezing your membership instead of cancelling?",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[2],
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_has_multiple_uncovered_parts_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hello, I need help with my pet's prescription",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Welcome to PetRx Support. How can I assist you with your pet's prescription today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "My dog's seizure medication is running low but my vet is closed for the holidays",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I understand your concern about your pet's seizure medication.",
+        ),
+        (EventSource.AI_AGENT, "Is this request time-sensitive?"),
+        (
+            EventSource.CUSTOMER,
+            "Yes, he only has 3 days worth left. Can you help?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "For seizure medications, we can provide an emergency 7-day supply with proper documentation.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "That would be great! What do I need to do?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Please upload your most recent prescription and veterinary records through our portal.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I have the prescription from 2 months ago, is that okay? And how fast can you ship it?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Prescriptions dated within the last 6 months are acceptable for emergency refills.",
+        ),
+    ]
+
+    last_generation_draft = "Prescriptions dated within the last 6 months are acceptable for emergency refills. Once you upload the documents, our pharmacist will review them within 12 hours. For seizure medications, we offer same-day dispatch with overnight delivery to ensure continuity of treatment."
+
+    canned_responses: list[str] = [
+        "Thank you for choosing PetRx for your pet's healthcare needs.",
+        "Our pharmacy team reviews all submissions promptly.",
+        "Expedited shipping options are available for critical medications.",
+        "Document processing typically occurs within business hours.",
+        "We prioritize neurological medication requests.",
+        "Please ensure all uploaded documents are clearly legible.",
+        "For this type of medication, we can ensure that the shipment will arrive to you today.",
+    ]
+
+    guidelines = [
+        GuidelineContent(
+            condition="a customer asks about prescription processing for emergency refills",
+            action="Inform them that documents will be reviewed by a pharmacist within 12 hours of upload",
+        ),
+        GuidelineContent(
+            condition="discussing shipping for seizure or neurological medications",
+            action="Mention that we offer same-day dispatch with overnight delivery to ensure continuity of treatment",
+        ),
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[1],
+        conversation_context=conversation_context,
+        guidelines=guidelines,
+    )

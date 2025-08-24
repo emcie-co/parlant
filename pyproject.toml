@@ -101,6 +101,7 @@ deepseek = ["torch", "transformers"]
 gemini = ["google-genai", "google-api-core", "torch"]
 
 vertex = ["google-genai", "google-api-core", "google-auth", "torch", "anthropic", "transformers"]
+ollama = ["ollama"]
 
 litellm = ["litellm", "torch", "transformers"]
 

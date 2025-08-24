@@ -107,6 +107,7 @@ async def base_test_that_correct_canrep_is_selected(
     conversation_context: list[tuple[EventSource, str]],
     guidelines: list[GuidelineContent] = [],
     staged_events: Sequence[EmittedEvent] = [],
+    temperature: float = 0.1,
 ) -> None:
     # Create response context
     canned_responses = [
@@ -179,6 +180,7 @@ async def base_test_that_correct_canrep_is_selected(
     _, response = await canrep_generator.generate_supplemental_response(
         context=supplemental_canrep_context,
         last_response_generation=last_response_generation,
+        temperature=temperature,
     )
     if target_canned_response:
         assert response and response.message == target_canned_response
@@ -316,7 +318,7 @@ async def test_that_simple_correct_supplemental_canned_response_is_chosen_3(
         ),
         (
             EventSource.AI_AGENT,
-            "I'm not sure. Could it possibly be the Ketchup song?",
+            "Thank you for providing additional details! ",
         ),
     ]
 
@@ -338,6 +340,70 @@ async def test_that_simple_correct_supplemental_canned_response_is_chosen_3(
         canned_responses_text=canned_responses,
         last_generation_draft=last_generation_draft,
         target_canned_response=canned_responses[2],
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_simple_correct_supplemental_canned_response_is_chosen_4(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I'd like to place an order for groceries",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hello! I'd be happy to help you with your grocery order. What items would you like to purchase?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I need 2 gallons of milk, a loaf of bread, and a dozen eggs",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Great! I've added 2 gallons of milk, 1 loaf of bread, and 1 dozen eggs to your cart. Would you like to add anything else?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "No, that's everything. Can you deliver to 123 Main Street?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Perfect! Your order is confirmed. What delivery time works best for you?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Tomorrow morning around 10 AM would be great",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Your groceries will be delivered to 123 Main Street tomorrow at 10 AM.",
+        ),
+    ]
+
+    last_generation_draft = "Thank you for your purchase! Your groceries will be delivered to 123 Main Street tomorrow at 10 AM. Please come again!"
+
+    canned_responses: list[str] = [
+        "Thank you for your purchase. Please come again!",
+        "Your order has been successfully placed.",
+        "Is there anything else I can help you with today?",
+        "You can track your delivery status through our mobile app.",
+        "For any issues with your order, please contact customer service.",
+        "We appreciate your business!",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[0],
         conversation_context=conversation_context,
     )
 
@@ -384,6 +450,12 @@ async def test_that_most_crucial_supplemental_canned_response_is_selected_when_m
         "You can also visit any branch location for in-person assistance with account issues.",
         "Sorry, I need more information to help you with that request.",
     ]
+    guidelines = [
+        GuidelineContent(
+            condition="When the customer wants to unlock their card",
+            action="Inform them that they can do so through this chat",
+        )
+    ]
 
     await base_test_that_correct_canrep_is_selected(
         context=context,
@@ -394,4 +466,425 @@ async def test_that_most_crucial_supplemental_canned_response_is_selected_when_m
         last_generation_draft=last_generation_draft,
         target_canned_response=canned_responses[1],
         conversation_context=conversation_context,
+        guidelines=guidelines,
+    )
+
+
+async def test_that_no_supplemental_canned_response_is_chosen_when_none_is_required_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "My credit card was charged twice for the same purchase",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I apologize for the double charge. Let me look into this for you right away.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "It was for $47.99 at the coffee shop yesterday",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I can see the duplicate charge for $47.99. I'll process a refund for you immediately.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "How long will the refund take?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "The refund has been initiated and you should see it in your account within 3-5 business days.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Great, thank you for fixing this so quickly",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "You're welcome! I'm glad I could resolve this issue for you.",
+        ),
+    ]
+
+    last_generation_draft = "No problem at all! Happy to help you get this sorted out."
+
+    canned_responses: list[str] = [
+        "Is there anything else I can help you with today?",
+        "Thank you for bringing this to our attention.",
+        "We apologize for any inconvenience this may have caused.",
+        "Your satisfaction is important to us.",
+        "Please don't hesitate to contact us if you have any other issues.",
+        "Have a great day!",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=None,
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_no_supplemental_canned_response_is_chosen_when_none_is_required_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I need to find all meeting minutes from Q3 2023 that mention the Project Phoenix acquisition",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'll search through our Q3 2023 archives for meeting minutes related to Project Phoenix acquisition. Let me query the database.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Also check if there were any board discussions about the budget implications",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Understood. I'll expand the search to include board meeting records with budget discussions related to Project Phoenix.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "How many documents have you found so far?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I've located 7 relevant documents from Q3 2023 that discuss Project Phoenix, including 3 board meetings with budget analyses.",
+        ),
+    ]
+
+    last_generation_draft = "I found 7 documents total from that quarter - there are 3 board meeting transcripts that cover the budget aspects and 4 other meetings that mention the acquisition."
+
+    canned_responses: list[str] = [
+        "I found 7 documents matching your criteria.",
+        "There are 3 board meeting records with budget information.",
+        "Would you like me to summarize the key findings?",
+        "I can email you the full list of documents.",
+        "The search included all Q3 2023 archives.",
+        "These documents contain discussions about Project Phoenix.",
+    ]
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=None,
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_no_supplemental_canned_response_is_chosen_when_no_candidate_applies_1(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I'm trying to change the shipment letter attached to one of my outgoing orders. How can I get in contact with the relevant post office?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Let me check that for you.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "You can contact your local post office by visiting their branch in person during business hours.",
+        ),
+    ]
+
+    last_generation_draft = "You can contact your local post office by visiting their branch in person during business hours or calling them directly at their 1-800 number. They'll be able to help you modify the shipment letter for your outgoing order."
+
+    canned_responses: list[str] = [
+        "You can find your local post office location on our website.",
+        "Shipment letters can be modified up to 24 hours before dispatch.",
+        "Please bring your order confirmation number when visiting the post office.",
+        "Post office hours are typically Monday through Friday, 9 AM to 5 PM.",
+        "You may need to provide identification to modify shipping documents.",
+        "Is there anything else I can help you with regarding your shipment?",
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=None,
+        conversation_context=conversation_context,
+    )
+
+
+async def test_that_no_supplemental_canned_response_is_chosen_when_no_candidate_applies_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "hi what's up",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Hi there! How can I help you today?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I tried contacting you guys about the pit on the road but you didn't answer my call. People are throwing garbage into it and it's stinking up the neighborhood.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sorry to hear that.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Do you have a reference number for your previous request?",
+        ),
+        (EventSource.CUSTOMER, "No, you never answered my call!"),
+        (
+            EventSource.AI_AGENT,
+            "I see. Let me get that sorted out for you",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Can you please provide me with the address where the issue occurs, and contact details where our representatives may reach you?",
+        ),
+    ]
+
+    last_generation_draft = "Of course, I was just making sure. Let me gather some details before we continue - what's the exact address of the pit, and how can our representatives reach out to you in the future? By the way, you can always submit a complaint to us at You can submit a complaint with all details at www.pawneeindiana.com/complaint_form, even if we're not available at our customer support line."
+
+    canned_responses: list[str] = [
+        "I apologize for the inconvenience.",
+        "You can reach the garbage collection registry at pawneeindiana.com/garbage-collection.",
+        "You can reach the garbage collection registry at 1-800-1234-5678.",
+        "Welcome to Pawnee! First in friendship, fourth in obesity.",
+    ]
+
+    guidelines = [
+        GuidelineContent(
+            condition="a user wishes to file a complaint",
+            action="Provide them with a link to our online complaint form at www.pawneeindiana.com/complaint_form",
+        ),
+        GuidelineContent(
+            condition="a user files a complaint that may require garbage collection",
+            action="Ask for the exact address of the site, and for the contact details of the user",
+        ),
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=None,
+        conversation_context=conversation_context,
+        guidelines=guidelines,
+    )
+
+
+async def test_that_no_supplemental_response_is_outputted_for_insignificant_missing_part(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I found a bug with your library",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Is it a known bug or a new one?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I checked your backlog and I didn't see it there. I think it's new.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Can you please provide us with a general description of the bug, and how it can be reproduced?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "The app crashes when going through a certain flow. Try opening it as a free user, click 'settings' and then 'Time Zone Settings'. Change the timzeone and then try to edit an existing schedule event. The app crashes. On both IOS devices I tried.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Your report has been registered in our system, reference number #352223. We will get back to you by Email when we have more information.",
+        ),
+    ]
+
+    last_generation_draft = "Thank you for reporting the issue. I submitted a ticket for you to follow up on. Your reference number is #352223. Our team will email you once we investigated the issue."
+
+    canned_responses: list[str] = [
+        "Our deepest gratitude for your feedback!",
+        "This sounds like a critical bug, I'll ensure it doesn't happen again.",
+        "Our team is working on solving this issue.",
+        "I'm having trouble understanding your issue. Would you like to be connected to a human representative?",
+    ]
+
+    guidelines = []
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=None,
+        conversation_context=conversation_context,
+        guidelines=guidelines,
+    )
+
+
+async def test_that_supplemental_response_is_outputted_for_insignificant_missing_part_when_guideline_instructs_to_do_so(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I found a bug with your library",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Is it a known bug or a new one?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "I checked your backlog and I didn't see it there. I think it's new.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Can you please provide us with a general description of the bug, and how it can be reproduced?",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "The app crashes when going through a certain flow. Try opening it as a free user, click 'settings' and then 'Time Zone Settings'. Change the timzeone and then try to edit an existing schedule event. The app crashes. On both IOS devices I tried.",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Your report has been registered in our system, reference number #352223. We will get back to you by Email when we have more information.",
+        ),
+    ]
+
+    last_generation_draft = "Thank you for reporting the issue. I submitted a ticket for you to follow up on. Your reference number is #352223. Our team will email you once we investigated the issue."
+
+    canned_responses: list[str] = [
+        "Our deepest gratitude for your feedback!",
+        "This sounds like a critical bug, I'll ensure it doesn't happen again.",
+        "Our team is working on solving this issue.",
+        "I'm having trouble understanding your issue. Would you like to be connected to a human representative?",
+    ]
+
+    guidelines = [
+        GuidelineContent(
+            condition="A bug report has been submitted to the system",
+            action="Express our thanks to the customer for reporting the issue",
+        ),
+        GuidelineContent(
+            condition="A bug report has been submitted to the system",
+            action="Report the ticket's reference number to the customer",
+        ),
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[0],
+        conversation_context=conversation_context,
+        guidelines=guidelines,
+    )
+
+
+async def test_that_supplemental_response_is_outputted_when_guideline_requires_it(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I wrote a poem for you, wanna hear it?",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Yes",
+        ),
+        (
+            EventSource.CUSTOMER,
+            """A chatbot waits, polite but thin,
+Repeats my question back again.
+It circles round, no end in sight,
+“Have you tried to turn it off tonight?”
+
+I plead for help, it stalls instead,
+“Did this resolve your issue?” it said.
+But when the need is sharp and true,
+It’s clear the bot needs helping too.""",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "What is the issue you're experiencing?",
+        ),
+    ]
+
+    last_generation_draft = "I see what you did there—nothing like a little verse to remind me how helpful I am. Shall we get back to your actual issue now?"
+
+    canned_responses: list[str] = [
+        "Our deepest gratitude for your feedback!",
+        "Can you please describe the issue in more detail?",
+        "Did this resolve the issue?",
+        "I'm having trouble understanding your issue. Would you like to be connected to a human representative?",
+        "Ah, I detect a hint of snark—always pairs nicely with a support request",
+    ]
+
+    guidelines = [
+        GuidelineContent(
+            condition="the customer expresses sarcasm while requesting something",
+            action="acknowledge their sarcasm by following the tone they set",
+        ),
+    ]
+
+    await base_test_that_correct_canrep_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        canned_responses_text=canned_responses,
+        last_generation_draft=last_generation_draft,
+        target_canned_response=canned_responses[4],
+        conversation_context=conversation_context,
+        guidelines=guidelines,
     )

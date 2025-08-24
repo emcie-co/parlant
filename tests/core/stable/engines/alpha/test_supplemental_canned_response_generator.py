@@ -746,8 +746,6 @@ async def test_that_no_supplemental_response_is_outputted_for_insignificant_miss
         "I'm having trouble understanding your issue. Would you like to be connected to a human representative?",
     ]
 
-    guidelines = []
-
     await base_test_that_correct_canrep_is_selected(
         context=context,
         agent=agent,
@@ -757,7 +755,6 @@ async def test_that_no_supplemental_response_is_outputted_for_insignificant_miss
         last_generation_draft=last_generation_draft,
         target_canned_response=None,
         conversation_context=conversation_context,
-        guidelines=guidelines,
     )
 
 

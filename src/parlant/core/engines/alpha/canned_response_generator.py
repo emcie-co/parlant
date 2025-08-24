@@ -1932,6 +1932,7 @@ Some nuances regarding choosing the correct template:
  - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
  - If the missing part of the draft includes multiple unrelated components that would each require different templates, prioritize the template that addresses the most critical information for customer understanding and conversation progression. Choose the component that is essential for the customer to take their next action or properly understand the agent's response.
  - If there is any noticeable semantic deviation between the draft message and a template (e.g., the draft says "Do X" and the template says "Do Y"), do not choose that template, even if it captures other parts of the remaining message draft
+ - Prioritize factual accuracy. Never output a template that conveys information which contradicts the draft. Prefer outputting a different template, or even no template whatsoever.
 
  """,
         )
@@ -2208,5 +2209,4 @@ supplemental_generation_shots: Sequence[SupplementalCannedResponseSelectionShot]
     supp_generation_example_2_shot,
 ]
 
-# TODO add few shot for low quality match
-# TODO add few shot for unsatisfied guideline based additional response
+# TODO add few shot for not using template due to wrong information

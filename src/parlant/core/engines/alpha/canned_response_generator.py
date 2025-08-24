@@ -901,11 +901,11 @@ You will now be given the current state of the interaction to which you must gen
 
         responses = await self._get_relevant_canned_responses(context)
 
-        generation_attempt_temperatures = (
+        supplemental_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
                 hints={"type": "canned-response-generation"}
             )
-        )  # TODO Duplicate for supplemental generation
+        )
 
         last_generation_exception: Exception | None = None
         generation_result: _CannedResponseSelectionResult | None = None
@@ -919,7 +919,9 @@ You will now be given the current state of the interaction to which you must gen
                     context,
                     responses,
                     agent.composition_mode,
-                    temperature=generation_attempt_temperatures[supplemental_generation_attempt],
+                    temperature=supplemental_selection_attempt_temperatures[
+                        supplemental_generation_attempt
+                    ],
                 )
                 if latch:
                     latch.enable()
@@ -935,6 +937,11 @@ You will now be given the current state of the interaction to which you must gen
 
                 last_generation_exception = exc
 
+        supplemental_selection_attempt_temperatures = (
+            self._optimization_policy.get_message_generation_retry_temperatures(
+                hints={"type": "supplemental-canned_response-selection"}
+            )
+        )
         for supplemental_generation_attempt in range(3):
             try:
                 if generation_result:
@@ -944,6 +951,9 @@ You will now be given the current state of the interaction to which you must gen
                     ) = await self.generate_supplemental_response(  # TODO add temperature (canned-response-supplemental-selection)
                         context=context,
                         last_response_generation=generation_result,
+                        temperature=supplemental_selection_attempt_temperatures[
+                            supplemental_generation_attempt
+                        ],
                     )
                     if supp_canrep_response:
                         supplemental_response_events = await output_messages(supp_canrep_response)
@@ -1997,6 +2007,7 @@ Output a JSON object with three properties:
         self,
         context: CannedResponseContext,
         last_response_generation: _CannedResponseSelectionResult,
+        temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         selection_result: Optional[_CannedResponseSelectionResult] = None
 
@@ -2011,7 +2022,7 @@ Output a JSON object with three properties:
                 (crid, canrep)
                 for crid, canrep in last_response_generation.canned_responses
                 if canrep != last_response_generation.message
-            ]  # remove last outputted response  # TODO change to rendered responses from _do_generate_events
+            ]  # remove last outputted response
 
             chronological_id_canreps = {
                 str(i): canrep for i, (crid, canrep) in enumerate(filtered_canreps, start=1)
@@ -2024,12 +2035,16 @@ Output a JSON object with three properties:
                 shots=supplemental_generation_shots,
             )
 
-            response = await self._supplemental_canrep_generator.generate(prompt=prompt)
+            response = await self._supplemental_canrep_generator.generate(
+                prompt=prompt,
+                hints={"temperature": temperature},
+            )
             self._logger.trace(
                 f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )
             with open("supplemental canrep output.txt", "w") as f:
                 f.write(response.content.model_dump_json(indent=2))
+                f.write(f"Time: {response.info.duration} seconds")
 
             if (
                 response.content.additional_response_required

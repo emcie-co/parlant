@@ -1,0 +1,17 @@
+# OpenRouter Configuration for Parlant
+# Copy this file to parlant_openrouter.toml in your project root
+
+[parlant.openrouter]
+# Default model for generation
+MODEL = "openai/gpt-4o"
+
+# API configuration
+OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Embedding configuration
+[parlant.openrouter.embedding]
+OPENROUTER_EMBEDDING_MODEL = "text-embedding-v4"
+OPENROUTER_EMBEDDING_DIMENSIONS = 1024
+OPENROUTER_EMBEDDING_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+OPENROUTER_EMBEDDING_API_KEY = "${OPENROUTER_API_KEY}"

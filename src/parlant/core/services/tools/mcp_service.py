@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from __future__ import annotations
-from ast import literal_eval
 from datetime import datetime, timezone
 from mailbox import FormatError
 from types import TracebackType
@@ -35,22 +34,13 @@ from parlant.core.tools import (
     ToolContext,
     ToolService,
     ToolParameterType,
+    split_list_by_type_label,
 )
 from parlant.core.common import JSONSerializable
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emissions import EventEmitterFactory
 
 DEFAULT_MCP_PORT: int = 8181
-
-StringBasedTypes = [
-    "string",
-    "enum",
-    "date",
-    "datetime",
-    "timedelta",
-    "path",
-    "uuid",
-]
 
 
 class MCPToolServer:
@@ -329,20 +319,6 @@ def parse_enum_def(def_: dict[str, Any]) -> ToolParameterDescriptor:
     )
 
 
-def split_arg_list(argument: str | list[Any], item_type: str) -> list[str]:
-    if isinstance(argument, list):
-        return argument
-    if item_type in StringBasedTypes:
-        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
-    else:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(", ")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
-
-
 def prepare_tool_arguments(
     arguments: Mapping[str, JSONSerializable],
     parameters: dict[str, tuple[ToolParameterDescriptor, ToolParameterOptions]],
@@ -357,7 +333,7 @@ def prepare_tool_arguments(
         if descriptor["type"] == "array":
             arg_value = arguments[arg]
             if isinstance(arg_value, (str, list)):
-                fixed_args[arg] = split_arg_list(arg_value, descriptor["item_type"])
+                fixed_args[arg] = split_list_by_type_label(arg_value, descriptor["item_type"])
             else:
                 raise ToolError(
                     f"Argument '{arg}' must be a string or list for array type, got {type(arg_value).__name__}"

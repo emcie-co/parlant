@@ -16,10 +16,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from ast import literal_eval
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
+from uuid import UUID
+from pathlib import Path
 from enum import Enum, auto
 import importlib
 import inspect
+import re
 import sys
 from types import UnionType
 from typing import (
@@ -54,9 +57,42 @@ ToolParameterType = Literal[
     "uuid",
 ]
 
-DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
+StringBasedTypes = [
+    "string",
+    "enum",
+    "date",
+    "datetime",
+    "timedelta",
+    "path",
+    "uuid",
+]
 
-VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime]
+
+def _get_type_label(item_type: Any) -> str:
+    _TYPE_TO_LABEL = {
+        str: "string",
+        int: "integer",
+        float: "number",
+        bool: "boolean",
+        date: "date",
+        datetime: "datetime",
+        timedelta: "timedelta",
+        Path: "path",
+        UUID: "uuid",
+    }
+
+    # Use dictionary lookup for common/simple types
+    if item_type in _TYPE_TO_LABEL:
+        return _TYPE_TO_LABEL[item_type]
+
+    # When the type may be a subclass of Enum (currently the only one)
+    if issubclass(item_type, Enum):
+        return "enum"
+
+    raise TypeError(f"Unsupported type {item_type} for parameter.")
+
+
+DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
 
 
 class ToolParameterDescriptor(TypedDict, total=False):
@@ -521,7 +557,7 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         if get_origin(cast_target) is list:
             item_type = get_args(cast_target)[0]
 
-            arg_list = split_arg_list(argument, item_type)
+            arg_list = split_list_by_type_label(argument, _get_type_label(item_type))
             return [cast_tool_argument(item_type, item) for item in arg_list]
 
         # Scalar types
@@ -535,7 +571,7 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
             return argument
         if issubclass(cast_target, BaseModel):
             return TypeAdapter(cast_target).validate_json(argument)
-        if issubclass(cast_target, Enum) or cast_target in VALID_TOOL_BASE_TYPES:
+        if issubclass(cast_target, Enum) or cast_target in [str, int, float]:
             return cast_target(argument)
         else:
             # Note that the parameter_type here may be an inner type (i.e. in cases of Optional ot lists)
@@ -547,17 +583,17 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         ) from exc
 
 
-def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
+def split_list_by_type_label(argument: str | list[Any], item_type: str) -> list[str]:
     if isinstance(argument, list):
-        # Already a list - no work required
         return argument
-    if item_type is str or issubclass(item_type, Enum):
+
+    list_str = argument.strip()
+    if item_type in StringBasedTypes and list_str.startswith("[") and list_str.endswith("]"):
         # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
+        # but literal_eval has some caveats of its own: bools cannot be lowercase, lists must be wrapped in [], etc.
         return list(literal_eval(argument))
-    if item_type in VALID_TOOL_BASE_TYPES:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
-    raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")
+
+    list_str = argument.strip()
+    if list_str.startswith("[") and list_str.endswith("]"):
+        list_str = list_str[1:-1]
+    return re.split(r"\s*,\s*", list_str)

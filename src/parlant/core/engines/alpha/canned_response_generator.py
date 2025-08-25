@@ -155,7 +155,8 @@ class _CannedResponseRenderResult:
 class _CannedResponseSelectionResult:
     message: str
     draft: str | None
-    canned_responses: list[tuple[CannedResponseId, str]]
+    rendered_canned_responses: Sequence[tuple[CannedResponseId, str]]
+    chosen_canned_responses: list[tuple[CannedResponseId, str]]
 
 
 @dataclass
@@ -751,7 +752,9 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         fields_available_in_context = list(
-            chain.from_iterable(tc["result"]["canned_response_fields"] for tc in all_tool_calls)
+            chain.from_iterable(
+                tc["result"].get("canned_response_fields", []) for tc in all_tool_calls
+            )
         )
 
         fields_available_in_context.extend(("std", "generative"))
@@ -802,7 +805,7 @@ You will now be given the current state of the interaction to which you must gen
                                 message=m,
                                 participant=Participant(id=agent.id, display_name=agent.name),
                                 draft=generation_result.draft,
-                                canned_responses=generation_result.canned_responses,
+                                canned_responses=generation_result.chosen_canned_responses,
                             )
                             if generation_result.draft
                             else MessageEventData(
@@ -926,7 +929,6 @@ You will now be given the current state of the interaction to which you must gen
                 if latch:
                     latch.enable()
 
-                # TODO separate try for initial and supplemental generation
                 if generation_result:
                     events += await output_messages(generation_result)
                     break
@@ -948,9 +950,10 @@ You will now be given the current state of the interaction to which you must gen
                     (
                         supp_canrep_generation_info,
                         supp_canrep_response,
-                    ) = await self.generate_supplemental_response(  # TODO add temperature (canned-response-supplemental-selection)
+                    ) = await self.generate_supplemental_response(
                         context=context,
                         last_response_generation=generation_result,
+                        canned_responses=responses,
                         temperature=supplemental_selection_attempt_temperatures[
                             supplemental_generation_attempt
                         ],
@@ -1416,7 +1419,7 @@ Pre-approved reply templates: ###
             list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
         )
         builder.add_section(
-            name="canned-response-generator-selection-task-description",
+            name="canned-response-generator-selection-output-format",
             template="""
 Draft reply message: ###
 {draft_message}
@@ -1515,9 +1518,10 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_message,
+                message=draft_response.content.response_body,
                 draft=None,
-                canned_responses=[],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[],
             )
 
         # Check if, according to the hooks, we should consider the draft
@@ -1529,7 +1533,8 @@ Output a JSON object with three properties:
             }, _CannedResponseSelectionResult(
                 message=draft_message,
                 draft=None,
-                canned_responses=[],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[],
             )
 
         await context.event_emitter.emit_status_event(
@@ -1596,8 +1601,9 @@ Output a JSON object with three properties:
                     "composition": recomposition_generation_info,
                 }, _CannedResponseSelectionResult(
                     message=composited_message,
-                    draft=draft_message,
-                    canned_responses=[],
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[],
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
@@ -1642,8 +1648,9 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
                     message=no_match_canrep.value,
-                    draft=draft_message,
-                    canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
                 )
             else:
                 # Return the draft message as the response
@@ -1651,9 +1658,10 @@ Output a JSON object with three properties:
                     "draft": draft_response.info,
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
-                    message=draft_message,
-                    draft=None,
-                    canned_responses=[],
+                    message=draft_response.content.response_body,
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[],
                 )
 
         # Step 5.2: Assuming a partial match in non-strict mode
@@ -1666,9 +1674,10 @@ Output a JSON object with three properties:
                 "draft": draft_response.info,
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_message,
-                draft=None,
-                canned_responses=[],
+                message=draft_response.content.response_body,
+                draft=draft_response.content.response_body,
+                rendered_canned_responses=rendered_canreps,
+                chosen_canned_responses=[],
             )
 
         # Step 5.3: Assuming a high-quality match or a partial match in strict mode
@@ -1692,8 +1701,9 @@ Output a JSON object with three properties:
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
-                draft=draft_message,
-                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                draft=draft_response.content.response_body,
+                rendered_canned_responses=rendered_canreps,
+                chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
         return {
@@ -1701,8 +1711,9 @@ Output a JSON object with three properties:
             "selection": selection_response.info,
         }, _CannedResponseSelectionResult(
             message=rendered_canned_response,
-            draft=draft_message,
-            canned_responses=[(selected_canrep_id, rendered_canned_response)],
+            draft=draft_response.content.response_body,
+            rendered_canned_responses=rendered_canreps,
+            chosen_canned_responses=[(selected_canrep_id, rendered_canned_response)],
         )
 
     async def _render_responses(
@@ -1897,7 +1908,7 @@ Example {i} - {shot.description}: ###
         )
 
         formatted_canreps = "\n".join(
-            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses.items()]
+            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses]
         )
 
         builder.add_section(
@@ -2017,10 +2028,10 @@ Output a JSON object with three properties:
         self,
         context: CannedResponseContext,
         last_response_generation: _CannedResponseSelectionResult,
+        canned_responses: Sequence[CannedResponse],
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         selection_result: Optional[_CannedResponseSelectionResult] = None
-
         if (
             context.agent.composition_mode != CompositionMode.CANNED_STRICT
             or last_response_generation.draft is None
@@ -2028,20 +2039,26 @@ Output a JSON object with three properties:
             return {}, None
 
         try:
-            filtered_canreps = [
-                (crid, canrep)
-                for crid, canrep in last_response_generation.canned_responses
-                if canrep != last_response_generation.message
-            ]  # remove last outputted response
+            outputted_canreps_ids = [
+                crid for (crid, canrep) in last_response_generation.chosen_canned_responses
+            ]
+            filtered_rendered_canreps: Sequence[tuple[CannedResponseId, str]] = [
+                (cid, canrep)
+                for cid, canrep in last_response_generation.rendered_canned_responses
+                if cid not in outputted_canreps_ids
+            ]  # removes outputted response/s
 
-            chronological_id_canreps = {
-                str(i): canrep for i, (crid, canrep) in enumerate(filtered_canreps, start=1)
+            chronological_id_rendered_canreps = {
+                str(i): (cid, canrep)
+                for i, (cid, canrep) in enumerate(filtered_rendered_canreps, start=1)
             }
 
             prompt = self._build_supplemental_canned_response_prompt(
                 context=context,
                 draft_message=last_response_generation.draft,
-                canned_responses=chronological_id_canreps,
+                canned_responses={
+                    i: canrep for i, (cid, canrep) in chronological_id_rendered_canreps.items()
+                },
                 shots=supplemental_generation_shots,
             )
 
@@ -2061,7 +2078,7 @@ Output a JSON object with three properties:
                 and response.content.additional_template_id
                 and response.content.match_quality in ["partial", "high"]
             ):
-                chosen_canrep = chronological_id_canreps.get(
+                chosen_canrep = chronological_id_rendered_canreps.get(
                     response.content.additional_template_id, None
                 )
                 if chosen_canrep is None:
@@ -2071,9 +2088,9 @@ Output a JSON object with three properties:
 
                 selection_result = (
                     _CannedResponseSelectionResult(
-                        message=chosen_canrep,
+                        message=chosen_canrep.value,
                         draft=response.content.remaining_message_draft,
-                        canned_responses=filtered_canreps,
+                        chosen_canned_responses=[(chosen_canrep.id, chosen_canrep.value)],
                     )
                     if chosen_canrep
                     else None

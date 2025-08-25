@@ -180,7 +180,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(
-            model_name=os.environ.get("LITELLM_PROVIDER_MODEL_NAME"),# type: ignore
+            model_name=os.environ.get("LITELLM_PROVIDER_MODEL_NAME"),  # type: ignore
             logger=logger,
         )
 
@@ -193,7 +193,6 @@ class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
 
 
 class LiteLLMService(NLPService):
-    
     @staticmethod
     def verify_environment() -> str | None:
         """Returns an error message if the environment is not set up correctly."""
@@ -210,7 +209,7 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 """
 
         return None
-    
+
     def __init__(
         self,
         logger: Logger,

@@ -16,13 +16,13 @@
 
 <p>
   <!-- Keep these links. Translations will automatically update with the README. -->
-  <a href="https://zdoc.app/de/emcie-co/parlant">Deutsch</a> | 
-  <a href="https://zdoc.app/es/emcie-co/parlant">Español</a> | 
-  <a href="https://zdoc.app/fr/emcie-co/parlant">français</a> | 
-  <a href="https://zdoc.app/ja/emcie-co/parlant">日本語</a> | 
-  <a href="https://zdoc.app/ko/emcie-co/parlant">한국어</a> | 
-  <a href="https://zdoc.app/pt/emcie-co/parlant">Português</a> | 
-  <a href="https://zdoc.app/ru/emcie-co/parlant">Русский</a> | 
+  <a href="https://zdoc.app/de/emcie-co/parlant">Deutsch</a> |
+  <a href="https://zdoc.app/es/emcie-co/parlant">Español</a> |
+  <a href="https://zdoc.app/fr/emcie-co/parlant">français</a> |
+  <a href="https://zdoc.app/ja/emcie-co/parlant">日本語</a> |
+  <a href="https://zdoc.app/ko/emcie-co/parlant">한국어</a> |
+  <a href="https://zdoc.app/pt/emcie-co/parlant">Português</a> |
+  <a href="https://zdoc.app/ru/emcie-co/parlant">Русский</a> |
   <a href="https://zdoc.app/zh/emcie-co/parlant">中文</a>
 </p>
 
@@ -105,6 +105,11 @@ async def get_weather(context: p.ToolContext, city: str) -> p.ToolResult:
     # Your weather API logic here
     return p.ToolResult(f"Sunny, 72°F in {city}")
 
+@p.tool
+async def get_datetime(context: p.ToolContext) -> p.ToolResult:
+    from datetime import datetime
+    return p.ToolResult(datetime.now())
+
 async def main():
     async with p.Server() as server:
         agent = await server.create_agent(
@@ -112,12 +117,19 @@ async def main():
             description="Helpful weather assistant"
         )
 
-        # Define behavior with natural language
+        # Have the agent's context be updated on every response (though
+        # update interval is customizable) using a context variable.
+        await agent.create_variable(name="current-datetime", tool=get_datetime)
+
+        # Control and guide agent behavior with natural language
         await agent.create_guideline(
             condition="User asks about weather",
             action="Get current weather and provide a friendly response with suggestions",
             tools=[get_weather]
         )
+
+        # Add other (reliably enforced) behavioral modeling elements
+        # ...
 
         # 🎉 Test playground ready at http://localhost:8800
         # Integrate the official React widget into your app,
@@ -208,7 +220,6 @@ _Financial institutions • Healthcare providers • Legal firms • E-commerce 
 ## 🌟 What Developers Are Saying
 
 > _"By far the most elegant conversational AI framework that I've come across! Developing with Parlant is pure joy."_ **— Vishal Ahuja, Senior Lead, Customer-Facing Conversational AI @ JPMorgan Chase**
-
 
 ## 🏃‍♂️ Quick Start Paths
 

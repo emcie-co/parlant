@@ -217,8 +217,9 @@ async def test_that_find_canned_responses_for_agent_returns_global_canned_respon
     )
 
     results = await entity_queries.find_canned_responses_for_context(
-        agent_id=agent.id,
+        agent=agent,
         journeys=[],
+        guidelines=[],
     )
     assert len(results) == 1
     assert results[0].id == untagged_canrep.id
@@ -240,8 +241,9 @@ async def test_that_find_canned_responses_for_agent_returns_none_for_non_matchin
     await container[AgentStore].upsert_tag(agent_id=agent.id, tag_id=TagId("non_matching_tag"))
 
     results = await entity_queries.find_canned_responses_for_context(
-        agent_id=agent.id,
+        agent=agent,
         journeys=[],
+        guidelines=[],
     )
     assert len(results) == 0
 
@@ -267,8 +269,9 @@ async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_
     )
 
     results = await entity_queries.find_canned_responses_for_context(
-        agent_id=agent.id,
+        agent=agent,
         journeys=[journey],
+        guidelines=[],
     )
     assert len(results) == 1
     assert results[0].id == journey_canrep.id
@@ -575,9 +578,9 @@ async def test_that_canned_responses_can_be_found_for_a_guideline(
 
     results = await entity_queries.find_canned_responses_for_guidelines(
         guidelines=[
-            g1.id,
-            g2.id,
-            projection[1].id,
+            g1,
+            g2,
+            projection[1],
         ]
     )
 

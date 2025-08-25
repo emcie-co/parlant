@@ -117,8 +117,8 @@ async def main():
             description="Helpful weather assistant"
         )
 
-        # Have the agent's context be updated on every response
-        # (though interval is customizable) using a context variable.
+        # Have the agent's context be updated on every response (though
+        # update interval is customizable) using a context variable.
         await agent.create_variable(name="current-datetime", tool=get_datetime)
 
         # Control and guide agent behavior with natural language

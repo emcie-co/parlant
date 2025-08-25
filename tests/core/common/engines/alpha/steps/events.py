@@ -224,7 +224,7 @@ def then_a_single_message_event_is_emitted(
     assert len(list(filter(lambda e: e.kind == EventKind.MESSAGE, emitted_events))) == 1
 
 
-@step(then, parsers.parse("a total of {count:d} message event(s) (is|are) emitted"))
+@step(then, parsers.parse("a total of {count:d} message events are emitted"))
 def then_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
     count: int,
@@ -267,6 +267,24 @@ def then_the_message_contains(
 ) -> None:
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
+            condition=f"The message contains {something}",
+        )
+    ), f"message: '{message}', expected to contain: '{something}'"
+
+
+@step(then, parsers.parse('the message at index {index:d} contains the text "{something}"'))
+def then_the_ith_message_contains(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    index: int,
+    something: str,
+) -> None:
+    message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
+    message = cast(MessageEventData, message_events[index - 1].data)["message"]
 
     assert context.sync_await(
         nlp_test(

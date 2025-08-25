@@ -372,26 +372,29 @@ Feature: Strict Canned Response
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
 
-    Scenario: Multistep journey invokes tool calls correctly (strict canned response) 
-        Given the journey called "Reset Password Journey"
-        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
-        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        And an agent message, "Great! And what's the account's associated email address or phone number?"
-        And a customer message, "the email is leonardobarbosa@gmail.br"
-        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
-        And a customer message, "Thank you! Have a great day as well!"
-        And a canned response, "What is the name of your account?"
-        And a canned response, "can you please provide the email address or phone number attached to this account?"
-        And a canned response, "Thank you, have a good day!"
-        And a canned response, "I'm sorry but I have no information about that"
-        And a canned response, "Is there anything else I could help you with?"
-        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And a canned response, "An error occurred, your password could not be reset"
+    Scenario: Supplemental canned response is selected when relevant 
+
+    # TODO change field in one of the canned responses to not be generative
+    Scenario: Supplemental canned response is selected based on unfulfilled guideline
+        Given an agent whose job is to book taxi rides
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to tell the customer to wait at curbside when a taxi booking is confirmed
+        And a guideline to confirm the taxi booking details from the book_taxi tool when a taxi booking was just confirmed
+        And a customer message, "Can I get a taxi from my home to work in 20 minutes? You got my details, right?"
+        And an agent message, "I have your home and work address"
+        And an agent message, "Do you prefer paying by cash or credit"
+        And a customer message, "Credit"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:book_taxi", "arguments": {"departure": "customer-home", "arrival": "customer-work", "time": "12:00:00"}, "result": {"data": "ORDER STATUS: Confirmed, awaiting pick up"}}]}
+        And a canned response, "ORDER STATUS: Confirmed, awaiting pick up"
+        And a canned response, "Let me check that for you"
+        And a canned response, "Your order is confirmed! A driver will be dispatched to {{generative.departure_address}}}at the provided time"
+        And a canned response, "How many passengers are in your party?"
+        And a canned response, "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
+        And a canned response, "Your order cannot be processed at this time"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
-        And a single message event is emitted
-        And the message contains that the password was reset and an email with instructions was sent to the customer
+        Then a total of 2 message events are emitted
+        And the message at index 1 contains the text "Your order is confirmed! A driver will be dispatched at the provided time"
+        And the message at index 2 contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
+
+    Scenario: Supplemental canned response which uses fields is selected when relevant
+        

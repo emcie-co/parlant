@@ -334,6 +334,148 @@ Permission denied accessing Vertex AI. Ensure:
 - **Thinking Budget**: Gemini 2.5 Flash uses zero thinking budget by default
 - **Cached Tokens**: Tracks cached content tokens in usage metadata
 
+### OpenRouter Integration
+
+OpenRouter provides a unified API gateway to access various AI models from multiple providers. Parlant's OpenRouter integration offers flexible model selection and configuration for different tasks.
+
+#### Features
+- **Multi-Model Support**: Access models from OpenAI, Anthropic, Google, and other providers through a single API
+- **Task-Specific Configuration**: Configure different models for different schema types (tool calling, journey selection, etc.)
+- **Flexible Embedding**: Support any embedding model compatible with OpenAI's embedding API
+- **Environment Variable Override**: Override TOML configurations with environment variables
+
+#### Configuration
+
+Create a `parlant_openrouter.toml` file in your project root:
+
+```toml
+# OpenRouter Configuration for Parlant
+# Copy this file to parlant_openrouter.toml in your project root
+
+[parlant.openrouter]
+# Default model for generation
+MODEL = "openai/gpt-4o"
+
+# API configuration
+OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Schema-specific model configurations
+# Each schema type can use different models optimized for specific tasks
+[parlant.openrouter.schematic_config]
+[parlant.openrouter.schematic_config.single_tool_batch]
+model = "openai/gpt-4o"
+max_tokens = 131072
+
+[parlant.openrouter.schematic_config.journey_node_selection]
+model = "anthropic/claude-3.5-sonnet"
+max_tokens = 204800
+
+[parlant.openrouter.schematic_config.canned_response_draft]
+model = "anthropic/claude-3.5-sonnet"
+max_tokens = 204800
+
+[parlant.openrouter.schematic_config.canned_response_selection]
+model = "anthropic/claude-3-haiku"
+max_tokens = 204800
+
+# Embedding configuration
+[parlant.openrouter.embedding]
+OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-large"
+OPENROUTER_EMBEDDING_DIMENSIONS = 3072
+OPENROUTER_EMBEDDING_BASE_URL = "https://xxx.ai/api/v1"
+OPENROUTER_EMBEDDING_API_KEY = "${OPENROUTER_API_KEY}"
+```
+
+#### Configuration Strategy
+
+Due to the extensive configuration options, we recommend using TOML format for most settings and environment variables only for sensitive information like API keys. This approach provides better maintainability and security.
+
+#### Environment Variables
+
+Environment variables are primarily used for sensitive information and API keys:
+
+```bash
+# Main service configuration
+export MODEL="anthropic/claude-3.5-sonnet"
+export OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
+
+# Embedding configuration
+export OPENROUTER_EMBEDDING_MODEL="openai/text-embedding-3-large"
+export OPENROUTER_EMBEDDING_DIMENSIONS="3072"
+export OPENROUTER_EMBEDDING_BASE_URL="https://openrouter.ai/api/v1"
+export OPENROUTER_EMBEDDING_API_KEY="your-api-key"
+```
+
+#### Usage
+
+```python
+import parlant.sdk as p
+
+# Create server with OpenRouter NLP service
+async with p.Server(
+    nlp_service=p.NLPServices.openrouter,
+    log_level=p.LogLevel.DEBUG,
+    session_store="local"
+) as server:
+    # Your Parlant application code here
+    pass
+```
+
+#### Model Selection Strategy
+
+The OpenRouter integration automatically selects the appropriate model based on the task:
+
+- **SingleToolBatchSchema**: Uses GPT-4o for complex tool calling tasks
+- **JourneyNodeSelectionSchema**: Uses Claude 3.5 Sonnet for journey planning
+- **CannedResponseDraftSchema**: Uses Claude 3.5 Sonnet for response generation
+- **CannedResponseSelectionSchema**: Uses Claude 3 Haiku for lightweight selection tasks
+
+You can customize these mappings in the TOML configuration file.
+
+#### Configuration Loading Implementation
+
+The OpenRouter service uses a centralized configuration loading function:
+
+```python
+def load_openrouter_config() -> dict[str, Any]:
+    """Load OpenRouter configuration from TOML file and environment variables."""
+    config = {}
+    
+    # Load from TOML file
+    config_path = Path("parlant_openrouter.toml")
+    if config_path.exists():
+        try:
+            toml_config = toml.load(config_path)
+            config = toml_config.get("parlant", {}).get("openrouter", {})
+        except Exception as e:
+            print(f"Warning: Failed to load TOML config: {e}")
+    
+    # Override with environment variables
+    for env_var in ["MODEL", "OPENROUTER_BASE_URL"]:
+        if value := os.environ.get(env_var):
+            config[env_var] = value
+    
+    # Embedding configuration override
+    embedding_config = config.setdefault("embedding", {})
+    for env_var in ["OPENROUTER_EMBEDDING_MODEL", "OPENROUTER_EMBEDDING_DIMENSIONS", 
+                   "OPENROUTER_EMBEDDING_BASE_URL", "OPENROUTER_EMBEDDING_API_KEY"]:
+        if value := os.environ.get(env_var):
+            if env_var == "OPENROUTER_EMBEDDING_DIMENSIONS":
+                embedding_config[env_var] = int(value)
+            else:
+                embedding_config[env_var] = value
+    
+    return config
+```
+
+This function:
+- Loads configuration from `parlant_openrouter.toml` file
+- Allows environment variables to override TOML settings
+- Handles type conversion for numeric values
+- Provides fallback defaults for missing configurations
+
+
 ## Performance Considerations
 
 ### Token Limits

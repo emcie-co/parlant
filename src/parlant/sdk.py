@@ -301,6 +301,16 @@ class NLPServices:
         return LiteLLMService(container[Logger])
 
     @staticmethod
+    def openrouter(container: Container) -> NLPService:
+        """Creates an OpenRouter NLPService instance using the provided container."""
+        from parlant.adapters.nlp.openrouter_service import OpenRouterService
+
+        if error := OpenRouterService.verify_environment():
+            raise SDKError(error)
+
+        return OpenRouterService(container[Logger])
+
+    @staticmethod
     def vertex(container: Container) -> NLPService:
         """Creates a Vertex NLPService instance using the provided container."""
         from parlant.adapters.nlp.vertex_service import VertexAIService

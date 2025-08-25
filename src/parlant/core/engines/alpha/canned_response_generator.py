@@ -556,8 +556,9 @@ You must generate the preamble message. You must produce a JSON object with a si
             preamble_responses = [
                 canrep
                 for canrep in await self._entity_queries.find_canned_responses_for_context(
-                    agent_id=agent.id,
+                    agent=agent,
                     journeys=canrep_context.journeys,
+                    guidelines=[m.guideline for m in canrep_context.guideline_matches],
                 )
                 if Tag.preamble() in canrep.tags
             ]
@@ -686,8 +687,9 @@ You will now be given the current state of the interaction to which you must gen
         stored_responses = [
             canrep
             for canrep in await self._entity_queries.find_canned_responses_for_context(
-                agent_id=context.agent.id,
+                agent=context.agent,
                 journeys=context.journeys,
+                guidelines=[m.guideline for m in context.guideline_matches],
             )
             if Tag.preamble() not in canrep.tags
         ]
@@ -1418,6 +1420,16 @@ Output a JSON object with three properties:
                     "data": {},
                 },
             )
+        elif (
+            not canned_responses and context.agent.composition_mode == CompositionMode.CANNED_STRICT
+        ):
+            no_match_canrep = await self._no_match_provider.get_response(loaded_context, None)
+
+            return {}, _CannedResponseSelectionResult(
+                message=no_match_canrep.value,
+                draft=None,
+                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+            )
         else:
             await context.event_emitter.emit_status_event(
                 correlation_id=self._correlator.correlation_id,
@@ -1479,7 +1491,7 @@ Output a JSON object with three properties:
 
             relevant_canreps.update(
                 await self._entity_queries.find_canned_responses_for_guidelines(
-                    guidelines=[m.guideline.id for m in context.guideline_matches]
+                    guidelines=[m.guideline for m in context.guideline_matches]
                 )
             )
 

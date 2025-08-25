@@ -172,7 +172,7 @@ async def base_test_that_correct_canrep_is_selected(
     last_response_generation = _CannedResponseSelectionResult(
         message=last_agent_message,
         draft=last_generation_draft,
-        canned_responses=canned_responses,
+        chosen_canned_responses=canned_responses,
     )
 
     canrep_generator: CannedResponseGenerator = context.container[CannedResponseGenerator]

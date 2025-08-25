@@ -375,7 +375,7 @@ Feature: Strict Canned Response
     Scenario: Supplemental canned response is selected when relevant 
 
     # TODO change field in one of the canned responses to not be generative
-    Scenario: Supplemental canned response is selected based on unfulfilled guideline
+    Scenario: Supplemental canned response is selected based on unfulfilled guideline (strict canned response)
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
         And a guideline to tell the customer to wait at curbside when a taxi booking is confirmed
@@ -387,7 +387,7 @@ Feature: Strict Canned Response
         And a tool event with data, {"tool_calls": [{"tool_id": "built-in:book_taxi", "arguments": {"departure": "customer-home", "arrival": "customer-work", "time": "12:00:00"}, "result": {"data": "ORDER STATUS: Confirmed, awaiting pick up"}}]}
         And a canned response, "ORDER STATUS: Confirmed, awaiting pick up"
         And a canned response, "Let me check that for you"
-        And a canned response, "Your order is confirmed! A driver will be dispatched to {{generative.departure_address}}}at the provided time"
+        And a canned response, "Your order is confirmed! A driver will be dispatched to {{generative.departure_address}} at the provided time"
         And a canned response, "How many passengers are in your party?"
         And a canned response, "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
         And a canned response, "Your order cannot be processed at this time"

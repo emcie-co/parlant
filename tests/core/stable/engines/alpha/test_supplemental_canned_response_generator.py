@@ -441,9 +441,9 @@ async def test_that_most_crucial_supplemental_canned_response_is_selected_when_m
         ),
     ]
 
-    last_generation_draft = "I can unlock your account right now through this chat system. After I unlock it, please wait 15 minutes before trying to log in again to ensure the system updates properly. To verify your identity, can you provide me with your account recovery number?"
+    last_generation_draft = "I can unlock your account right now through this chat system. After I unlock it, you will be able to access your account again. To verify your identity, can you provide me with your account recovery number?"
     canned_responses: list[str] = [
-        "Please allow up to 15 minutes for account changes to take effect before attempting to log in.",
+        "After I unlock it, you will be able to access your account again.",
         "Can you please provide me with your account recovery number?",
         "Your account has been successfully unlocked and is ready for use.",
         "For security reasons, we recommend changing your password after regaining access.",

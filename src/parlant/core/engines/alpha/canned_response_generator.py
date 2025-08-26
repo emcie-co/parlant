@@ -1956,11 +1956,12 @@ Perform your task as follows:
     c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
 
 Some nuances regarding choosing the correct template:
- - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the human operator's draft reply
+ - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the draft
  - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
  - If the missing part of the draft includes multiple unrelated components that would each require different templates, prioritize the template that addresses the most critical information for customer understanding and conversation progression. Choose the component that is essential for the customer to take their next action or properly understand the agent's response.
  - If there is any noticeable semantic deviation between the draft message and a template (e.g., the draft says "Do X" and the template says "Do Y"), do not choose that template, even if it captures other parts of the remaining message draft
  - Prioritize factual accuracy. Never output a template that conveys information which contradicts the draft. Prefer outputting a different template, or even no template whatsoever.
+    - For example, if the draft mentions that a certain action takes 10 minutes to be completed, prefer a template that mentions it taking less than a day to one that says that action is completed immediately. Err on the side of caution.
 
  """,
         )
@@ -2240,7 +2241,30 @@ supp_generation_example_2_shot = SupplementalCannedResponseSelectionShot(
     expected_result=supp_generation_example_2_expected,
 )
 
+supp_generation_example_3_expected = SupplementalCannedResponseSelectionSchema(
+    remaining_message_draft="Thank you for your purchase!",
+    unsatisfied_guidelines="",
+    tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
+    additional_response_required=True,
+    additional_template_id="1",
+    match_quality="partial",
+)
+supp_generation_example_3_shot = SupplementalCannedResponseSelectionShot(
+    description="An example where one response is prioritized for its importance",
+    draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
+    canned_responses={
+        "1": "Please note that all dishes may contain peanuts",
+        "2": "Please inform us of any allergies you or your party have",
+        "3": "Thank you for coming in!",
+        "4": "Our souvenir shop is available for all diners after their meal",
+        "5": "Would you like to book another table?",
+    },
+    last_agent_message="Your table has been booked!",
+    expected_result=supp_generation_example_3_expected,
+)
+
 supplemental_generation_shots: Sequence[SupplementalCannedResponseSelectionShot] = [
     supp_generation_example_1_shot,
     supp_generation_example_2_shot,
+    supp_generation_example_3_shot,
 ]

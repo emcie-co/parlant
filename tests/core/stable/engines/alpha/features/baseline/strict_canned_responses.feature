@@ -372,7 +372,24 @@ Feature: Strict Canned Response
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
 
-    Scenario: Supplemental canned response is selected when relevant 
+    Scenario: Supplemental canned response is selected when relevant (strict canned response)
+        Given an agent whose job is to schedule automatic vaccum cleaning services using robots
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to ensure that no pets and no children are in the house when a customer asks to schedule a deep-clean in a residential area 
+        And a customer message, "I need a deep-clean next Wednesday"
+        And an agent message, "Great! I can schedule a deep-clean for you. Is it at the location of your last deep-clean?"
+        And a customer message, "Yes"
+        And an agent message, "Just to confirm, the location is your parents house, at 1414 2nd Avenue, correct?"
+        And a customer message, "Yes"
+        And a canned response, "Great! I'll schedule a deep-clean at {{generative.location}} at {{generative.desired_date}}."
+        And a canned response, "For safety reasons, please ensure that no children are present at the house during the {{generative.service_type}}"
+        And a canned response, "Unfortunately, I lack the information to complete this booking"
+        And a canned response, "For safety reasons, please ensure that no pets are present at the house during the {{generative.service_type}}"
+        And a canned response, "For safety reasons, please ensure that no one is at the house during the {{generative.service_type}}"
+        When processing is triggered
+        Then a total of 2 message events are emitted
+        And the message at index 1 contains the text "please ensure that no pets are present"
+        And the message at index 2 contains the text "please ensure that no children are present"
 
     Scenario: Supplemental canned response is selected based on unfulfilled guideline (strict canned response)
         Given an agent whose job is to book taxi rides
@@ -395,5 +412,5 @@ Feature: Strict Canned Response
         And the message at index 1 contains the text "Your order is confirmed! A driver will be dispatched to"
         And the message at index 2 contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
 
-    Scenario: Supplemental canned response which uses fields is selected when relevant
-        
+    Scenario: Supplemental canned response which uses fields is selected when relevant (strict canned response)
+        Given an agent whose job is to 

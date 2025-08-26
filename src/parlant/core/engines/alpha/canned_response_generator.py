@@ -138,6 +138,7 @@ class SupplementalCannedResponseSelectionShot(Shot):
     description: str
     canned_responses: Mapping[str, str]
     draft: str
+    last_agent_message: str
     expected_result: SupplementalCannedResponseSelectionSchema
 
 
@@ -1855,6 +1856,12 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
             }
 
         formatted_shot = ""
+
+        formatted_shot += f"""
+Draft: {shot.draft}
+Last agent message: {shot.last_agent_message}
+"""
+
         candidate_canreps = "\n".join(
             f"{canrep_id}) {canrep}" for canrep_id, canrep in shot.canned_responses.items()
         )
@@ -1956,6 +1963,7 @@ Perform your task as follows:
     a. "low": You couldn't find a template that even comes close, or any such template also adds new information that is not in the draft.
     b. "partial": You found a template that conveys at least some of the draft message's content, without adding information that is not in the draft or the active guidelines.
     c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
+
 Some nuances regarding choosing the correct template:
  - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the human operator's draft reply
  - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
@@ -2199,7 +2207,7 @@ supp_generation_example_1_expected = SupplementalCannedResponseSelectionSchema(
 )
 
 supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
-    description="A simple example where a supplemental response is not necessary",
+    description="A simple example where a supplemental response is necessary",
     draft=cast(str, supp_generation_example_1_expected.remaining_message_draft),
     canned_responses={
         "1": "Your account status is currently set to Active. You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
@@ -2208,6 +2216,7 @@ supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
         "4": "You can change your account status to either Active, Automatic, or Closed.",
         "5": "Our customer support line is open from 8 AM to 8 PM Monday through Friday. You can call us at 1-800-123-1234.",
     },
+    last_agent_message="I can assist you with altering the status of your account, or you can call a human representative.",
     expected_result=supp_generation_example_1_expected,
 )
 
@@ -2229,6 +2238,7 @@ supp_generation_example_2_shot = SupplementalCannedResponseSelectionShot(
         "4": "Your purchase is complete and will be shipped to you shortly!",
         "5": "You can track your order status on our website at verygoodstore.com",
     },
+    last_agent_message="The order will be shipped to you in 5-7 business days",
     expected_result=supp_generation_example_2_expected,
 )
 

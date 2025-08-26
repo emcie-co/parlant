@@ -318,18 +318,18 @@ async def test_that_simple_correct_supplemental_canned_response_is_chosen_3(
         ),
         (
             EventSource.AI_AGENT,
-            "Thank you for providing additional details! ",
+            "I apologize but I'm not sure at this time.",
         ),
     ]
 
-    last_generation_draft = "Sorry to hear that. What is the problem you're trying to report? There's a 'report problem' button on your transactions dashboard that lets you quickly flag issues with specific transactions. Can you find it?"
+    last_generation_draft = "I'm not sure. Could it possibly be the Ketchup song?"
     canned_responses: list[str] = [
-        "I'm sorry but I didn't catch that.",
-        "What is the problem you're experiencing?",
-        "You can report a problem with a transaction by clicking on the 'report problem' button on your transactions dashboard.",
-        "Please report your problem using the 'report problem' button",
-        "The capital of France is Paris",
-        "Disputing a transaction can be done through the transactions dashboard on our app or through this chat",
+        "I'm certain it's the Ketchup song",
+        "I'm sorry but I am not sure",
+        "There are many options. I need more data.",
+        "I think it might be the Ketchup song",
+        "Have you tried playing the song on the app?",
+        "Can you please provide me with additional details?",
     ]
 
     await base_test_that_correct_canrep_is_selected(
@@ -339,7 +339,7 @@ async def test_that_simple_correct_supplemental_canned_response_is_chosen_3(
         customer=customer,
         canned_responses_text=canned_responses,
         last_generation_draft=last_generation_draft,
-        target_canned_response=canned_responses[2],
+        target_canned_response=canned_responses[3],
         conversation_context=conversation_context,
     )
 
@@ -1017,7 +1017,7 @@ async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_h
         ),
         GuidelineContent(
             condition="discussing shipping for seizure or neurological medications",
-            action="Mention that we offer same-day dispatch with overnight delivery to ensure continuity of treatment",
+            action="Mention that we offer same-day dispatch with delivery with overnight delivery to ensure continuity of treatment",
         ),
     ]
 

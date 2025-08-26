@@ -21,8 +21,8 @@ The Vertex AI Service Adapter provides integration with Google Cloud's Vertex AI
 ```bash
 # Required
 VERTEX_AI_PROJECT_ID=your-gcp-project-id
-VERTEX_AI_REGION=us-central1  # Default region
-VERTEX_AI_MODEL=claude-sonnet-3.5  # Default model
+VERTEX_AI_REGION=us-central1  # Put your region
+VERTEX_AI_MODEL=claude-opus-4
 ```
 
 ### Authentication
@@ -90,18 +90,6 @@ result = await generator.generate(
     prompt="Your prompt here",
     hints={"temperature": 0.7, "max_tokens": 1000}
 )
-```
-
-### Usage with parlant sdk
-```python
-import parlant.sdk as p
-from parlant.sdk import NLPServices
-
-async with p.Server(nlp_service=NLPServices.vertex) as server:
-        agent = await server.create_agent(
-            name="Your Agent",
-            description="Best agent in the world",
-        )
 ```
 
 ## API Reference
@@ -182,7 +170,6 @@ async def generate(
 Generates structured content using Claude models with:
 - JSON schema validation
 - Retry policies for rate limits and errors
-- Comprehensive error handling and logging
 - Usage tracking
 
 ### VertexAIGeminiSchematicGenerator
@@ -214,7 +201,6 @@ async def generate(
 
 Generates structured content using Gemini models with:
 - Native JSON schema support
-- Response MIME type configuration
 - JSON parsing and validation
 - Usage metadata tracking
 
@@ -260,7 +246,7 @@ async def estimate_token_count(self, prompt: str) -> int
 ```
 
 Estimates token count using:
-- tiktoken for Claude models (with 1.15x multiplier)
+- tiktoken for Claude models
 - Google Gen AI API for Gemini models
 
 ## Error Handling
@@ -317,6 +303,7 @@ Permission denied accessing Vertex AI. Ensure:
 3. The {model_name} model is enabled in Vertex AI Model Garden
 ```
 
+
 ## Model-Specific Features
 
 ### Claude Models
@@ -350,6 +337,7 @@ For a unified multi-provider approach, consider using OpenRouter as an alternati
 
 See the [OpenRouter documentation](openrouter.md) for detailed configuration and usage.
 
+
 ## Performance Considerations
 
 ### Token Limits
@@ -359,13 +347,6 @@ See the [OpenRouter documentation](openrouter.md) for detailed configuration and
 | Claude Models | 200K tokens | Long documents, complex reasoning |
 | Gemini Flash | 1M tokens | Large context processing |
 | Gemini Pro | 2M tokens | Maximum context requirements |
-
-### Latency Optimization
-
-- **Batch Embeddings**: Process multiple texts in single API call
-- **Connection Reuse**: Persistent client connections
-- **Retry Logic**: Exponential backoff prevents cascade failures
-- **Token Estimation**: Local estimation reduces API calls
 
 ## Best Practices
 
@@ -419,21 +400,9 @@ except Exception as e:
    - Implement application-level rate limiting
    - Consider upgrading service tier
 
-4. **JSON Parsing Errors**
-   - Check prompt formatting
-   - Verify schema definitions
-   - Review model output in logs
-
 ### Debugging
 
-Monitor usage and performance:
-
-```python
-# Access generation info
-result = await generator.generate(prompt)
-print(f"Tokens used: {result.info.usage.input_tokens + result.info.usage.output_tokens}")
-print(f"Duration: {result.info.duration:.2f}s")
-```
+Check usage from the playground UI by inspecting on the generated message
 
 ## Migration Guide
 
@@ -449,13 +418,13 @@ When migrating from other NLP adapters:
    # Set Vertex AI variables
    export VERTEX_AI_PROJECT_ID=your-project-id
    export VERTEX_AI_REGION=us-central1
-   export VERTEX_AI_MODEL=claude-sonnet-3.5
+   export VERTEX_AI_MODEL=claude-opus-4
    ```
 
 2. **Model Name Mapping**
-   - `gpt-4` → `claude-sonnet-3.5`
+   - `gpt-4` → `claude-opus-4`
    - `gpt-3.5-turbo` → `gemini-2.5-flash`
-   - `claude-3-sonnet` → `claude-sonnet-3.5`
+   - `claude-3-sonnet` → `claude-opus-4`
 
 ## Contributing
 
@@ -474,6 +443,40 @@ When migrating from other NLP adapters:
 - Add type hints for all methods
 - Document public APIs with docstrings
 - Use retry policies for external API calls
+
+## Prerequisites and Installation
+
+### Installation
+
+To use the Vertex AI Service Adapter with Parlant, you need to install the appropriate optional dependencies:
+
+```bash
+pip install "parlant[vertex]"
+```
+
+This installation includes support for both Claude and Gemini models through the Vertex AI platform.
+
+### Important Model Deprecation Notice
+
+⚠️ **Claude 3.5 Sonnet Models Deprecation**: Claude Sonnet 3.5 models (claude-3-5-sonnet-20240620 and claude-3-5-sonnet-20241022) will be retired on October 22, 2025. We recommend migrating to Claude Sonnet 4 (claude-sonnet-4-20250514) for improved performance and capabilities.
+
+## Authentication Setup
+
+Before using the adapter, ensure you have proper authentication configured:
+
+```bash
+# For local development
+gcloud auth application-default login
+
+# Verify authentication
+gcloud auth application-default print-access-token
+```
+
+## Required Permissions
+
+Ensure your service account or user has the following IAM roles:
+- `Vertex AI User` - for accessing Vertex AI services
+- `AI Platform User` - for model access (legacy role, may be needed for some models)
 
 ## License
 

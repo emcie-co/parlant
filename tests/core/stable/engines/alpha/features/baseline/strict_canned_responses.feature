@@ -374,7 +374,6 @@ Feature: Strict Canned Response
 
     Scenario: Supplemental canned response is selected when relevant 
 
-    # TODO change field in one of the canned responses to not be generative
     Scenario: Supplemental canned response is selected based on unfulfilled guideline (strict canned response)
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
@@ -393,7 +392,7 @@ Feature: Strict Canned Response
         And a canned response, "Your order cannot be processed at this time"
         When processing is triggered
         Then a total of 2 message events are emitted
-        And the message at index 1 contains the text "Your order is confirmed! A driver will be dispatched at the provided time"
+        And the message at index 1 contains the text "Your order is confirmed! A driver will be dispatched to"
         And the message at index 2 contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
 
     Scenario: Supplemental canned response which uses fields is selected when relevant

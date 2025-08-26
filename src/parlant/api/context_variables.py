@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 from pydantic import Field, field_validator
 from datetime import datetime
 from croniter import croniter
-from fastapi import HTTPException, Path, Query, status
+from fastapi import HTTPException, Path, Query, Request, status
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
 
 from fastapi import APIRouter
 from parlant.api import common
+from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     ToolIdDTO,
     JSONSerializableDTO,
@@ -355,7 +356,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Creates a new context variable for tracking customer-specific or tag-specific data.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Example uses:
         - Track subscription tiers to control feature access
@@ -414,7 +416,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Updates an existing context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Only provided fields will be updated; others remain unchanged.
         """
@@ -483,7 +486,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes all context variables and their values for the provided agent ID.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -518,7 +522,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes a specific context variable and all its values.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -557,7 +562,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Lists all context variables set for the provided agent.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
         """
         variables = await context_variable_store.list_variables(
             tags=[Tag.for_agent_id(agent_id)],
@@ -605,7 +611,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Updates the value of a context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The `key` represents a customer identifier or a customer tag in the format `tag:{tag_id}`.
         If `key="DEFAULT"`, the update applies to all customers.
@@ -654,7 +661,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves the value of a context variable for a specific customer or tag.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The key should be a customer identifier or a customer tag in the format `tag:{tag_id}`.
         """
@@ -706,7 +714,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Retrieves a context variable's details and optionally its values.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         Can return all customer or tag values for this variable type if include_values=True.
         """
@@ -777,7 +786,8 @@ def create_legacy_router(
         """
         [DEPRECATED] Deletes a specific customer's or tag's value for this context variable.
 
-        This endpoint is deprecated. Please use the tag-based context variables API instead.
+        This endpoint is deprecated, and will be removed in a future release.
+        Please use the tag-based context variables API instead.
 
         The key should be a customer identifier or a customer tag in the format `tag:{tag_id}`.
         Removes only the value for the specified key while keeping the variable's configuration.
@@ -966,6 +976,7 @@ class ContextVariableCreationParamsDTO(
 
 
 def create_router(
+    authorization_policy: AuthorizationPolicy,
     context_variable_store: ContextVariableStore,
     service_registry: ServiceRegistry,
     agent_store: AgentStore,
@@ -991,6 +1002,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create"),
     )
     async def create_variable(
+        request: Request,
         params: ContextVariableCreationParamsDTO,
     ) -> ContextVariableDTO:
         """
@@ -1001,6 +1013,11 @@ def create_router(
         - Store usage patterns for personalized recommendations
         - Remember preferences for tailored responses
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.CREATE_CONTEXT_VARIABLE,
+        )
+
         if params.tool_id:
             service = await service_registry.read_tool_service(params.tool_id.service_name)
             _ = await service.read_tool(params.tool_id.tool_name)
@@ -1056,6 +1073,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="update"),
     )
     async def update_variable(
+        request: Request,
         variable_id: ContextVariableIdPath,
         params: ContextVariableUpdateParamsDTO,
     ) -> ContextVariableDTO:
@@ -1064,6 +1082,10 @@ def create_router(
 
         Only provided fields will be updated; others remain unchanged.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.UPDATE_CONTEXT_VARIABLE,
+        )
 
         def from_dto(dto: ContextVariableUpdateParamsDTO) -> ContextVariableUpdateParams:
             params: ContextVariableUpdateParams = {}
@@ -1130,9 +1152,12 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_variables(
+        request: Request,
         tag_id: TagIdQuery = None,
     ) -> Sequence[ContextVariableDTO]:
         """Lists all context variables set for the provided tag or all context variables if no tag is provided"""
+        await authorization_policy.authorize(request, Operation.LIST_CONTEXT_VARIABLES)
+
         if tag_id:
             variables = await context_variable_store.list_variables(
                 tags=[tag_id],
@@ -1170,6 +1195,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_variable(
+        request: Request,
         variable_id: ContextVariableIdPath,
         include_values: IncludeValuesQuery = True,
     ) -> ContextVariableReadResult:
@@ -1178,6 +1204,11 @@ def create_router(
 
         Can return all customer or tag values for this variable type if include_values=True.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.READ_CONTEXT_VARIABLE,
+        )
+
         variable = await context_variable_store.read_variable(id=variable_id)
 
         variable_dto = ContextVariableDTO(
@@ -1224,9 +1255,15 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete_many"),
     )
     async def delete_variables(
+        request: Request,
         tag_id: TagIdQuery = None,
     ) -> None:
         """Deletes all context variables for the provided tag"""
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.DELETE_CONTEXT_VARIABLES,
+        )
+
         if tag_id:
             variables = await context_variable_store.list_variables(
                 tags=[tag_id],
@@ -1255,9 +1292,15 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_variable(
+        request: Request,
         variable_id: ContextVariableIdPath,
     ) -> None:
         """Deletes a context variable"""
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.DELETE_CONTEXT_VARIABLE,
+        )
+
         await context_variable_store.delete_variable(id=variable_id)
 
     @router.get(
@@ -1274,10 +1317,16 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="get_value"),
     )
     async def read_variable_value(
+        request: Request,
         variable_id: ContextVariableIdPath,
         key: ContextVariableKeyPath,
     ) -> ContextVariableValueDTO:
         """Retrieves a customer or tag value for the provided context variable"""
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.READ_CONTEXT_VARIABLE_VALUE,
+        )
+
         _ = await context_variable_store.read_variable(id=variable_id)
 
         value = await context_variable_store.read_value(variable_id=variable_id, key=key)
@@ -1308,11 +1357,17 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="set_value"),
     )
     async def update_variable_value(
+        request: Request,
         variable_id: ContextVariableIdPath,
         key: ContextVariableKeyPath,
         params: ContextVariableValueUpdateParamsDTO,
     ) -> ContextVariableValueDTO:
         """Updates a customer or tag value for the provided context variable"""
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.UPDATE_CONTEXT_VARIABLE_VALUE,
+        )
+
         _ = await context_variable_store.read_variable(id=variable_id)
 
         value = await context_variable_store.update_value(
@@ -1340,10 +1395,15 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete_value"),
     )
     async def delete_value(
+        request: Request,
         variable_id: ContextVariableIdPath,
         key: ContextVariableKeyPath,
     ) -> None:
         """Deletes a customer or tag value for the provided context variable"""
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.DELETE_CONTEXT_VARIABLE_VALUE,
+        )
         _ = await context_variable_store.read_variable(id=variable_id)
 
         if not context_variable_store.read_value(variable_id=variable_id, key=key):

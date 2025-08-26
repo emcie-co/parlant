@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,19 +14,20 @@
 
 from abc import ABC, abstractmethod
 import asyncio
-from typing import Any, Coroutine, Callable, Optional, ParamSpec, TypeVar, Union
+from collections import defaultdict
+from typing import Any, Coroutine, Callable, Optional, TypeAlias, TypeVar, Union
 
-P = ParamSpec("P")
 R = TypeVar("R")
+
+FunctionCallState: TypeAlias = dict["Policy", dict[str, Any]]
 
 
 class Policy(ABC):
     @abstractmethod
     async def apply(
         self,
-        func: Callable[P, Coroutine[Any, Any, R]],
-        *args: P.args,
-        **kwargs: P.kwargs,
+        state: FunctionCallState,
+        func: Callable[..., Coroutine[Any, Any, R]],
     ) -> R:
         pass
 
@@ -41,31 +42,44 @@ class RetryPolicy(Policy):
         if not isinstance(exceptions, tuple):
             exceptions = (exceptions,)
         self.exceptions = exceptions
-        self.max_attempts = max_attempts
-        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0)
-
-        self._attempts = 0
+        self.max_exceptions = max_attempts
+        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
 
     async def apply(
-        self, func: Callable[P, Coroutine[Any, Any, R]], *args: P.args, **kwargs: P.kwargs
+        self,
+        state: FunctionCallState,
+        func: Callable[..., Coroutine[Any, Any, R]],
+        *args: Any,
+        **kwargs: Any,
     ) -> R:
+        if "exceptions_raised" not in state[self]:
+            state[self]["exceptions_raised"] = 0
+
         while True:
             try:
-                return await func(*args, **kwargs)
+                return await func(state, *args, **kwargs)
             except self.exceptions as e:
-                self._attempts += 1
-                if self._attempts >= self.max_attempts:
+                state[self]["exceptions_raised"] += 1
+
+                if state[self]["exceptions_raised"] >= self.max_exceptions:
                     raise e
-                wait_time = self.wait_times[min(self._attempts - 1, len(self.wait_times) - 1)]
+
+                wait_time = self.wait_times[
+                    min(
+                        state[self]["exceptions_raised"] - 1,
+                        len(self.wait_times) - 1,
+                    )
+                ]
+
                 await asyncio.sleep(wait_time)
 
 
 def retry(
     exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-    max_attempts: int = 3,
+    max_exceptions: int = 3,
     wait_times: Optional[tuple[float, ...]] = None,
 ) -> RetryPolicy:
-    return RetryPolicy(exceptions, max_attempts, wait_times)
+    return RetryPolicy(exceptions, max_exceptions, wait_times)
 
 
 def policy(
@@ -75,17 +89,58 @@ def policy(
         func: Callable[..., Coroutine[Any, Any, R]],
     ) -> Callable[..., Coroutine[Any, Any, R]]:
         applied_policies = policies if isinstance(policies, list) else [policies]
+
+        # We need to maintain unique policy states across different
+        # function calls, so we wrap the function with a state management layer.
+        #
+        # This is crucial for allowing multiple policies to be applied
+        # and keep track of their own exceptions count (or other things)
+        # during the same function call without interfering with each other.
+
+        # The function itself will need to be called while
+        # ignoring the managed call state parameter.
+        func = _wrap_with_ignored_function_call_state(func)
+
+        # Each policy accepts a state parameter,
+        # which it uses to keep track of its own state.
         for policy in reversed(applied_policies):
-            func = make_wrapped_func(policy, func)
+            func = _wrap_with_policy(policy, func)
+
+        # As soon as our decorated function is called,
+        # we need to create a new state for this call,
+        # which our policies can use.
+        func = _wrap_with_function_call_state_initialization(func)
+
+        # Finally, we return the wrapped function
         return func
 
     return decorator
 
 
-def make_wrapped_func(
-    policy: Policy, func: Callable[..., Coroutine[Any, Any, R]]
+def _wrap_with_ignored_function_call_state(
+    func: Callable[..., Coroutine[Any, Any, R]],
+) -> Callable[..., Coroutine[Any, Any, R]]:
+    async def wrapped_func(state: FunctionCallState, *args: Any, **kwargs: Any) -> Any:
+        _ = state
+        return await func(*args, **kwargs)
+
+    return wrapped_func
+
+
+def _wrap_with_function_call_state_initialization(
+    func: Callable[..., Coroutine[Any, Any, R]],
 ) -> Callable[..., Coroutine[Any, Any, R]]:
     async def wrapped_func(*args: Any, **kwargs: Any) -> Any:
-        return await policy.apply(func, *args, **kwargs)
+        state: FunctionCallState = defaultdict(dict)
+        return await func(state, *args, **kwargs)
+
+    return wrapped_func
+
+
+def _wrap_with_policy(
+    policy: Policy, func: Callable[..., Coroutine[Any, Any, R]]
+) -> Callable[..., Coroutine[Any, Any, R]]:
+    async def wrapped_func(state: FunctionCallState, *args: Any, **kwargs: Any) -> R:
+        return await policy.apply(state, func, *args, **kwargs)
 
     return wrapped_func

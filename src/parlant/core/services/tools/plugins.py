@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import enum
 import inspect
 import json
@@ -23,6 +23,7 @@ import traceback
 import dateutil.parser
 from types import TracebackType
 from typing import (
+    Annotated,
     Any,
     AsyncIterator,
     Awaitable,
@@ -31,14 +32,16 @@ from typing import (
     NamedTuple,
     Optional,
     Sequence,
+    TypeAlias,
     TypedDict,
     Union,
     get_args,
+    get_origin,
     overload,
 )
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 import httpx
 from urllib.parse import urljoin
@@ -55,10 +58,10 @@ from parlant.core.tools import (
     ToolParameterType,
     ToolResult,
     ToolContext,
-    EnumValueType,
     ToolResultError,
     normalize_tool_arguments,
     validate_tool_arguments,
+    ToolOverlap,
 )
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
 from parlant.core.contextual_correlator import ContextualCorrelator
@@ -117,12 +120,20 @@ class ToolEntry:
 
 
 class _ToolDecoratorParams(TypedDict, total=False):
-    id: str
     name: str
+    """Defines a custom name for the tool."""
+
     consequential: bool
+    """Defines whether the tool is consequential or not."""
+
+    metadata: Mapping[str, JSONSerializable]
+    """Defines metadata for the tool, which can be used to provide additional information about the tool."""
+
+    overlap: ToolOverlap
+    """Defines how the tool overlaps with other tools. Defaults to ToolOverlap.AUTO."""
 
 
-_ToolParameterType = Union[str, int, float, bool, list[Any], None]
+_ToolParameterType = Union[str, int, float, bool, date, datetime, list[Any], None]
 
 
 class _ToolParameterInfo(NamedTuple):
@@ -134,8 +145,20 @@ class _ToolParameterInfo(NamedTuple):
 
 def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
     try:
-        parameter_type = param.annotation
+        parameter_type: type
+        if get_origin(param.annotation) is list:
+            # This way we handle typing.List[elem] as list[elem]
+            elem_type = get_args(param.annotation)[0]
+            parameter_type = list[elem_type]  # type: ignore[valid-type]
+        else:
+            parameter_type = param.annotation
         parameter_options: Optional[ToolParameterOptions] = None
+
+        # If parameter has default then we'll consider it as optional (in terms of tool calling)
+        if param.default is not inspect.Parameter.empty:
+            has_default = True
+        else:
+            has_default = False
 
         # First thing, is our parameter annotated?
         if getattr(parameter_type, "__name__", None) == "Annotated":
@@ -184,7 +207,7 @@ def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
                     raw_type=parameter_type,
                     resolved_type=parameter_type,
                     options=parameter_options,
-                    is_optional=False,
+                    is_optional=has_default,
                 )
             else:
                 assert unpacked_type
@@ -199,7 +222,7 @@ def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
                 raw_type=parameter_type,
                 resolved_type=parameter_type,
                 options=parameter_options,
-                is_optional=False,
+                is_optional=has_default,
             )
     except Exception:
         raise TypeError(f"Parameter type '{param.annotation}' is not supported in tool functions")
@@ -217,26 +240,14 @@ async def adapt_tool_arguments(
         if parameter_info.options and parameter_info.options.adapter:
             adapted_arguments[name] = await parameter_info.options.adapter(argument)
         else:
-            if parameter_info.resolved_type.__name__ == "list":
-                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
-                    argument
-                )
-            elif issubclass(parameter_info.resolved_type, BaseModel):
-                if parameter_info.is_optional and not argument:
-                    adapted_arguments[name] = None
-                else:
-                    adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_json(
-                        argument
-                    )
-            else:
-                adapted_arguments[name] = TypeAdapter(parameter_info.raw_type).validate_python(
-                    argument
-                )
+            adapted_arguments[name] = argument
 
     return adapted_arguments
 
 
-async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]) -> Tool:
+async def _recompute_and_marshal_tool(
+    tool: Tool, plugin_data: Mapping[str, Any], context: ToolContext
+) -> Tool:
     """This function is specifically used to refresh some of the tool's
     details based on dynamic changes (e.g., updating parameter descriptors
     based on dynamically-generated enum choices)"""
@@ -248,8 +259,15 @@ async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]
         if options.choice_provider:
             args = {}
             for param_name in inspect.signature(options.choice_provider).parameters:
-                if param_name in plugin_data:
+                # Tool context is identified by its type, all other parameters are taken by name from the plugin data
+                if (
+                    inspect.signature(options.choice_provider).parameters[param_name].annotation
+                    is ToolContext
+                ):
+                    args[param_name] = context
+                elif param_name in plugin_data:
                     args[param_name] = plugin_data[param_name]
+
             new_descriptor["enum"] = await options.choice_provider(**args)
 
         marshalled_options = ToolParameterOptions(
@@ -258,6 +276,8 @@ async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]
             description=options.description,
             significance=options.significance,
             examples=options.examples,
+            display_name=options.display_name,
+            precedence=options.precedence,
             adapter=None,
             choice_provider=None,
         )
@@ -268,9 +288,11 @@ async def _recompute_and_marshal_tool(tool: Tool, plugin_data: Mapping[str, Any]
         name=tool.name,
         creation_utc=datetime.now(timezone.utc),
         description=tool.description,
+        metadata=tool.metadata,
         parameters=new_parameters,
         required=tool.required,
         consequential=tool.consequential,
+        overlap=tool.overlap,
     )
 
 
@@ -302,8 +324,8 @@ def _tool_decorator_impl(
 
             if issubclass(param_info.resolved_type, enum.Enum):
                 assert all(
-                    type(e.value) in get_args(EnumValueType) for e in param_info.resolved_type
-                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be in {[t.__name__ for t in get_args(EnumValueType)]}"
+                    type(e.value) is str for e in param_info.resolved_type
+                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be strings"
 
     def _describe_parameters(
         func: ToolFunction,
@@ -313,6 +335,8 @@ def _tool_decorator_impl(
             int: "integer",
             float: "number",
             bool: "boolean",
+            date: "date",
+            datetime: "datetime",
         }
 
         parameters = list(inspect.signature(func).parameters.values())
@@ -381,11 +405,13 @@ def _tool_decorator_impl(
         entry = ToolEntry(
             tool=Tool(
                 creation_utc=datetime.now(timezone.utc),
-                name=kwargs.get("name") or func.__name__,
+                name=kwargs.get("name", func.__name__),
                 description=func.__doc__ or "",
+                metadata=kwargs.get("metadata", {}),
                 parameters=_describe_parameters(func),
                 required=_find_required_params(func),
-                consequential=kwargs.get("consequential") or False,
+                consequential=kwargs.get("consequential", False),
+                overlap=kwargs.get("overlap", ToolOverlap.AUTO),
             ),
             function=func,
         )
@@ -398,17 +424,23 @@ def _tool_decorator_impl(
 @overload
 def tool(
     **kwargs: Unpack[_ToolDecoratorParams],
-) -> Callable[[ToolFunction], ToolEntry]: ...
+) -> Callable[[ToolFunction], ToolEntry]:
+    """Decorator for defining a tool function with metadata and options."""
+    ...
 
 
 @overload
-def tool(func: ToolFunction) -> ToolEntry: ...
+def tool(func: ToolFunction) -> ToolEntry:
+    """Decorator for defining a tool function with metadata and options."""
+    ...
 
 
 def tool(
     func: ToolFunction | None = None,
     **kwargs: Unpack[_ToolDecoratorParams],
 ) -> ToolEntry | Callable[[ToolFunction], ToolEntry]:
+    """Decorator for defining a tool function with metadata and options."""
+
     if func:
         return _tool_decorator_impl()(func)
     else:
@@ -434,7 +466,26 @@ class _ToolResultShim(DefaultBaseModel):
     result: ToolResult
 
 
+class ResolveToolRequest(DefaultBaseModel):
+    agent_id: str
+    session_id: str
+    customer_id: str
+
+
+ToolContextQuery: TypeAlias = Annotated[
+    ResolveToolRequest,
+    Query(
+        description="The ids of a tool context",
+        examples=[
+            {"agent_id": "agent_id", "session_id": "session_id", "customer_id": "customer_id"}
+        ],
+    ),
+]
+
+
 class PluginServer:
+    """A server that hosts tools, interfacing with a PluginClient in the form of a ToolService."""
+
     def __init__(
         self,
         tools: Sequence[ToolEntry],
@@ -481,6 +532,9 @@ class PluginServer:
             pass
 
         return False
+
+    async def enable_tool(self, entry: ToolEntry) -> None:
+        self.tools[entry.tool.name] = entry
 
     async def serve(self) -> None:
         app = self._create_app()
@@ -531,7 +585,23 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
-            tool = await _recompute_and_marshal_tool(spec.tool, self.plugin_data)
+            return ReadToolResponse(tool=spec.tool)
+
+        @app.get("/tools/{name}/resolve")
+        async def resolve_tool(name: str, context: ToolContextQuery) -> ReadToolResponse:
+            try:
+                spec = self.tools[name]
+            except KeyError:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tool: '{name}' does not exists",
+                )
+
+            tool = await _recompute_and_marshal_tool(
+                spec.tool,
+                self.plugin_data,
+                ToolContext(context.agent_id, context.session_id, context.customer_id),
+            )
 
             return ReadToolResponse(tool=tool)
 
@@ -587,7 +657,8 @@ class PluginServer:
                                     data=result.data,
                                     metadata=result.metadata,
                                     control=result.control,
-                                    fragments=result.fragments,
+                                    canned_responses=result.canned_responses,
+                                    canned_response_fields=result.canned_response_fields,
                                 )
                             ).model_dump_json()
 
@@ -613,12 +684,18 @@ class PluginServer:
                     chunks.append(json.dumps({"status": status, "data": data}))
                 chunks_received.release()
 
+            async def emit_custom(data: JSONSerializable) -> None:
+                async with lock:
+                    chunks.append(json.dumps({"custom": data}))
+                chunks_received.release()
+
             context = ToolContext(
                 agent_id=request.agent_id,
                 session_id=request.session_id,
                 customer_id=request.customer_id,
                 emit_message=emit_message,
                 emit_status=emit_status,
+                emit_custom=emit_custom,
                 plugin_data=self.plugin_data,
             )
 
@@ -690,13 +767,7 @@ class PluginClient(ToolService):
         return {
             name: (
                 descriptor,
-                ToolParameterOptions(
-                    hidden=options["hidden"],
-                    source=options["source"],
-                    description=options["description"],
-                    significance=options["significance"],
-                    examples=options["examples"],
-                ),
+                ToolParameterOptions(**options),
             )
             for name, (descriptor, options) in parameters.items()
         }
@@ -710,9 +781,11 @@ class PluginClient(ToolService):
                 name=t["name"],
                 creation_utc=dateutil.parser.parse(t["creation_utc"]),
                 description=t["description"],
+                metadata=t["metadata"],
                 parameters=self._translate_parameters(t["parameters"]),
                 required=t["required"],
                 consequential=t["consequential"],
+                overlap=ToolOverlap(t["overlap"]),
             )
             for t in content["tools"]
         ]
@@ -732,9 +805,44 @@ class PluginClient(ToolService):
             name=t["name"],
             creation_utc=dateutil.parser.parse(t["creation_utc"]),
             description=t["description"],
+            metadata=t["metadata"],
             parameters=self._translate_parameters(t["parameters"]),
             required=t["required"],
             consequential=t["consequential"],
+            overlap=ToolOverlap(t["overlap"]),
+        )
+
+    @override
+    async def resolve_tool(
+        self,
+        name: str,
+        context: ToolContext,
+    ) -> Tool:
+        response = await self._http_client.get(
+            self._get_url(f"/tools/{name}/resolve"),
+            params={
+                "agent_id": context.agent_id,
+                "session_id": context.session_id,
+                "customer_id": context.customer_id,
+            },
+        )
+
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            raise ItemNotFoundError(UniqueId(name))
+        if response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+            raise ToolError(name, "Failed to read tool from remote service")
+
+        content = response.json()
+        t = content["tool"]
+        return Tool(
+            name=t["name"],
+            creation_utc=dateutil.parser.parse(t["creation_utc"]),
+            description=t["description"],
+            metadata=t["metadata"],
+            parameters=self._translate_parameters(t["parameters"]),
+            required=t["required"],
+            consequential=t["consequential"],
+            overlap=ToolOverlap(t["overlap"]),
         )
 
     @override
@@ -815,6 +923,11 @@ class PluginClient(ToolService):
                         await event_emitter.emit_message_event(
                             correlation_id=self._correlator.correlation_id,
                             data=str(chunk_dict["message"]),
+                        )
+                    elif "custom" in chunk_dict:
+                        await event_emitter.emit_custom_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data=chunk_dict["custom"],
                         )
                     elif "error" in chunk_dict:
                         raise ToolExecutionError(

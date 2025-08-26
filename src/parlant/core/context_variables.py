@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ from parlant.core.common import (
     JSONSerializable,
     UniqueId,
     Version,
-    generate_id,
+    IdGenerator,
+    md5_checksum,
 )
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -154,7 +155,7 @@ class ContextVariableStore(ABC):
     ) -> ContextVariable: ...
 
 
-class _ContextVariableDocument_v0_1_0(TypedDict, total=False):
+class ContextVariableDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     variable_set: str
@@ -192,7 +193,7 @@ class _ContextVariableValueDocument(TypedDict, total=False):
     data: JSONSerializable
 
 
-class _ContextVariableTagAssociationDocument(TypedDict, total=False):
+class ContextVariableTagAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -203,11 +204,18 @@ class _ContextVariableTagAssociationDocument(TypedDict, total=False):
 class ContextVariableDocumentStore(ContextVariableStore):
     VERSION = Version.from_string("0.2.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ):
+        self._id_generator = id_generator
+
         self._database = database
         self._variable_collection: DocumentCollection[_ContextVariableDocument]
         self._variable_tag_association_collection: DocumentCollection[
-            _ContextVariableTagAssociationDocument
+            ContextVariableTagAssociationDocument
         ]
         self._value_collection: DocumentCollection[_ContextVariableValueDocument]
         self._allow_migration = allow_migration
@@ -217,7 +225,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def _variable_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_ContextVariableDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -225,14 +233,14 @@ class ContextVariableDocumentStore(ContextVariableStore):
         return await DocumentMigrationHelper[_ContextVariableDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(doc)
 
     async def _value_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_ContextVariableValueDocument]:
-        async def v0_1_0_to_v_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(_ContextVariableValueDocument_v0_1_0, doc)
             return _ContextVariableValueDocument(
                 id=d["id"],
@@ -246,16 +254,16 @@ class ContextVariableDocumentStore(ContextVariableStore):
         return await DocumentMigrationHelper[_ContextVariableValueDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(doc)
 
     async def _variable_tag_association_document_loader(
         self, doc: BaseDocument
-    ) -> Optional[_ContextVariableTagAssociationDocument]:
+    ) -> Optional[ContextVariableTagAssociationDocument]:
         if doc["version"] == "0.1.0":
-            doc = cast(_ContextVariableTagAssociationDocument, doc)
-            return _ContextVariableTagAssociationDocument(
+            doc = cast(ContextVariableTagAssociationDocument, doc)
+            return ContextVariableTagAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.2.0"),
                 creation_utc=doc["creation_utc"],
@@ -263,7 +271,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 tag_id=doc["tag_id"],
             )
 
-        return cast(_ContextVariableTagAssociationDocument, doc)
+        return cast(ContextVariableTagAssociationDocument, doc)
 
     async def __aenter__(self) -> Self:
         async with DocumentStoreMigrationHelper(
@@ -280,7 +288,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             self._variable_tag_association_collection = (
                 await self._database.get_or_create_collection(
                     name="variable_tag_associations",
-                    schema=_ContextVariableTagAssociationDocument,
+                    schema=ContextVariableTagAssociationDocument,
                     document_loader=self._variable_tag_association_document_loader,
                 )
             )
@@ -370,8 +378,12 @@ class ContextVariableDocumentStore(ContextVariableStore):
         tags: Optional[Sequence[TagId]] = None,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
+            context_variable_checksum = md5_checksum(
+                f"{name}{description}{tool_id}{freshness_rules}{tags}"
+            )
+
             context_variable = ContextVariable(
-                id=ContextVariableId(generate_id()),
+                id=ContextVariableId(self._id_generator.generate(context_variable_checksum)),
                 name=name,
                 description=description,
                 tool_id=tool_id,
@@ -383,14 +395,16 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 self._serialize_context_variable(context_variable)
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{context_variable.id}{tag_id}")
+
                 await self._variable_tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": datetime.now(timezone.utc).isoformat(),
                         "variable_id": context_variable.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -539,8 +553,10 @@ class ContextVariableDocumentStore(ContextVariableStore):
         async with self._lock.writer_lock:
             last_modified = datetime.now(timezone.utc)
 
+            value_checksum = md5_checksum(f"{variable_id}{key}{data}")
+
             value = ContextVariableValue(
-                id=ContextVariableValueId(generate_id()),
+                id=ContextVariableValueId(self._id_generator.generate(value_checksum)),
                 last_modified=last_modified,
                 data=data,
             )
@@ -625,8 +641,10 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_document: _ContextVariableTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+            association_checksum = md5_checksum(f"{variable_id}{tag_id}")
+
+            association_document: ContextVariableTagAssociationDocument = {
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "variable_id": variable_id,

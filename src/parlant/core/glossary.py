@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,12 +16,12 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
-from typing import NewType, Optional, Sequence, TypedDict, cast
+from typing import Awaitable, Callable, NewType, Optional, Sequence, TypedDict, cast
 from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId, md5_checksum
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -32,6 +32,7 @@ from parlant.core.persistence.vector_database import (
 from parlant.core.persistence.vector_database_helper import (
     VectorDocumentMigrationHelper,
     VectorDocumentStoreMigrationHelper,
+    query_chunks,
 )
 from parlant.core.persistence.document_database import (
     DocumentCollection,
@@ -110,7 +111,8 @@ class GlossaryStore:
     async def find_relevant_terms(
         self,
         query: str,
-        tags: Optional[Sequence[TagId]] = None,
+        available_terms: Sequence[Term],
+        max_terms: int = 20,
     ) -> Sequence[Term]: ...
 
     @abstractmethod
@@ -129,7 +131,7 @@ class GlossaryStore:
     ) -> None: ...
 
 
-class _TermDocument_v0_1_0(TypedDict, total=False):
+class TermDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     content: str
@@ -152,7 +154,7 @@ class _TermDocument(TypedDict, total=False):
     synonyms: Optional[str]
 
 
-class _TermTagAssociationDocument(TypedDict, total=False):
+class TermTagAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -165,26 +167,31 @@ class GlossaryVectorStore(GlossaryStore):
 
     def __init__(
         self,
+        id_generator: IdGenerator,
         vector_db: VectorDatabase,
         document_db: DocumentDatabase,
-        embedder_type: type[Embedder],
+        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
     ):
+        self._id_generator = id_generator
+
         self._vector_db = vector_db
         self._document_db = document_db
 
         self._collection: VectorCollection[_TermDocument]
-        self._association_collection: DocumentCollection[_TermTagAssociationDocument]
+        self._association_collection: DocumentCollection[TermTagAssociationDocument]
 
         self._allow_migration = allow_migration
-        self._embedder = embedder_factory.create_embedder(embedder_type)
-        self._embedder_type = embedder_type
+
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
+        self._embedder: Embedder
 
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, document: VectorBaseDocument) -> Optional[_TermDocument]:
-        async def v0_1_0_to_v_0_2_0(document: VectorBaseDocument) -> Optional[VectorBaseDocument]:
+        async def v0_1_0_to_v0_2_0(document: VectorBaseDocument) -> Optional[VectorBaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
@@ -192,16 +199,20 @@ class GlossaryVectorStore(GlossaryStore):
         return await VectorDocumentMigrationHelper[_TermDocument](
             self,
             {
-                "0.1.0": v0_1_0_to_v_0_2_0,
+                "0.1.0": v0_1_0_to_v0_2_0,
             },
         ).migrate(document)
 
     async def _association_document_loader(
         self, document: BaseDocument
-    ) -> Optional[_TermTagAssociationDocument]:
-        return cast(_TermTagAssociationDocument, document)
+    ) -> Optional[TermTagAssociationDocument]:
+        return cast(TermTagAssociationDocument, document)
 
     async def __aenter__(self) -> Self:
+        embedder_type = await self._embedder_type_provider()
+
+        self._embedder = self._embedder_factory.create_embedder(embedder_type)
+
         async with VectorDocumentStoreMigrationHelper(
             store=self,
             database=self._vector_db,
@@ -210,9 +221,10 @@ class GlossaryVectorStore(GlossaryStore):
             self._collection = await self._vector_db.get_or_create_collection(
                 name="glossary",
                 schema=_TermDocument,
-                embedder_type=self._embedder_type,
+                embedder_type=embedder_type,
                 document_loader=self._document_loader,
             )
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._document_db,
@@ -220,7 +232,7 @@ class GlossaryVectorStore(GlossaryStore):
         ):
             self._association_collection = await self._document_db.get_or_create_collection(
                 name="glossary_tags",
-                schema=_TermTagAssociationDocument,
+                schema=TermTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )
 
@@ -283,8 +295,10 @@ class GlossaryVectorStore(GlossaryStore):
                 synonyms=synonyms,
             )
 
+            term_checksum = md5_checksum(f"{name}{description}{synonyms}")
+
             term = Term(
-                id=TermId(generate_id()),
+                id=TermId(self._id_generator.generate(term_checksum)),
                 creation_utc=creation_utc,
                 name=name,
                 description=description,
@@ -300,14 +314,16 @@ class GlossaryVectorStore(GlossaryStore):
                 )
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{term.id}{tag_id}")
+
                 await self._association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "term_id": term.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
         return term
@@ -380,7 +396,13 @@ class GlossaryVectorStore(GlossaryStore):
                         doc["term_id"]
                         for doc in await self._association_collection.find(filters={})
                     }
-                    filters = {"$and": [{"id": {"$ne": id}} for id in term_ids]} if term_ids else {}
+                    if not term_ids:
+                        filters = {}
+                    elif len(term_ids) == 1:
+                        filters = {"id": {"$ne": term_ids.pop()}}
+                    else:
+                        filters = {"$and": [{"id": {"$ne": id}} for id in term_ids]}
+
                 else:
                     tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
                     tag_associations = await self._association_collection.find(filters=tag_filters)
@@ -389,7 +411,10 @@ class GlossaryVectorStore(GlossaryStore):
                     if not term_ids:
                         return []
 
-                    filters = {"$or": [{"id": {"$eq": id}} for id in term_ids]}
+                    if len(term_ids) == 1:
+                        filters = {"id": {"$eq": term_ids.pop()}}
+                    else:
+                        filters = {"$or": [{"id": {"$eq": id}} for id in term_ids]}
 
             return [
                 await self._deserialize(d) for d in await self._collection.find(filters=filters)
@@ -415,43 +440,20 @@ class GlossaryVectorStore(GlossaryStore):
                     filters={"id": {"$eq": tag_association["id"]}}
                 )
 
-    async def _query_chunks(self, query: str) -> list[str]:
-        max_length = self._embedder.max_tokens // 5
-        total_token_count = await self._embedder.tokenizer.estimate_token_count(query)
-
-        words = query.split()
-        total_word_count = len(words)
-
-        tokens_per_word = total_token_count / total_word_count
-
-        words_per_chunk = max(int(max_length / tokens_per_word), 1)
-
-        chunks = []
-        for i in range(0, total_word_count, words_per_chunk):
-            chunk_words = words[i : i + words_per_chunk]
-            chunk = " ".join(chunk_words)
-            chunks.append(chunk)
-
-        return [
-            text if await self._embedder.tokenizer.estimate_token_count(text) else ""
-            for text in chunks
-        ]
-
     @override
     async def find_relevant_terms(
         self,
         query: str,
-        tags: Optional[Sequence[TagId]] = None,
+        available_terms: Sequence[Term],
         max_terms: int = 20,
     ) -> Sequence[Term]:
+        if not available_terms:
+            return []
+
         async with self._lock.reader_lock:
-            queries = await self._query_chunks(query)
+            queries = await query_chunks(query, self._embedder)
 
-            filters: Where = {}
-
-            terms = await self.list_terms(tags=tags)
-            if terms:
-                filters = {"id": {"$in": [str(t.id) for t in terms]}}
+            filters: Where = {"id": {"$in": [str(t.id) for t in available_terms]}}
 
             tasks = [
                 self._collection.find_similar_documents(
@@ -497,8 +499,10 @@ class GlossaryVectorStore(GlossaryStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_document: _TermTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+            association_checksum = md5_checksum(f"{term_id}{tag_id}")
+
+            association_document: TermTagAssociationDocument = {
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "term_id": term_id,

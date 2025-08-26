@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,14 +30,11 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
-from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
-    FallbackSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -92,7 +89,7 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
                     APIError,
                 )
             ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServiceUnavailableError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -228,6 +225,31 @@ class Llama3_1_405B(TogetherAISchematicGenerator[T]):
         return 128 * 1024
 
 
+class Llama3_3_70B(TogetherAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            logger=logger,
+        )
+
+        self._estimating_tokenizer = LlamaEstimatingTokenizer()
+
+    @property
+    @override
+    def id(self) -> str:
+        return self.model_name
+
+    @property
+    @override
+    def tokenizer(self) -> LlamaEstimatingTokenizer:
+        return self._estimating_tokenizer
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
 class TogetherAIEmbedder(Embedder):
     def __init__(self, model_name: str, logger: Logger) -> None:
         self.model_name = model_name
@@ -245,7 +267,7 @@ class TogetherAIEmbedder(Embedder):
                     APIError,
                 )
             ),
-            retry(ServiceUnavailableError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServiceUnavailableError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -296,6 +318,18 @@ class M2Bert32K(TogetherAIEmbedder):
 
 
 class TogetherService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("TOGETHER_API_KEY"):
+            return """\
+You're using the OpenAI NLP service, but TOGETHER_API_KEY is not set.
+Please set TOGETHER_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,
@@ -305,15 +339,7 @@ class TogetherService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> TogetherAISchematicGenerator[T]:
-        if t == FluidMessageSchema:
-            return Llama3_1_405B[t](self._logger)  # type: ignore
-        elif t == ToolCallInferenceSchema:
-            return FallbackSchematicGenerator(
-                Llama3_1_8B[t](self._logger),  # type: ignore
-                Llama3_1_70B[t](self._logger),  # type: ignore
-                logger=self._logger,
-            )
-        return Llama3_1_70B[t](self._logger)  # type: ignore
+        return Llama3_3_70B[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

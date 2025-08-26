@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,8 +15,9 @@
 import os
 import time
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
-from google import genai  # type: ignore
-from typing import Any, Mapping
+import google.genai  # type: ignore
+import google.genai.types  # type: ignore
+from typing import Any, Mapping, cast
 from typing_extensions import override
 import jsonfinder  # type: ignore
 from pydantic import ValidationError
@@ -37,9 +38,22 @@ from parlant.core.nlp.generation import (
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 
+RATE_LIMIT_ERROR_MESSAGE = (
+    "Google API rate limit exceeded.\n\n"
+    "Possible reasons:\n"
+    "1. Insufficient API credits in your account.\n"
+    "2. Using a free-tier account with limited request capacity.\n"
+    "3. Exceeded the requests-per-minute limit for your account.\n\n"
+    "Recommended actions:\n"
+    "- Check your Google API account balance and billing status.\n"
+    "- Review your API usage limits in the Google Cloud Console.\n"
+    "- Learn more about quotas and limits:\n"
+    "  https://cloud.google.com/docs/quota-and-billing/quotas/quotas-overview"
+)
+
 
 class GoogleEstimatingTokenizer(EstimatingTokenizer):
-    def __init__(self, client: genai.Client, model_name: str) -> None:
+    def __init__(self, client: google.genai.Client, model_name: str) -> None:
         self._client = client
         self._model_name = model_name
 
@@ -54,11 +68,11 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
             contents=prompt,
         )
 
-        return int(result.total_tokens)
+        return int(result.total_tokens or 0)
 
 
 class GeminiSchematicGenerator(SchematicGenerator[T]):
-    supported_hints = ["temperature"]
+    supported_hints = ["temperature", "thinking_config"]
 
     def __init__(
         self,
@@ -68,7 +82,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         self.model_name = model_name
         self._logger = logger
 
-        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
@@ -91,7 +105,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                     ResourceExhausted,
                 )
             ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -115,29 +129,17 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             response = await self._client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=config,
+                config=cast(google.genai.types.GenerateContentConfigOrDict, config),
             )
         except TooManyRequests:
-            self._logger.error(
-                (
-                    "Google API rate limit exceeded. Possible reasons:\n"
-                    "1. Your account may have insufficient API credits.\n"
-                    "2. You may be using a free-tier account with limited request capacity.\n"
-                    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
-                    "Recommended actions:\n"
-                    "- Check your Google API account balance and billing status.\n"
-                    "- Review your API usage limits in Google's dashboard.\n"
-                    "- For more details on rate limits and usage tiers, visit:\n"
-                    "  https://cloud.google.com/docs/quota-and-billing/quotas/quotas-overview"
-                ),
-            )
+            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
 
         raw_content = response.text
         try:
-            json_content = normalize_json_output(raw_content)
+            json_content = normalize_json_output(raw_content or "{}")
             json_content = json_content.replace("“", '"').replace("”", '"')
 
             # Fix cases where Gemini return double-escaped sequences
@@ -153,8 +155,12 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             )
             raise
 
+        if response.usage_metadata:
+            self._logger.trace(response.usage_metadata.model_dump_json(indent=2))
+
         try:
             model_content = self.schema.model_validate(json_object)
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -162,13 +168,19 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                     model=self.id,
                     duration=(t_end - t_start),
                     usage=UsageInfo(
-                        input_tokens=response.usage_metadata.prompt_token_count,
-                        output_tokens=response.usage_metadata.candidates_token_count,
+                        input_tokens=response.usage_metadata.prompt_token_count or 0,
+                        output_tokens=response.usage_metadata.candidates_token_count or 0,
                         extra={
-                            "cached_input_tokens": response.usage_metadata.cached_content_token_count
+                            "cached_input_tokens": (
+                                response.usage_metadata.cached_content_token_count
+                                if response.usage_metadata
+                                else 0
+                            )
                             or 0
                         },
-                    ),
+                    )
+                    if response.usage_metadata
+                    else UsageInfo(input_tokens=0, output_tokens=0, extra={}),
                 ),
             )
         except ValidationError:
@@ -230,6 +242,43 @@ class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
         return 2 * 1024 * 1024
 
 
+class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.5-flash",
+            logger=logger,
+        )
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        return await super().generate(
+            prompt,
+            {"thinking_config": {"thinking_budget": 0}, **hints},
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
+class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.5-pro",
+            logger=logger,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class GoogleEmbedder(Embedder):
     supported_hints = ["title", "task_type"]
 
@@ -237,7 +286,7 @@ class GoogleEmbedder(Embedder):
         self.model_name = model_name
 
         self._logger = logger
-        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
     @property
@@ -259,7 +308,7 @@ class GoogleEmbedder(Embedder):
                     ResourceExhausted,
                 )
             ),
-            retry(ServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(ServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -274,8 +323,8 @@ class GoogleEmbedder(Embedder):
             with self._logger.operation("Embedding text with gemini"):
                 response = await self._client.aio.models.embed_content(  # type: ignore
                     model=self.model_name,
-                    contents=texts,
-                    config=gemini_api_arguments,
+                    contents=texts,  # type: ignore
+                    config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
                 )
         except TooManyRequests:
             self._logger.error(
@@ -293,7 +342,9 @@ class GoogleEmbedder(Embedder):
             )
             raise
 
-        vectors = [data_point.values for data_point in response.embeddings if data_point.values]
+        vectors = [
+            data_point.values for data_point in response.embeddings or [] if data_point.values
+        ]
         return EmbeddingResult(vectors=vectors)
 
 
@@ -312,6 +363,18 @@ class GeminiTextEmbedding_004(GoogleEmbedder):
 
 
 class GeminiService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("GEMINI_API_KEY"):
+            return """\
+You're using the GEMINI NLP service, but GEMINI_API_KEY is not set.
+Please set GEMINI_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,
@@ -322,8 +385,8 @@ class GeminiService(NLPService):
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
         return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_0_Flash[t](self._logger),  # type: ignore
-            Gemini_1_5_Pro[t](self._logger),  # type: ignore
+            Gemini_2_5_Flash[t](self._logger),  # type: ignore
+            Gemini_2_5_Pro[t](self._logger),  # type: ignore
             logger=self._logger,
         )
 

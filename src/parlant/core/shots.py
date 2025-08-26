@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.sessions import (
     Event,
     EventId,
+    EventKind,
     EventSource,
     MessageEventData,
     ToolEventData,
@@ -36,7 +37,7 @@ class Shot:
         return Event(
             id=EventId(generate_id()),
             source=source,
-            kind="message",
+            kind=EventKind.MESSAGE,
             creation_utc=datetime.now(timezone.utc),  # unused in shots
             offset=0,  # unused in shots
             correlation_id="<unused>",  # unused in shots
@@ -48,8 +49,8 @@ class Shot:
     def tool_event(data: ToolEventData) -> Event:  # noqa: F821
         return Event(
             id=EventId(generate_id()),
-            source="system",
-            kind="tool",
+            source=EventSource.SYSTEM,
+            kind=EventKind.TOOL,
             creation_utc=datetime.now(timezone.utc),  # unused in shots
             offset=0,  # unused in shots
             correlation_id="<unused>",  # unused in shots

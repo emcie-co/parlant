@@ -13,7 +13,7 @@ import {Input} from '../ui/input';
 
 export const NEW_SESSION_ID = 'NEW_SESSION';
 
-const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNode => {
+const ChatHeader = ({setFilterSessionVal, filterSessionVal}: {setFilterSessionVal: (value: string) => void; filterSessionVal: string}): ReactNode => {
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const [session, setSession] = useAtom(sessionAtom);
 	const [, setAgent] = useAtom(agentAtom);
@@ -34,26 +34,36 @@ const ChatHeader = ({setFilterSessionVal}: {setFilterSessionVal: any}): ReactNod
 		<HeaderWrapper className='z-60 overflow-visible rounded-s-[16px] '>
 			<div className='w-[352px] rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center max-mobile:justify-between bg-white'>
 				<div className='flex items-center min-[801px]:hidden'>
+				<div className='flex items-center'>
+						<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='self-center h-[30px]' />
+					</div>
 					<div>
 						<Sheet open={sheetOpen} onOpenChange={() => setSheetOpen(!sheetOpen)}>
 							<SheetTrigger asChild onClick={() => setSheetOpen(true)}>
 								<Menu className='ms-[24px] cursor-pointer' />
 							</SheetTrigger>
-							<SheetContent side='left' className='w-fit px-0'>
+							<SheetContent side='left' className='w-fit p-0 [&>button[type=button]]:hidden'>
 								<SheetHeader>
 									<SheetTitle className='text-center'></SheetTitle>
 									<SheetDescription />
 								</SheetHeader>
-								<SessionList filterSessionVal='' />
+								<div className='flex items-center px-[12px] flex-1 relative !shadow-main'>
+									<img src='icons/search.svg' alt='' className='absolute left-[24px]' />
+									<Input placeholder='Filter sessions' onChange={(e) => setFilterSessionVal(e.target.value)} className='!ring-0 !ring-offset-0 h-[38px] w-full placeholder:font-light ps-[35px] rounded-[6px] !pointer-events-auto' />
+								</div>
+								<SessionList filterSessionVal={filterSessionVal} />
 							</SheetContent>
 						</Sheet>
 					</div>
 				</div>
-				<div className='flex items-center ps-[12px] flex-1 relative !shadow-main'>
+				<a href='https://parlant.io' target='_blank' className='flex items-center ms-[4px] -me-[6px] max-mobile:hidden'>
+					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='self-center h-[30px]' />
+				</a>
+				<div className='flex items-center ps-[12px] flex-1 relative !shadow-main max-mobile:hidden'>
 					<img src='icons/search.svg' alt='' className='absolute left-[24px]' />
 					<Input placeholder='Filter sessions' onChange={(e) => setFilterSessionVal(e.target.value)} className='!ring-0 !ring-offset-0 h-[38px] w-full placeholder:font-light ps-[35px] rounded-[6px] !pointer-events-auto' />
 				</div>
-				<div className='group mx-[8px]'>
+				<div className='group ms-[8px]'>
 					<Tooltip value='New Session' side='right' className='group'>
 						<>
 							<img src='buttons/new-session.svg' alt='add session' className='shadow-main cursor-pointer group-hover:hidden' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />

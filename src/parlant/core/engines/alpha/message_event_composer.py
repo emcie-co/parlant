@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,21 +16,15 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
-from parlant.core.agents import Agent
-from parlant.core.context_variables import ContextVariable, ContextVariableValue
-from parlant.core.customers import Customer
-from parlant.core.engines.alpha.tool_caller import ToolInsights
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
-from parlant.core.glossary import Term
-from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.sessions import Event
-from parlant.core.tools import ToolId
+from parlant.core.common import CancellationSuppressionLatch
+from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.generation_info import GenerationInfo
 
 
 @dataclass(frozen=True)
 class MessageEventComposition:
-    generation_info: GenerationInfo
+    generation_info: Mapping[str, GenerationInfo]
     events: Sequence[Optional[EmittedEvent]]
 
 
@@ -41,16 +35,14 @@ class MessageCompositionError(Exception):
 
 class MessageEventComposer:
     @abstractmethod
-    async def generate_events(
+    async def generate_preamble(
         self,
-        event_emitter: EventEmitter,
-        agent: Agent,
-        customer: Customer,
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-        interaction_history: Sequence[Event],
-        terms: Sequence[Term],
-        ordinary_guideline_matches: Sequence[GuidelineMatch],
-        tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
-        tool_insights: ToolInsights,
-        staged_events: Sequence[EmittedEvent],
+        context: LoadedContext,
+    ) -> Sequence[MessageEventComposition]: ...
+
+    @abstractmethod
+    async def generate_response(
+        self,
+        context: LoadedContext,
+        latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]: ...

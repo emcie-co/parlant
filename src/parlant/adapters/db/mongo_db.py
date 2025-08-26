@@ -51,7 +51,6 @@ class MongoDocumentDatabase(DocumentDatabase):
         name: str,
         schema: type[TDocument],
     ) -> DocumentCollection[TDocument]:
-        self._logger.debug(f'create collection "{name}"')
         if self._database is None:
             raise Exception("underlying database missing.")
 
@@ -70,7 +69,6 @@ class MongoDocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
         document_loader: Callable[[BaseDocument], Awaitable[TDocument | None]],
     ) -> DocumentCollection[TDocument]:
-        self._logger.debug(f'get collection "{name}"')
         if self._database is None:
             raise Exception("underlying database missing.")
 

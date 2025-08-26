@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,10 +26,16 @@ from typing import Any, Mapping
 from typing_extensions import override
 import jsonfinder  # type: ignore
 import os
-import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
+from parlant.core.engines.alpha.canned_response_generator import CannedResponseSelectionSchema
+from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
+    DisambiguationGuidelineMatchesSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+    JourneyNodeSelectionSchema,
+)
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
@@ -46,13 +52,18 @@ from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
 class AnthropicEstimatingTokenizer(EstimatingTokenizer):
-    def __init__(self, client: AsyncAnthropic) -> None:
-        self.encoding = tiktoken.encoding_for_model("gpt-4o-2024-08-06")
+    def __init__(self, client: AsyncAnthropic, model_name: str) -> None:
         self._client = client
+        self.model_name = model_name
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:
-        return await self._client.count_tokens(prompt)
+        result = await self._client.messages.count_tokens(
+            model=self.model_name,
+            messages=[{"role": "assistant", "content": prompt}],
+        )
+
+        return result.input_tokens
 
 
 class AnthropicAISchematicGenerator(SchematicGenerator[T]):
@@ -67,8 +78,7 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
         self._logger = logger
 
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
-        self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client)
+        self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
 
     @property
     @override
@@ -90,7 +100,7 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
                     APIResponseValidationError,
                 )
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -129,6 +139,9 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
             raise
 
         t_end = time.time()
+
+        if response.usage:
+            self._logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.content[0].text
 
@@ -175,14 +188,58 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
         return 200 * 1024
 
 
+class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="claude-sonnet-4-20250514",
+            logger=logger,
+        )
+
+    @override
+    @property
+    def max_tokens(self) -> int:
+        return 200 * 1024
+
+
+class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="claude-opus-4-1-20250805",
+            logger=logger,
+        )
+
+    @override
+    @property
+    def max_tokens(self) -> int:
+        return 200 * 1024
+
+
 class AnthropicService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return """\
+You're using the Anthropic NLP service, but ANTHROPIC_API_KEY is not set.
+Please set ANTHROPIC_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(self, logger: Logger) -> None:
         self._logger = logger
         self._logger.info("Initialized AnthropicService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> AnthropicAISchematicGenerator[T]:
-        return Claude_Sonnet_3_5[t](self._logger)  # type: ignore
+        if (
+            t == JourneyNodeSelectionSchema
+            or t == DisambiguationGuidelineMatchesSchema
+            or t == CannedResponseSelectionSchema
+        ):
+            return Claude_Opus_4_1[t](self._logger)  # type: ignore
+        return Claude_Sonnet_4[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

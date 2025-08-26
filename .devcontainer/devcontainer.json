@@ -3,15 +3,11 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-
   // "features": {},
-
   // 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
   // "forwardPorts": [],
-
   // 👇 Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "(cd /workspaces/parlant && git config --global --add safe.directory /workspaces/parlant && python ./initialize_repo.py)",
-
+  "postCreateCommand": "(cd /workspaces/parlant* && git config --global --add safe.directory $PWD && python ./scripts/initialize_repo.py)",
   // 👇 Configure tool-specific properties.
   "customizations": {
     "vscode": {
@@ -30,26 +26,31 @@
         "mutantdino.resourcemonitor",
         "njpwerner.autodocstring",
         "tamasfe.even-better-toml",
-        "zeshuaro.vscode-python-poetry"
+        "zeshuaro.vscode-python-poetry",
+        "streetsidesoftware.code-spell-checker"
       ]
     }
   },
   // 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
   "features": {
-    "ghcr.io/devcontainers-contrib/features/mypy:2": {
+    "ghcr.io/devcontainers-extra/features/mypy:2": {
       "version": "latest"
     },
-    "ghcr.io/devcontainers-contrib/features/poetry:2": {
+    "ghcr.io/devcontainers-extra/features/poetry:2": {
       "version": "latest"
     },
     "node": {
-        "version": "lts",
-        "nodeGypDependencies": true
+      "version": "lts",
+      "nodeGypDependencies": true
     }
   },
-
-  "mounts": []
-
+  "mounts": [],
   // 👇 Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
   // "remoteUser": "root"
+  "containerEnv": {
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+  },
+  "remoteEnv": {
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+  }
 }

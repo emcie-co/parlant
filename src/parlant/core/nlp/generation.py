@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,13 +29,19 @@ T = TypeVar("T", bound=DefaultBaseModel)
 
 @dataclass(frozen=True)
 class SchematicGenerationResult(Generic[T]):
+    """Result of a schematic generation operation."""
+
     content: T
     info: GenerationInfo
 
 
 class SchematicGenerator(ABC, Generic[T]):
+    """An interface for generating structured content based on a prompt."""
+
     @cached_property
     def schema(self) -> type[T]:
+        """Return the schema type for the generated content."""
+
         orig_class = getattr(self, "__orig_class__")
         generic_args = get_args(orig_class)
         return cast(type[T], generic_args[0])
@@ -45,22 +51,32 @@ class SchematicGenerator(ABC, Generic[T]):
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> SchematicGenerationResult[T]: ...
+    ) -> SchematicGenerationResult[T]:
+        """Generate content based on the provided prompt and hints."""
+        ...
 
     @property
     @abstractmethod
-    def id(self) -> str: ...
+    def id(self) -> str:
+        """Return a unique identifier for the generator."""
+        ...
 
     @property
     @abstractmethod
-    def max_tokens(self) -> int: ...
+    def max_tokens(self) -> int:
+        """Return the maximum number of tokens in the underlying model's context window."""
+        ...
 
     @property
     @abstractmethod
-    def tokenizer(self) -> EstimatingTokenizer: ...
+    def tokenizer(self) -> EstimatingTokenizer:
+        """Return a tokenizer that approximates that of the underlying model."""
+        ...
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):
+    """A generator that tries multiple generators in sequence until one succeeds."""
+
     def __init__(
         self,
         *generators: SchematicGenerator[T],

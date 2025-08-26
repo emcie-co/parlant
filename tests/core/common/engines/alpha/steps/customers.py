@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
 
 
-@step(given, parsers.parse('a customer with the name "{name}"'))
+@step(given, parsers.parse('a customer named "{name}"'))
 def given_a_customer(
     context: ContextOfTest,
     name: str,

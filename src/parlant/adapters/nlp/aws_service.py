@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -70,6 +70,7 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
             aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
             aws_secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
             aws_region=os.environ["AWS_REGION"],
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN", None),
         )
 
         self._estimating_tokenizer = AnthropicBedrockEstimatingTokenizer()
@@ -94,7 +95,7 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
                     APIResponseValidationError,
                 )
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -178,6 +179,22 @@ class Claude_Sonnet_3_5(AnthropicBedrockAISchematicGenerator[T]):
 
 
 class BedrockService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return """\
+You're using the AWS Bedrock NLP service, but some environment variables are missing.
+Please consider seting the following your environment before running Parlant.
+
+- AWS_ACCESS_KEY_ID
+- AWS_SECRET_ACCESS_KEY
+- AWS_REGION
+- AWS_SESSION_TOKEN
+"""
+        return None
+
     def __init__(self, logger: Logger) -> None:
         self._logger = logger
 

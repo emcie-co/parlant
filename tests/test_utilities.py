@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,11 +13,15 @@
 # limitations under the License.
 
 import asyncio
+from dataclasses import dataclass, field
 import hashlib
 import json
 import logging
+import socket
+import sys
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from random import randint
 from time import sleep
 from typing import (
     Any,
@@ -28,10 +32,12 @@ from typing import (
     Iterator,
     Mapping,
     Optional,
+    Sequence,
     TypeVar,
     TypedDict,
     cast,
 )
+from typing_extensions import override
 
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -52,6 +58,8 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.engines.alpha.hooks import EngineHook, EngineHooks
+from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
@@ -64,6 +72,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.services.tools.mcp_service import MCPToolServer
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.sessions import (
     _GenerationInfoDocument,
@@ -73,6 +82,8 @@ from parlant.core.sessions import (
     Session,
     SessionId,
     SessionStore,
+    EventSource,
+    EventKind,
 )
 from parlant.core.tags import Tag, TagId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
@@ -80,13 +91,15 @@ from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import BaseDocument, DocumentCollection
 
 T = TypeVar("T")
-GLOBAL_CACHE_FILE = Path("schematic_generation_test_cache.json")
+GLOBAL_SCHEMATIC_GENERATION_CACHE_FILE = Path("schematic_generation_test_cache.json")
+GLOBAL_EMBEDDER_CACHE_FILE = Path("schematic_generation_test_cache.json")
 
 SERVER_PORT = 8089
-SERVER_ADDRESS = f"http://localhost:{SERVER_PORT}"
-
 PLUGIN_SERVER_PORT = 8091
 OPENAPI_SERVER_PORT = 8092
+
+SERVER_BASE_URL = "http://localhost"
+SERVER_ADDRESS = f"{SERVER_BASE_URL}:{SERVER_PORT}"
 
 
 class NLPTestSchema(DefaultBaseModel):
@@ -101,6 +114,22 @@ class SyncAwaiter:
         return self.event_loop.run_until_complete(awaitable)  # type: ignore
 
 
+@dataclass(frozen=False)
+class JournalingEngineHooks(EngineHooks):
+    latest_context_per_correlation_id: dict[str, LoadedContext] = field(default_factory=dict)
+
+    @override
+    async def call_hooks(
+        self,
+        hooks: Sequence[EngineHook],
+        context: LoadedContext,
+        payload: Any,
+        exc: Optional[Exception] = None,
+    ) -> bool:
+        self.latest_context_per_correlation_id[context.correlator.correlation_id] = context
+        return await super().call_hooks(hooks, context, payload, exc)
+
+
 class _TestLogger(Logger):
     def __init__(self) -> None:
         self.logger = logging.getLogger("TestLogger")
@@ -108,6 +137,7 @@ class _TestLogger(Logger):
     def set_level(self, log_level: LogLevel) -> None:
         self.logger.setLevel(
             {
+                LogLevel.TRACE: logging.DEBUG,
                 LogLevel.DEBUG: logging.DEBUG,
                 LogLevel.INFO: logging.INFO,
                 LogLevel.WARNING: logging.WARNING,
@@ -115,6 +145,9 @@ class _TestLogger(Logger):
                 LogLevel.CRITICAL: logging.CRITICAL,
             }[log_level]
         )
+
+    def trace(self, message: str) -> None:
+        self.logger.debug(message)
 
     def debug(self, message: str) -> None:
         self.logger.debug(message)
@@ -136,7 +169,13 @@ class _TestLogger(Logger):
         yield
 
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.INFO,
+        create_scope: bool = True,
+    ) -> Iterator[None]:
         yield
 
 
@@ -303,9 +342,9 @@ async def read_reply(
         iter(
             await container[SessionStore].list_events(
                 session_id=session_id,
-                source="ai_agent",
+                source=EventSource.AI_AGENT,
                 min_offset=customer_event_offset,
-                kinds=["message"],
+                kinds=[EventKind.MESSAGE],
             )
         )
     )
@@ -330,7 +369,7 @@ async def post_message(
 
     event = await container[Application].post_event(
         session_id=session_id,
-        kind="message",
+        kind=EventKind.MESSAGE,
         data=data,
     )
 
@@ -338,7 +377,7 @@ async def post_message(
         await container[Application].wait_for_update(
             session_id=session_id,
             min_offset=event.offset + 1,
-            kinds=["message"],
+            kinds=[EventKind.MESSAGE],
             timeout=response_timeout,
         )
 
@@ -399,8 +438,8 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         self._ensure_cache_file_exists()
 
     def _ensure_cache_file_exists(self) -> None:
-        if not GLOBAL_CACHE_FILE.exists():
-            GLOBAL_CACHE_FILE.write_text("{}")
+        if not GLOBAL_SCHEMATIC_GENERATION_CACHE_FILE.exists():
+            GLOBAL_SCHEMATIC_GENERATION_CACHE_FILE.write_text("{}")
 
     def _generate_id(
         self,
@@ -514,7 +553,7 @@ async def create_schematic_generation_result_collection(
             return cast(SchematicGenerationResultDocument, doc)
         return None
 
-    async with JSONFileDocumentDatabase(logger, GLOBAL_CACHE_FILE) as db:
+    async with JSONFileDocumentDatabase(logger, GLOBAL_SCHEMATIC_GENERATION_CACHE_FILE) as db:
         yield await db.get_or_create_collection(
             name="schematic_generation_result_cache",
             schema=SchematicGenerationResultDocument,
@@ -527,9 +566,11 @@ async def run_service_server(
     tools: list[ToolEntry],
     plugin_data: Mapping[str, Any] = {},
 ) -> AsyncIterator[PluginServer]:
+    port = get_random_port(50001, 65535)
+
     async with PluginServer(
         tools=tools,
-        port=PLUGIN_SERVER_PORT,
+        port=port,
         host="127.0.0.1",
         plugin_data=plugin_data,
     ) as server:
@@ -537,9 +578,6 @@ async def run_service_server(
             yield server
         finally:
             await server.shutdown()
-
-
-OPENAPI_SERVER_URL = f"http://localhost:{OPENAPI_SERVER_PORT}"
 
 
 async def one_required_query_param(
@@ -583,8 +621,8 @@ async def one_required_query_param_one_required_body_param(
     return JSONResponse({"result": f"{body.body_param}: {query_param}"})
 
 
-def rng_app() -> FastAPI:
-    app = FastAPI(servers=[{"url": OPENAPI_SERVER_URL}])
+def rng_app(port: int = OPENAPI_SERVER_PORT) -> FastAPI:
+    app = FastAPI(servers=[{"url": f"{SERVER_BASE_URL}:{port}"}])
 
     @app.middleware("http")
     async def debug_request(
@@ -601,6 +639,32 @@ def rng_app() -> FastAPI:
     return app
 
 
+def is_port_available(port: int, host: str = "localhost") -> bool:
+    available = True
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.1)  # Short timeout for faster testing
+        sock.bind((host, port))
+    except (socket.error, OSError):
+        available = False
+    finally:
+        sock.close()
+
+    return available
+
+
+def get_random_port(
+    min_port: int = 1024,
+    max_port: int = 65535,
+    max_iterations: int = sys.maxsize,
+) -> int:
+    iter = 0
+    while not is_port_available(port := randint(min_port, max_port)) and iter < max_iterations:
+        iter += 1
+        pass
+    return port
+
+
 class DummyDTO(DefaultBaseModel):
     number: int
     text: str
@@ -610,14 +674,87 @@ async def dto_object(dto: DummyDTO) -> JSONResponse:
     return JSONResponse({})
 
 
+@dataclass
+class ServerInfo:
+    port: int
+    url: str
+
+
 @asynccontextmanager
-async def run_openapi_server(app: FastAPI) -> AsyncIterator[None]:
-    config = uvicorn.Config(app=app, port=OPENAPI_SERVER_PORT)
+async def run_openapi_server(
+    app: Optional[FastAPI] = None,
+) -> AsyncIterator[ServerInfo]:
+    port = get_random_port(10001, 65535)
+
+    if app is None:
+        app = rng_app(port=port)
+
+    config = uvicorn.Config(app=app, port=port)
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    yield
-    server.should_exit = True
-    await task
+
+    try:
+        while not server.started:
+            await asyncio.sleep(0.01)
+
+        await asyncio.sleep(0.05)
+
+        server_info = ServerInfo(
+            port=port,
+            url=SERVER_BASE_URL,
+        )
+
+        yield server_info
+    finally:
+        server.should_exit = True
+        await asyncio.sleep(0.1)
+
+        # If it's still running close it more aggressively
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+@asynccontextmanager
+async def run_mcp_server(tools: Sequence[Callable[..., Any]] = []) -> AsyncIterator[ServerInfo]:
+    port = get_random_port(10001, 65535)
+
+    server = MCPToolServer(
+        port=port,
+        host=SERVER_BASE_URL,
+        tools=tools,
+    )
+
+    try:
+        await server.__aenter__()
+
+        # Wait for server to start with timeout
+        start_timeout = 8
+        sample_frequency = 0.1
+        for _ in range(int(start_timeout / sample_frequency)):
+            if server.started():
+                break
+            await asyncio.sleep(sample_frequency)
+        else:
+            raise TimeoutError("MCP server failed to start within timeout period")
+
+        # Additional wait to ensure server is fully initialized
+        await asyncio.sleep(0.5)
+
+        server_info = ServerInfo(
+            port=port,
+            url=SERVER_BASE_URL,
+        )
+
+        yield server_info
+    finally:
+        try:
+            await server.__aexit__(None, None, None)
+        except Exception:
+            pass
 
 
 async def get_json(address: str, params: dict[str, str] = {}) -> Any:

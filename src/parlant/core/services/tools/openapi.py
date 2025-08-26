@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,10 +26,13 @@ from openapi_parser.parser import (
 )
 from types import TracebackType
 from typing import Any, Awaitable, Callable, Mapping, NamedTuple, Optional, Sequence, cast
+from pydantic import ValidationError
 from typing_extensions import override
 
 from parlant.core.tools import (
     Tool,
+    ToolError,
+    ToolOverlap,
     ToolParameterOptions,
     ToolResult,
     ToolParameterDescriptor,
@@ -89,6 +92,8 @@ class OpenAPIClient(ToolService):
             result = ParameterSpecification(query_parameters={}, body_parameters={}, required=[])
 
             for parameter in operation.parameters:
+                assert parameter.schema
+
                 result.query_parameters[parameter.name] = {
                     "type": cast(ToolParameterType, parameter.schema.type.value),
                 }
@@ -148,6 +153,7 @@ class OpenAPIClient(ToolService):
                     name=operation.operation_id,
                     creation_utc=datetime.now(timezone.utc),
                     description=operation.description or "",
+                    metadata={},
                     parameters={
                         name: (value, ToolParameterOptions())
                         for name, value in {
@@ -157,6 +163,7 @@ class OpenAPIClient(ToolService):
                     },
                     required=parameter_spec.required,
                     consequential=False,
+                    overlap=ToolOverlap.ALWAYS,
                 )
 
                 async def tool_func(
@@ -209,6 +216,11 @@ class OpenAPIClient(ToolService):
         return tool_spec.tool
 
     @override
+    async def resolve_tool(self, name: str, context: ToolContext) -> Tool:
+        # OpenAPI tools don't have a server-side choice_provider, so it simply calls read_tool
+        return await self.read_tool(name)
+
+    @override
     async def call_tool(
         self,
         name: str,
@@ -218,4 +230,9 @@ class OpenAPIClient(ToolService):
         _ = context
         tool = await self.read_tool(name)
         validate_tool_arguments(tool, arguments)
-        return await self._tools[name].func(**arguments)
+        try:
+            return await self._tools[name].func(**arguments)
+        except ValidationError as e:
+            raise ToolError(f"Parameter validation error: {str(e)}")
+        except Exception as e:
+            raise ToolError(f"Error calling tool {name}: {str(e)}")

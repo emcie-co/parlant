@@ -1,5 +1,5 @@
 import {BASE_URL} from '@/utils/api';
-import {useState, useEffect, useCallback, ReactElement} from 'react';
+import {useState, useEffect, useCallback, useRef, ReactElement} from 'react';
 import {toast} from 'sonner';
 
 interface useFetchResponse<T> {
@@ -8,6 +8,7 @@ interface useFetchResponse<T> {
 	error: null | {message: string};
 	refetch: () => void;
 	ErrorTemplate: (() => ReactElement) | null;
+	abortFetch: () => void;
 }
 
 function objToUrlParams(obj: Record<string, unknown>) {
@@ -31,6 +32,8 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 	const [error, setError] = useState<null | {message: string}>(null);
 	const [refetchData, setRefetchData] = useState(false);
 	const params = body ? objToUrlParams(body) : '';
+
+	const controllerRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
 		if (error && error.message !== TIMEOUT_ERROR_MESSAGE) throw new Error(`Failed to fetch "${url}"`);
@@ -59,6 +62,7 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 	const fetchData = useCallback(
 		(customParams = '') => {
 			const controller = new AbortController();
+			controllerRef.current = controller;
 			const {signal} = controller;
 			setTimeout(() => setLoading(true), 0);
 			setError(null);
@@ -82,8 +86,6 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 					if (err.code === NOT_FOUND_CODE) toast.error('resource not found. please try to refresh the page');
 				})
 				.finally(() => checkErr && setLoading(false));
-
-			return () => controller.abort();
 		},
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[url, refetchData, ...dependencies]
@@ -91,12 +93,16 @@ export default function useFetch<T>(url: string, body?: Record<string, unknown>,
 
 	useEffect(() => {
 		if (!initiate) return;
-		const abortFetch = fetchData();
+		fetchData();
 
 		return () => {
-			abortFetch();
+			controllerRef.current?.abort();
 		};
 	}, [fetchData, initiate]);
 
-	return {data, loading, error, refetch, ErrorTemplate: error && ErrorTemplate};
+	const abortFetch = () => {
+		controllerRef.current?.abort();
+	};
+
+	return {data, loading, error, refetch, ErrorTemplate: error && ErrorTemplate, abortFetch};
 }

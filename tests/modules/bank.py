@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,12 @@ server_instance: PluginServer | None = None
 
 @tool
 def read_account_balance(context: ToolContext) -> ToolResult:
-    return ToolResult(999)
+    return ToolResult(data="999", canned_response_fields={"balance": 999})
+
+
+@tool
+def get_account_details(context: ToolContext) -> ToolResult:
+    return ToolResult({"name": "John Doe", "account_number": "1234567890"})
 
 
 async def configure_module(container: Container) -> Container:
@@ -33,7 +38,7 @@ async def configure_module(container: Container) -> Container:
     _background_task_service = container[BackgroundTaskService]
 
     server = PluginServer(
-        tools=[read_account_balance],
+        tools=[read_account_balance, get_account_details],
         port=8094,
         host="127.0.0.1",
     )

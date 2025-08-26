@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from typing_extensions import override, TypedDict, Self
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, generate_id
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -131,11 +131,20 @@ class _CustomerTagAssociationDocument(TypedDict, total=False):
 class CustomerDocumentStore(CustomerStore):
     VERSION = Version.from_string("0.1.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
         self._database = database
         self._customers_collection: DocumentCollection[_CustomerDocument]
         self._tag_association_collection: DocumentCollection[_CustomerTagAssociationDocument]
+
         self._allow_migration = allow_migration
+
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_CustomerDocument]:
@@ -226,8 +235,10 @@ class CustomerDocumentStore(CustomerStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            customer_checksum = md5_checksum(f"{name}{extra}{tags}")
+
             customer = Customer(
-                id=CustomerId(generate_id()),
+                id=CustomerId(self._id_generator.generate(customer_checksum)),
                 name=name,
                 extra=extra,
                 creation_utc=creation_utc,
@@ -238,14 +249,16 @@ class CustomerDocumentStore(CustomerStore):
                 document=self._serialize_customer(customer=customer)
             )
 
-            for tag in tags or []:
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{customer.id}{tag_id}")
+
                 await self._tag_association_collection.insert_one(
                     document={
-                        "id": ObjectId(generate_id()),
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "customer_id": customer.id,
-                        "tag_id": tag,
+                        "tag_id": tag_id,
                     }
                 )
 
@@ -260,7 +273,7 @@ class CustomerDocumentStore(CustomerStore):
             if customer_id == CustomerStore.GUEST_ID:
                 return Customer(
                     id=CustomerStore.GUEST_ID,
-                    name="<guest>",
+                    name="Guest",
                     creation_utc=datetime.now(timezone.utc),
                     extra={},
                     tags=[],
@@ -362,8 +375,10 @@ class CustomerDocumentStore(CustomerStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = md5_checksum(f"{customer_id}{tag_id}")
+
             association_document: _CustomerTagAssociationDocument = {
-                "id": ObjectId(generate_id()),
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "customer_id": customer_id,

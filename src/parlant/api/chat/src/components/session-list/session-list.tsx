@@ -42,7 +42,7 @@ export default function SessionList({filterSessionVal}: {filterSessionVal: strin
 	useEffect(() => {
 		if (!filterSessionVal?.trim()) setFilteredSessions(sessions);
 		else {
-			setFilteredSessions(sessions.filter((session) => session.title?.toLowerCase()?.includes(filterSessionVal?.toLowerCase())));
+			setFilteredSessions(sessions.filter((session) => session.title?.toLowerCase()?.includes(filterSessionVal?.toLowerCase()) || session.id?.toLowerCase()?.includes(filterSessionVal?.toLowerCase())));
 		}
 	}, [filterSessionVal, sessions]);
 

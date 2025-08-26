@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,16 +13,19 @@
 # limitations under the License.
 
 from pprint import pformat
-from typing import Optional, cast
+from typing import cast
 from pytest_bdd import given, then, parsers, when
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import JSONSerializable
 from parlant.core.customers import CustomerStore
 from parlant.core.emissions import EmittedEvent
-from parlant.core.engines.alpha.message_assembler import DEFAULT_NO_MATCH_MESSAGE
+from parlant.core.engines.alpha.canned_response_generator import DEFAULT_NO_MATCH_CANREP
 from parlant.core.nlp.moderation import ModerationTag
+
 from parlant.core.sessions import (
+    EventKind,
+    EventSource,
     MessageEventData,
     SessionId,
     SessionStatus,
@@ -31,10 +34,9 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
-from tests.test_utilities import nlp_test
+from tests.test_utilities import nlp_test, JournalingEngineHooks
 
 
 @step(
@@ -65,9 +67,9 @@ def given_an_agent_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="ai_agent",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.AI_AGENT,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -105,9 +107,9 @@ def given_a_human_message_on_behalf_of_the_agent(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="human_agent_on_behalf_of_ai_agent",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -140,9 +142,9 @@ def given_a_customer_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="customer",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -182,9 +184,9 @@ def given_a_flagged_customer_message(
     event = context.sync_await(
         session_store.create_event(
             session_id=session.id,
-            source="customer",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -219,7 +221,7 @@ def when_the_last_few_messages_are_deleted(
 def then_a_single_message_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len(list(filter(lambda e: e.kind == "message", emitted_events))) == 1
+    assert len(list(filter(lambda e: e.kind == EventKind.MESSAGE, emitted_events))) == 1
 
 
 @step(then, parsers.parse("a total of {count:d} message event(s) (is|are) emitted"))
@@ -227,7 +229,7 @@ def then_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
     count: int,
 ) -> None:
-    message_count = sum(1 for e in emitted_events if e.kind == "message")
+    message_count = sum(1 for e in emitted_events if e.kind == EventKind.MESSAGE)
     assert message_count == count, f"Expected {count} message events, but found {message_count}"
 
 
@@ -236,7 +238,7 @@ def then_the_message_contains_the_text(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
@@ -249,7 +251,7 @@ def then_the_message_does_not_contain_the_text(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
@@ -263,7 +265,7 @@ def then_the_message_contains(
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert context.sync_await(
@@ -274,13 +276,30 @@ def then_the_message_contains(
     ), f"message: '{message}', expected to contain: '{something}'"
 
 
+@step(then, parsers.parse("the message doesn't contains {something}"))
+def then_the_doesnt_message_contains(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
+    message = cast(MessageEventData, message_event.data)["message"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
+            condition=f"The message NOT contains {something}",
+        )
+    ), f"message: '{message}', expected to contain: '{something}'"
+
+
 @step(then, parsers.parse("the message mentions {something}"))
 def then_the_message_mentions(
     context: ContextOfTest,
     emitted_events: list[EmittedEvent],
     something: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert context.sync_await(
@@ -293,31 +312,31 @@ def then_the_message_mentions(
 
 @step(
     then,
-    parsers.parse('the message uses the fragment "{fragment_text}"'),
+    parsers.parse('the message uses the canned response "{canrep_text}"'),
 )
-def then_the_message_uses_the_fragment(
+def then_the_message_uses_the_canned_response(
     emitted_events: list[EmittedEvent],
-    fragment_text: str,
+    canned_response_text: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
-    assert message_data["fragments"]
+    assert message_data["canned_responses"]
 
-    assert any(fragment_text in fragment for _, fragment in message_data["fragments"])
+    assert any(canned_response_text in canrep for _, canrep in message_data["canned_responses"])
 
 
 @step(
     then,
-    parsers.parse('the message doesn\'t use the fragment "{fragment_text}"'),
+    parsers.parse('the message doesn\'t use the canned response "{canrep_text}"'),
 )
-def then_the_message_does_not_use_the_fragment(
+def then_the_message_does_not_use_the_canned_response(
     emitted_events: list[EmittedEvent],
-    fragment_text: str,
+    canned_response_text: str,
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message_data = cast(MessageEventData, message_event.data)
 
-    assert all(fragment_text not in fragment for _, fragment in message_data["fragments"])
+    assert all(canned_response_text not in canrep for _, canrep in message_data["canned_responses"])
 
 
 @step(then, "no events are emitted")
@@ -331,37 +350,31 @@ def then_no_events_are_emitted(
 def then_no_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    assert len([e for e in emitted_events if e.kind == "message"]) == 0
+    assert len([e for e in emitted_events if e.kind == EventKind.MESSAGE]) == 0
 
 
 @step(then, "a no-match message is emitted")
 def then_a_no_match_message_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    message_event = next(e for e in emitted_events if e.kind == "message")
+    message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
     assert (
-        message == DEFAULT_NO_MATCH_MESSAGE
-    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_MESSAGE}'"
+        message == DEFAULT_NO_MATCH_CANREP
+    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_CANREP}'"
 
 
 def _has_status_event(
     status: SessionStatus,
-    acknowledged_event_offset: Optional[int],
     events: list[EmittedEvent],
 ) -> bool:
-    for e in (e for e in events if e.kind == "status"):
+    for e in (e for e in events if e.kind == EventKind.STATUS):
         data = cast(StatusEventData, e.data)
 
         has_same_status = data["status"] == status
 
-        if acknowledged_event_offset:
-            has_same_acknowledged_offset = data["acknowledged_offset"] == acknowledged_event_offset
-
-            if has_same_status and has_same_acknowledged_offset:
-                return True
-        elif has_same_status:
+        if has_same_status:
             return True
 
     return False
@@ -369,75 +382,73 @@ def _has_status_event(
 
 @step(
     then,
-    parsers.parse("a status event is emitted, acknowledging event {acknowledged_event_offset:d}"),
+    parsers.parse("a status event is emitted, acknowledging event"),
 )
 def then_an_acknowledgement_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("acknowledged", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("acknowledged", emitted_events)
 
 
-@step(
-    then, parsers.parse("a status event is emitted, processing event {acknowledged_event_offset:d}")
-)
+@step(then, parsers.parse("a status event is emitted, processing event"))
 def then_a_processing_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("processing", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("processing", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, typing in response to event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, typing in response to event"),
 )
 def then_a_typing_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("typing", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("typing", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, cancelling the response to event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, cancelling the response to event"),
 )
 def then_a_cancelled_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("cancelled", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("cancelled", emitted_events)
 
 
 @step(
     then,
     parsers.parse(
-        "a status event is emitted, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
+        "a status event is emitted, ready for further engagement after reacting to event"
     ),
 )
 def then_a_ready_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("ready", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("ready", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, encountering an error while processing event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, encountering an error while processing event"),
 )
 def then_an_error_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("error", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("error", emitted_events)
+
+
+@step(then, parsers.parse("no tool error has occurred"))
+def then_no_tool_error_occurred(emitted_events: list[EmittedEvent]) -> None:
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
+    for tool_event in tool_events:
+        tool_event_data = cast(ToolEventData, tool_event.data)
+        for tc in tool_event_data["tool_calls"]:
+            result_data = tc["result"].get("data", [])
+            assert not (
+                isinstance(result_data, str) and "error" in result_data
+            ), f"A tool error has occurred in tool: {tc}"
 
 
 @step(then, parsers.parse("a {status_type} status event is not emitted"))
@@ -445,14 +456,14 @@ def then_a_status_event_type_is_not_emitted(
     emitted_events: list[EmittedEvent],
     status_type: SessionStatus,
 ) -> None:
-    assert not _has_status_event(status_type, None, emitted_events)
+    assert not _has_status_event(status_type, emitted_events)
 
 
 @step(then, "no tool calls event is emitted")
 def then_no_tool_calls_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
     assert 0 == len(tool_events), pformat(tool_events, indent=2)
 
 
@@ -460,7 +471,7 @@ def then_no_tool_calls_event_is_emitted(
 def then_a_single_tool_event_is_emitted(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
     assert 1 == len(tool_events), pformat(tool_events, indent=2)
 
 
@@ -469,16 +480,21 @@ def then_the_tool_calls_event_contains_n_tool_calls(
     number_of_tool_calls: int,
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
-    assert number_of_tool_calls == len(
-        cast(ToolEventData, tool_calls_event.data)["tool_calls"]
-    ), pformat(tool_calls_event, indent=2)
+    tool_calls = [
+        cast(ToolEventData, e.data)["tool_calls"]
+        for e in emitted_events
+        if e.kind == EventKind.TOOL
+    ]
+    assert number_of_tool_calls == len(tool_calls), pformat(tool_calls, indent=2)
 
 
 def _get_tool_calls(emitted_events: list[EmittedEvent]) -> list[ToolCall]:
-    tool_calls_event = next(e for e in emitted_events if e.kind == "tool")
-    tool_calls = cast(ToolEventData, tool_calls_event.data)["tool_calls"]
-    return tool_calls
+    return [
+        tool_call
+        for e in emitted_events
+        if e.kind == EventKind.TOOL
+        for tool_call in cast(ToolEventData, e.data)["tool_calls"]
+    ]
 
 
 @step(then, parsers.parse("the tool calls event contains {expected_content}"))
@@ -501,8 +517,8 @@ def then_the_tool_calls_event_contains_expected_content(
 def then_the_tool_calls_event_is_correlated_with_the_message_event(
     emitted_events: list[EmittedEvent],
 ) -> None:
-    tool_events = [e for e in emitted_events if e.kind == "tool"]
-    message_events = [e for e in emitted_events if e.kind == "message"]
+    tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
+    message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
 
     assert len(tool_events) > 0, "No tool event found"
     assert len(message_events) > 0, "No message event found"
@@ -529,21 +545,144 @@ def then_the_tool_calls_event_contains_call(
     assert len(matching_tool_calls) > 0, f"No tool call found for {tool_name}"
 
 
-@step(then, parsers.parse('the call to "{tool_name}" returns fragments'))
-def then_the_tool_call_contains_fragments(
-    emitted_events: list[EmittedEvent],
-    tool_name: str,
+@step(then, parsers.parse("the number of missing parameters is exactly {number_of_missing:d}"))
+def then_the_number_of_missing_is_exactly(
+    context: ContextOfTest,
+    number_of_missing: int,
 ) -> None:
-    tool_calls = _get_tool_calls(emitted_events)
+    latest_context = next(
+        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+    )
+    missing_data = latest_context.state.tool_insights.missing_data
 
-    matching_tool_calls = [
-        tc
-        for tc in tool_calls
-        if tc["tool_id"].endswith(f":{tool_name}") or tc["tool_id"] == f"local:{tool_name}"
-    ]
-
-    tool_call = matching_tool_calls[0]
     assert (
-        "fragments" in tool_call["result"]
-    ), f"No fragments found in result: {tool_call['result']}"
-    assert len(tool_call["result"]["fragments"]) > 0, "Empty fragments list in result"
+        len(missing_data) == number_of_missing
+    ), f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
+
+
+@step(then, parsers.parse("the number of invalid parameters is exactly {number_of_invalid:d}"))
+def then_the_number_of_invalid_is_exactly(
+    context: ContextOfTest,
+    number_of_invalid: int,
+) -> None:
+    latest_context = next(
+        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+    )
+    invalid_data = latest_context.state.tool_insights.invalid_data
+
+    assert (
+        len(invalid_data) == number_of_invalid
+    ), f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"
+
+
+def _get_staged_events(context: ContextOfTest) -> list[EmittedEvent]:
+    return next(
+        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+    ).state.tool_events
+
+
+@step(then, "a single event is staged")
+def then_a_single_event_is_staged(
+    context: ContextOfTest,
+) -> None:
+    staged_events = _get_staged_events(context)
+
+    assert len(staged_events) == 1, f"Expected 1 staged event, but found {len(staged_events)}"
+
+
+@step(then, parsers.parse("the staged event contains {number_of_tool_calls:d} tool call(s)"))
+def then_the_staged_event_contains_n_tool_calls(
+    context: ContextOfTest,
+    number_of_tool_calls: int,
+) -> None:
+    staged_tool_events = _get_staged_events(context)
+    assert number_of_tool_calls == len(
+        cast(ToolEventData, staged_tool_events[0].data)["tool_calls"]
+    ), pformat(staged_tool_events, indent=2)
+
+
+@step(then, parsers.parse("the staged tool calls event contains {expected_content}"))
+def then_the_tool_calls_staged_event_contains_expected_content(
+    context: ContextOfTest,
+    expected_content: str,
+) -> None:
+    staged_tool_events = _get_staged_events(context)
+    tool_calls = cast(ToolEventData, staged_tool_events[0].data)["tool_calls"]
+
+    assert context.sync_await(
+        nlp_test(
+            context=f"The following is the result of tool (function) calls: {tool_calls}",
+            condition=f"The calls contain {expected_content}",
+        )
+    ), pformat(tool_calls, indent=2)
+
+
+@step(
+    then,
+    parsers.parse("the session inspection contains {count:d} preparation iterations"),
+)
+def then_the_session_inspection_contains_preparation_iterations(
+    context: ContextOfTest,
+    session_id: SessionId,
+    count: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    assert (
+        len(inspection.preparation_iterations) >= count
+    ), f"Expected at least {count} preparation iterations, but found {len(inspection.preparation_iterations)}"
+
+
+@step(
+    then,
+    parsers.parse(
+        'the guideline "{guideline_name}" is matched in preparation iteration {iteration:d}'
+    ),
+)
+def then_the_guideline_is_in_the_specified_preparation_iteration(
+    context: ContextOfTest,
+    session_id: SessionId,
+    guideline_name: str,
+    iteration: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    guideline_id = context.guidelines[guideline_name].id
+
+    preparation_iteration = inspection.preparation_iterations[iteration - 1]
+
+    assert any(
+        m["guideline_id"] == guideline_id for m in preparation_iteration.guideline_matches
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
+
+
+@step(
+    then,
+    parsers.parse(
+        'the guideline "{guideline_name}" is not matched in preparation iteration {iteration:d}'
+    ),
+)
+def then_the_guideline_is_not_in_the_specified_preparation_iteration(
+    context: ContextOfTest,
+    session_id: SessionId,
+    guideline_name: str,
+    iteration: int,
+) -> None:
+    session_store = context.container[SessionStore]
+    inspection = context.sync_await(
+        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
+    )
+
+    guideline_id = context.guidelines[guideline_name].id
+
+    preparation_iteration = inspection.preparation_iterations[iteration - 1]
+
+    assert all(
+        m["guideline_id"] != guideline_id for m in preparation_iteration.guideline_matches
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."

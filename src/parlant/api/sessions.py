@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +14,13 @@
 
 from datetime import datetime
 from enum import Enum
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from itertools import chain
 from pydantic import Field
 from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast
 
 
+from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
 from parlant.core.agents import AgentId, AgentStore
@@ -27,7 +28,7 @@ from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.engines.types import UtteranceReason, UtteranceRequest
+from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import ModerationService
@@ -36,17 +37,20 @@ from parlant.core.sessions import (
     Event,
     EventId,
     EventKind,
+    EventSource,
     MessageEventData,
     MessageGenerationInspection,
     Participant,
     PreparationIteration,
     SessionId,
     SessionListener,
+    SessionStatus,
     SessionStore,
     SessionUpdateParams,
+    StatusEventData,
     ToolEventData,
 )
-from parlant.core.fragments import FragmentId
+from parlant.core.canned_responses import CannedResponseId
 
 API_GROUP = "sessions"
 
@@ -85,6 +89,19 @@ class Moderation(Enum):
     AUTO = "auto"
     PARANOID = "paranoid"
     NONE = "none"
+
+
+class SessionStatusDTO(Enum):
+    """
+    Type of status in a session.
+    """
+
+    ACKNOWLEDGED = "acknowledged"
+    CANCELLED = "cancelled"
+    PROCESSING = "processing"
+    READY = "ready"
+    TYPING = "typing"
+    ERROR = "error"
 
 
 ConsumptionOffsetClientField: TypeAlias = Annotated[
@@ -150,12 +167,29 @@ SessionTitleField: TypeAlias = Annotated[
 ]
 
 
+class SessionModeDTO(Enum):
+    """Defines the reason for the action"""
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
+SessionModeField: TypeAlias = Annotated[
+    SessionModeDTO,
+    Field(
+        description="The mode of the session, either 'auto' or 'manual'. In manual mode, events added to a session will not be responded to automatically by the agent.",
+        examples=["auto", "manual"],
+    ),
+]
+
+
 session_example: ExampleJson = {
     "id": "sess_123yz",
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "creation_utc": "2024-03-24T12:00:00Z",
     "title": "Product inquiry session",
+    "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
 }
 
@@ -171,6 +205,7 @@ class SessionDTO(
     customer_id: SessionCustomerIdField
     creation_utc: SessionCreationUTCField
     title: Optional[SessionTitleField] = None
+    mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
 
 
@@ -213,7 +248,7 @@ SessionEventCreationParamsMessageField: TypeAlias = Annotated[
     ),
 ]
 
-SessionEventCreationParamsActionField: TypeAlias = Annotated[
+AgentMessageGuidelineActionField: TypeAlias = Annotated[
     str,
     Field(
         description='A single action that explains what to say; i.e. "Tell the customer that you are thinking and will be right back with an answer."',
@@ -228,16 +263,43 @@ event_creation_params_example: ExampleJson = {
 }
 
 
-class UtteranceReasonDTO(Enum):
-    """Defines the reason for the action"""
+class AgentMessageGuidelineRationaleDTO(Enum):
+    """Defines the rationale for the guideline"""
 
+    UNSPECIFIED = "unspecified"
     BUY_TIME = "buy_time"
     FOLLOW_UP = "follow_up"
 
 
-class UtteranceRequestDTO(DefaultBaseModel):
-    action: SessionEventCreationParamsActionField
-    reason: UtteranceReasonDTO
+class AgentMessageGuidelineDTO(DefaultBaseModel):
+    action: AgentMessageGuidelineActionField
+    rationale: AgentMessageGuidelineRationaleDTO = AgentMessageGuidelineRationaleDTO.UNSPECIFIED
+
+
+ParticipantIdDTO = AgentId | CustomerId | None
+
+ParticipantDisplayNameField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Name to display for the participant",
+        examples=["John Doe", "Alice"],
+    ),
+]
+
+
+participant_example = {
+    "id": "cust_123xy",
+    "display_name": "John Doe",
+}
+
+
+class ParticipantDTO(DefaultBaseModel):
+    """
+    Represents the participant information in a message event.
+    """
+
+    id: ParticipantIdDTO = None
+    display_name: ParticipantDisplayNameField
 
 
 class EventCreationParamsDTO(
@@ -249,7 +311,10 @@ class EventCreationParamsDTO(
     kind: EventKindDTO
     source: EventSourceDTO
     message: Optional[SessionEventCreationParamsMessageField] = None
-    actions: Optional[list[UtteranceRequestDTO]] = None
+    data: Optional[JSONSerializableDTO] = None
+    guidelines: Optional[list[AgentMessageGuidelineDTO]] = None
+    participant: Optional[ParticipantDTO] = None
+    status: Optional[SessionStatusDTO] = None
 
 
 EventIdPath: TypeAlias = Annotated[
@@ -336,6 +401,7 @@ class SessionUpdateParamsDTO(
 
     consumption_offsets: Optional[ConsumptionOffsetsUpdateParamsDTO] = None
     title: Optional[SessionTitleField] = None
+    mode: Optional[SessionModeField] = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -639,31 +705,6 @@ MessageGenerationInspectionMessagesField: TypeAlias = Annotated[
     ),
 ]
 
-ParticipantIdDTO = AgentId | CustomerId | None
-
-ParticipantDisplayNameField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Name to display for the participant",
-        examples=["John Doe", "Alice"],
-    ),
-]
-
-
-participant_example = {
-    "id": "cust_123xy",
-    "display_name": "John Doe",
-}
-
-
-class ParticipantDTO(DefaultBaseModel):
-    """
-    Represents the participant information in a message event.
-    """
-
-    id: ParticipantIdDTO = None
-    display_name: ParticipantDisplayNameField
-
 
 MessageEventDataMessageField: TypeAlias = Annotated[
     str,
@@ -689,10 +730,10 @@ MessageEventDataTagsField: TypeAlias = Annotated[
     ),
 ]
 
-MessageEventDataFragmentsField: TypeAlias = Annotated[
-    Optional[Sequence[FragmentId]],
+MessageEventDataCannedResponsesField: TypeAlias = Annotated[
+    Optional[Sequence[CannedResponseId]],
     Field(
-        description="List of associated fragment references, if any",
+        description="List of associated canned response references, if any",
         examples=[["frag_123xyz", "frag_789abc"]],
     ),
 ]
@@ -702,7 +743,7 @@ message_event_data_example = {
     "participant": participant_example,
     "flagged": False,
     "tags": ["greeting", "help-request"],
-    "fragments": ["frag_123xyz", "frag_789abc"],
+    "canned_responses": ["frag_123xyz", "frag_789abc"],
 }
 
 
@@ -718,7 +759,7 @@ class MessageEventDataDTO(
     participant: ParticipantDTO
     flagged: MessageEventDataFlaggedField = None
     tags: MessageEventDataTagsField = None
-    fragments: MessageEventDataFragmentsField = None
+    canned_responses: MessageEventDataCannedResponsesField = None
 
 
 message_generation_inspection_example = {
@@ -740,7 +781,7 @@ message_generation_inspection_example = {
             "participant": participant_example,
             "flagged": False,
             "tags": ["order-status"],
-            "fragments": ["frag_987abc"],
+            "canned_responses": ["frag_987abc"],
         },
     ],
 }
@@ -752,7 +793,7 @@ class MessageGenerationInspectionDTO(
 ):
     """Inspection data for message generation."""
 
-    generation: GenerationInfoDTO
+    generations: Mapping[str, GenerationInfoDTO]
     messages: Sequence[Optional[str]]
 
 
@@ -951,8 +992,8 @@ class EventInspectionResult(
 def event_to_dto(event: Event) -> EventDTO:
     return EventDTO(
         id=event.id,
-        source=EventSourceDTO(event.source),
-        kind=EventKindDTO(event.kind),
+        source=_event_source_to_event_source_dto(event.source),
+        kind=_event_kind_to_event_kind_dto(event.kind),
         offset=event.offset,
         creation_utc=event.creation_utc,
         correlation_id=event.correlation_id,
@@ -985,7 +1026,9 @@ def message_generation_inspection_to_dto(
     m: MessageGenerationInspection,
 ) -> MessageGenerationInspectionDTO:
     return MessageGenerationInspectionDTO(
-        generation=generation_info_to_dto(m.generation),
+        generations={
+            name: generation_info_to_dto(generation) for name, generation in m.generations.items()
+        },
         messages=[message for message in m.messages if message is not None],
     )
 
@@ -1111,15 +1154,75 @@ def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
     return LakeraGuard(logger)
 
 
-def utterance_request_dto_to_utterance_request(utter: UtteranceRequestDTO) -> UtteranceRequest:
-    reason_dto_to_reason = {
-        UtteranceReasonDTO.BUY_TIME: UtteranceReason.BUY_TIME,
-        UtteranceReasonDTO.FOLLOW_UP: UtteranceReason.FOLLOW_UP,
+def agent_message_guideline_dto_to_utterance_request(
+    guideline: AgentMessageGuidelineDTO,
+) -> UtteranceRequest:
+    rationale_to_reason = {
+        AgentMessageGuidelineRationaleDTO.UNSPECIFIED: UtteranceRationale.UNSPECIFIED,
+        AgentMessageGuidelineRationaleDTO.BUY_TIME: UtteranceRationale.BUY_TIME,
+        AgentMessageGuidelineRationaleDTO.FOLLOW_UP: UtteranceRationale.FOLLOW_UP,
     }
-    return UtteranceRequest(action=utter.action, reason=reason_dto_to_reason[utter.reason])
+
+    return UtteranceRequest(
+        action=guideline.action,
+        rationale=rationale_to_reason[guideline.rationale],
+    )
+
+
+def _event_kind_dto_to_event_kind(dto: EventKindDTO) -> EventKind:
+    if kind := {
+        EventKindDTO.MESSAGE: EventKind.MESSAGE,
+        EventKindDTO.TOOL: EventKind.TOOL,
+        EventKindDTO.STATUS: EventKind.STATUS,
+        EventKindDTO.CUSTOM: EventKind.CUSTOM,
+    }.get(dto):
+        return kind
+
+    raise ValueError(f"Invalid event kind: {dto}")
+
+
+def _event_kind_to_event_kind_dto(kind: EventKind) -> EventKindDTO:
+    if dto := {
+        EventKind.MESSAGE: EventKindDTO.MESSAGE,
+        EventKind.TOOL: EventKindDTO.TOOL,
+        EventKind.STATUS: EventKindDTO.STATUS,
+        EventKind.CUSTOM: EventKindDTO.CUSTOM,
+    }.get(kind):
+        return dto
+
+    raise ValueError(f"Invalid event kind: {kind}")
+
+
+def _event_source_dto_to_event_source(dto: EventSourceDTO) -> EventSource:
+    if source := {
+        EventSourceDTO.CUSTOMER: EventSource.CUSTOMER,
+        EventSourceDTO.CUSTOMER_UI: EventSource.CUSTOMER_UI,
+        EventSourceDTO.HUMAN_AGENT: EventSource.HUMAN_AGENT,
+        EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+        EventSourceDTO.AI_AGENT: EventSource.AI_AGENT,
+        EventSourceDTO.SYSTEM: EventSource.SYSTEM,
+    }.get(dto):
+        return source
+
+    raise ValueError(f"Invalid event source: {dto}")
+
+
+def _event_source_to_event_source_dto(source: EventSource) -> EventSourceDTO:
+    if dto := {
+        EventSource.CUSTOMER: EventSourceDTO.CUSTOMER,
+        EventSource.CUSTOMER_UI: EventSourceDTO.CUSTOMER_UI,
+        EventSource.HUMAN_AGENT: EventSourceDTO.HUMAN_AGENT,
+        EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+        EventSource.AI_AGENT: EventSourceDTO.AI_AGENT,
+        EventSource.SYSTEM: EventSourceDTO.SYSTEM,
+    }.get(source):
+        return dto
+
+    raise ValueError(f"Invalid event source: {source}")
 
 
 def create_router(
+    authorization_policy: AuthorizationPolicy,
     logger: Logger,
     application: Application,
     agent_store: AgentStore,
@@ -1147,8 +1250,9 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create"),
     )
     async def create_session(
+        request: Request,
         params: SessionCreationParamsDTO,
-        allow_greeting: AllowGreetingQuery = True,
+        allow_greeting: AllowGreetingQuery = False,
     ) -> SessionDTO:
         """Creates a new session between an agent and customer.
 
@@ -1156,6 +1260,16 @@ def create_router(
         If no customer_id is provided, a guest customer will be created.
         """
         _ = await agent_store.read_agent(agent_id=params.agent_id)
+
+        if params.customer_id:
+            await authorization_policy.authorize(
+                request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+            )
+
+        else:
+            await authorization_policy.authorize(
+                request=request, operation=Operation.CREATE_GUEST_SESSION
+            )
 
         session = await application.create_customer_session(
             customer_id=params.customer_id or CustomerStore.GUEST_ID,
@@ -1171,6 +1285,7 @@ def create_router(
             creation_utc=session.creation_utc,
             consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
             title=session.title,
+            mode=SessionModeDTO(session.mode),
         )
 
     @router.get(
@@ -1187,9 +1302,11 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_session(
+        request: Request,
         session_id: SessionIdPath,
     ) -> SessionDTO:
         """Retrieves details of a specific session by ID."""
+        await authorization_policy.authorize(request=request, operation=Operation.READ_SESSION)
 
         session = await session_store.read_session(session_id=session_id)
 
@@ -1202,6 +1319,7 @@ def create_router(
             consumption_offsets=ConsumptionOffsetsDTO(
                 client=session.consumption_offsets["client"],
             ),
+            mode=SessionModeDTO(session.mode),
         )
 
     @router.get(
@@ -1220,6 +1338,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_sessions(
+        request: Request,
         agent_id: Optional[AgentIdQuery] = None,
         customer_id: Optional[CustomerIdQuery] = None,
     ) -> Sequence[SessionDTO]:
@@ -1227,6 +1346,7 @@ def create_router(
 
         Can filter by agent_id and/or customer_id. Returns all sessions if no
         filters are provided."""
+        await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
         sessions = await session_store.list_sessions(
             agent_id=agent_id,
@@ -1243,6 +1363,7 @@ def create_router(
                 consumption_offsets=ConsumptionOffsetsDTO(
                     client=s.consumption_offsets["client"],
                 ),
+                mode=SessionModeDTO(s.mode),
             )
             for s in sessions
         ]
@@ -1258,11 +1379,13 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_session(
+        request: Request,
         session_id: SessionIdPath,
     ) -> None:
         """Deletes a session and all its associated events.
 
         The operation is idempotent - deleting a non-existent session will return 404."""
+        await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSION)
 
         await session_store.read_session(session_id)
         await session_store.delete_session(session_id)
@@ -1282,6 +1405,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete_many"),
     )
     async def delete_sessions(
+        request: Request,
         agent_id: Optional[AgentIdQuery] = None,
         customer_id: Optional[CustomerIdQuery] = None,
     ) -> None:
@@ -1289,6 +1413,7 @@ def create_router(
 
         Can filter by agent_id and/or customer_id. Will delete all sessions if no
         filters are provided."""
+        await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSIONS)
 
         sessions = await session_store.list_sessions(
             agent_id=agent_id,
@@ -1311,12 +1436,14 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="update"),
     )
     async def update_session(
+        request: Request,
         session_id: SessionIdPath,
         params: SessionUpdateParamsDTO,
     ) -> SessionDTO:
         """Updates an existing session's attributes.
 
         Only provided attributes will be updated; others remain unchanged."""
+        await authorization_policy.authorize(request=request, operation=Operation.UPDATE_SESSION)
 
         async def from_dto(dto: SessionUpdateParamsDTO) -> SessionUpdateParams:
             params: SessionUpdateParams = {}
@@ -1332,6 +1459,9 @@ def create_router(
 
             if dto.title:
                 params["title"] = dto.title
+
+            if dto.mode:
+                params["mode"] = dto.mode.value
 
             return params
 
@@ -1349,6 +1479,7 @@ def create_router(
             consumption_offsets=ConsumptionOffsetsDTO(
                 client=session.consumption_offsets["client"],
             ),
+            mode=SessionModeDTO(session.mode),
         )
 
     @router.post(
@@ -1369,6 +1500,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create_event"),
     )
     async def create_event(
+        request: Request,
         session_id: SessionIdPath,
         params: EventCreationParamsDTO,
         moderation: ModerationQuery = Moderation.NONE,
@@ -1377,23 +1509,99 @@ def create_router(
 
         Currently supports creating message events from customer and human agent sources."""
 
-        if params.kind != EventKindDTO.MESSAGE:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Only message events can currently be added manually",
-            )
+        if params.kind == EventKindDTO.MESSAGE:
+            if params.source == EventSourceDTO.CUSTOMER:
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_CUSTOMER_EVENT
+                )
+                return await _add_customer_message(session_id, params, moderation)
+            elif params.source == EventSourceDTO.AI_AGENT:
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_AGENT_EVENT
+                )
+                return await _add_agent_message(session_id, params)
+            elif params.source == EventSourceDTO.HUMAN_AGENT:
+                await authorization_policy.authorize(
+                    request=request,
+                    operation=Operation.CREATE_HUMAN_AGENT_EVENT,
+                )
+                return await _add_human_agent_message(session_id, params)
+            elif params.source == EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT:
+                await authorization_policy.authorize(
+                    request=request,
+                    operation=Operation.CREATE_HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT_EVENT,
+                )
+                return await _add_human_agent_message_on_behalf_of_ai_agent(session_id, params)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail='Only "customer", "human_agent", and "human_agent_on_behalf_of_ai_agent" sources are supported for direct posting.',
+                )
 
-        if params.source == EventSourceDTO.CUSTOMER:
-            return await _add_customer_message(session_id, params, moderation)
-        elif params.source == EventSourceDTO.AI_AGENT:
-            return await _add_agent_message(session_id, params)
-        elif params.source == EventSourceDTO.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT:
-            return await _add_human_agent_message_on_behalf_of_ai_agent(session_id, params)
+        elif params.kind == EventKindDTO.CUSTOM:
+            await authorization_policy.authorize(
+                request=request, operation=Operation.CREATE_CUSTOM_EVENT
+            )
+            return await _add_custom_event(session_id, params)
+
+        elif params.kind == EventKindDTO.STATUS:
+            await authorization_policy.authorize(
+                request=request, operation=Operation.CREATE_STATUS_EVENT
+            )
+            return await _add_status_event(session_id, params)
+
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail='Only "customer" and "human_agent_on_behalf_of_ai_agent" sources are supported for direct posting.',
+                detail="Only message, custom and status events can currently be added manually",
             )
+
+    async def _add_status_event(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+    ) -> EventDTO:
+        def status_dto_to_status(dto: SessionStatusDTO) -> SessionStatus:
+            match dto:
+                case SessionStatusDTO.ACKNOWLEDGED:
+                    return "acknowledged"
+                case SessionStatusDTO.CANCELLED:
+                    return "cancelled"
+                case SessionStatusDTO.PROCESSING:
+                    return "processing"
+                case SessionStatusDTO.READY:
+                    return "ready"
+                case SessionStatusDTO.TYPING:
+                    return "typing"
+                case SessionStatusDTO.ERROR:
+                    return "error"
+
+        if params.status is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Missing "status" field for status event',
+            )
+
+        raw_data = params.data or {}
+        if not isinstance(raw_data, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Status event "data" must be a JSON object',
+            )
+
+        status_data: StatusEventData = {
+            "status": status_dto_to_status(params.status),
+            "data": raw_data,
+        }
+
+        event = await application.post_event(
+            session_id=session_id,
+            kind=_event_kind_dto_to_event_kind(params.kind),
+            data=status_data,
+            source=_event_source_dto_to_event_source(params.source),
+            trigger_processing=False,
+        )
+
+        return event_to_dto(event)
 
     async def _add_customer_message(
         session_id: SessionIdPath,
@@ -1441,9 +1649,9 @@ def create_router(
 
         event = await application.post_event(
             session_id=session_id,
-            kind=params.kind.value,
+            kind=_event_kind_dto_to_event_kind(params.kind),
             data=message_data,
-            source="customer",
+            source=EventSource.CUSTOMER,
             trigger_processing=True,
         )
 
@@ -1461,13 +1669,15 @@ def create_router(
 
         session = await session_store.read_session(session_id)
 
-        if params.actions:
-            actions = [utterance_request_dto_to_utterance_request(a) for a in params.actions]
-            correlation_id = await application.utter(session, actions)
+        if params.guidelines:
+            requests = [
+                agent_message_guideline_dto_to_utterance_request(a) for a in params.guidelines
+            ]
+            correlation_id = await application.utter(session, requests)
             event, *_ = await session_store.list_events(
                 session_id=session_id,
                 correlation_id=correlation_id,
-                kinds=["message"],
+                kinds=[EventKind.MESSAGE],
             )
             return event_to_dto(event)
         else:
@@ -1484,12 +1694,45 @@ def create_router(
                     await session_store.list_events(
                         session_id=session_id,
                         correlation_id=correlation_id,
-                        kinds=["status"],
+                        kinds=[EventKind.STATUS],
                     )
                 )
             )
 
             return event_to_dto(event)
+
+    async def _add_human_agent_message(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+    ) -> EventDTO:
+        if not params.message:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing 'message' field for event",
+            )
+        if not params.participant or not params.participant.display_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing 'participant' with 'display_name' for human agent message",
+            )
+
+        message_data: MessageEventData = {
+            "message": params.message,
+            "participant": {
+                "id": AgentId(params.participant.id) if params.participant.id else None,
+                "display_name": params.participant.display_name,
+            },
+        }
+
+        event = await application.post_event(
+            session_id=session_id,
+            kind=_event_kind_dto_to_event_kind(params.kind),
+            data=message_data,
+            source=EventSource.HUMAN_AGENT,
+            trigger_processing=False,
+        )
+
+        return event_to_dto(event)
 
     async def _add_human_agent_message_on_behalf_of_ai_agent(
         session_id: SessionIdPath,
@@ -1514,16 +1757,45 @@ def create_router(
 
         event = await application.post_event(
             session_id=session_id,
-            kind=params.kind.value,
+            kind=_event_kind_dto_to_event_kind(params.kind),
             data=message_data,
-            source="human_agent_on_behalf_of_ai_agent",
+            source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
             trigger_processing=False,
         )
 
         return EventDTO(
             id=event.id,
-            source=EventSourceDTO(event.source),
-            kind=EventKindDTO(event.kind),
+            source=_event_source_to_event_source_dto(event.source),
+            kind=_event_kind_to_event_kind_dto(event.kind),
+            offset=event.offset,
+            creation_utc=event.creation_utc,
+            correlation_id=event.correlation_id,
+            data=cast(JSONSerializableDTO, event.data),
+            deleted=event.deleted,
+        )
+
+    async def _add_custom_event(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+    ) -> EventDTO:
+        if not params.data:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing 'data' field for custom event",
+            )
+
+        event = await application.post_event(
+            session_id=session_id,
+            kind=_event_kind_dto_to_event_kind(params.kind),
+            data=params.data,
+            source=_event_source_dto_to_event_source(params.source),
+            trigger_processing=False,
+        )
+
+        return EventDTO(
+            id=event.id,
+            source=_event_source_to_event_source_dto(event.source),
+            kind=_event_kind_to_event_kind_dto(event.kind),
             offset=event.offset,
             creation_utc=event.creation_utc,
             correlation_id=event.correlation_id,
@@ -1553,6 +1825,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list_events"),
     )
     async def list_events(
+        request: Request,
         session_id: SessionIdPath,
         min_offset: Optional[MinOffsetQuery] = None,
         source: Optional[EventSourceDTO] = None,
@@ -1576,14 +1849,18 @@ def create_router(
                 - If no new events arrive before timeout, raises 504 Gateway Timeout
                 - If matching events already exist, returns immediately with those events
         """
-        kind_list: Sequence[EventKind] = kinds.split(",") if kinds else []  # type: ignore
-        assert all(k in EventKind.__args__ for k in kind_list)  # type: ignore
+        await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
+
+        kind_list: Sequence[EventKind] = [
+            _event_kind_dto_to_event_kind(EventKindDTO(k))
+            for k in (kinds.split(",") if kinds else [])
+        ]
 
         if wait_for_data > 0:
             if not await session_listener.wait_for_events(
                 session_id=session_id,
                 min_offset=min_offset or 0,
-                source=source.value if source else None,
+                source=_event_source_dto_to_event_source(source) if source else None,
                 kinds=kind_list,
                 correlation_id=correlation_id,
                 timeout=Timeout(wait_for_data),
@@ -1596,7 +1873,7 @@ def create_router(
         events = await session_store.list_events(
             session_id=session_id,
             min_offset=min_offset,
-            source=source.value if source else None,
+            source=_event_source_dto_to_event_source(source) if source else None,
             kinds=kind_list,
             correlation_id=correlation_id,
         )
@@ -1604,8 +1881,8 @@ def create_router(
         return [
             EventDTO(
                 id=e.id,
-                source=EventSourceDTO(e.source),
-                kind=EventKindDTO(e.kind),
+                source=_event_source_to_event_source_dto(e.source),
+                kind=_event_kind_to_event_kind_dto(e.kind),
                 offset=e.offset,
                 creation_utc=e.creation_utc,
                 correlation_id=e.correlation_id,
@@ -1629,72 +1906,57 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete_events"),
     )
     async def delete_events(
+        request: Request,
         session_id: SessionIdPath,
         min_offset: MinOffsetQuery,
     ) -> None:
         """Deletes events from a session with offset >= the specified value.
 
         This operation is permanent and cannot be undone."""
+        await authorization_policy.authorize(request=request, operation=Operation.DELETE_EVENTS)
+
+        session = await session_store.read_session(session_id)
 
         events = await session_store.list_events(
             session_id=session_id,
-            min_offset=min_offset,
+            min_offset=0,
             exclude_deleted=True,
         )
 
-        for e in events:
+        events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
+
+        if not events_starting_from_min_offset:
+            return
+
+        event_at_min_offset = events_starting_from_min_offset[0]
+
+        first_event_of_correlation_id = next(
+            e for e in events if e.correlation_id == event_at_min_offset.correlation_id
+        )
+
+        if event_at_min_offset.id != first_event_of_correlation_id.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Cannot delete events with offset < min_offset unless they are the first event of their correlation ID",
+            )
+
+        for e in events_starting_from_min_offset:
             await session_store.delete_event(e.id)
 
-    @router.get(
-        "/{session_id}/events/{event_id}",
-        operation_id="inspect_event",
-        response_model=EventInspectionResult,
-        responses={
-            status.HTTP_200_OK: {
-                "description": "Event inspection details successfully retrieved",
-                "content": {"application/json": {"example": event_inspection_example}},
-            },
-            status.HTTP_404_NOT_FOUND: {"description": "Session or event not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
-                "description": "Validation error in request parameters"
-            },
-        },
-        **apigen_config(group_name=API_GROUP, method_name="inspect_event"),
-    )
-    async def inspect_event(
-        session_id: SessionIdPath,
-        event_id: EventIdPath,
-    ) -> EventInspectionResult:
-        """Retrieves detailed inspection information about an event.
+        if not session.agent_states:
+            return
 
-        For AI agent message events, includes information about message generation,
-        tool calls, and preparation iterations."""
+        state_index_offset = next(
+            i
+            for i, s in enumerate(session.agent_states, start=0)
+            if s.correlation_id.startswith(event_at_min_offset.correlation_id)
+        )
 
-        event = await session_store.read_event(session_id, event_id)
+        agent_states = session.agent_states[:state_index_offset]
 
-        trace: Optional[EventTraceDTO] = None
-
-        if event.kind == "message" and event.source == "ai_agent":
-            inspection = await session_store.read_inspection(
-                session_id=session_id,
-                correlation_id=event.correlation_id,
-            )
-
-            trace = EventTraceDTO(
-                tool_calls=await _find_correlated_tool_calls(session_id, event),
-                message_generations=[
-                    message_generation_inspection_to_dto(m) for m in inspection.message_generations
-                ],
-                preparation_iterations=[
-                    preparation_iteration_to_dto(iteration)
-                    for iteration in inspection.preparation_iterations
-                ],
-            )
-
-        return EventInspectionResult(
+        await session_store.update_session(
             session_id=session_id,
-            event=event_to_dto(event),
-            trace=trace,
+            params={"agent_states": agent_states},
         )
 
     async def _find_correlated_tool_calls(
@@ -1705,7 +1967,7 @@ def create_router(
 
         tool_events = await session_store.list_events(
             session_id=session_id,
-            kinds=["tool"],
+            kinds=[EventKind.TOOL],
             correlation_id=event.correlation_id,
         )
 

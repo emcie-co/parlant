@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, generate_id, UniqueId
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
@@ -80,9 +80,17 @@ class _GuidelineToolAssociationDocument(TypedDict, total=False):
 class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
     VERSION = Version.from_string("0.1.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False) -> None:
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
         self._database = database
         self._collection: DocumentCollection[_GuidelineToolAssociationDocument]
+
         self._allow_migration = allow_migration
         self._lock = ReaderWriterLock()
 
@@ -149,8 +157,10 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
+            association_checksum = f"{guideline_id}{tool_id}"
+
             association = GuidelineToolAssociation(
-                id=GuidelineToolAssociationId(generate_id()),
+                id=GuidelineToolAssociationId(self._id_generator.generate(association_checksum)),
                 creation_utc=creation_utc,
                 guideline_id=guideline_id,
                 tool_id=tool_id,

@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ def list_categories(context: ToolContext) -> ToolResult:
 @tool
 async def consult_expert(context: ToolContext, user_query: str) -> ToolResult:
     """
-    This is an example for using the utterances feature
+    This is an example for using the canned responses feature
     """
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:

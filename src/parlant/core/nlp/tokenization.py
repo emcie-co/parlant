@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,10 +16,16 @@ from abc import ABC, abstractmethod
 
 
 class EstimatingTokenizer(ABC):
+    """An interface for estimating the token count of a prompt."""
+
     @abstractmethod
-    async def estimate_token_count(self, prompt: str) -> int: ...
+    async def estimate_token_count(self, prompt: str) -> int:
+        """Estimate the number of tokens in the given prompt."""
+        ...
 
 
 class ZeroEstimatingTokenizer(EstimatingTokenizer):
+    """A tokenizer that always returns zero for token count estimation."""
+
     async def estimate_token_count(self, prompt: str) -> int:
         return 0

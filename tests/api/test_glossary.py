@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ from lagom import Container
 
 from parlant.core.agents import AgentId
 from parlant.core.glossary import GlossaryStore
-from parlant.core.tags import TagId, TagStore
+from parlant.core.tags import Tag, TagId, TagStore
 
 
 async def test_legacy_that_a_term_can_be_created(
@@ -248,7 +248,7 @@ async def test_legacy_that_retrieve_a_term_associated_with_a_wrong_agent_id_retu
 
     await glossary_store.upsert_tag(
         term_id=term.id,
-        tag_id=TagId("agent_id:wrong_agent"),
+        tag_id=Tag.for_agent_id("wrong_agent"),
     )
 
     response = await async_client.get(f"/agents/{agent_id}/terms/{term.id}")
@@ -270,7 +270,7 @@ async def test_legacy_that_updating_a_term_with_a_wrong_agent_id_returns_a_404(
 
     await glossary_store.upsert_tag(
         term_id=term.id,
-        tag_id=TagId("agent_id:wrong_agent"),
+        tag_id=Tag.for_agent_id("wrong_agent"),
     )
 
     response = await async_client.patch(f"/agents/{agent_id}/terms/{term.id}", json={})
@@ -292,7 +292,7 @@ async def test_legacy_that_deleting_a_term_with_a_wrong_agent_id_returns_a_404(
 
     await glossary_store.upsert_tag(
         term_id=term.id,
-        tag_id=TagId("agent_id:wrong_agent"),
+        tag_id=Tag.for_agent_id("wrong_agent"),
     )
 
     response = await async_client.delete(f"/agents/{agent_id}/terms/{term.id}")

@@ -1,0 +1,54 @@
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 100;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Thin.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 200;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Thin.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 300;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Light.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 400;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Regular.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 500;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Medium.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 600;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-SemiBold.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 700;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Bold.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 800;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Bold.ttf') format('truetype');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 900;
+	src: url('/fonts/ibm-plex-mono/static/IBMPlexMono-Bold.ttf') format('truetype');
+}

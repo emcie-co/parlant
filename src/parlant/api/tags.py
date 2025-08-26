@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,65 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from typing import Annotated, TypeAlias
-from fastapi import APIRouter, Path, status
-from pydantic import Field
+from fastapi import APIRouter, Path, Request, status
 
-from parlant.api.common import apigen_config, ExampleJson
+from parlant.api.authorization import AuthorizationPolicy, Operation
+from parlant.api.common import TagDTO, TagNameField, apigen_config, ExampleJson, tag_example
 from parlant.core.common import DefaultBaseModel
 from parlant.core.tags import TagId, TagStore
 
 API_GROUP = "tags"
-
-
-TagIdField: TypeAlias = Annotated[
-    TagId,
-    Field(
-        description="Unique identifier for the tag",
-        examples=["tag_123xyz", "tag_premium42"],
-    ),
-]
-
-TagCreationUTCField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="UTC timestamp of when the tag was created, in ISO 8601 format",
-        examples=["2024-03-24T12:00:00Z"],
-    ),
-]
-
-TagNameField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Human-readable name for the tag, used for display and organization",
-        examples=["premium", "enterprise", "beta-tester"],
-        min_length=1,
-        max_length=50,
-    ),
-]
-
-tag_example: ExampleJson = {
-    "id": "tag_123xyz",
-    "name": "premium",
-    "creation_utc": "2024-03-24T12:00:00Z",
-}
-
-
-class TagDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tag_example},
-):
-    """
-    Represents a tag in the system.
-
-    Tags can be used to categorize and label various resources like customers, sessions,
-    or content. They provide a flexible way to organize and filter data.
-    """
-
-    id: TagIdField
-    creation_utc: TagCreationUTCField
-    name: TagNameField
 
 
 tag_creation_params_example: ExampleJson = {"name": "premium-customer"}
@@ -126,6 +76,7 @@ tag_list_example: ExampleJson = [
 
 
 def create_router(
+    authorization_policy: AuthorizationPolicy,
     tag_store: TagStore,
 ) -> APIRouter:
     router = APIRouter()
@@ -147,6 +98,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create"),
     )
     async def create_tag(
+        request: Request,
         params: TagCreationParamsDTO,
     ) -> TagDTO:
         """
@@ -155,6 +107,8 @@ def create_router(
         The tag ID is automatically generated and the creation timestamp is set to the current time.
         Tag names must be unique and follow the kebab-case format.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.CREATE_TAG)
+
         tag = await tag_store.create_tag(
             name=params.name,
         )
@@ -175,6 +129,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_tag(
+        request: Request,
         tag_id: TagIdPath,
     ) -> TagDTO:
         """
@@ -182,6 +137,8 @@ def create_router(
 
         Returns a 404 error if no tag exists with the specified ID.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.READ_TAG)
+
         tag = await tag_store.read_tag(tag_id=tag_id)
 
         return TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name)
@@ -198,13 +155,15 @@ def create_router(
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_tags() -> list[TagDTO]:
+    async def list_tags(request: Request) -> list[TagDTO]:
         """
         Lists all tags in the system.
 
         Returns an empty list if no tags exist.
         Tags are returned in no particular order.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.LIST_TAGS)
+
         tags = await tag_store.list_tags()
 
         return [TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name) for tag in tags]
@@ -226,6 +185,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="update"),
     )
     async def update_tag(
+        request: Request,
         tag_id: TagIdPath,
         params: TagUpdateParamsDTO,
     ) -> TagDTO:
@@ -235,6 +195,8 @@ def create_router(
         Only the name can be modified,
         The tag's ID and creation timestamp cannot be modified.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.UPDATE_TAG)
+
         tag = await tag_store.update_tag(
             tag_id=tag_id,
             params={"name": params.name},
@@ -253,6 +215,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_tag(
+        request: Request,
         tag_id: TagId,
     ) -> None:
         """
@@ -261,6 +224,8 @@ def create_router(
         This operation cannot be undone. Returns a 404 error if no tag exists with the specified ID.
         Note that deleting a tag does not affect resources that were previously tagged with it.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.DELETE_TAG)
+
         await tag_store.delete_tag(tag_id=tag_id)
 
     return router

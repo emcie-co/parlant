@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ load_steps(
     "engines",
     "events",
     "guidelines",
-    "fragments",
+    "canned_responses",
     "sessions",
     "terms",
     "tools",

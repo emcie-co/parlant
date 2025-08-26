@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Mapping, Optional, Sequence, cast
+from typing import Callable, Mapping, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 import aiofiles
@@ -31,6 +31,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.plugins import PluginClient
+from parlant.core.services.tools.mcp_service import MCPToolClient
 from parlant.core.tools import LocalToolService, ToolService
 from parlant.core.common import ItemNotFoundError, Version, UniqueId
 from parlant.core.persistence.common import ObjectId
@@ -41,10 +42,12 @@ from parlant.core.persistence.document_database import (
 )
 
 
-ToolServiceKind = Literal["openapi", "sdk", "local"]
+ToolServiceKind = Literal["openapi", "sdk", "local", "mcp"]
 
 
 class ServiceRegistry(ABC):
+    """An interface for managing tool services in the engine."""
+
     @abstractmethod
     async def update_tool_service(
         self,
@@ -113,7 +116,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
         correlator: ContextualCorrelator,
-        nlp_services: Mapping[str, NLPService],
+        nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
     ):
         self._database = database
@@ -122,7 +125,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._event_emitter_factory = event_emitter_factory
         self._logger = logger
         self._correlator = correlator
-        self._nlp_services = nlp_services
+
+        self._nlp_services_provider = nlp_services_provider
+        self._nlp_services: Mapping[str, NLPService]
 
         self._moderation_services: Mapping[str, ModerationService]
         self._exit_stack: AsyncExitStack
@@ -135,11 +140,15 @@ class ServiceDocumentRegistry(ServiceRegistry):
     def _cast_to_specific_tool_service_class(
         self,
         service: ToolService,
-    ) -> OpenAPIClient | PluginClient:
-        if isinstance(service, OpenAPIClient):
-            return service
-        else:
-            return cast(PluginClient, service)
+    ) -> OpenAPIClient | PluginClient | MCPToolClient:
+        if not (
+            isinstance(service, OpenAPIClient)
+            or isinstance(service, PluginClient)
+            or isinstance(service, MCPToolClient)
+        ):
+            raise ValueError("Unsupported ToolService class.")
+
+        return service
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_ToolServiceDocument]:
         if doc["version"] == "0.1.0":
@@ -147,6 +156,8 @@ class ServiceDocumentRegistry(ServiceRegistry):
         return None
 
     async def __aenter__(self) -> Self:
+        self._nlp_services = self._nlp_services_provider()
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,
@@ -206,14 +217,26 @@ class ServiceDocumentRegistry(ServiceRegistry):
         name: str,
         service: ToolService,
     ) -> _ToolServiceDocument:
+        kind: ToolServiceKind
+
+        if isinstance(service, OpenAPIClient):
+            kind = "openapi"
+            url = service.server_url
+        elif isinstance(service, PluginClient):
+            kind = "sdk"
+            url = service.url
+        elif isinstance(service, MCPToolClient):
+            kind = "mcp"
+            url = service.url
+        else:
+            raise ValueError("Unsupported ToolService class.")
+
         return _ToolServiceDocument(
             id=ObjectId(name),
             version=self.VERSION.to_string(),
             name=name,
-            kind="openapi" if isinstance(service, OpenAPIClient) else "sdk",
-            url=service.server_url
-            if isinstance(service, OpenAPIClient)
-            else cast(PluginClient, service).url,
+            kind=kind,
+            url=url,
             source=self._service_sources.get(name) if isinstance(service, OpenAPIClient) else None,
         )
 
@@ -227,6 +250,13 @@ class ServiceDocumentRegistry(ServiceRegistry):
             )
         elif document["kind"] == "sdk":
             return PluginClient(
+                url=document["url"],
+                event_emitter_factory=self._event_emitter_factory,
+                logger=self._logger,
+                correlator=self._correlator,
+            )
+        elif document["kind"] == "mcp":
+            return MCPToolClient(
                 url=document["url"],
                 event_emitter_factory=self._event_emitter_factory,
                 logger=self._logger,
@@ -255,13 +285,22 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 openapi_json = await self._get_openapi_json_from_source(source)
                 service = OpenAPIClient(server_url=url, openapi_json=openapi_json)
                 self._service_sources[name] = source
-            else:
+            elif kind == "mcp":
+                service = MCPToolClient(
+                    url=url,
+                    event_emitter_factory=self._event_emitter_factory,
+                    logger=self._logger,
+                    correlator=self._correlator,
+                )
+            elif kind == "sdk":
                 service = PluginClient(
                     url=url,
                     event_emitter_factory=self._event_emitter_factory,
                     logger=self._logger,
                     correlator=self._correlator,
                 )
+            else:
+                raise ValueError(f"Unsupported ToolService kind: {kind}")
 
             if name in self._running_services:
                 await (

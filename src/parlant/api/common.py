@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
 from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
+from parlant.core.evaluations import PayloadOperation
+from parlant.core.relationships import RelationshipId
 from parlant.core.guidelines import GuidelineId
+from parlant.core.tags import TagId
+from parlant.core.tools import Tool, ToolParameterDescriptor
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:
@@ -95,7 +100,7 @@ class GuidelineContentDTO(
     """
 
     condition: GuidelineConditionField
-    action: GuidelineActionField
+    action: Optional[GuidelineActionField] = None
 
 
 class GuidelinePayloadOperationDTO(Enum):
@@ -162,7 +167,7 @@ GuidelinePayloadConnectionPropositionField: TypeAlias = Annotated[
     ),
 ]
 
-guideline_payload_example: ExampleJson = {
+legacy_guideline_payload_example: ExampleJson = {
     "content": {
         "condition": "User asks about product pricing",
         "action": "Provide current price list and any active discounts",
@@ -174,9 +179,9 @@ guideline_payload_example: ExampleJson = {
 }
 
 
-class GuidelinePayloadDTO(
+class LegacyGuidelinePayloadDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_payload_example},
+    json_schema_extra={"example": legacy_guideline_payload_example},
 ):
     """Payload data for a Guideline operation"""
 
@@ -187,7 +192,17 @@ class GuidelinePayloadDTO(
     connection_proposition: GuidelinePayloadConnectionPropositionField
 
 
-payload_example: ExampleJson = {
+def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> PayloadOperation:
+    if operation := {
+        GuidelinePayloadOperationDTO.ADD: PayloadOperation.ADD,
+        GuidelinePayloadOperationDTO.UPDATE: PayloadOperation.UPDATE,
+    }.get(dto):
+        return operation
+
+    raise ValueError(f"Unsupported operation: {dto}")
+
+
+legacy_payload_example: ExampleJson = {
     "kind": "guideline",
     "guideline": {
         "content": {
@@ -202,9 +217,9 @@ payload_example: ExampleJson = {
 }
 
 
-class PayloadDTO(
+class LegacyPayloadDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": payload_example},
+    json_schema_extra={"example": legacy_payload_example},
 ):
     """
     A container for a guideline payload along with its kind
@@ -213,7 +228,7 @@ class PayloadDTO(
     """
 
     kind: PayloadKindDTO
-    guideline: Optional[GuidelinePayloadDTO] = None
+    guideline: Optional[LegacyGuidelinePayloadDTO] = None
 
 
 CoherenceCheckIssueField: TypeAlias = Annotated[
@@ -287,7 +302,7 @@ guideline_invoice_data_example: ExampleJson = {
 }
 
 
-class GuidelineInvoiceDataDTO(
+class LegacyGuidelineInvoiceDataDTO(
     DefaultBaseModel,
     json_schema_extra={"example": guideline_invoice_data_example},
 ):
@@ -300,17 +315,17 @@ class GuidelineInvoiceDataDTO(
 invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
 
 
-class InvoiceDataDTO(
+class LegacyInvoiceDataDTO(
     DefaultBaseModel,
     json_schema_extra={"example": invoice_data_example},
 ):
     """
     Contains the relevant invoice data.
 
-    At this point only `guideline` is suppoerted.
+    At this point only `guideline` is supported.
     """
 
-    guideline: Optional[GuidelineInvoiceDataDTO] = None
+    guideline: Optional[LegacyGuidelineInvoiceDataDTO] = None
 
 
 ServiceNameField: TypeAlias = Annotated[
@@ -345,3 +360,310 @@ class ToolIdDTO(
 
 def example_json_content(json_example: ExampleJson) -> ExtraSchema:
     return {"application/json": {"example": json_example}}
+
+
+GuidelineMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(description="Metadata for the guideline"),
+]
+
+GuidelineEnabledField: TypeAlias = Annotated[
+    bool,
+    Field(
+        default=True,
+        description="Whether the guideline is enabled",
+        examples=[True, False],
+    ),
+]
+
+
+guideline_dto_example = {
+    "id": "guid_123xz",
+    "condition": "when the customer asks about pricing",
+    "action": "provide current pricing information and mention any ongoing promotions",
+    "enabled": True,
+    "tags": ["tag1", "tag2"],
+    "metadata": {"key1": "value1", "key2": "value2"},
+}
+
+GuidelineTagsField: TypeAlias = Annotated[
+    Sequence[TagId],
+    Field(
+        description="The tags associated with the guideline",
+        examples=[["tag1", "tag2"], []],
+    ),
+]
+
+
+class GuidelineDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": guideline_dto_example},
+):
+    """Represents a guideline."""
+
+    id: GuidelineIdField
+    condition: GuidelineConditionField
+    action: Optional[GuidelineActionField] = None
+    enabled: GuidelineEnabledField
+    tags: GuidelineTagsField
+    metadata: GuidelineMetadataField
+
+
+EnumValueTypeDTO: TypeAlias = str | int
+
+ToolParameterDescriptionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Detailed description of what the parameter does and how it should be used",
+        examples=["Email address of the recipient", "Maximum number of retries allowed"],
+    ),
+]
+
+ToolParameterEnumField: TypeAlias = Annotated[
+    Sequence[EnumValueTypeDTO],
+    Field(
+        description="List of allowed values for string or integer parameters. If provided, the parameter value must be one of these options.",
+        examples=[["high", "medium", "low"], [1, 2, 3, 5, 8, 13]],
+    ),
+]
+
+
+class ToolParameterTypeDTO(Enum):
+    """
+    The supported data types for tool parameters.
+
+    Each type corresponds to a specific JSON Schema type and validation rules.
+    """
+
+    STRING = "string"
+    NUMBER = "number"
+    INTEGER = "integer"
+    BOOLEAN = "boolean"
+    ARRAY = "array"
+
+
+tool_parameter_example: ExampleJson = {
+    "type": "string",
+    "description": "Priority level for the email",
+    "enum": ["high", "medium", "low"],
+}
+
+
+class ToolParameterDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": tool_parameter_example},
+):
+    """
+    Defines a parameter that can be passed to a tool.
+
+    Parameters can have different types with optional constraints like enums.
+    Each parameter can include a description to help users understand its purpose.
+    """
+
+    type: ToolParameterTypeDTO
+    description: Optional[ToolParameterDescriptionField] = None
+    enum: Optional[ToolParameterEnumField] = None
+
+
+ToolCreationUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp when the tool was first registered with the system",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
+
+ToolDescriptionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Detailed description of the tool's purpose and behavior",
+        examples=[
+            "Sends an email to specified recipients with optional attachments",
+            "Processes a payment transaction and returns confirmation details",
+        ],
+    ),
+]
+
+ToolParametersField: TypeAlias = Annotated[
+    dict[str, ToolParameterDTO],
+    Field(
+        description="Dictionary mapping parameter names to their definitions",
+        examples=[
+            {
+                "recipient": {"type": "string", "description": "Email address to send to"},
+                "amount": {"type": "number", "description": "Payment amount in dollars"},
+            }
+        ],
+    ),
+]
+
+ToolRequiredField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="List of parameter names that must be provided when calling the tool",
+        examples=[["recipient", "subject"], ["payment_id", "amount"]],
+    ),
+]
+
+
+tool_example: ExampleJson = {
+    "creation_utc": "2024-03-24T12:00:00Z",
+    "name": "send_email",
+    "description": "Sends an email to specified recipients with configurable priority",
+    "parameters": {
+        "to": {"type": "string", "description": "Recipient email address"},
+        "subject": {"type": "string", "description": "Email subject line"},
+        "body": {"type": "string", "description": "Email body content"},
+        "priority": {
+            "type": "string",
+            "description": "Priority level for the email",
+            "enum": ["high", "medium", "low"],
+        },
+    },
+    "required": ["to", "subject", "body"],
+}
+
+
+class ToolDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": tool_example},
+):
+    """
+    Represents a single function provided by an integrated service.
+
+    Tools are the primary way for agents to interact with external services.
+    Each tool has defined parameters and can be invoked when those parameters
+    are satisfied.
+    """
+
+    creation_utc: ToolCreationUTCField
+    name: ToolNameField
+    description: ToolDescriptionField
+    parameters: ToolParametersField
+    required: ToolRequiredField
+
+
+def tool_parameters_to_dto(parameters: ToolParameterDescriptor) -> ToolParameterDTO:
+    return ToolParameterDTO(
+        type=ToolParameterTypeDTO(parameters["type"]),
+        description=parameters["description"] if "description" in parameters else None,
+        enum=parameters["enum"] if "enum" in parameters else None,
+    )
+
+
+def tool_to_dto(tool: Tool) -> ToolDTO:
+    return ToolDTO(
+        creation_utc=tool.creation_utc,
+        name=tool.name,
+        description=tool.description,
+        parameters={
+            name: tool_parameters_to_dto(descriptor)
+            for name, (descriptor, _) in tool.parameters.items()
+        },
+        required=tool.required,
+    )
+
+
+TagIdField: TypeAlias = Annotated[
+    TagId,
+    Field(
+        description="Unique identifier for the tag",
+        examples=["tag_123xyz", "tag_premium42"],
+    ),
+]
+
+
+TagNameField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Human-readable name for the tag, used for display and organization",
+        examples=["premium", "enterprise", "beta-tester"],
+        min_length=1,
+        max_length=50,
+    ),
+]
+
+tag_example: ExampleJson = {
+    "id": "tag_123xyz",
+    "name": "premium",
+    "creation_utc": "2024-03-24T12:00:00Z",
+}
+
+
+class TagDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": tag_example},
+):
+    """
+    Represents a tag in the system.
+
+    Tags can be used to categorize and label various resources like customers, sessions,
+    or content. They provide a flexible way to organize and filter data.
+    """
+
+    id: TagIdField
+    name: TagNameField
+
+
+relationship_tag_dto_example: ExampleJson = {
+    "id": "tid_123xz",
+    "name": "tag1",
+}
+
+
+RelationshipIdField: TypeAlias = Annotated[
+    RelationshipId,
+    Field(
+        description="Unique identifier for the relationship",
+    ),
+]
+
+
+relationship_example: ExampleJson = {
+    "id": "123",
+    "source_guideline": {
+        "id": "456",
+        "condition": "when the customer asks about pricing",
+        "action": "provide current pricing information",
+        "enabled": True,
+        "tags": ["tag1", "tag2"],
+    },
+    "target_tag": {
+        "id": "789",
+        "name": "tag1",
+    },
+    "indirect": False,
+    "kind": "entailment",
+}
+
+
+class RelationshipKindDTO(Enum):
+    """The kind of relationship."""
+
+    ENTAILMENT = "entailment"
+    PRIORITY = "priority"
+    DEPENDENCY = "dependency"
+    DISAMBIGUATION = "disambiguation"
+    OVERLAP = "overlap"
+    REEVALUATION = "reevaluation"
+
+
+class RelationshipDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": relationship_example},
+):
+    """Represents a relationship.
+
+    Only one of `source_guideline` and `source_tag` can have a value.
+    Only one of `target_guideline` and `target_tag` can have a value.
+    Only one of `source_tool` and `target_tool` can have a value.
+    """
+
+    id: RelationshipIdField
+    source_guideline: Optional[GuidelineDTO] = None
+    source_tag: Optional[TagDTO] = None
+    target_guideline: Optional[GuidelineDTO] = None
+    target_tag: Optional[TagDTO] = None
+    source_tool: Optional[ToolDTO] = None
+    target_tool: Optional[ToolDTO] = None
+    kind: RelationshipKindDTO

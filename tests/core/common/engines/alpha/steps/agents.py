@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -75,3 +75,21 @@ def given_that_the_agent_uses_a_message_composition(
             {"composition_mode": cast(CompositionMode, mode)},
         )
     )
+
+
+@step(
+    given,
+    parsers.parse("an agent with max iteration of {max_engine_iterations}"),
+    target_fixture="agent_id",
+)
+def given_an_agent_with_max_iteration(
+    context: ContextOfTest,
+    max_engine_iterations: str,
+) -> AgentId:
+    agent = context.sync_await(
+        context.container[AgentStore].create_agent(
+            name="test-agent",
+            max_engine_iterations=int(max_engine_iterations),
+        )
+    )
+    return agent.id

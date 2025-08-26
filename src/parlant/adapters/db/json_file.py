@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -142,8 +142,6 @@ class JSONFileDocumentDatabase(DocumentDatabase):
         name: str,
         schema: type[TDocument],
     ) -> JSONFileDocumentCollection[TDocument]:
-        self._logger.debug(f'Create collection "{name}"')
-
         self._collections[name] = JSONFileDocumentCollection(
             database=self,
             name=name,

@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,30 +23,35 @@ load_steps(
     "engines",
     "events",
     "guidelines",
-    "fragments",
+    "canned_responses",
     "sessions",
     "terms",
     "tools",
     "customers",
     "tags",
+    "journeys",
+    "capabilities",
 )
 
 scenarios(
     *(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
-            "composited_assembly",
-            "fluid_assembly",
+            "strict_canned_responses",
+            "fluid_canned_responses",
             "conversation",
             "errors",
-            "guideline_connections",
+            "relationships",
             "moderation",
             "proactivity",
             "supervision",
             "glossary",
             "tools",
             "context_variables",
-            "utterances",
+            "triggered_utterances",
+            "journeys",
+            "capabilities",
+            "strict_canned_responses_capabilities",
         )
     )
 )

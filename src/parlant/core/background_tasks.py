@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -80,7 +80,7 @@ class BackgroundTaskService:
                         f"Task '{tag}' is already running; consider calling restart() instead"
                     )
 
-            self._logger.info(f"{type(self).__name__}: Starting task '{tag}'")
+            self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
             task = asyncio.create_task(f)
             self._tasks[tag] = task
             return task
@@ -94,7 +94,7 @@ class BackgroundTaskService:
                     existing_task.cancel(f"Restarting task '{tag}'")
                     await self._await_task(existing_task)
 
-            self._logger.info(f"{type(self).__name__}: Starting task '{tag}'")
+            self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
             task = asyncio.create_task(f)
             self._tasks[tag] = task
             return task

@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dateutil.parser
 from fastapi import status
 import httpx
 from lagom import Container
@@ -39,7 +38,6 @@ async def test_that_a_tag_can_be_created(
 
     assert tag["name"] == name
     assert "id" in tag
-    assert "creation_utc" in tag
 
 
 async def test_that_a_tag_can_be_read(
@@ -58,7 +56,6 @@ async def test_that_a_tag_can_be_read(
     data = read_response.json()
     assert data["id"] == tag.id
     assert data["name"] == name
-    assert dateutil.parser.parse(data["creation_utc"]) == tag.creation_utc
 
 
 async def test_that_tags_can_be_listed(
@@ -106,7 +103,6 @@ async def test_that_a_tag_can_be_updated(
 
     assert updated_tag_dto["id"] == tag.id
     assert updated_tag_dto["name"] == new_name
-    assert dateutil.parser.parse(updated_tag_dto["creation_utc"]) == tag.creation_utc
 
 
 async def test_that_a_tag_can_be_deleted(

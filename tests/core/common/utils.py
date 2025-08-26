@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,10 +22,11 @@ from lagom import Container
 from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
+from parlant.core.journeys import Journey, JourneyNode
 from parlant.core.tools import Tool
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline
-from parlant.core.sessions import Event, MessageEventData, EventSource, EventId
+from parlant.core.sessions import Event, EventKind, MessageEventData, EventSource, EventId
 
 from tests.test_utilities import SyncAwaiter
 
@@ -39,6 +40,8 @@ class ContextOfTest:
     guideline_matches: dict[str, GuidelineMatch]
     tools: dict[str, Tool]
     actions: list[UtteranceRequest]
+    journeys: dict[str, Journey]
+    nodes: dict[str, JourneyNode]
 
 
 def create_event_message(
@@ -50,16 +53,16 @@ def create_event_message(
     message_data: MessageEventData = {
         "message": message,
         "participant": {
-            "display_name": customer.name if customer else source,
+            "display_name": customer.name if customer else source.value,
         },
     }
 
     event = Event(
         id=EventId(generate_id()),
         source=source,
-        kind="message",
+        kind=EventKind.MESSAGE,
         offset=offset,
-        correlation_id="test_correlation_id",
+        correlation_id="<main>",
         data=cast(JSONSerializable, message_data),
         creation_utc=datetime.now(timezone.utc),
         deleted=False,

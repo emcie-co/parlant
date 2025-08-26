@@ -4,23 +4,138 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-- Allow returning a new (modified) container in modules using configure_module()
+TBD
+
+## [3.0.2] - 2025-08-20
+
+### Added
+
+- Added auth permission READ_AGENT_DESCRIPTION
+- Add optional AWS_SESSION_TOKEN to BedrockService
+- Support creating status events via the API
+
+### Changed
+
+- Move tool call success log to DEBUG level
+- Remove `acknowledged_event_offset` from status events
+- Removed `last_known_event_offset` from `LoadedContext.interaction`
+
+### Fixed
+
+- Fix presentation of missing API keys for built-in NLP services
+- Improvements to canned response generation
+- Fix bug with null journey paths in some cases
+- Fix tiny bug with terminal nodes in journey node selection
+- Fix evaluations not showing properly after version upgrade
+
+## [3.0.1] - 2025-08-16
+
+### Changed
+
+- Move tool call success log to DEBUG level
+
+### Fixed
+
+- Fix tool-based variable not enabling the associated tool on the server
+- Fix authorization errors throwing 500 instead of 403
+- Changed OpenAI LLM request operation level to TRACE to fix evaluation progress bars
+
+## [3.0.0] - 2025-08-15
+
+- Please see the announcement at https://parlant.io/blog/parlant-3-0-release
+
+## [2.2.0] - 2025-05-20
+
+### Added
+
+- Add journeys
+- Add of guideline properties evaluation
+- Add automatic guideline action deduction when adding direct tool guidelines
+- Added choices of invalid and missing tool parameters to tool insights
+
+### Changed
+
+- Make guideline action optional
+
+## [2.1.2] - 2025-05-07
+
+### Changed
+
+- Remove interaction history from utterance recomposition prompt
+- Use tool calls from the entire interaction for utterance field substitution
+- Improve error handling and reporting with utterance rendering failures
+
+### Fixed
+
+- Always reason about utterance selection to improve performance
+
+## [2.1.1] - 2025-04-30
+
+### Fixed
+
+- Fixed rendering relationships in CLI
+- Fixed parlant client using old imports from python client SDK
+
+## [2.1.0] - 2025-04-29
+
+### Added
+
+- ToolParameterOptions.choice_provider can now access ToolContext
+- Added utterance/draft toggle in the integrated UI
+- Added new guideline relationship: Dependency
+- Added tool relationships and the OVERLAP relationship
+- Added the 'overlap' property to tools. By default, tools will be assumed not to overlap with each other, simplifying their evaluation at runtime.
+- Introduce ToolBatchers
+- Introduce Journey
+
+### Changed
+
+- Improved tool calling efficiency by adjusting the prompt to the tool at hand
+- Revised completion schema (ARQs) for tool calling
+- Utterances now follow a 2-stage process: draft + select
+- Changed guest customer name to Guest
+
+### Fixed
+
+- Fixed deprioritized guidelines always being skipped
+- Fixed agent creation with tags
+- Fixed client CLI exit status when encountering an error
+- Fixed agent update
+
+### Known Issues
+
+- OpenAPI tool services sometimes run into issues due to a version update in aiopenapi3
+
+## [2.0.0] - 2025-04-09
+
+### Added
+
 - Improved tool parameter flexibility: custom types, Pydantic models, and annotated ToolParameterOptions
-- Added Tool Insights
+- Allow returning a new (modified) container in modules using configure_module()
+- Added Tool Insights with tool parameter options
+- Added support for default values for tool parameters in tool calling
+- Added WebSocket logger feature for streaming logs in real time
+- Added a log viewer to the sandbox UI
+- Added API and CLI for Utterances
+- Added support for the --migrate CLI flag to enable seamless store version upgrades during server startup
+- Added clear rate limit error logs for NLP adapters
+- Added enabled/disabled flag for guidelines to facilitate experimentation without deletion
+- Allow different schematic generators to adjust incoming prompts in a structured manner
+- Added tags to context variables, guidelines, glossary and agents
+- Added guideline matching strategies
+- Added guideline relationships
+- Added support for tool parameters choice provider using the tool context as argument
+
+### Changed
+
+- Made the message generator slightly more polite by default, following user feedback
+- Allow only specifying guideline condition or action when updating guideline from CLI
+- Renamed guideline proposer with guideline matcher
+
+### Fixed
+
 - Lowered likelihood of the agent hallucinating facts in fluid mode
 - Lowered likelihood of the agent offering services that were not specifically mentioned by the business
-- Made the agent slightly more polite, following user feedback
-- Allow only specifying guideline condition or action when updating guideline from CLI
-- Add WebSocket logger feature for streaming logs in real time
-- Add a log viewer to the sandbox UI
-- Add API and CLI for Fragments
-- Changed message inspection to return message event data for displaying more information, such as fragments in the inspection
-- Add support for the --migrate CLI flag to enable seamless store version upgrades during server startup
-- Add clear rate limit error logs for NLP adapters
-- Add enabled/disabled flag for guidelines to facilitate experimentation without deletion
-- Allow different schematic generators to adjust incoming prompts in a structured manner
-- Add tags to context variables, guidelines, glossary and agents
-- Rename guideline proposer with guideline matcher
 
 ## [1.6.2] - 2025-01-29
 
@@ -187,7 +302,7 @@ None
 
 - Customer selection in sandbox Chat UI
 - Support tool calls with freshness rules for context variables
-- Add support for loading external modules for changing engine behavior programatically
+- Add support for loading external modules for changing engine behavior programmatically
 - CachedSchematicGenerator to run the test suite more quickly
 - TransientVectorDatabase to run the test suite more quickly
 

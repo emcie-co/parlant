@@ -34,6 +34,8 @@ ARG PYTHON_VERSION=3.10
 ENV PYENV_ROOT="${HOME}/.pyenv"
 ENV PATH="${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:${HOME}/.local/bin:$PATH"
 
+EXPOSE 8800
+
 RUN echo "Configuring Python environment" \
     && curl https://pyenv.run | bash \
     && pyenv install ${PYTHON_VERSION} \

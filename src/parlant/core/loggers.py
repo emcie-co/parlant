@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from contextlib import ExitStack, contextmanager
@@ -30,14 +31,56 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 
 
 class LogLevel(Enum):
+    """Enumeration of log levels with comparison and conversion methods."""
+
+    TRACE = auto()
+    """Trace level for detailed debugging information."""
+
     DEBUG = auto()
+    """Debug level for general debugging information."""
+
     INFO = auto()
+    """Info level for general informational messages."""
+
     WARNING = auto()
+    """Warning level for potential issues that do not require immediate attention."""
+
     ERROR = auto()
+    """Error level for errors that do not stop the program."""
+
     CRITICAL = auto()
+    """Critical level for severe errors that may cause the program to stop."""
+
+    def __lt__(self, other: LogLevel) -> bool:
+        return self.to_int() < other.to_int()
+
+    def __le__(self, other: LogLevel) -> bool:
+        return self.to_int() <= other.to_int()
+
+    def __gt__(self, other: LogLevel) -> bool:
+        return self.to_int() > other.to_int()
+
+    def __ge__(self, other: LogLevel) -> bool:
+        return self.to_int() >= other.to_int()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LogLevel):
+            return NotImplemented
+        return self.to_int() == other.to_int()
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, LogLevel):
+            return NotImplemented
+        return self.to_int() != other.to_int()
+
+    def __hash__(self) -> int:
+        return super().__hash__()
 
     def to_logging_level(self) -> int:
+        """Convert the log level to a logging module level."""
+
         return {
+            LogLevel.TRACE: logging.DEBUG,
             LogLevel.DEBUG: logging.DEBUG,
             LogLevel.INFO: logging.INFO,
             LogLevel.WARNING: logging.WARNING,
@@ -45,36 +88,79 @@ class LogLevel(Enum):
             LogLevel.CRITICAL: logging.CRITICAL,
         }[self]
 
+    def to_int(self) -> int:
+        """Convert the log level to an integer for comparison."""
+
+        return {
+            LogLevel.TRACE: 0,
+            LogLevel.DEBUG: 1,
+            LogLevel.INFO: 2,
+            LogLevel.WARNING: 3,
+            LogLevel.ERROR: 4,
+            LogLevel.CRITICAL: 5,
+        }[self]
+
 
 class Logger(ABC):
-    @abstractmethod
-    def set_level(self, log_level: LogLevel) -> None: ...
+    """An abstract base class for logging operations."""
 
     @abstractmethod
-    def debug(self, message: str) -> None: ...
+    def set_level(self, log_level: LogLevel) -> None:
+        """Set the logging level for the logger."""
+        ...
 
     @abstractmethod
-    def info(self, message: str) -> None: ...
+    def trace(self, message: str) -> None:
+        """Log a message at the TRACE level."""
+        ...
 
     @abstractmethod
-    def warning(self, message: str) -> None: ...
+    def debug(self, message: str) -> None:
+        """Log a message at the DEBUG level."""
+        ...
 
     @abstractmethod
-    def error(self, message: str) -> None: ...
+    def info(self, message: str) -> None:
+        """Log a message at the INFO level."""
+        ...
 
     @abstractmethod
-    def critical(self, message: str) -> None: ...
+    def warning(self, message: str) -> None:
+        """Log a message at the WARNING level."""
+        ...
+
+    @abstractmethod
+    def error(self, message: str) -> None:
+        """Log a message at the ERROR level."""
+        ...
+
+    @abstractmethod
+    def critical(self, message: str) -> None:
+        """Log a message at the CRITICAL level."""
+        ...
 
     @abstractmethod
     @contextmanager
-    def scope(self, scope_id: str) -> Iterator[None]: ...
+    def scope(self, scope_id: str) -> Iterator[None]:
+        """Create a new logging scope."""
+        ...
 
     @abstractmethod
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]: ...
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.DEBUG,
+        create_scope: bool = True,
+    ) -> Iterator[None]:
+        """Create a new timed logging operation with a name and properties."""
+        ...
 
 
 class CorrelationalLogger(Logger):
+    """A logger that supports correlation IDs for structured logging."""
+
     def __init__(
         self,
         correlator: ContextualCorrelator,
@@ -84,6 +170,7 @@ class CorrelationalLogger(Logger):
         self._correlator = correlator
         self.raw_logger = logging.getLogger(logger_id or "parlant")
         self.raw_logger.setLevel(log_level.to_logging_level())
+        self.log_level = log_level
 
         # Wrap it with structlog configuration
         self._logger = structlog.wrap_logger(
@@ -97,7 +184,7 @@ class CorrelationalLogger(Logger):
                 structlog.processors.format_exc_info,
                 structlog.dev.ConsoleRenderer(colors=True),
             ],
-            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
+            wrapper_class=structlog.make_filtering_bound_logger(0),
         )
 
         # Scope support using contextvars
@@ -111,6 +198,16 @@ class CorrelationalLogger(Logger):
     @override
     def set_level(self, log_level: LogLevel) -> None:
         self.raw_logger.setLevel(log_level.to_logging_level())
+        self.log_level = log_level
+
+    @override
+    def trace(self, message: str) -> None:
+        if self.log_level != LogLevel.TRACE:
+            return
+
+        self._logger.debug(
+            f"TRACE {self._add_correlation_id_and_scopes(message)}",
+        )
 
     @override
     def debug(self, message: str) -> None:
@@ -150,22 +247,41 @@ class CorrelationalLogger(Logger):
 
     @override
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.DEBUG,
+        create_scope: bool = True,
+    ) -> Iterator[None]:
+        log_func = {
+            LogLevel.TRACE: self.trace,
+            LogLevel.DEBUG: self.debug,
+            LogLevel.INFO: self.info,
+            LogLevel.WARNING: self.warning,
+            LogLevel.ERROR: self.error,
+            LogLevel.CRITICAL: self.critical,
+        }[level]
+
         t_start = time.time()
         try:
             if props:
-                self.info(f"{name} [{props}] started")
+                self.trace(f"{name} [{props}] started")
             else:
-                self.info(f"{name} started")
+                self.trace(f"{name} started")
 
-            yield
+            if create_scope:
+                with self.scope(name):
+                    yield
+            else:
+                yield
 
             t_end = time.time()
 
             if props:
-                self.info(f"{name} [{props}] finished in {t_end - t_start}s")
+                log_func(f"{name} [{props}] finished in {t_end - t_start}s")
             else:
-                self.info(f"{name} finished in {round(t_end - t_start, 3)} seconds")
+                log_func(f"{name} finished in {round(t_end - t_start, 3)} seconds")
         except asyncio.CancelledError:
             self.warning(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
             raise
@@ -192,6 +308,8 @@ class CorrelationalLogger(Logger):
 
 
 class StdoutLogger(CorrelationalLogger):
+    """A logger that outputs to standard output."""
+
     def __init__(
         self,
         correlator: ContextualCorrelator,
@@ -203,6 +321,8 @@ class StdoutLogger(CorrelationalLogger):
 
 
 class FileLogger(CorrelationalLogger):
+    """A logger that outputs to a file."""
+
     def __init__(
         self,
         log_file_path: Path,
@@ -222,6 +342,8 @@ class FileLogger(CorrelationalLogger):
 
 
 class CompositeLogger(Logger):
+    """A logger that combines multiple loggers into one."""
+
     def __init__(self, loggers: Sequence[Logger]) -> None:
         self._loggers = list(loggers)
 
@@ -232,6 +354,11 @@ class CompositeLogger(Logger):
     def set_level(self, log_level: LogLevel) -> None:
         for logger in self._loggers:
             logger.set_level(log_level)
+
+    @override
+    def trace(self, message: str) -> None:
+        for logger in self._loggers:
+            logger.trace(message)
 
     @override
     def debug(self, message: str) -> None:
@@ -268,8 +395,17 @@ class CompositeLogger(Logger):
 
     @override
     @contextmanager
-    def operation(self, name: str, props: dict[str, Any] = {}) -> Iterator[None]:
+    def operation(
+        self,
+        name: str,
+        props: dict[str, Any] = {},
+        level: LogLevel = LogLevel.DEBUG,
+        create_scope: bool = True,
+    ) -> Iterator[None]:
         with ExitStack() as stack:
-            for context in [logger.operation(name, props) for logger in self._loggers]:
+            for context in [
+                logger.operation(name, props, level, create_scope=create_scope)
+                for logger in self._loggers
+            ]:
                 stack.enter_context(context)
             yield

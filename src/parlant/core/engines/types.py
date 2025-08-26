@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,8 @@ class Context:
     agent_id: AgentId
 
 
-class UtteranceReason(Enum):
+class UtteranceRationale(Enum):
+    UNSPECIFIED = auto()
     BUY_TIME = auto()
     FOLLOW_UP = auto()
 
@@ -36,7 +37,7 @@ class UtteranceReason(Enum):
 @dataclass(frozen=True)
 class UtteranceRequest:
     action: str
-    reason: UtteranceReason
+    rationale: UtteranceRationale
 
 
 class Engine(ABC):

@@ -7,12 +7,13 @@ import {ClassNameValue, twMerge} from 'tailwind-merge';
 import {X} from 'lucide-react';
 import {getDistanceToRight} from '@/utils/methods';
 import Tooltip from '../ui/custom/tooltip';
+import {Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue} from '../ui/select';
 
 export type Type = 'GuidelineMatcher' | 'MessageEventComposer' | 'ToolCaller';
-export type Level = 'WARNING' | 'INFO' | 'DEBUG';
+export type Level = 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'TRACE';
 
 const ALL_TYPES: Type[] = ['GuidelineMatcher', 'ToolCaller', 'MessageEventComposer'];
-const ALL_LEVELS: Level[] = ['WARNING', 'INFO', 'DEBUG'];
+const ALL_LEVELS: Level[] = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'TRACE'];
 
 const typeOptions: {[key in Type]: {label: string; icon: string; color: string}} = {
 	GuidelineMatcher: {
@@ -196,6 +197,7 @@ const LogFilters = ({
 		const [dropdownOpen, setDropdownOpen] = useState(false);
 		const [sources, setSources] = useState<Type[]>(structuredClone(def?.types || []));
 		const [content, setContent] = useState<string[]>(structuredClone(def?.content || []));
+		const [level, setLevel] = useState<Level>(def?.level || ALL_LEVELS[ALL_LEVELS.length - 1]);
 		const wrapperRef = useRef<HTMLDivElement>(null);
 		const [usePopupToLeft, setUsePopupToLeft] = useState(false);
 
@@ -232,7 +234,7 @@ const LogFilters = ({
 			<div className='wrapper relative flex items-center h-[30px]' ref={wrapperRef}>
 				<div>
 					<div onClick={changeMenuOpen} role='button' className={twMerge('flex group bg-white rounded-[6px] items-center gap-[6px] max-h-[30px] h-[30px] w-[73px] min-w-max pe-[8px]', dropdownOpen && 'bg-white border-transparent')}>
-						<img src='icons/filters.svg' className='[stroke-width:2px] size-[16px]' />
+						<img src='icons/funnel.svg' className='[stroke-width:2px] size-[16px]' />
 						<p className='text-[14px] group-hover:underline font-medium select-none'>Edit Filters</p>
 					</div>
 				</div>
@@ -245,6 +247,24 @@ const LogFilters = ({
 						<div role='button' onClick={changeMenuOpen} className='flex h-[24px] w-[24px] items-center me-[2px] justify-center'>
 							<img src='icons/close.svg' alt='close' />
 						</div>
+					</div>
+					<hr className='bg-[#EBECF0]' />
+					<div className='flex gap-[6px] items-center px-[14px]'>
+						<p className='text-[14px] font-normal'>Level:</p>
+						<Select value={level} onValueChange={(value) => setLevel(value as Level)}>
+							<SelectTrigger className='!ring-0 !ring-offset-0 h-[30px] m-auto my-[5px] capitalize border'>
+								<SelectValue placeholder={level?.toLowerCase()} />
+							</SelectTrigger>
+							<SelectContent className='z-[999999]'>
+								<SelectGroup>
+									{ALL_LEVELS.toReversed().map((level) => (
+										<SelectItem key={level} value={level} className='capitalize'>
+											{level?.toLowerCase()}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
 					</div>
 					<hr className='bg-[#EBECF0]' />
 					<div className='flex flex-col gap-[4px] mt-[9px] pb-[11px] px-[8px]'>

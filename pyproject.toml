@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "parlant"
-version = "1.7.0-rc.22"
+version = "3.0.1"
 license = "Apache-2.0"
 description = ""
 authors = ["Yam Marcovitz <yam@emcie.co>", "Dor Zohar <dor@emcie.co>"]
@@ -14,18 +14,17 @@ parlant-prepare-migration = "parlant.bin.prepare_migration:main"
 
 [tool.poetry.dependencies]
 aiofiles = "^24.1.0"
-aiopenapi3 = "^0.6.0"
+aiopenapi3 = "0.8.1"
 aiorwlock = "^1.5.0"
 boto3 = "^1.35.70"
-chromadb = "0.5.17"
+chromadb = "1.0.15"
 click = "^8.1.7"
-click-completion = "^0.5.2"
 colorama = "^0.4.6"
 coloredlogs = "^15.0.1"
 contextvars = "^2.4"
 croniter = "^5.0.1"
-fastapi = "^0.115.5"
-httpx = "^0.27.0"
+fastapi = "0.115.12"
+httpx = "^0.28.1"
 jsonfinder = "^0.4.2"
 jsonschema = "^4.23.0"
 lagom = "^2.6.0"
@@ -34,9 +33,9 @@ nano-vectordb = "^0.0.4.3"
 nanoid = "^2.0.0"
 networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
-openapi3-parser = "^1.1.17"
+openapi3-parser = "1.1.21"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = "^0.10.3"
+parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1755186453" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -45,7 +44,6 @@ rich = "^13.7.1"
 semver = "^3.0.2"
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
-tenacity = "^8.4.2"
 tiktoken = "^0.8"
 tokenizers = "^0.20"
 toml = "^0.10.2"
@@ -55,21 +53,29 @@ types-jsonschema = "^4.22.0.20240610"
 uvicorn = "^0.32.1"
 
 # --- optional packages ---
-anthropic = { version = "^0.37.1", optional = true }
+anthropic = { version = "^0.60.0", optional = true }
 cerebras-cloud-sdk = { version = "^1.25.0", optional = true }
-google-api-core = { version = "^2.24.1", optional = true }
-google-genai = { version = "^1.2.0", optional = true }
+google-api-core = { version = "^2.24.2", optional = true }
+google-genai = { version = "^1.29.0", optional = true }
+ollama = { version = "^0.5.0", optional = true }
+google-auth = { version = "^2.40.0", optional = true }
 together = { version = "^1.2.12", optional = true }
-torch = { version = "^2.5.1", optional = true }
+torch = { version = "^2.6.0", optional = true }
 transformers = { version = "^4.46.2", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
+jinja2 = "^3.1.6"
+mcp = { extras = ["cli"], version = "^1.7.1" }
+fastmcp = "2.6.1"
+cachetools = "5.5.2"
+types-cachetools = "^6.0.0.20250525"
+limits = "^5.5.0"
+
 
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"
-mypy = "^1.11.1"
-parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", branch = "develop" }
+mypy = "^1.16.0"
 pep8-naming = "^0.13.3"
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.5"
@@ -82,6 +88,7 @@ python-dotenv = "^1.0.1"
 ruff = "^0.5.6"
 types-python-dateutil = "^2.8.19.20240106"
 types-requests = "^2.32.0.20240712"
+pytest-xdist = "^3.6.1"
 
 [tool.poetry.extras]
 anthropic = ["anthropic", "torch", "transformers"]
@@ -95,6 +102,10 @@ cerebras = ["cerebras-cloud-sdk", "torch", "transformers"]
 deepseek = ["torch", "transformers"]
 
 gemini = ["google-genai", "google-api-core", "torch"]
+
+vertex = ["google-genai", "google-api-core", "google-auth", "torch", "anthropic", "transformers"]
+
+ollama = ["ollama"]
 
 litellm = ["litellm", "torch", "transformers"]
 

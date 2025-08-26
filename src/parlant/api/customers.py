@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
 
 from datetime import datetime
 import dateutil.parser
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Request, status
 from pydantic import Field
 from typing import Annotated, Mapping, Optional, Sequence, TypeAlias
 
+from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import apigen_config, ExampleJson, example_json_content
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import DefaultBaseModel
@@ -29,14 +30,14 @@ API_GROUP = "customers"
 CustomerNameField: TypeAlias = Annotated[
     str,
     Field(
-        description="An arbitrary string that indentifies and/or describes the customer",
+        description="An arbitrary string that identifies and/or describes the customer",
         examples=["Scooby", "Johan the Mega-VIP"],
         min_length=1,
         max_length=100,
     ),
 ]
 
-CustomerExtra: TypeAlias = Annotated[
+CustomerMetadataField: TypeAlias = Annotated[
     Mapping[str, str],
     Field(
         description="Key-value pairs (`str: str`) to describe the customer",
@@ -47,7 +48,7 @@ CustomerExtra: TypeAlias = Annotated[
 
 customer_creation_params_example: ExampleJson = {
     "name": "Scooby",
-    "extra": {
+    "metadata": {
         "email": "scooby@dooby.do",
         "VIP": "Yes",
     },
@@ -92,7 +93,7 @@ customer_example: ExampleJson = {
     "id": "ck_IdAXUtp",
     "creation_utc": "2024-03-24T12:00:00Z",
     "name": "Scooby",
-    "extra": {
+    "metadata": {
         "email": "scooby@dooby.do",
         "VIP": "Yes",
     },
@@ -108,31 +109,14 @@ class CustomerDTO(
     Represents a customer in the system.
 
     Customers are entities that interact with agents through sessions. Each customer
-    can have metadata stored in the extra field and can be tagged for categorization.
+    can have metadata stored in the metadata field and can be tagged for categorization.
     """
 
     id: CustomerIdPath
     creation_utc: CustomerCreationUTCField
     name: CustomerNameField
-    extra: CustomerExtra
+    metadata: CustomerMetadataField
     tags: TagIdSequenceField
-
-
-CustomerExtraRemoveField: TypeAlias = Annotated[
-    Sequence[str],
-    Field(
-        description="Extra Metadata keys to remove",
-        examples=[["old_email", "old_title"], []],
-    ),
-]
-
-customer_extra_update_params_example: ExampleJson = {
-    "add": {
-        "email": "scooby@dooby.do",
-        "VIP": "Yes",
-    },
-    "remove": ["old_email", "old_title"],
-}
 
 
 class CustomerCreationParamsDTO(
@@ -142,18 +126,35 @@ class CustomerCreationParamsDTO(
     """Parameters for creating a new customer."""
 
     name: CustomerNameField
-    extra: Optional[CustomerExtra] = None
+    metadata: Optional[CustomerMetadataField] = None
     tags: Optional[TagIdSequenceField] = None
 
 
-class CustomerExtraUpdateParamsDTO(
+CustomerMetadataUnsetField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Extra metadata keys to remove",
+        examples=[["old_email", "old_title"], []],
+    ),
+]
+
+customer_metadata_update_params_example: ExampleJson = {
+    "add": {
+        "email": "scooby@dooby.do",
+        "VIP": "Yes",
+    },
+    "remove": ["old_email", "old_title"],
+}
+
+
+class CustomerMetadataUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": customer_extra_update_params_example},
+    json_schema_extra={"example": customer_metadata_update_params_example},
 ):
     """Parameters for updating a customer's extra metadata."""
 
-    add: Optional[CustomerExtra] = None
-    remove: Optional[CustomerExtraRemoveField] = None
+    set: Optional[CustomerMetadataField] = None
+    unset: Optional[CustomerMetadataUnsetField] = None
 
 
 CustomerTagUpdateAddField: TypeAlias = Annotated[
@@ -199,7 +200,7 @@ class CustomerTagUpdateParamsDTO(
 
 customer_update_params_example: ExampleJson = {
     "name": "Scooby",
-    "extra": customer_extra_update_params_example,
+    "metadata": customer_metadata_update_params_example,
     "tags": tags_update_params_example,
 }
 
@@ -211,11 +212,12 @@ class CustomerUpdateParamsDTO(
     """Parameters for updating a customer's attributes."""
 
     name: Optional[CustomerNameField] = None
-    extra: Optional[CustomerExtraUpdateParamsDTO] = None
+    metadata: Optional[CustomerMetadataUpdateParamsDTO] = None
     tags: Optional[CustomerTagUpdateParamsDTO] = None
 
 
 def create_router(
+    authorization_policy: AuthorizationPolicy,
     customer_store: CustomerStore,
     tag_store: TagStore,
     agent_store: AgentStore,
@@ -239,14 +241,20 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create"),
     )
     async def create_customer(
+        request: Request,
         params: CustomerCreationParamsDTO,
     ) -> CustomerDTO:
         """
         Creates a new customer in the system.
 
         A customer may be created with as little as a `name`.
-        `extra` key-value pairs and additional `tags` may be attached to a customer.
+        `metadata` key-value pairs and additional `tags` may be attached to a customer.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.CREATE_CUSTOMER,
+        )
+
         tags = []
 
         if params.tags:
@@ -260,7 +268,7 @@ def create_router(
 
         customer = await customer_store.create_customer(
             name=params.name,
-            extra=params.extra if params.extra else {},
+            extra=params.metadata if params.metadata else {},
             tags=tags or None,
         )
 
@@ -268,7 +276,7 @@ def create_router(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            extra=customer.extra,
+            metadata=customer.extra,
             tags=customer.tags,
         )
 
@@ -288,6 +296,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_customer(
+        request: Request,
         customer_id: CustomerIdPath,
     ) -> CustomerDTO:
         """
@@ -296,13 +305,18 @@ def create_router(
         Returns a complete customer object including their metadata and tags.
         The customer must exist in the system.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.READ_CUSTOMER,
+        )
+
         customer = await customer_store.read_customer(customer_id=customer_id)
 
         return CustomerDTO(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            extra=customer.extra,
+            metadata=customer.extra,
             tags=customer.tags,
         )
 
@@ -318,13 +332,18 @@ def create_router(
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_customers() -> Sequence[CustomerDTO]:
+    async def list_customers(request: Request) -> Sequence[CustomerDTO]:
         """
         Retrieves a list of all customers in the system.
 
         Returns an empty list if no customers exist.
         Customers are returned in no guaranteed order.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.LIST_CUSTOMERS,
+        )
+
         customers = await customer_store.list_customers()
 
         return [
@@ -332,7 +351,7 @@ def create_router(
                 id=customer.id,
                 creation_utc=customer.creation_utc,
                 name=customer.name,
-                extra=customer.extra,
+                metadata=customer.extra,
                 tags=customer.tags,
             )
             for customer in customers
@@ -357,6 +376,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="update"),
     )
     async def update_customer(
+        request: Request,
         customer_id: CustomerIdPath,
         params: CustomerUpdateParamsDTO,
     ) -> CustomerDTO:
@@ -367,22 +387,30 @@ def create_router(
         The customer's ID and creation timestamp cannot be modified.
         Extra metadata and tags can be added or removed independently.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.UPDATE_CUSTOMER,
+        )
+
         if params.name:
             _ = await customer_store.update_customer(
                 customer_id=customer_id,
                 params={"name": params.name},
             )
 
-        if params.extra:
-            if params.extra.add:
-                await customer_store.add_extra(customer_id, params.extra.add)
-            if params.extra.remove:
-                await customer_store.remove_extra(customer_id, params.extra.remove)
+        if params.metadata:
+            if params.metadata.set:
+                await customer_store.add_extra(customer_id, params.metadata.set)
+            if params.metadata.unset:
+                await customer_store.remove_extra(customer_id, params.metadata.unset)
 
         if params.tags:
             if params.tags.add:
                 for tag_id in params.tags.add:
-                    _ = await tag_store.read_tag(tag_id)
+                    if agent_id := Tag.extract_agent_id(tag_id):
+                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
+                    else:
+                        _ = await tag_store.read_tag(tag_id=tag_id)
                     await customer_store.upsert_tag(customer_id, tag_id)
             if params.tags.remove:
                 for tag_id in params.tags.remove:
@@ -394,7 +422,7 @@ def create_router(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            extra=customer.extra,
+            metadata=customer.extra,
             tags=customer.tags,
         )
 
@@ -413,6 +441,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_customer(
+        request: Request,
         customer_id: CustomerIdPath,
     ) -> None:
         """
@@ -421,6 +450,11 @@ def create_router(
         Deleting a non-existent customer will return 404.
         No content will be returned from a successful deletion.
         """
+        await authorization_policy.authorize(
+            request=request,
+            operation=Operation.DELETE_CUSTOMER,
+        )
+
         await customer_store.delete_customer(customer_id=customer_id)
 
     return router

@@ -15,7 +15,7 @@ const SessoinViewHeader = () => {
 		<HeaderWrapper>
 			{session?.id && (
 				<div className='w-full flex items-center h-full pb-[2px] max-w-[1000px] m-auto'>
-					<div className='h-full flex-1 flex items-center ps-[16px] border-e border-[#F3F5F9] whitespace-nowrap overflow-hidden'>
+					<div className='h-full flex-1 flex items-center border-e border-[#F3F5F9] whitespace-nowrap overflow-hidden'>
 						{agent && <Avatar agent={agent as AgentInterface} tooltip={false} />}
 						<div>
 							<div>{agent?.name}</div>

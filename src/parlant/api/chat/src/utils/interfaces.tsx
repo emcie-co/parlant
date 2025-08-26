@@ -12,6 +12,7 @@ export interface Log {
 	level: 'INFO' | 'DEBUG' | 'WARNING';
 	correlation_id: string;
 	message: string;
+	timestamp: number;
 }
 
 export type ServerStatus = 'pending' | 'error' | 'accepted' | 'acknowledged' | 'processing' | 'typing' | 'ready';
@@ -28,10 +29,13 @@ export interface EventInterface {
 	offset: number;
 	creation_utc: Date;
 	data: {
+		participant?: { display_name?: string }
 		status?: ServerStatus;
-		fragments?: string[];
+		draft?: string;
+		canned_responses?: string[];
 		message: string;
-		data?: {exception?: string};
+		data?: { exception?: string, stage?: string };
+		tags?: string;
 	};
 	index?: number;
 }
@@ -42,4 +46,15 @@ export interface SessionInterface {
 	customer_id: string;
 	agent_id: string;
 	creation_utc: string;
+}
+
+export interface SessionCsvInterface {
+	Source: 'AI Agent' | 'Customer';
+	Participant: string;
+	Timestamp: Date;
+	Message: string;
+	Draft: string;
+	Tags: string;
+	Flag: string;
+	'Correlation ID': string;
 }

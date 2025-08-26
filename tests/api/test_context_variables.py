@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ from pytest import fixture
 from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.tools import LocalToolService, ToolId
+from parlant.core.tools import LocalToolService, ToolId, ToolOverlap
 
 
 @fixture
@@ -32,6 +32,7 @@ async def tool_id(container: Container) -> ToolId:
         module_path="test.module.path",
         parameters={"test_parameter": {"type": "string"}},
         required=["test_parameter"],
+        overlap=ToolOverlap.NONE,
     )
 
     return ToolId("local", "test_tool")
@@ -553,7 +554,7 @@ async def test_legacy_that_updating_context_variable_with_wrong_agent_id_returns
 
     await context_variable_store.add_variable_tag(
         variable_id=variable.id,
-        tag_id=TagId("agent_id:wrong_agent_id"),
+        tag_id=Tag.for_agent_id("wrong_agent_id"),
     )
 
     response = await async_client.patch(

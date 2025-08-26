@@ -17,10 +17,11 @@ import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, emptyPendingMessage, newSessionAtom, pendingMessageAtom, sessionAtom, sessionsAtom, viewingMessageDetailsAtom} from '@/store';
 import ErrorBoundary from '../error-boundary/error-boundary';
 import DateHeader from './date-header/date-header';
-import SessoinViewHeader from './session-view-header/session-view-header';
-import {isSameDay} from '@/lib/utils';
+// import SessoinViewHeader from './session-view-header/session-view-header';
+import {getIndexedItemsFromIndexedDB, isSameDay} from '@/lib/utils';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
 import {ShieldEllipsis} from 'lucide-react';
+import {soundDoubleBlip} from '@/utils/sounds';
 
 const SessionView = (): ReactElement => {
 	const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -33,13 +34,15 @@ const SessionView = (): ReactElement => {
 	const [messages, setMessages] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
 	const [showThinking, setShowThinking] = useState(false);
+	const [thinkingDisplay, setThinkingDisplay] = useState('');
 	const [isFirstScroll, setIsFirstScroll] = useState(true);
 	const {openQuestionDialog, closeQuestionDialog} = useQuestionDialog();
 	const [useContentFiltering, setUseContentFiltering] = useState(false);
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 	const [isContentFilterMenuOpen, setIsContentFilterMenuOpen] = useState(false);
-
+	const [flaggedItems, setFlaggedItems] = useState<Record<string, string>>({});
+	const [refreshFlag, setRefreshFlag] = useState(false);
 	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
 	const [agents] = useAtom(agentsAtom);
 	const [session, setSession] = useAtom(sessionAtom);
@@ -47,7 +50,7 @@ const SessionView = (): ReactElement => {
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setViewingMessage] = useAtom(viewingMessageDetailsAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
-	const {data: lastEvents, refetch, ErrorTemplate} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
+	const {data: lastEvents, refetch, ErrorTemplate, abortFetch} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
 
 	const resetChat = () => {
 		setMessage('');
@@ -106,7 +109,7 @@ const SessionView = (): ReactElement => {
 			toast.error(deleteSession.error.message || deleteSession.error);
 			return;
 		}
-
+		abortFetch?.();
 		setLastOffset(offset);
 		setMessages((messages) => messages.slice(0, index));
 		postMessage(text ?? event.data?.message);
@@ -154,13 +157,18 @@ const SessionView = (): ReactElement => {
 			return newVals.filter((message) => message);
 		});
 
-		const lastStatusEventStaus = lastStatusEvent?.data?.status;
+		const lastStatusEventStatus = lastStatusEvent?.data?.status;
 
-		if (lastStatusEventStaus) {
-			setShowThinking(!!messages?.length && lastStatusEventStaus === 'processing');
-			setShowTyping(lastStatusEventStaus === 'typing');
+		if (newMessages?.length && (showThinking || showTyping)) soundDoubleBlip(true);
+		if (lastStatusEventStatus) {
+			setShowThinking(lastStatusEventStatus === 'processing');
+
+			if (lastStatusEventStatus === 'processing') {
+				setThinkingDisplay(lastStatusEvent?.data?.data?.stage ?? 'Thinking');
+			}
+
+			setShowTyping(lastStatusEventStatus === 'typing');
 		}
-
 		refetch();
 	};
 
@@ -176,13 +184,29 @@ const SessionView = (): ReactElement => {
 		textareaRef?.current?.focus();
 	};
 
+	const getSessionFlaggedItems = async () => {
+		const flaggedItems = await getIndexedItemsFromIndexedDB('Parlant-flags', 'message_flags', 'sessionIndex', session?.id as string, {name: 'sessionIndex', keyPath: 'sessionId'});
+		const asMap = (flaggedItems as {correlationId: string; flagValue: string; sessionId: string}[]).reduce((acc, item) => {
+			acc[item.correlationId] = item.flagValue;
+			return acc;
+		}, {} as Record<string, string>);
+		setFlaggedItems(asMap);
+	};
+
+	useEffect(() => {
+		getSessionFlaggedItems();
+	}, [session?.id, refreshFlag]);
+
 	useEffect(() => {
 		if (lastOffset === 0) refetch();
 	}, [lastOffset]);
 	useEffect(() => setViewingMessage(showLogsForMessage), [showLogsForMessage]);
 	useEffect(formatMessagesFromEvents, [lastEvents]);
-	useEffect(scrollToLastMessage, [messages, pendingMessage, isFirstScroll]);
+	useEffect(scrollToLastMessage, [messages?.length, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
+	useEffect(() => {
+		if (showThinking || showTyping) lastMessageRef?.current?.scrollIntoView({behavior: 'smooth'});
+	}, [showThinking, showTyping]);
 	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
 	}, [agents, agent?.id]);
@@ -212,6 +236,7 @@ const SessionView = (): ReactElement => {
 		const useContentFilteringStatus = useContentFiltering ? 'auto' : 'none';
 		postData(`sessions/${eventSession}/events?moderation=${useContentFilteringStatus}`, {kind: 'message', message: content, source: 'customer'})
 			.then(() => {
+				soundDoubleBlip();
 				refetch();
 			})
 			.catch(() => toast.error('Something went wrong'));
@@ -235,23 +260,35 @@ const SessionView = (): ReactElement => {
 	return (
 		<>
 			<div ref={messagesRef} className={twMerge('flex items-center h-full w-full bg-white gap-[14px] rounded-[10px]', showLogsForMessage && 'bg-green-light')}>
-				<div className={twMerge('h-full w-full pb-[14px] pt-0 rounded-[10px] flex flex-col transition-all duration-500 bg-white', showLogsForMessage && 'w-[calc(100%-min(700px,35vw))]')}>
+				<div className={twMerge('h-full w-full pb-[14px] pt-[10px] rounded-[10px] flex flex-col transition-all duration-500 bg-white', showLogsForMessage && 'w-[calc(100%-min(700px,35vw))]')}>
 					<div className='h-full flex flex-col rounded-[10px] m-auto w-full min-w-[unset]'>
 						{/* <div className='h-[58px] bg-[#f5f5f9]'></div> */}
-						<SessoinViewHeader />
-						<div className={twMerge('h-[21px] border-t-0 bg-white')}></div>
+						{/* <SessoinViewHeader /> */}
+						{/* <div className={twMerge('h-[21px] border-t-0 bg-white')}></div> */}
 						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-hidden')}>
-							<div className='messages [scroll-snap-type:y_mandatory] fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden' aria-live='polite' role='log' aria-label='Chat messages'>
+							<div
+								className={twJoin(
+									'messages fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden'
+									// '[scroll-snap-type:y_mandatory]'
+								)}
+								aria-live='polite'
+								role='log'
+								aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
-									<React.Fragment key={i}>
+									<React.Fragment key={(event.correlation_id || 0) + `${i}`}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
 										<div ref={lastMessageRef} className='flex snap-end flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
 											<Message
+												flaggedChanged={() => {
+													setRefreshFlag((val) => !val);
+												}}
+												flagged={flaggedItems[event.correlation_id]}
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
 												event={event}
-												isContinual={event.source === visibleMessages[i - 1]?.source}
+												sameCorrelationMessages={visibleMessages.filter((e) => e.correlation_id === event.correlation_id)}
+												isContinual={event.correlation_id === visibleMessages[i - 1]?.correlation_id || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
 												regenerateMessageFn={regenerateMessageDialog(i)}
 												resendMessageFn={resendMessageDialog(i)}
 												showLogsForMessage={showLogsForMessage}
@@ -260,10 +297,19 @@ const SessionView = (): ReactElement => {
 										</div>
 									</React.Fragment>
 								))}
+								{(showTyping || showThinking) && (
+									<div ref={lastMessageRef} className='flex snap-end max-w-[min(1020px,100%)] w-[1020px] self-center'>
+										<div className='bubblesWrapper snap-end' aria-hidden='true'>
+											<div className='bubbles' />
+										</div>
+										{showTyping && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>}
+										{showThinking && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>{thinkingDisplay}...</p>}
+									</div>
+								)}
 							</div>
 							<div className={twMerge('w-full flex justify-between', isMissingAgent && 'hidden')}>
 								<Spacer />
-								<div className='group relative border flex-1 border-muted border-solid rounded-[16px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px]'>
+								<div className='group relative border flex-1 border-muted border-solid rounded-[10px] flex flex-row justify-center items-center bg-white p-[0.9rem] ps-[14px] pe-0 h-[48.67px] max-w-[1000px] mb-[26px]'>
 									<DropdownMenu open={isContentFilterMenuOpen} onOpenChange={setIsContentFilterMenuOpen}>
 										<DropdownMenuTrigger className='outline-none' data-testid='menu-button' tabIndex={-1} onClick={(e) => e.stopPropagation()}>
 											<div className={twMerge('me-[2px] border border-transparent hover:bg-[#F3F5F9] rounded-[6px] size-[25px] flex items-center justify-center', isContentFilterMenuOpen && '!bg-[#f5f6f8]')}>
@@ -301,11 +347,8 @@ const SessionView = (): ReactElement => {
 										onKeyDown={handleTextareaKeydown}
 										onChange={(e) => setMessage(e.target.value)}
 										rows={1}
-										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[18px] bg-white'
+										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[100%] bg-white'
 									/>
-									<p className={twMerge('absolute invisible left-[0.25em] -bottom-[28px] font-normal text-[#A9AFB7] text-[14px] font-inter', (showTyping || showThinking) && 'visible')}>
-										{showTyping ? `${agent?.name} is typing...` : `${agent?.name} is online`}
-									</p>
 									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
 										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
 									</Button>
@@ -328,6 +371,10 @@ const SessionView = (): ReactElement => {
 						)}>
 						{showLogsForMessage && (
 							<MessageDetails
+								flaggedChanged={() => {
+									setRefreshFlag((val) => !val);
+								}}
+								sameCorrelationMessages={visibleMessages.filter((e) => e.correlation_id === showLogsForMessage.correlation_id)}
 								event={showLogsForMessage}
 								regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
 								resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}

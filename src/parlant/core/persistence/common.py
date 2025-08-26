@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,11 @@ ObjectId = NewType("ObjectId", str)
 
 class MigrationRequired(Exception):
     def __init__(self, message: str):
+        super().__init__(message)
+
+
+class ServerOutdated(Exception):
+    def __init__(self, message: str | None = None):
         super().__init__(message)
 
 

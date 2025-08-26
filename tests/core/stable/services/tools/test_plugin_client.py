@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ from parlant.core.tools import (
     ToolParameterOptions,
     ToolResult,
     ToolResultError,
+    ToolOverlap,
 )
 from parlant.core.services.tools.plugins import PluginServer, tool
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -36,10 +37,8 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.emission.event_buffer import EventBuffer, EventBufferFactory
 from parlant.core.emissions import EventEmitter, EventEmitterFactory
 from parlant.core.services.tools.plugins import PluginClient
-from parlant.core.sessions import SessionId
+from parlant.core.sessions import SessionId, EventKind
 from parlant.core.tools import ToolExecutionError
-from parlant.core.fragments import Fragment, FragmentId, FragmentField
-
 from tests.test_utilities import run_service_server
 
 
@@ -141,7 +140,7 @@ async def test_that_a_plugin_with_one_configured_tool_returns_that_tool(
 
 
 async def test_that_a_plugin_reads_a_tool(container: Container) -> None:
-    @tool
+    @tool(metadata={"test-metadata": {"one": 1}})
     def my_tool(context: ToolContext, arg_1: int, arg_2: Optional[int]) -> ToolResult:
         """My tool's description"""
         return ToolResult(arg_1 * (arg_2 or 0))
@@ -151,6 +150,7 @@ async def test_that_a_plugin_reads_a_tool(container: Container) -> None:
             returned_tool = await client.read_tool(my_tool.tool.name)
             assert my_tool.tool.name == returned_tool.name
             assert my_tool.tool.description == returned_tool.description
+            assert my_tool.tool.metadata == returned_tool.metadata
             assert my_tool.tool.required == returned_tool.required
 
             for param_name, (param_descriptor, param_options) in my_tool.tool.parameters.items():
@@ -261,6 +261,7 @@ async def test_that_a_plugin_tool_can_emit_events(
         await context.emit_status("typing", {"tool": "my_tool"})
         await context.emit_message("Hello, cherry-pie!")
         await context.emit_message("How are you?")
+        await context.emit_custom({"Custom": "Event"})
         return ToolResult({"number": 123})
 
     buffers = SessionBuffers(container[AgentStore])
@@ -278,22 +279,25 @@ async def test_that_a_plugin_tool_can_emit_events(
 
             emitted_events = buffers.for_session[SessionId(tool_context.session_id)].events
 
-            assert len(emitted_events) == 3
+            assert len(emitted_events) == 4
 
-            assert emitted_events[0].kind == "status"
+            assert emitted_events[0].kind == EventKind.STATUS
             assert emitted_events[0].data == {"status": "typing", "data": {"tool": "my_tool"}}
 
-            assert emitted_events[1].kind == "message"
+            assert emitted_events[1].kind == EventKind.MESSAGE
             assert emitted_events[1].data == {
                 "message": "Hello, cherry-pie!",
                 "participant": {"id": agent.id, "display_name": agent.name},
             }
 
-            assert emitted_events[2].kind == "message"
+            assert emitted_events[2].kind == EventKind.MESSAGE
             assert emitted_events[2].data == {
                 "message": "How are you?",
                 "participant": {"id": agent.id, "display_name": agent.name},
             }
+
+            assert emitted_events[3].kind == EventKind.CUSTOM
+            assert emitted_events[3].data == {"Custom": "Event"}
 
             assert result.data == {"number": 123}
 
@@ -328,13 +332,13 @@ async def test_that_a_plugin_tool_can_emit_events_and_ultimately_fail_with_an_er
 
             assert len(emitted_events) == 2
 
-            assert emitted_events[0].kind == "message"
+            assert emitted_events[0].kind == EventKind.MESSAGE
             assert emitted_events[0].data == {
                 "message": "Hello, cherry-pie!",
                 "participant": {"id": agent.id, "display_name": agent.name},
             }
 
-            assert emitted_events[1].kind == "message"
+            assert emitted_events[1].kind == EventKind.MESSAGE
             assert emitted_events[1].data == {
                 "message": "How are you?",
                 "participant": {"id": agent.id, "display_name": agent.name},
@@ -365,6 +369,32 @@ async def test_that_a_plugin_tool_with_enum_parameter_can_be_called(
             )
 
             assert result.data == "category_a"
+
+
+async def test_that_a_plugin_tool_with_optional_enum_parameter_can_be_called(
+    tool_context: ToolContext,
+    container: Container,
+) -> None:
+    class ProductCategory(enum.Enum):
+        CATEGORY_A = "category_a"
+        CATEGORY_B = "category_b"
+
+    @tool
+    async def my_enum_tool(context: ToolContext, category: Optional[ProductCategory]) -> ToolResult:
+        return ToolResult({})
+
+    async with run_service_server([my_enum_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            tools = await client.list_tools()
+
+            assert tools
+            result = await client.call_tool(
+                my_enum_tool.tool.name,
+                tool_context,
+                arguments={"category": None},
+            )
+
+            assert result.data == {}
 
 
 async def test_that_a_plugin_tool_with_enum_list_parameter_can_be_called(
@@ -415,7 +445,7 @@ async def test_that_a_plugin_tool_with_datetime_parameter_can_be_called(
             assert result.data == 1
 
 
-async def test_that_a_plugin_tool_with_basemodel_parameter_can_be_called(
+async def test_that_a_plugin_tool_with_base_model_parameter_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
@@ -480,7 +510,7 @@ async def test_that_a_plugin_calls_a_tool_with_an_optional_param_and_a_None_arg(
             assert result.data == 2
 
 
-async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_can_be_called(
+async def test_that_a_plugin_tool_with_an_optional_base_model_parameter_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
@@ -507,7 +537,7 @@ async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_can_be_ca
             assert result.data == "Dor 32"
 
 
-async def test_that_a_plugin_tool_with_an_optional_basemodel_parameter_and_a_None_value_can_be_called(
+async def test_that_a_plugin_tool_with_an_optional_base_model_parameter_and_a_None_value_can_be_called(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
@@ -700,7 +730,8 @@ async def test_that_a_plugin_raises_tool_error_for_argument_mismatch(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"paramA": True},
+        {"paramA": "True"},
+        {"paramA": "true"},
         {"paramA": "not_an_int"},
     ],
 )
@@ -732,43 +763,43 @@ async def test_that_a_plugin_raises_tool_error_for_type_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_that_a_plugin_tool_can_return_fragments(
+async def test_that_a_plugin_tool_can_return_canned_responses(
     tool_context: ToolContext,
     container: Container,
 ) -> None:
-    fragments = [
-        Fragment(
-            id=FragmentId("<test-fragment-1>"),
-            creation_utc=datetime.now(),
-            value="This is a test fragment with {field_name}",
-            fields=[
-                FragmentField(
-                    name="field_name",
-                    description="A sample field",
-                    examples=["sample value"],
-                )
-            ],
-            tags=[],
-        ),
-        Fragment(
-            id=FragmentId("<test-fragment-2>"),
-            creation_utc=datetime.now(),
-            value="Another fragment for testing",
-            fields=[],
-            tags=[],
-        ),
+    canned_responses = [
+        "This is a test canned response with {field_name}",
+        "Another canned response for testing",
     ]
 
     @tool
-    async def fragment_tool(context: ToolContext) -> ToolResult:
-        return ToolResult({"message": "Executed successfully"}, fragments=fragments)
+    async def canned_response_tool(context: ToolContext) -> ToolResult:
+        return ToolResult({"message": "Executed successfully"}, canned_responses=canned_responses)
 
-    async with run_service_server([fragment_tool]) as server:
+    async with run_service_server([canned_response_tool]) as server:
         async with create_client(server, container[EventBufferFactory]) as client:
-            result = await client.call_tool(fragment_tool.tool.name, tool_context, arguments={})
+            result = await client.call_tool(
+                canned_response_tool.tool.name, tool_context, arguments={}
+            )
 
-            assert result.fragments
-            assert len(result.fragments) == 2
+            assert result.canned_responses
+            assert len(result.canned_responses) == 2
 
-            assert fragments[0] in result.fragments
-            assert fragments[1] in result.fragments
+            assert canned_responses[0] in result.canned_responses
+            assert canned_responses[1] in result.canned_responses
+
+
+async def test_that_tool_decorator_has_default_overlap_auto() -> None:
+    @tool
+    def my_tool(context: ToolContext) -> ToolResult:
+        return ToolResult({})
+
+    assert my_tool.tool.overlap == ToolOverlap.AUTO
+
+
+async def test_that_tool_decorator_can_set_overlap() -> None:
+    @tool(overlap=ToolOverlap.NONE)
+    def my_tool(context: ToolContext) -> ToolResult:
+        return ToolResult({})
+
+    assert my_tool.tool.overlap == ToolOverlap.NONE

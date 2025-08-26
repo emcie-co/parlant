@@ -1,11 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Ubuntu+Sans:ital,wght@0,100..800;1,100..800&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Ubuntu+Sans:ital,wght@0,100..800;1,100..800&display=swap');
 @import url('/fonts/ubuntu-sans/ubuntu_sans.css');
 @import url('/fonts/ubuntu-mono/ubuntu_mono.css');
+@import url('/fonts/Inter/inter.css');
+@import url('/fonts/ibm-plex-mono/ibm-plex-mono.css');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+* {
+	--tw-ring-offset-shadow: transparent !important;
+	--tw-ring-shadow: transparent !important;
+	--tw-shadow: transparent !important;
+}
 
 @layer base {
 	:root {
@@ -40,6 +47,7 @@
 		--main: rgb(1, 37, 21);
 	}
 }
+
 @layer utilities {
 	.no-scrollbar::-webkit-scrollbar {
 		display: none;

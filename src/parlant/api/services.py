@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from enum import Enum
 from typing import Annotated, Optional, Sequence, TypeAlias, cast
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, HTTPException, Path, Request, status
 from pydantic import Field
 
-from parlant.api.common import apigen_config, ExampleJson, ServiceNameField, ToolNameField
+from parlant.api.authorization import AuthorizationPolicy, Operation
+from parlant.api.common import (
+    ToolDTO,
+    apigen_config,
+    ExampleJson,
+    ServiceNameField,
+    tool_to_dto,
+)
 from parlant.core.common import DefaultBaseModel
+from parlant.core.services.tools.mcp_service import MCPToolClient
 from parlant.core.services.tools.plugins import PluginClient
-from parlant.core.tools import Tool, ToolParameterDescriptor
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
 from parlant.core.tools import ToolService
@@ -38,23 +44,13 @@ class ToolServiceKindDTO(Enum):
             like bidirectional communication and streaming results.
         "openapi": Integration via OpenAPI specification. Simpler to set up but limited
             to basic request/response patterns.
+        "mcp": Integration with tool servers using the popular MCP (Model Context Protocol)
+            implemented by wide variety of 3rd parties.
     """
 
     SDK = "sdk"
     OPENAPI = "openapi"
-
-
-class ToolParameterTypeDTO(Enum):
-    """
-    The supported data types for tool parameters.
-
-    Each type corresponds to a specific JSON Schema type and validation rules.
-    """
-
-    STRING = "string"
-    NUMBER = "number"
-    INTEGER = "integer"
-    BOOLEAN = "boolean"
+    MCP = "mcp"
 
 
 ServiceParamsURLField: TypeAlias = Annotated[
@@ -115,6 +111,20 @@ class OpenAPIServiceParamsDTO(
     source: ServiceOpenAPIParamsSourceField
 
 
+class MCPServiceParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": sdk_service_params_example},
+):
+    """
+    Configuration parameters for MCP-based service integration.
+
+    MCP services use the MCP protocol, which enables advanced features
+    and supports a wide variety of variable types. It is widely adopted by third parties worldwide.
+    """
+
+    url: ServiceParamsURLField
+
+
 ServiceUpdateSDKServiceParamsField: TypeAlias = Annotated[
     SDKServiceParamsDTO,
     Field(
@@ -126,6 +136,13 @@ ServiceUpdateOpenAPIServiceParamsField: TypeAlias = Annotated[
     OpenAPIServiceParamsDTO,
     Field(
         description="OpenAPI service configuration parameters. Required when kind is 'openapi'.",
+    ),
+]
+
+ServiceUpdateMCPServiceParamsField: TypeAlias = Annotated[
+    MCPServiceParamsDTO,
+    Field(
+        description="MCP service configuration parameters. Required when kind is 'mcp'.",
     ),
 ]
 
@@ -154,126 +171,7 @@ class ServiceUpdateParamsDTO(
     kind: ToolServiceKindDTO
     sdk: Optional[ServiceUpdateSDKServiceParamsField] = None
     openapi: Optional[ServiceUpdateOpenAPIServiceParamsField] = None
-
-
-EnumValueTypeDTO: TypeAlias = str | int
-
-ToolParameterDescriptionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Detailed description of what the parameter does and how it should be used",
-        examples=["Email address of the recipient", "Maximum number of retries allowed"],
-    ),
-]
-
-ToolParameterEnumField: TypeAlias = Annotated[
-    Sequence[EnumValueTypeDTO],
-    Field(
-        description="List of allowed values for string or integer parameters. If provided, the parameter value must be one of these options.",
-        examples=[["high", "medium", "low"], [1, 2, 3, 5, 8, 13]],
-    ),
-]
-
-
-tool_parameter_example: ExampleJson = {
-    "type": "string",
-    "description": "Priority level for the email",
-    "enum": ["high", "medium", "low"],
-}
-
-
-class ToolParameterDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tool_parameter_example},
-):
-    """
-    Defines a parameter that can be passed to a tool.
-
-    Parameters can have different types with optional constraints like enums.
-    Each parameter can include a description to help users understand its purpose.
-    """
-
-    type: ToolParameterTypeDTO
-    description: Optional[ToolParameterDescriptionField] = None
-    enum: Optional[ToolParameterEnumField] = None
-
-
-ToolCreationUTCField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="UTC timestamp when the tool was first registered with the system",
-        examples=["2024-03-24T12:00:00Z"],
-    ),
-]
-
-ToolDescriptionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Detailed description of the tool's purpose and behavior",
-        examples=[
-            "Sends an email to specified recipients with optional attachments",
-            "Processes a payment transaction and returns confirmation details",
-        ],
-    ),
-]
-
-ToolParametersField: TypeAlias = Annotated[
-    dict[str, ToolParameterDTO],
-    Field(
-        description="Dictionary mapping parameter names to their definitions",
-        examples=[
-            {
-                "recipient": {"type": "string", "description": "Email address to send to"},
-                "amount": {"type": "number", "description": "Payment amount in dollars"},
-            }
-        ],
-    ),
-]
-
-ToolRequiredField: TypeAlias = Annotated[
-    Sequence[str],
-    Field(
-        description="List of parameter names that must be provided when calling the tool",
-        examples=[["recipient", "subject"], ["payment_id", "amount"]],
-    ),
-]
-
-
-tool_example: ExampleJson = {
-    "creation_utc": "2024-03-24T12:00:00Z",
-    "name": "send_email",
-    "description": "Sends an email to specified recipients with configurable priority",
-    "parameters": {
-        "to": {"type": "string", "description": "Recipient email address"},
-        "subject": {"type": "string", "description": "Email subject line"},
-        "body": {"type": "string", "description": "Email body content"},
-        "priority": {
-            "type": "string",
-            "description": "Priority level for the email",
-            "enum": ["high", "medium", "low"],
-        },
-    },
-    "required": ["to", "subject", "body"],
-}
-
-
-class ToolDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tool_example},
-):
-    """
-    Represents a single function provided by an integrated service.
-
-    Tools are the primary way for agents to interact with external services.
-    Each tool has defined parameters and can be invoked when those parameters
-    are satisfied.
-    """
-
-    creation_utc: ToolCreationUTCField
-    name: ToolNameField
-    description: ToolDescriptionField
-    parameters: ToolParametersField
-    required: ToolRequiredField
+    mcp: Optional[ServiceUpdateMCPServiceParamsField] = None
 
 
 ServiceURLField: TypeAlias = Annotated[
@@ -336,39 +234,24 @@ class ServiceDTO(
     tools: Optional[ServiceToolsField] = None
 
 
-def _tool_parameters_to_dto(parameters: ToolParameterDescriptor) -> ToolParameterDTO:
-    return ToolParameterDTO(
-        type=ToolParameterTypeDTO(parameters["type"]),
-        description=parameters["description"] if "description" in parameters else None,
-        enum=parameters["enum"] if "enum" in parameters else None,
-    )
-
-
-def _tool_to_dto(tool: Tool) -> ToolDTO:
-    return ToolDTO(
-        creation_utc=tool.creation_utc,
-        name=tool.name,
-        description=tool.description,
-        parameters={
-            name: _tool_parameters_to_dto(descriptor)
-            for name, (descriptor, _) in tool.parameters.items()
-        },
-        required=tool.required,
-    )
-
-
 def _get_service_kind(service: ToolService) -> ToolServiceKindDTO:
-    return (
-        ToolServiceKindDTO.OPENAPI if isinstance(service, OpenAPIClient) else ToolServiceKindDTO.SDK
-    )
+    if isinstance(service, OpenAPIClient):
+        return ToolServiceKindDTO.OPENAPI
+    if isinstance(service, PluginClient):
+        return ToolServiceKindDTO.SDK
+    if isinstance(service, MCPToolClient):
+        return ToolServiceKindDTO.MCP
+    raise ValueError(f"Unknown service kind: {type(service)}")
 
 
 def _get_service_url(service: ToolService) -> str:
-    return (
-        service.server_url
-        if isinstance(service, OpenAPIClient)
-        else cast(PluginClient, service).url
-    )
+    if isinstance(service, OpenAPIClient):
+        return service.server_url
+    if isinstance(service, PluginClient):
+        return service.url
+    if isinstance(service, MCPToolClient):
+        return f"{service.url}:{service.port}"
+    raise ValueError(f"Unknown service kind: {type(service)}")
 
 
 def _tool_service_kind_dto_to_tool_service_kind(dto: ToolServiceKindDTO) -> ToolServiceKind:
@@ -377,6 +260,7 @@ def _tool_service_kind_dto_to_tool_service_kind(dto: ToolServiceKindDTO) -> Tool
         {
             ToolServiceKindDTO.OPENAPI: "openapi",
             ToolServiceKindDTO.SDK: "sdk",
+            ToolServiceKindDTO.MCP: "mcp",
         }[dto],
     )
 
@@ -385,6 +269,7 @@ def _tool_service_kind_to_dto(kind: ToolServiceKind) -> ToolServiceKindDTO:
     return {
         "openapi": ToolServiceKindDTO.OPENAPI,
         "sdk": ToolServiceKindDTO.SDK,
+        "mcp": ToolServiceKindDTO.MCP,
     }[kind]
 
 
@@ -397,7 +282,10 @@ ServiceNamePath: TypeAlias = Annotated[
 ]
 
 
-def create_router(service_registry: ServiceRegistry) -> APIRouter:
+def create_router(
+    authorization_policy: AuthorizationPolicy,
+    service_registry: ServiceRegistry,
+) -> APIRouter:
     """
     Creates a router instance for service-related operations.
 
@@ -424,6 +312,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         **apigen_config(group_name=API_GROUP, method_name="create_or_update"),
     )
     async def update_service(
+        request: Request,
         name: ServiceNamePath,
         params: ServiceUpdateParamsDTO,
     ) -> ServiceDTO:
@@ -443,6 +332,8 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         - URLs must include http:// or https:// scheme
         - Updates cause brief service interruption while reconnecting
         """
+        await authorization_policy.authorize(request=request, operation=Operation.UPDATE_SERVICE)
+
         if params.kind == ToolServiceKindDTO.SDK:
             if not params.sdk:
                 raise HTTPException(
@@ -469,6 +360,17 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
+        elif params.kind == ToolServiceKindDTO.MCP:
+            if not params.mcp:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Missing MCP parameters",
+                )
+            if not (params.mcp.url.startswith("http://") or params.mcp.url.startswith("https://")):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Service URL is missing schema (http:// or https://)",
+                )
         else:
             raise Exception("Should never logically get here")
 
@@ -480,6 +382,10 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
             assert params.openapi
             url = params.openapi.url
             source = params.openapi.source
+        elif params.kind == ToolServiceKindDTO.MCP:
+            assert params.mcp
+            url = params.mcp.url
+            source = None
         else:
             raise Exception("Should never logically get here")
 
@@ -511,6 +417,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_service(
+        request: Request,
         name: ServiceNamePath,
     ) -> None:
         """
@@ -522,6 +429,8 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         - Historical data about tool usage is preserved
         - Running operations may fail
         """
+        await authorization_policy.authorize(request=request, operation=Operation.DELETE_SERVICE)
+
         await service_registry.read_tool_service(name)
 
         await service_registry.delete_service(name)
@@ -540,7 +449,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_services() -> Sequence[ServiceDTO]:
+    async def list_services(request: Request) -> Sequence[ServiceDTO]:
         """
         Returns basic info about all registered services.
 
@@ -548,6 +457,8 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         Use the retrieve endpoint to get complete information including
         tools for a specific service.
         """
+        await authorization_policy.authorize(request=request, operation=Operation.LIST_SERVICES)
+
         return [
             ServiceDTO(
                 name=name,
@@ -555,7 +466,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
                 url=_get_service_url(service),
             )
             for name, service in await service_registry.list_tool_services()
-            if type(service) in [OpenAPIClient, PluginClient]
+            if type(service) in [OpenAPIClient, PluginClient, MCPToolClient]
         ]
 
     @router.get(
@@ -575,6 +486,7 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_service(
+        request: Request,
         name: ServiceNamePath,
     ) -> ServiceDTO:
         """
@@ -590,13 +502,15 @@ def create_router(service_registry: ServiceRegistry) -> APIRouter:
         - Parameters marked as required must be provided when using a tool
         - Enum parameters restrict inputs to the listed values
         """
+        await authorization_policy.authorize(request=request, operation=Operation.READ_SERVICE)
+
         service = await service_registry.read_tool_service(name)
 
         return ServiceDTO(
             name=name,
             kind=_get_service_kind(service),
             url=_get_service_url(service),
-            tools=[_tool_to_dto(t) for t in await service.list_tools()],
+            tools=[tool_to_dto(t) for t in await service.list_tools()],
         )
 
     return router

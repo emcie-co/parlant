@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,13 +21,12 @@ from more_itertools import chunked
 from parlant.core import async_utils
 from parlant.core.agents import Agent
 from parlant.core.common import DefaultBaseModel
+from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.glossary import GlossaryStore
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.services.indexing.common import ProgressReport
-from parlant.core.tags import Tag
 
 
 class GuidelineConnectionPropositionSchema(DefaultBaseModel):
@@ -59,10 +58,10 @@ class GuidelineConnectionProposer:
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[GuidelineConnectionPropositionsSchema],
-        glossary_store: GlossaryStore,
+        entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
-        self._glossary_store = glossary_store
+        self._entity_queries = entity_queries
         self._schematic_generator = schematic_generator
         self._batch_size = 1
 
@@ -529,9 +528,9 @@ ADDITIONAL INFORMATION
             for id, g in comparison_set.items()
         )
         test_guideline = f"{{id: 0, when: '{evaluated_guideline.condition}', then: '{evaluated_guideline.action}'}}"
-        terms = await self._glossary_store.find_relevant_terms(
+        terms = await self._entity_queries.find_glossary_terms_for_context(
+            agent_id=agent.id,
             query=test_guideline + causation_candidates,
-            tags=[Tag.for_agent_id(agent.id)],
         )
 
         builder.add_glossary(terms)

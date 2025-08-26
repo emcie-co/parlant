@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,13 +27,13 @@ async def test_that_a_customer_can_be_created(
     async_client: httpx.AsyncClient,
 ) -> None:
     name = "John Doe"
-    extra = {"email": "john@gmail.com"}
+    metadata = {"email": "john@gmail.com"}
 
     response = await async_client.post(
         "/customers",
         json={
             "name": name,
-            "extra": extra,
+            "metadata": metadata,
         },
     )
 
@@ -41,7 +41,7 @@ async def test_that_a_customer_can_be_created(
 
     customer = response.json()
     assert customer["name"] == name
-    assert customer["extra"] == extra
+    assert customer["metadata"] == metadata
     assert "id" in customer
     assert "creation_utc" in customer
 
@@ -78,9 +78,9 @@ async def test_that_a_customer_can_be_read(
     customer_store = container[CustomerStore]
 
     name = "Menachem Brich"
-    extra = {"id": str(102938485)}
+    metadata = {"id": str(102938485)}
 
-    customer = await customer_store.create_customer(name, extra)
+    customer = await customer_store.create_customer(name, metadata)
 
     read_response = await async_client.get(f"/customers/{customer.id}")
     assert read_response.status_code == status.HTTP_200_OK
@@ -88,7 +88,7 @@ async def test_that_a_customer_can_be_read(
     data = read_response.json()
     assert data["id"] == customer.id
     assert data["name"] == name
-    assert data["extra"] == extra
+    assert data["metadata"] == metadata
     assert dateutil.parser.parse(data["creation_utc"]) == customer.creation_utc
 
 
@@ -99,33 +99,33 @@ async def test_that_all_customers_including_guests_can_be_listed(
     customer_store = container[CustomerStore]
 
     first_name = "YamChuk"
-    first_extra = {"address": "Hawaii"}
+    first_metadata = {"address": "Hawaii"}
 
     second_name = "DorZo"
-    second_extra = {"address": "Alaska"}
+    second_metadata = {"address": "Alaska"}
 
     await customer_store.create_customer(
         name=first_name,
-        extra=first_extra,
+        extra=first_metadata,
     )
 
     await customer_store.create_customer(
         name=second_name,
-        extra=second_extra,
+        extra=second_metadata,
     )
 
     customers = (await async_client.get("/customers")).raise_for_status().json()
 
     assert len(customers) == 3
     assert any(
-        first_name == customer["name"] and first_extra == customer["extra"]
+        first_name == customer["name"] and first_metadata == customer["metadata"]
         for customer in customers
     )
     assert any(
-        second_name == customer["name"] and second_extra == customer["extra"]
+        second_name == customer["name"] and second_metadata == customer["metadata"]
         for customer in customers
     )
-    assert any("<guest>" == customer["name"] for customer in customers)
+    assert any("Guest" == customer["name"] for customer in customers)
 
 
 async def test_that_a_customer_can_be_updated_with_a_new_name(
@@ -135,9 +135,9 @@ async def test_that_a_customer_can_be_updated_with_a_new_name(
     customer_store = container[CustomerStore]
 
     name = "Original Name"
-    extra = {"role": "customer"}
+    metadata = {"role": "customer"}
 
-    customer = await customer_store.create_customer(name=name, extra=extra)
+    customer = await customer_store.create_customer(name=name, extra=metadata)
 
     new_name = "Updated Name"
 
@@ -155,7 +155,7 @@ async def test_that_a_customer_can_be_updated_with_a_new_name(
     )
 
     assert customer_dto["name"] == new_name
-    assert customer_dto["extra"] == extra
+    assert customer_dto["metadata"] == metadata
 
 
 async def test_that_a_customer_can_be_deleted(
@@ -227,21 +227,21 @@ async def test_that_a_tag_can_be_removed(
     assert tag.id not in updated_customer.tags
 
 
-async def test_that_extra_can_be_added(
+async def test_that_metadata_can_be_set(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
-    name = "Customer with Extras"
+    name = "Customer with metadatas"
 
     customer = await customer_store.create_customer(name=name)
 
-    new_extra = {"department": "sales"}
+    new_metadata = {"department": "sales"}
 
     update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
-            "extra": {"add": new_extra},
+            "metadata": {"set": new_metadata},
         },
     )
     assert update_response.status_code == status.HTTP_200_OK
@@ -250,19 +250,19 @@ async def test_that_extra_can_be_added(
     assert updated_customer.extra.get("department") == "sales"
 
 
-async def test_that_extra_can_be_removed(
+async def test_that_metadata_can_be_unset(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
-    name = "Customer with Extras"
+    name = "Customer with metadatas"
 
     customer = await customer_store.create_customer(name=name, extra={"department": "sales"})
 
     update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
-            "extra": {"remove": ["department"]},
+            "metadata": {"unset": ["department"]},
         },
     )
     assert update_response.status_code == status.HTTP_200_OK

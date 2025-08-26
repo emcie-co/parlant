@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
                     APIResponseValidationError,
                 ),
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -138,7 +138,7 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:
-            self._logger.debug(response.usage.model_dump_json(indent=2))
+            self._logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
 

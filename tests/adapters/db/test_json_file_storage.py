@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ from lagom import Container
 from pytest import fixture, mark, raises
 
 from parlant.core.agents import AgentDocumentStore, AgentId, AgentStore
-from parlant.core.common import Version
+from parlant.core.common import IdGenerator, Version
 from parlant.core.context_variables import (
     ContextVariableDocumentStore,
 )
@@ -31,6 +31,7 @@ from parlant.core.customers import CustomerDocumentStore, CustomerId
 from parlant.core.evaluations import (
     EvaluationDocumentStore,
     GuidelinePayload,
+    PayloadOperation,
     Invoice,
     InvoiceData,
     InvoiceGuidelineData,
@@ -50,7 +51,7 @@ from parlant.core.persistence.document_database import (
     identity_loader,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.sessions import SessionDocumentStore
+from parlant.core.sessions import EventKind, EventSource, SessionDocumentStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
 )
@@ -106,7 +107,7 @@ async def test_agent_creation(
     agent_configuration: dict[str, Any],
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as agent_db:
-        async with AgentDocumentStore(agent_db) as agent_store:
+        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
             agent = await agent_store.create_agent(**agent_configuration)
 
             agents = list(await agent_store.list_agents())
@@ -169,9 +170,9 @@ async def test_event_creation(
 
             event = await session_store.create_event(
                 session_id=session.id,
-                source="customer",
-                kind="message",
-                correlation_id="test_correlation_id",
+                source=EventSource.CUSTOMER,
+                kind=EventKind.MESSAGE,
+                correlation_id="<main>",
                 data={"message": "Hello, world!"},
                 creation_utc=datetime.now(timezone.utc),
             )
@@ -181,9 +182,9 @@ async def test_event_creation(
 
     assert len(events_from_json["events"]) == 1
     json_event = events_from_json["events"][0]
-    assert json_event["kind"] == event.kind
+    assert json_event["kind"] == "message"
     assert json_event["data"] == event.data
-    assert json_event["source"] == event.source
+    assert json_event["source"] == "customer"
     assert datetime.fromisoformat(json_event["creation_utc"]) == event.creation_utc
 
 
@@ -192,7 +193,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Creating a guideline with JSONFileDatabase implementation",
                 action="Expecting it to show in the guidelines json file",
@@ -210,7 +211,7 @@ async def test_guideline_creation_and_loading_data_from_file(
     assert datetime.fromisoformat(json_guideline["creation_utc"]) == guideline.creation_utc
 
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             second_guideline = await guideline_store.create_guideline(
                 condition="Second guideline creation",
                 action="Additional test entry in the JSON file",
@@ -236,7 +237,7 @@ async def test_guideline_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Test condition for loading",
                 action="Test content for loading guideline",
@@ -257,7 +258,7 @@ async def test_customer_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "Jane Doe"
             extra = {"email": "jane.doe@example.com"}
             created_customer = await customer_store.create_customer(
@@ -280,7 +281,7 @@ async def test_customer_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "John Doe"
             extra = {"email": "john.doe@example.com"}
 
@@ -296,7 +297,9 @@ async def test_context_variable_creation(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Sample Variable",
@@ -323,7 +326,9 @@ async def test_context_variable_value_update_and_retrieval(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             customer_id = CustomerId("test_customer")
             variable = await context_variable_store.create_variable(
@@ -359,7 +364,9 @@ async def test_context_variable_listing(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             var1 = await context_variable_store.create_variable(
                 name="Variable One",
@@ -400,7 +407,9 @@ async def test_context_variable_deletion(
     new_file: Path,
 ) -> None:
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Deletable Variable",
@@ -453,7 +462,7 @@ async def test_guideline_tool_association_creation(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("guideline-789")
             tool_id = ToolId("local", "test_tool")
@@ -480,7 +489,7 @@ async def test_guideline_tool_association_retrieval(
         context.container[Logger], new_file
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("test_guideline")
             tool_id = ToolId("local", "test_tool")
@@ -509,7 +518,7 @@ async def test_successful_loading_of_an_empty_json_file(
     # Create an empty file
     new_file.touch()
     async with JSONFileDocumentDatabase(context.container[Logger], new_file) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Create a guideline just for testing",
                 action="Expect it to appear in the guidelines JSON file eventually",
@@ -538,14 +547,17 @@ async def test_evaluation_creation(
                         condition="Test evaluation creation with invoice",
                         action="Ensure the evaluation with invoice is persisted in the JSON file",
                     ),
-                    operation="add",
-                    coherence_check=True,
-                    connection_proposition=True,
+                    tool_ids=[],
+                    operation=PayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                    journey_node_proposition=False,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
@@ -569,23 +581,30 @@ async def test_evaluation_update(
             payloads = [
                 GuidelinePayload(
                     content=GuidelineContent(
-                        condition="Initial evaluation payload with invoice",
-                        action="This content will be updated",
+                        condition="User asks for book recommendations",
+                        action=None,
                     ),
-                    operation="add",
-                    coherence_check=True,
-                    connection_proposition=True,
+                    tool_ids=[],
+                    operation=PayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                    journey_node_proposition=False,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
             invoice_data: InvoiceData = InvoiceGuidelineData(
                 coherence_checks=[],
-                connection_propositions=None,
+                entailment_propositions=None,
+                properties_proposition={
+                    "continuous": True,
+                    "internal_action": "Provide a list of book recommendations",
+                },
             )
 
             invoice = Invoice(
@@ -777,7 +796,7 @@ async def test_that_version_mismatch_raises_error_when_migration_is_required_but
         json.dump(
             {
                 "metadata": [
-                    {"id": "meta_id", "version": "NotRealVersion"},
+                    {"id": "meta_id", "version": "0.0.1"},
                 ]
             },
             f,

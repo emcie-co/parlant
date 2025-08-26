@@ -24,7 +24,7 @@ from lagom import Container
 from pytest import fixture, mark, raises
 
 from parlant.core.agents import Agent, AgentDocumentStore, AgentId, AgentStore
-from parlant.core.common import Version
+from parlant.core.common import IdGenerator, Version
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableDocumentStore,
@@ -35,6 +35,7 @@ from parlant.core.evaluations import (
     Evaluation,
     EvaluationDocumentStore,
     GuidelinePayload,
+    PayloadOperation,
     Invoice,
     InvoiceData,
     InvoiceGuidelineData,
@@ -55,7 +56,7 @@ from parlant.core.persistence.document_database import (
     identity_loader,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.sessions import Event, Session, SessionDocumentStore
+from parlant.core.sessions import Event, EventKind, EventSource, Session, SessionDocumentStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociation,
     GuidelineToolAssociationDocumentStore,
@@ -143,7 +144,7 @@ async def test_agent_creation(
         test_database_name,
         context.container[Logger],
     ) as agent_db:
-        async with AgentDocumentStore(agent_db) as agent_store:
+        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
             created_agent = await agent_store.create_agent(**agent_configuration)
 
             agents = list(await agent_store.list_agents())
@@ -157,7 +158,7 @@ async def test_agent_creation(
         test_database_name,
         context.container[Logger],
     ) as agent_db:
-        async with AgentDocumentStore(agent_db) as agent_store:
+        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
             actual_agents = await agent_store.list_agents()
             assert len(actual_agents) == 1
 
@@ -230,9 +231,9 @@ async def test_event_creation(
 
             event = await session_store.create_event(
                 session_id=session.id,
-                source="customer",
-                kind="message",
-                correlation_id="test_correlation_id",
+                source=EventSource.CUSTOMER,
+                kind=EventKind.MESSAGE,
+                correlation_id="<main>",
                 data={"message": "Hello, world!"},
                 creation_utc=datetime.now(timezone.utc),
             )
@@ -266,7 +267,7 @@ async def test_guideline_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Creating a guideline with MongoDB implementation",
                 action="Expecting it to be stored in the MongoDB database",
@@ -278,7 +279,7 @@ async def test_guideline_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guidelines = await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
             guideline_list = list(guidelines)
 
@@ -303,7 +304,7 @@ async def test_multiple_guideline_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             first_guideline = await guideline_store.create_guideline(
                 condition="First guideline creation",
                 action="Test entry in MongoDB",
@@ -322,7 +323,7 @@ async def test_multiple_guideline_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guidelines = list(
                 await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
             )
@@ -354,7 +355,7 @@ async def test_guideline_retrieval(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             created_guideline = await guideline_store.create_guideline(
                 condition="Test condition for loading",
                 action="Test content for loading guideline",
@@ -385,7 +386,7 @@ async def test_customer_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "Jane Doe"
             extra = {"email": "jane.doe@example.com"}
             created_customer = await customer_store.create_customer(
@@ -400,7 +401,7 @@ async def test_customer_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             customers = await customer_store.list_customers()
 
             customer_list = list(customers)
@@ -428,7 +429,7 @@ async def test_customer_retrieval(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as customer_db:
-        async with CustomerDocumentStore(customer_db) as customer_store:
+        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
             name = "John Doe"
             extra = {"email": "john.doe@example.com"}
 
@@ -451,7 +452,9 @@ async def test_context_variable_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Sample Variable",
@@ -468,7 +471,9 @@ async def test_context_variable_creation(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             variables = list(
                 await context_variable_store.list_variables([Tag.for_agent_id(context.agent_id)])
             )
@@ -494,7 +499,9 @@ async def test_context_variable_value_update_and_retrieval(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             customer_id = CustomerId("test_customer")
             variable = await context_variable_store.create_variable(
@@ -534,7 +541,9 @@ async def test_context_variable_listing(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             var1 = await context_variable_store.create_variable(
                 name="Variable One",
@@ -574,7 +583,9 @@ async def test_context_variable_deletion(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as context_variable_db:
-        async with ContextVariableDocumentStore(context_variable_db) as context_variable_store:
+        async with ContextVariableDocumentStore(
+            IdGenerator(), context_variable_db
+        ) as context_variable_store:
             tool_id = ToolId("local", "test_tool")
             variable = await context_variable_store.create_variable(
                 name="Deletable Variable",
@@ -627,7 +638,7 @@ async def test_guideline_tool_association_creation(
         context.container[Logger],
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("guideline-789")
             tool_id = ToolId("local", "test_tool")
@@ -646,7 +657,7 @@ async def test_guideline_tool_association_creation(
         context.container[Logger],
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             associations = list(await guideline_tool_association_store.list_associations())
 
@@ -672,7 +683,7 @@ async def test_guideline_tool_association_retrieval(
         context.container[Logger],
     ) as guideline_tool_association_db:
         async with GuidelineToolAssociationDocumentStore(
-            guideline_tool_association_db
+            IdGenerator(), guideline_tool_association_db
         ) as guideline_tool_association_store:
             guideline_id = GuidelineId("test_guideline")
             tool_id = ToolId("local", "test_tool")
@@ -704,7 +715,7 @@ async def test_database_initialization(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Create a guideline for initialization test",
                 action="Verify it's stored in MongoDB correctly",
@@ -734,19 +745,21 @@ async def test_evaluation_creation(
                         condition="Test evaluation creation with invoice",
                         action="Ensure the evaluation with invoice is persisted in MongoDB",
                     ),
-                    operation="add",
-                    coherence_check=True,
-                    connection_proposition=True,
+                    tool_ids=[],
+                    operation=PayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                    journey_node_proposition=False,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
     assert evaluation
-    assert evaluation.agent_id == context.agent_id
 
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
@@ -758,7 +771,6 @@ async def test_evaluation_creation(
             assert len(evaluations_list) == 1
             db_evaluation = evaluations_list[0]
             assert db_evaluation.id == evaluation.id
-            assert db_evaluation.agent_id == context.agent_id
             assert len(db_evaluation.invoices) == 1
 
 
@@ -778,23 +790,30 @@ async def test_evaluation_update(
             payloads = [
                 GuidelinePayload(
                     content=GuidelineContent(
-                        condition="Initial evaluation payload with invoice",
-                        action="This content will be updated",
+                        condition="Ask for a book recommendation",
+                        action=None,
                     ),
-                    operation="add",
-                    coherence_check=True,
-                    connection_proposition=True,
+                    tool_ids=[],
+                    operation=PayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                    journey_node_proposition=False,
                 )
             ]
 
             evaluation = await evaluation_store.create_evaluation(
-                agent_id=context.agent_id,
                 payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
             )
 
             invoice_data: InvoiceData = InvoiceGuidelineData(
                 coherence_checks=[],
-                connection_propositions=None,
+                entailment_propositions=None,
+                properties_proposition={
+                    "continuous": True,
+                    "internal_action": "Provide a list of book recommendations",
+                },
             )
 
             invoice = Invoice(
@@ -1012,7 +1031,7 @@ async def test_delete_one_in_collection(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as guideline_db:
-        async with GuidelineDocumentStore(guideline_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
             guideline = await guideline_store.create_guideline(
                 condition="Guideline to be deleted",
                 action="This guideline will be deleted in the test",
@@ -1037,7 +1056,7 @@ async def test_delete_collection(
     async with MongoDocumentDatabase(
         test_mongo_client, test_database_name, context.container[Logger]
     ) as mongo_db:
-        async with GuidelineDocumentStore(mongo_db) as guideline_store:
+        async with GuidelineDocumentStore(IdGenerator(), mongo_db) as guideline_store:
             await guideline_store.create_guideline(
                 condition="Test collection deletion",
                 action="This collection will be deleted",

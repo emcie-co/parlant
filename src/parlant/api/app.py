@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 import asyncio
 import os
+import traceback
 from typing import Awaitable, Callable, TypeAlias
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
@@ -21,10 +22,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
+
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.api import agents, index
+from parlant.api import agents, capabilities
+from parlant.api import evaluations
+from parlant.api import index
+from parlant.api import journeys
+from parlant.api import relationships
 from parlant.api import sessions
 from parlant.api import glossary
 from parlant.api import guidelines
@@ -33,15 +39,23 @@ from parlant.api import services
 from parlant.api import tags
 from parlant.api import customers
 from parlant.api import logs
-from parlant.api import fragments
+from parlant.api import canned_responses
+from parlant.api.authorization import (
+    AuthorizationException,
+    AuthorizationPolicy,
+    Operation,
+    RateLimitExceededException,
+)
+from parlant.core.capabilities import CapabilityStore
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
-from parlant.core.fragments import FragmentStore
-from parlant.core.guideline_connections import GuidelineConnectionStore
+from parlant.core.journeys import JourneyStore
+from parlant.core.canned_responses import CannedResponseStore
+from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.nlp.service import NLPService
@@ -50,8 +64,9 @@ from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
+    LegacyBehavioralChangeEvaluator,
 )
-from parlant.core.loggers import Logger
+from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.tags import TagStore
 
@@ -85,6 +100,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
+    authorization_policy = container[AuthorizationPolicy]
     agent_store = container[AgentStore]
     customer_store = container[CustomerStore]
     tag_store = container[TagStore]
@@ -92,13 +108,16 @@ async def create_api_app(container: Container) -> ASGIApplication:
     session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
+    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_service = container[BehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
-    guideline_connection_store = container[GuidelineConnectionStore]
+    relationship_store = container[RelationshipStore]
     guideline_tool_association_store = container[GuidelineToolAssociationStore]
     context_variable_store = container[ContextVariableStore]
-    fragment_store = container[FragmentStore]
+    canned_response_store = container[CannedResponseStore]
+    journey_store = container[JourneyStore]
+    capability_store = container[CapabilityStore]
     service_registry = container[ServiceRegistry]
     nlp_service = container[NLPService]
     application = container[Application]
@@ -128,13 +147,55 @@ async def create_api_app(container: Container) -> ASGIApplication:
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        if (
+            request.url.path.startswith("/docs")
+            or request.url.path.startswith("/redoc")
+            or request.url.path.startswith("/openapi.json")
+        ):
+            await authorization_policy.authorize(
+                request=request,
+                operation=Operation.ACCESS_API_DOCS,
+            )
+            return await call_next(request)
+
         if request.url.path.startswith("/chat/"):
+            await authorization_policy.authorize(
+                request=request,
+                operation=Operation.ACCESS_INTEGRATED_UI,
+            )
+
             return await call_next(request)
 
         request_id = generate_id()
-        with correlator.correlation_scope(f"RID({request_id})"):
-            with logger.operation(f"HTTP Request: {request.method} {request.url.path}"):
+        with correlator.scope(f"R{request_id}", {"request_id": request_id}):
+            with logger.operation(
+                f"HTTP Request: {request.method} {request.url.path}",
+                level=LogLevel.TRACE,
+                create_scope=False,
+            ):
                 return await call_next(request)
+
+    @api_app.exception_handler(RateLimitExceededException)
+    async def rate_limit_exceeded_handler(
+        request: Request, exc: RateLimitExceededException
+    ) -> HTTPException:
+        logger.trace(f"Rate limit exceeded: {exc}")
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        )
+
+    @api_app.exception_handler(AuthorizationException)
+    async def authorization_error_handler(
+        request: Request, exc: AuthorizationException
+    ) -> HTTPException:
+        logger.trace(f"Authorization error: {exc}")
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
 
     @api_app.exception_handler(ItemNotFoundError)
     async def item_not_found_error_handler(
@@ -144,6 +205,16 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+    @api_app.exception_handler(Exception)
+    async def server_error_handler(request: Request, exc: ItemNotFoundError) -> HTTPException:
+        logger.error(str(exc))
+        logger.error(str(traceback.format_exception(exc)))
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         )
 
@@ -160,7 +231,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
         guidelines.create_legacy_router(
             application=application,
             guideline_store=guideline_store,
-            guideline_connection_store=guideline_connection_store,
+            tag_store=tag_store,
+            relationship_store=relationship_store,
             service_registry=service_registry,
             guideline_tool_association_store=guideline_tool_association_store,
         ),
@@ -179,6 +251,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
     api_app.include_router(
         router=agents.create_router(
+            policy=authorization_policy,
             agent_store=agent_store,
             tag_store=tag_store,
         ),
@@ -192,6 +265,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/sessions",
         router=sessions.create_router(
+            authorization_policy=authorization_policy,
             logger=logger,
             application=application,
             agent_store=agent_store,
@@ -204,8 +278,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
     api_app.include_router(
         prefix="/index",
-        router=index.create_router(
-            evaluation_service=evaluation_service,
+        router=index.legacy_create_router(
+            evaluation_service=legacy_evaluation_service,
             evaluation_store=evaluation_store,
             evaluation_listener=evaluation_listener,
             agent_store=agent_store,
@@ -215,6 +289,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/services",
         router=services.create_router(
+            authorization_policy=authorization_policy,
             service_registry=service_registry,
         ),
     )
@@ -222,6 +297,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/tags",
         router=tags.create_router(
+            authorization_policy=authorization_policy,
             tag_store=tag_store,
         ),
     )
@@ -229,6 +305,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/terms",
         router=glossary.create_router(
+            authorization_policy=authorization_policy,
             glossary_store=glossary_store,
             agent_store=agent_store,
             tag_store=tag_store,
@@ -238,6 +315,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/customers",
         router=customers.create_router(
+            authorization_policy=authorization_policy,
             customer_store=customer_store,
             tag_store=tag_store,
             agent_store=agent_store,
@@ -245,9 +323,10 @@ async def create_api_app(container: Container) -> ASGIApplication:
     )
 
     api_app.include_router(
-        prefix="/fragments",
-        router=fragments.create_router(
-            fragment_store=fragment_store,
+        prefix="/canned_responses",
+        router=canned_responses.create_router(
+            authorization_policy=authorization_policy,
+            canned_response_store=canned_response_store,
             tag_store=tag_store,
         ),
     )
@@ -255,6 +334,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/context-variables",
         router=variables.create_router(
+            authorization_policy=authorization_policy,
             context_variable_store=context_variable_store,
             service_registry=service_registry,
             agent_store=agent_store,
@@ -265,12 +345,57 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         prefix="/guidelines",
         router=guidelines.create_router(
+            authorization_policy=authorization_policy,
             guideline_store=guideline_store,
-            guideline_connection_store=guideline_connection_store,
+            relationship_store=relationship_store,
             service_registry=service_registry,
             guideline_tool_association_store=guideline_tool_association_store,
             agent_store=agent_store,
             tag_store=tag_store,
+            journey_store=journey_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/relationships",
+        router=relationships.create_router(
+            authorization_policy=authorization_policy,
+            relationship_store=relationship_store,
+            tag_store=tag_store,
+            guideline_store=guideline_store,
+            agent_store=agent_store,
+            journey_store=journey_store,
+            service_registry=service_registry,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/journeys",
+        router=journeys.create_router(
+            authorization_policy=authorization_policy,
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/evaluations",
+        router=evaluations.create_router(
+            authorization_policy=authorization_policy,
+            evaluation_service=evaluation_service,
+            evaluation_store=evaluation_store,
+            evaluation_listener=evaluation_listener,
+        ),
+    )
+
+    api_app.include_router(
+        prefix="/capabilities",
+        router=capabilities.create_router(
+            authorization_policy=authorization_policy,
+            capability_store=capability_store,
+            tag_store=tag_store,
+            agent_store=agent_store,
+            journey_store=journey_store,
         ),
     )
 

@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,53 @@
 from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
-from parlant.core.guideline_connections import GuidelineConnectionStore
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.common import JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.entity_cq import EntityCommands
+from parlant.core.evaluations import GuidelinePayload, PayloadOperation
+from parlant.core.relationships import (
+    RelationshipEntityKind,
+    RelationshipKind,
+    RelationshipEntity,
+    RelationshipStore,
+)
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 
+from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
+from parlant.core.tools import ToolId
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
+
+
+def get_guideline_properties(
+    context: ContextOfTest,
+    condition: str,
+    action: str | None,
+) -> dict[str, JSONSerializable]:
+    guideline_evaluator = context.container[GuidelineEvaluator]
+    guideline_evaluation_data = context.sync_await(
+        guideline_evaluator.evaluate(
+            payloads=[
+                GuidelinePayload(
+                    content=GuidelineContent(
+                        condition=condition,
+                        action=action,
+                    ),
+                    tool_ids=[],
+                    operation=PayloadOperation.ADD,
+                    coherence_check=False,
+                    connection_proposition=False,
+                    action_proposition=True,
+                    properties_proposition=True,
+                    journey_node_proposition=False,
+                )
+            ],
+        )
+    )
+    metadata = guideline_evaluation_data[0].properties_proposition or {}
+    return metadata
 
 
 @step(given, parsers.parse("a guideline to {do_something} when {a_condition_holds}"))
@@ -29,21 +69,72 @@ def given_a_guideline_to_when(
     context: ContextOfTest,
     do_something: str,
     a_condition_holds: str,
-    agent_id: AgentId,
 ) -> None:
     guideline_store = context.container[GuidelineStore]
+
+    metadata = get_guideline_properties(context, a_condition_holds, do_something)
+
+    context.sync_await(
+        guideline_store.create_guideline(
+            condition=a_condition_holds,
+            action=do_something,
+            metadata=metadata,
+        )
+    )
+
+
+@step(
+    given, parsers.parse('an observational guideline "{guideline_name}" when {a_condition_holds}')
+)
+def given_an_observational_guideline_to(
+    context: ContextOfTest,
+    guideline_name: str,
+    a_condition_holds: str,
+) -> None:
+    guideline_store = context.container[GuidelineStore]
+
+    metadata = get_guideline_properties(context, a_condition_holds, None)
 
     guideline = context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
-            action=do_something,
+            action=None,
+            metadata=metadata,
         )
     )
 
-    _ = context.sync_await(
-        guideline_store.upsert_tag(
-            guideline.id,
-            Tag.for_agent_id(agent_id),
+    context.guidelines[guideline_name] = guideline
+
+
+@step(
+    given,
+    parsers.parse('a previously applied guideline "{guideline_name}"'),
+)
+def given_a_previously_applied_guideline(
+    context: ContextOfTest,
+    guideline_name: str,
+    session_id: SessionId,
+) -> None:
+    session = context.sync_await(context.container[SessionStore].read_session(session_id))
+
+    applied_guideline_ids = [context.guidelines[guideline_name].id]
+    applied_guideline_ids.extend(
+        session.agent_states[-1].applied_guideline_ids if session.agent_states else []
+    )
+
+    context.sync_await(
+        context.container[EntityCommands].update_session(
+            session_id=session_id,
+            params=SessionUpdateParams(
+                agent_states=list(session.agent_states)
+                + [
+                    AgentState(
+                        correlation_id="<main>",
+                        applied_guideline_ids=applied_guideline_ids,
+                        journey_paths={},
+                    )
+                ]
+            ),
         )
     )
 
@@ -61,10 +152,13 @@ def given_a_guideline_name_to_when(
 ) -> None:
     guideline_store = context.container[GuidelineStore]
 
+    metadata = get_guideline_properties(context, a_condition_holds, do_something)
+
     context.guidelines[guideline_name] = context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
             action=do_something,
+            metadata=metadata,
         )
     )
 
@@ -76,6 +170,30 @@ def given_a_guideline_name_to_when(
     )
 
 
+@step(
+    given,
+    parsers.parse(
+        'a disambiguation group head "{disambiguation_name}" to activate when {a_condition_holds}'
+    ),
+)
+def given_an_observation_name_of(
+    context: ContextOfTest,
+    disambiguation_name: str,
+    a_condition_holds: str,
+) -> None:
+    guideline_store = context.container[GuidelineStore]
+
+    metadata = get_guideline_properties(context, a_condition_holds, None)
+
+    context.guidelines[disambiguation_name] = context.sync_await(
+        guideline_store.create_guideline(
+            condition=a_condition_holds,
+            action=None,
+            metadata=metadata,
+        )
+    )
+
+
 @step(given, "50 other random guidelines")
 def given_50_other_random_guidelines(
     context: ContextOfTest,
@@ -83,15 +201,22 @@ def given_50_other_random_guidelines(
 ) -> list[Guideline]:
     guideline_store = context.container[GuidelineStore]
 
-    async def create_guideline(condition: str, action: str) -> Guideline:
-        guideline = await guideline_store.create_guideline(
-            condition=condition,
-            action=action,
+    def create_guideline(condition: str, action: str) -> Guideline:
+        metadata = get_guideline_properties(context, condition, action)
+
+        guideline = context.sync_await(
+            guideline_store.create_guideline(
+                condition=condition,
+                action=action,
+                metadata=metadata,
+            )
         )
 
-        _ = await guideline_store.upsert_tag(
-            guideline.id,
-            Tag.for_agent_id(agent_id),
+        _ = context.sync_await(
+            guideline_store.upsert_tag(
+                guideline.id,
+                Tag.for_agent_id(agent_id),
+            )
         )
 
         return guideline
@@ -150,13 +275,11 @@ def given_50_other_random_guidelines(
         },
         {
             "condition": "The customer expresses concern about calories",
-            "action": "Offer information on calorie content and suggest lighter "
-            "options if desired",
+            "action": "Offer information on calorie content and suggest lighter options if desired",
         },
         {
             "condition": "The customer mentions a special occasion",
-            "action": "Suggest our party meal deals and ask if they would like "
-            "to include desserts",
+            "action": "Suggest our party meal deals and ask if they would like to include desserts",
         },
         {
             "condition": "The customer wants to know the waiting area",
@@ -318,7 +441,7 @@ def given_50_other_random_guidelines(
             "services to simplify their future orders",
         },
     ]:
-        guidelines.append(context.sync_await(create_guideline(**guideline_params)))
+        guidelines.append(create_guideline(**guideline_params))
 
     return guidelines
 
@@ -331,15 +454,22 @@ def given_the_guideline_called(
 ) -> Guideline:
     guideline_store = context.container[GuidelineStore]
 
-    async def create_guideline(condition: str, action: str) -> Guideline:
-        guideline = await guideline_store.create_guideline(
-            condition=condition,
-            action=action,
+    def create_guideline(condition: str, action: str) -> Guideline:
+        metadata = get_guideline_properties(context, condition, action)
+
+        guideline = context.sync_await(
+            guideline_store.create_guideline(
+                condition=condition,
+                action=action,
+                metadata=metadata,
+            )
         )
 
-        _ = await guideline_store.upsert_tag(
-            guideline.id,
-            Tag.for_agent_id(agent_id),
+        _ = context.sync_await(
+            guideline_store.upsert_tag(
+                guideline.id,
+                Tag.for_agent_id(agent_id),
+            )
         )
 
         return guideline
@@ -400,11 +530,28 @@ def given_the_guideline_called(
         },
     }
 
-    guideline = context.sync_await(create_guideline(**guidelines[guideline_id]))
+    guideline = create_guideline(**guidelines[guideline_id])
 
     context.guidelines[guideline_id] = guideline
 
     return guideline
+
+
+@step(
+    given,
+    parsers.parse('that the "{guideline_name}" guideline was matched in the previous iteration'),
+)
+def given_was_matched_in_previous_iteration(
+    context: ContextOfTest,
+    guideline_name: str,
+) -> None:
+    guideline = context.guidelines[guideline_name]
+
+    context.guideline_matches[guideline_name] = GuidelineMatch(
+        guideline=guideline,
+        score=10,
+        rationale="",
+    )
 
 
 @step(
@@ -430,18 +577,108 @@ def given_a_guideline_match(
 
 @step(
     given,
-    parsers.parse('a guideline connection whereby "{guideline_a}" entails "{guideline_b}"'),
+    parsers.parse('a guideline relationship whereby "{guideline_a}" entails "{guideline_b}"'),
 )
-def given_a_guideline_connection(
+def given_an_entailment_guideline_relationship(
     context: ContextOfTest,
     guideline_a: str,
     guideline_b: str,
 ) -> None:
-    store = context.container[GuidelineConnectionStore]
+    store = context.container[RelationshipStore]
 
     context.sync_await(
-        store.create_connection(
-            source=context.guidelines[guideline_a].id,
-            target=context.guidelines[guideline_b].id,
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[guideline_a].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=context.guidelines[guideline_b].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            kind=RelationshipKind.ENTAILMENT,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse('a guideline "{guideline}" is grouped under "{disambiguation_head}"'),
+)
+def given_an_guideline_grouped_under(
+    context: ContextOfTest,
+    guideline: str,
+    disambiguation_head: str,
+) -> None:
+    store = context.container[RelationshipStore]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[disambiguation_head].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=context.guidelines[guideline].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            kind=RelationshipKind.DISAMBIGUATION,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a dependency relationship between the guideline "{guideline_name}" and the "{journey_title}" journey'
+    ),
+)
+def given_an_dependency_between_guideline_and_a_journey(
+    context: ContextOfTest,
+    guideline_name: str,
+    journey_title: str,
+) -> None:
+    store = context.container[RelationshipStore]
+    journey = context.journeys[journey_title]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[guideline_name].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=Tag.for_journey_id(journey.id),
+                kind=RelationshipEntityKind.TAG,
+            ),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a reevaluation relationship between the guideline "{guideline_name}" and the "{tool_name}" tool'
+    ),
+)
+def given_an_reevaluation_between_guideline_and_a_tool(
+    context: ContextOfTest,
+    guideline_name: str,
+    tool_name: str,
+) -> None:
+    store = context.container[RelationshipStore]
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=context.guidelines[guideline_name].id,
+                kind=RelationshipEntityKind.GUIDELINE,
+            ),
+            target=RelationshipEntity(
+                id=ToolId(service_name="local", tool_name=tool_name),
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            kind=RelationshipKind.DEPENDENCY,
         )
     )

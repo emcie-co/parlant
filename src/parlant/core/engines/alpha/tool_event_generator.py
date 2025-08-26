@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,20 +15,23 @@
 from dataclasses import dataclass
 from itertools import chain
 from typing import Mapping, Optional, Sequence
-
 from parlant.core.customers import Customer
+from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.tools import ToolContext
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.loggers import Logger
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolEventData
-from parlant.core.engines.alpha.guideline_match import GuidelineMatch
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema, ToolCaller, ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    ToolCallContext,
+    ToolCaller,
+    ToolInsights,
+)
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.tools import ToolId
 
@@ -40,21 +43,34 @@ class ToolEventGenerationResult:
     insights: ToolInsights
 
 
+@dataclass(frozen=True)
+class ToolPreexecutionState:
+    event_emitter: EventEmitter
+    session_id: SessionId
+    agent: Agent
+    customer: Customer
+    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
+    interaction_history: Sequence[Event]
+    terms: Sequence[Term]
+    ordinary_guideline_matches: Sequence[GuidelineMatch]
+    tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]]
+    staged_events: Sequence[EmittedEvent]
+
+
 class ToolEventGenerator:
     def __init__(
         self,
         logger: Logger,
+        tool_caller: ToolCaller,
         correlator: ContextualCorrelator,
         service_registry: ServiceRegistry,
-        schematic_generator: SchematicGenerator[ToolCallInferenceSchema],
     ) -> None:
         self._logger = logger
         self._correlator = correlator
         self._service_registry = service_registry
+        self._tool_caller = tool_caller
 
-        self.tool_caller = ToolCaller(logger, service_registry, schematic_generator)
-
-    async def generate_events(
+    async def create_preexecution_state(
         self,
         event_emitter: EventEmitter,
         session_id: SessionId,
@@ -66,19 +82,54 @@ class ToolEventGenerator:
         ordinary_guideline_matches: Sequence[GuidelineMatch],
         tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
         staged_events: Sequence[EmittedEvent],
-    ) -> ToolEventGenerationResult:
-        if not tool_enabled_guideline_matches:
-            self._logger.debug("Skipping tool calling; no tools associated with guidelines found")
-            return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
-
-        inference_result = await self.tool_caller.infer_tool_calls(
+    ) -> ToolPreexecutionState:
+        return ToolPreexecutionState(
+            event_emitter,
+            session_id,
             agent,
+            customer,
             context_variables,
             interaction_history,
             terms,
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
             staged_events,
+        )
+
+    async def generate_events(
+        self,
+        preexecution_state: ToolPreexecutionState,
+        context: LoadedContext,
+    ) -> ToolEventGenerationResult:
+        _ = preexecution_state  # Not used for now, but good to have for extensibility
+
+        if not context.state.tool_enabled_guideline_matches:
+            self._logger.trace("Skipping tool calling; no tools associated with guidelines found")
+            return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
+
+        await context.session_event_emitter.emit_status_event(
+            correlation_id=self._correlator.correlation_id,
+            data={
+                "status": "processing",
+                "data": {"stage": "Fetching data"},
+            },
+        )
+
+        tool_call_context = ToolCallContext(
+            agent=context.agent,
+            session_id=context.session.id,
+            customer_id=context.customer.id,
+            context_variables=context.state.context_variables,
+            interaction_history=context.interaction.history,
+            terms=list(context.state.glossary_terms),
+            ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+            tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
+            staged_events=context.state.tool_events,
+        )
+
+        inference_result = await self._tool_caller.infer_tool_calls(
+            context=tool_call_context,
         )
 
         tool_calls = list(chain.from_iterable(inference_result.batches))
@@ -90,12 +141,14 @@ class ToolEventGenerator:
                 insights=inference_result.insights,
             )
 
-        tool_results = await self.tool_caller.execute_tool_calls(
-            ToolContext(
-                agent_id=agent.id,
-                session_id=session_id,
-                customer_id=customer.id,
-            ),
+        tool_context = ToolContext(
+            agent_id=context.agent.id,
+            session_id=context.session.id,
+            customer_id=context.customer.id,
+        )
+
+        tool_results = await self._tool_caller.execute_tool_calls(
+            tool_context,
             tool_calls,
         )
 
@@ -106,24 +159,34 @@ class ToolEventGenerator:
                 insights=inference_result.insights,
             )
 
-        event_data: ToolEventData = {
-            "tool_calls": [
-                {
-                    "tool_id": r.tool_call.tool_id.to_string(),
-                    "arguments": r.tool_call.arguments,
-                    "result": r.result,
-                }
-                for r in tool_results
-            ]
-        }
-
-        event = await event_emitter.emit_tool_event(
-            correlation_id=self._correlator.correlation_id,
-            data=event_data,
-        )
+        events = []
+        for r in tool_results:
+            event_data: ToolEventData = {
+                "tool_calls": [
+                    {
+                        "tool_id": r.tool_call.tool_id.to_string(),
+                        "arguments": r.tool_call.arguments,
+                        "result": r.result,
+                    }
+                ]
+            }
+            if r.result["control"].get("lifespan", "session") == "session":
+                events.append(
+                    await context.session_event_emitter.emit_tool_event(
+                        correlation_id=self._correlator.correlation_id,
+                        data=event_data,
+                    )
+                )
+            else:
+                events.append(
+                    await context.response_event_emitter.emit_tool_event(
+                        correlation_id=self._correlator.correlation_id,
+                        data=event_data,
+                    )
+                )
 
         return ToolEventGenerationResult(
             generations=inference_result.batch_generations,
-            events=[event],
+            events=events,
             insights=inference_result.insights,
         )

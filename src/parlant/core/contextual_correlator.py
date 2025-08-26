@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 from contextlib import contextmanager
 import contextvars
-from typing import Iterator
+from typing import Any, Iterator, Mapping
 
 from parlant.core.common import generate_id
 
@@ -30,8 +30,17 @@ class ContextualCorrelator:
             default="",
         )
 
+        self._properties = contextvars.ContextVar[Mapping[str, Any]](
+            f"correlator_{self._instance_id}_properties",
+            default={},
+        )
+
     @contextmanager
-    def correlation_scope(self, scope_id: str) -> Iterator[None]:
+    def scope(
+        self,
+        scope_id: str,
+        properties: Mapping[str, Any] = {},
+    ) -> Iterator[None]:
         current_scopes = self._scopes.get()
 
         if current_scopes:
@@ -39,14 +48,37 @@ class ContextualCorrelator:
         else:
             new_scopes = scope_id
 
-        reset_token = self._scopes.set(new_scopes)
+        current_properties = self._properties.get()
+        new_properties = {**current_properties, **properties}
+
+        scopes_reset_token = self._scopes.set(new_scopes)
+        properties_reset_token = self._properties.set(new_properties)
 
         yield
 
-        self._scopes.reset(reset_token)
+        self._scopes.reset(scopes_reset_token)
+        self._properties.reset(properties_reset_token)
+
+    @contextmanager
+    def properties(
+        self,
+        properties: Mapping[str, Any],
+    ) -> Iterator[None]:
+        current_properties = self._properties.get()
+        new_properties = {**current_properties, **properties}
+
+        properties_reset_token = self._properties.set(new_properties)
+
+        yield
+
+        self._properties.reset(properties_reset_token)
 
     @property
     def correlation_id(self) -> str:
         if scopes := self._scopes.get():
             return scopes
         return "<main>"
+
+    def get(self, property_name: str) -> Any | None:
+        properties = self._properties.get()
+        return properties.get(property_name, None)

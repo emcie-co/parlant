@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License")
 # You may not use this file except in compliance with the License.
@@ -11,18 +11,55 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa
 
 from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, cast
 import numpy as np
-from typing_extensions import override, Self
+from typing_extensions import override
+
+import logging
+
+orig_basicConfig = logging.basicConfig
+orig_getLogger = logging.getLogger
+
+
+# nano_vectordb overrides logging's basicConfig and stuff... :S
+# So we need to protect it for a minute while importing
+def _null_basicConfig(*args: Any, **kwargs: Any) -> None:
+    pass
+
+
+class _NullLogger:
+    def info(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def debug(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+def _null_getLogger(*args: Any, **kwargs: Any) -> object:
+    return _NullLogger()
+
+
+logging.basicConfig = _null_basicConfig  # type: ignore
+logging.getLogger = _null_getLogger  # type: ignore
 
 import nano_vectordb  # type: ignore
 
+logging.basicConfig = orig_basicConfig
+logging.getLogger = orig_getLogger
+# Back to business
+
 from parlant.core.common import JSONSerializable
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory
+from parlant.core.nlp.embedding import (
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCache,
+    EmbeddingCacheProvider,
+)
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ensure_is_total, matches_filters, Where
 from parlant.core.persistence.vector_database import (
@@ -42,24 +79,15 @@ class TransientVectorDatabase(VectorDatabase):
         self,
         logger: Logger,
         embedder_factory: EmbedderFactory,
+        embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
         self._embedder_factory = embedder_factory
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._databases: dict[str, nano_vectordb.NanoVectorDB] = {}
         self._collections: dict[str, TransientVectorCollection[BaseDocument]] = {}
         self._metadata: dict[str, JSONSerializable] = {}
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> None:
-        pass
 
     @override
     async def create_collection(
@@ -81,6 +109,7 @@ class TransientVectorDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=embedder,
+            embedding_cache_provider=self._embedding_cache_provider,
         )
 
         return cast(TransientVectorCollection[TDocument], self._collections[name])
@@ -120,6 +149,7 @@ class TransientVectorDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=self._embedder_factory.create_embedder(embedder_type),
+            embedding_cache_provider=self._embedding_cache_provider,
         )
 
         return cast(TransientVectorCollection[TDocument], self._collections[name])
@@ -164,11 +194,13 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
         name: str,
         schema: type[TDocument],
         embedder: Embedder,
+        embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
         self._name = name
         self._schema = schema
         self._embedder = embedder
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._lock = asyncio.Lock()
         self._nano_db = nano_db
@@ -215,7 +247,19 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
     ) -> InsertResult:
         ensure_is_total(document, self._schema)
 
-        embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+        if e := await self._embedding_cache_provider().get(
+            embedder_type=type(self._embedder),
+            texts=[document["content"]],
+        ):
+            embeddings = list(e.vectors)
+        else:
+            embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+            await self._embedding_cache_provider().set(
+                embedder_type=type(self._embedder),
+                texts=[document["content"]],
+                vectors=embeddings,
+            )
+
         vector = np.array(embeddings[0], dtype=np.float32)
 
         data = {**document, "__id__": document["id"], "__vector__": vector}
@@ -237,9 +281,22 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             for i, doc in enumerate(self._documents):
                 if matches_filters(filters, doc):
                     if "content" in params:
-                        embeddings = list((await self._embedder.embed([params["content"]])).vectors)
+                        content = params["content"]
                     else:
-                        embeddings = list((await self._embedder.embed([doc["content"]])).vectors)
+                        content = str(doc["content"])
+
+                    if e := await self._embedding_cache_provider().get(
+                        embedder_type=type(self._embedder),
+                        texts=[content],
+                    ):
+                        embeddings = list(e.vectors)
+                    else:
+                        embeddings = list((await self._embedder.embed([content])).vectors)
+                        await self._embedding_cache_provider().set(
+                            embedder_type=type(self._embedder),
+                            texts=[content],
+                            vectors=embeddings,
+                        )
 
                     vector = np.array(embeddings[0], dtype=np.float32)
                     data = {**params, "__id__": doc["id"], "__vector__": vector}
@@ -314,12 +371,22 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             )
         ]
 
-        self._logger.debug(f"Similar documents found\n{json.dumps(docs, indent=2)}")
+        self._logger.trace(f"Similar documents found\n{json.dumps(docs, indent=2)}")
+
+        # FIXME: Distances here are fake (rank → normalized 0–0.8).
+        # Proper cosine distance should be computed.
+        # Currently NanoDB doesn’t return similarity scores or embeddings, so
+        # this is only a placeholder for ordering. Replace once real scores
+        # are implemented in the database client.
+        n = len(docs)
+
+        def distance_formula(i: int) -> float:
+            return ((i / (n - 1)) * 0.8) if n > 1 else 0.8
 
         return [
             SimilarDocumentResult(
                 document=cast(TDocument, d),
-                distance=i,
+                distance=distance_formula(i),
             )
             for i, d in enumerate(docs)
         ]

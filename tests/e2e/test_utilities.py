@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
+import socket
 import traceback
 import httpx
 import logging
@@ -26,7 +27,7 @@ import sys
 import time
 from typing import Any, AsyncIterator, Iterator, Optional, TypedDict, cast
 
-from tests.test_utilities import SERVER_ADDRESS, SERVER_PORT
+from tests.test_utilities import SERVER_BASE_URL, get_random_port
 
 
 class _ServiceDTO(TypedDict):
@@ -62,12 +63,32 @@ class ContextOfTest:
     api: API
 
 
-def is_server_responsive(port: int) -> bool:
-    if _output_view := subprocess.getoutput(f"lsof -i:{port}"):
-        print(_output_view)
-        return True
+def _wait_for_port_ready(
+    server_address: str,
+    max_attempts: int = 40,
+    initial_delay: float = 0.1,
+) -> None:
+    """Wait for the server port to be ready to accept connections."""
+    # Parse the server address to get host and port
+    host, port_str = server_address.rsplit(":", 1)
+    if "://" in host:
+        host = host.split("://")[1]
+    port = int(port_str)
 
-    return False
+    delay = initial_delay
+
+    for attempt in range(max_attempts):
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                return  # Server is ready
+        except (socket.error, ConnectionRefusedError, OSError):
+            pass  # Server not ready yet
+
+        if attempt == max_attempts - 1:
+            raise RuntimeError(f"Server failed to become ready after {max_attempts} attempts")
+
+        time.sleep(delay)
+        delay = min(delay * 1.3, 2.0)  # Exponential backoff with max 2s
 
 
 @contextmanager
@@ -75,16 +96,14 @@ def run_server(
     context: ContextOfTest,
     extra_args: list[str] = [],
 ) -> Iterator[subprocess.Popen[str]]:
-    if is_server_responsive(int(SERVER_PORT)):
-        raise Exception(f"Server already running on chosen port {SERVER_PORT}")
-
     exec_args = [
         "poetry",
         "run",
         "python",
         CLI_SERVER_PATH.as_posix(),
+        "run",
         "-p",
-        str(SERVER_PORT),
+        str(context.api.get_port()),
     ]
 
     exec_args.extend(extra_args)
@@ -92,51 +111,73 @@ def run_server(
     caught_exception: Exception | None = None
 
     try:
-        with subprocess.Popen(
+        process = subprocess.Popen(
             args=exec_args,
             text=True,
             stdout=sys.stdout,
             stderr=sys.stdout,
             env={**os.environ, "PARLANT_HOME": context.home_dir.as_posix()},
-        ) as process:
-            try:
-                yield process
-            except Exception as exc:
-                caught_exception = exc
+        )
 
-            if process.poll() is not None:
-                return
-
-            process.send_signal(signal.SIGINT)
-
-            for _ in range(5):
-                if process.poll() is not None:
-                    return
-                time.sleep(0.5)
-
-            process.terminate()
-
-            for _ in range(5):
-                if process.poll() is not None:
-                    return
-                time.sleep(0.5)
-
-            LOGGER.error(
-                "Server process had to be killed. stderr="
-                + (process.stderr and process.stderr.read() or "None")
-            )
-
-            process.kill()
-            process.wait()
+        try:
+            _wait_for_port_ready(context.api.server_address)
+            yield process
+        except Exception as exc:
+            caught_exception = exc
 
     finally:
+        if process is not None:
+            try:
+                # First try a graceful shutdown (SIGINT)
+                if process.poll() is None:
+                    process.send_signal(signal.SIGINT)
+
+                for _ in range(10):
+                    if process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+
+                # If still running, try terminating (SIGTERM)
+                if process.poll() is None:
+                    process.terminate()
+
+                for _ in range(5):
+                    if process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+
+                # If still running, force kill
+                if process.poll() is None:
+                    LOGGER.error(
+                        "Server process had to be killed. stderr="
+                        + (process.stderr and process.stderr.read() or "None")
+                    )
+                    process.kill()
+                    process.wait(timeout=5)
+
+            except Exception as e:
+                LOGGER.error(f"Error while shutting down server process: {e}")
+                # Make sure process is killed as a last resort
+                try:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=1)
+                except Exception:
+                    pass
+
         if caught_exception:
             raise caught_exception
 
 
 class API:
-    def __init__(self, server_address: str = SERVER_ADDRESS) -> None:
-        self.server_address = server_address
+    def __init__(self) -> None:
+        self.set_port(get_random_port(10000, 50000))
+
+    def set_port(self, port: int) -> None:
+        self.server_address = f"{SERVER_BASE_URL}:{port}"
+
+    def get_port(self) -> int:
+        return int(self.server_address.split(":")[-1])
 
     @asynccontextmanager
     async def make_client(
@@ -501,31 +542,31 @@ class API:
         extra: Optional[dict[str, Any]] = {},
     ) -> Any:
         async with self.make_client() as client:
-            respone = await client.post("/customers", json={"name": name, "extra": extra})
-            respone.raise_for_status()
+            response = await client.post("/customers", json={"name": name, "extra": extra})
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def list_customers(
         self,
     ) -> Any:
         async with self.make_client() as client:
-            respone = await client.get("/customers")
-            respone.raise_for_status()
+            response = await client.get("/customers")
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def read_customer(self, id: str) -> Any:
         async with self.make_client() as client:
-            respone = await client.get(f"/customers/{id}")
-            respone.raise_for_status()
+            response = await client.get(f"/customers/{id}")
+            response.raise_for_status()
 
-        return respone.json()
+        return response.json()
 
     async def add_customer_tag(self, id: str, tag_id: str) -> None:
         async with self.make_client() as client:
-            respone = await client.patch(f"/customers/{id}", json={"tags": {"add": [tag_id]}})
-            respone.raise_for_status()
+            response = await client.patch(f"/customers/{id}", json={"tags": {"add": [tag_id]}})
+            response.raise_for_status()
 
     async def create_evaluation(self, agent_id: str, payloads: Any) -> Any:
         async with self.make_client() as client:
@@ -544,10 +585,11 @@ class API:
             evaluation_response.raise_for_status()
             return evaluation_response.json()
 
-    async def list_fragments(self) -> Any:
+    async def list_canned_responses(self) -> Any:
         async with self.make_client() as client:
-            fragments_reponse = await client.get(
-                "/fragments",
+            response = await client.get(
+                "/canned_responses",
             )
-            fragments_reponse.raise_for_status()
-            return fragments_reponse.json()
+
+            response.raise_for_status()
+            return response.json()

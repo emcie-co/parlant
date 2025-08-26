@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,9 +34,16 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.engines.alpha.canned_response_generator import (
+    CannedResponseDraftSchema,
+    CannedResponseSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+    JourneyNodeSelectionSchema,
+)
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_caller import ToolCallInferenceSchema
-from parlant.core.loggers import Logger
+from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
+from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -82,13 +89,16 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tokenizer_model_name: str | None = None,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
-        self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
+        self._tokenizer = OpenAIEstimatingTokenizer(
+            model_name=tokenizer_model_name or self.model_name
+        )
 
     @property
     @override
@@ -111,7 +121,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                     APIResponseValidationError,
                 ),
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -121,7 +131,9 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope("OpenAISchematicGenerator"):
-            with self._logger.operation(f"LLM Request ({self.schema.__name__})"):
+            with self._logger.operation(
+                f"LLM Request ({self.schema.__name__})", level=LogLevel.TRACE
+            ):
                 return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -150,7 +162,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
@@ -190,7 +202,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                 raise
 
             if response.usage:
-                self._logger.debug(response.usage.model_dump_json(indent=2))
+                self._logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 
@@ -223,6 +235,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                         ),
                     ),
                 )
+
             except ValidationError as e:
                 self._logger.error(
                     f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
@@ -243,6 +256,20 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="gpt-4o-2024-08-06", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_4_1(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gpt-4.1",
+            logger=logger,
+            tokenizer_model_name="gpt-4o-2024-11-20",
+        )
 
     @property
     @override
@@ -292,7 +319,7 @@ class OpenAIEmbedder(Embedder):
                     APIResponseValidationError,
                 ),
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -372,7 +399,7 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("OpenAI Moderation Request"):
+        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.TRACE):
             response = await self._client.moderations.create(
                 input=content,
                 model=self.model_name,
@@ -400,6 +427,18 @@ class OmniModeration(OpenAIModerationService):
 
 
 class OpenAIService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            return """\
+You're using the OpenAI NLP service, but OPENAI_API_KEY is not set.
+Please set OPENAI_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,
@@ -409,9 +448,12 @@ class OpenAIService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        if t == ToolCallInferenceSchema:
-            return GPT_4o[t](self._logger)  # type: ignore
-        return GPT_4o_24_08_06[t](self._logger)  # type: ignore
+        return {
+            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+            JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+            CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+            CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+        }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

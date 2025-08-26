@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
 from enum import Enum
-import dateutil
-import dateutil.parser
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Request, status
 from pydantic import Field
 from typing import Annotated, Optional, Sequence, TypeAlias
 
+from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
+from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.tags import TagId, TagStore
 
@@ -52,14 +50,6 @@ AgentDescriptionField: TypeAlias = Annotated[
         default=None,
         description="Detailed description of the agent's purpose and capabilities",
         examples=["Technical Support Assistant"],
-    ),
-]
-
-AgentCreationUTCField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="UTC timestamp of when the agent was created",
-        examples=[dateutil.parser.parse("2024-03-24T12:00:00Z")],
     ),
 ]
 
@@ -116,15 +106,15 @@ class CompositionModeDTO(Enum):
 
     Available options:
     - fluid
-    - strict_assembly
-    - composited_assembly
-    - fluid_assembly
+    - canned_fluid
+    - composited_canned
+    - strict_canned
     """
 
     FLUID = "fluid"
-    STRICT_ASSEMBLY = "strict_assembly"
-    COMPOSITED_ASSEMBLY = "composited_assembly"
-    FLUID_ASSEMBLY = "fluid_assembly"
+    CANNED_FLUID = "canned_fluid"
+    CANNED_COMPOSITED = "composited_canned"
+    CANNED_STRICT = "strict_canned"
 
 
 class AgentDTO(
@@ -143,7 +133,6 @@ class AgentDTO(
     id: AgentIdPath
     name: AgentNameField
     description: Optional[AgentDescriptionField] = None
-    creation_utc: AgentCreationUTCField
     max_engine_iterations: AgentMaxEngineIterationsField
     composition_mode: CompositionModeDTO
     tags: AgentTagsField
@@ -229,7 +218,34 @@ class AgentUpdateParamsDTO(
     tags: Optional[AgentTagUpdateParamsDTO] = None
 
 
+def _composition_mode_dto_to_composition_mode(dto: CompositionModeDTO) -> CompositionMode:
+    match dto:
+        case CompositionModeDTO.FLUID:
+            return CompositionMode.FLUID
+        case CompositionModeDTO.CANNED_STRICT:
+            return CompositionMode.CANNED_STRICT
+        case CompositionModeDTO.CANNED_COMPOSITED:
+            return CompositionMode.CANNED_COMPOSITED
+        case CompositionModeDTO.CANNED_FLUID:
+            return CompositionMode.CANNED_FLUID
+
+
+def _composition_mode_to_composition_mode_dto(
+    composition_mode: CompositionMode,
+) -> CompositionModeDTO:
+    match composition_mode:
+        case CompositionMode.FLUID:
+            return CompositionModeDTO.FLUID
+        case CompositionMode.CANNED_STRICT:
+            return CompositionModeDTO.CANNED_STRICT
+        case CompositionMode.CANNED_COMPOSITED:
+            return CompositionModeDTO.CANNED_COMPOSITED
+        case CompositionMode.CANNED_FLUID:
+            return CompositionModeDTO.CANNED_FLUID
+
+
 def create_router(
+    policy: AuthorizationPolicy,
     agent_store: AgentStore,
     tag_store: TagStore,
 ) -> APIRouter:
@@ -252,6 +268,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="create"),
     )
     async def create_agent(
+        request: Request,
         params: AgentCreationParamsDTO,
     ) -> AgentDTO:
         """
@@ -265,6 +282,11 @@ def create_router(
         - `description` defaults to `None`
         - `max_engine_iterations` defaults to `None` (uses system default)
         """
+        await policy.authorize(
+            request=request,
+            operation=Operation.CREATE_AGENT,
+        )
+
         tags = []
 
         if params.tags:
@@ -277,7 +299,7 @@ def create_router(
             name=params and params.name or "Unnamed Agent",
             description=params and params.description or None,
             max_engine_iterations=params and params.max_engine_iterations or None,
-            composition_mode=params.composition_mode.value
+            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
             if params and params.composition_mode
             else None,
             tags=tags or None,
@@ -289,7 +311,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -305,13 +327,18 @@ def create_router(
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_agents() -> Sequence[AgentDTO]:
+    async def list_agents(request: Request) -> Sequence[AgentDTO]:
         """
         Retrieves a list of all agents in the system.
 
         Returns an empty list if no agents exist.
         Agents are returned in no guaranteed order.
         """
+        await policy.authorize(
+            request=request,
+            operation=Operation.LIST_AGENTS,
+        )
+
         agents = await agent_store.list_agents()
 
         return [
@@ -321,7 +348,7 @@ def create_router(
                 description=a.description,
                 creation_utc=a.creation_utc,
                 max_engine_iterations=a.max_engine_iterations,
-                composition_mode=CompositionModeDTO(a.composition_mode),
+                composition_mode=_composition_mode_to_composition_mode_dto(a.composition_mode),
                 tags=a.tags,
             )
             for a in agents
@@ -343,20 +370,31 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="retrieve"),
     )
     async def read_agent(
+        request: Request,
         agent_id: AgentIdPath,
     ) -> AgentDTO:
         """
         Retrieves details of a specific agent by ID.
         """
+        await policy.authorize(
+            request=request,
+            operation=Operation.READ_AGENT,
+        )
+
         agent = await agent_store.read_agent(agent_id=agent_id)
+
+        if await policy.check_permission(request, Operation.READ_AGENT_DESCRIPTION):
+            description = agent.description
+        else:
+            description = None
 
         return AgentDTO(
             id=agent.id,
             name=agent.name,
-            description=agent.description,
+            description=description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -379,6 +417,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="update"),
     )
     async def update_agent(
+        request: Request,
         agent_id: AgentIdPath,
         params: AgentUpdateParamsDTO,
     ) -> AgentDTO:
@@ -388,6 +427,10 @@ def create_router(
         Only the provided attributes will be updated; others will remain unchanged.
         The agent's ID and creation timestamp cannot be modified.
         """
+        await policy.authorize(
+            request=request,
+            operation=Operation.UPDATE_AGENT,
+        )
 
         def from_dto(dto: AgentUpdateParamsDTO) -> AgentUpdateParams:
             params: AgentUpdateParams = {}
@@ -402,7 +445,9 @@ def create_router(
                 params["max_engine_iterations"] = dto.max_engine_iterations
 
             if dto.composition_mode:
-                params["composition_mode"] = dto.composition_mode.value
+                params["composition_mode"] = _composition_mode_dto_to_composition_mode(
+                    dto.composition_mode
+                )
 
             return params
 
@@ -434,7 +479,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=CompositionModeDTO(agent.composition_mode),
+            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -453,6 +498,7 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="delete"),
     )
     async def delete_agent(
+        request: Request,
         agent_id: AgentIdPath,
     ) -> None:
         """
@@ -461,6 +507,11 @@ def create_router(
         Deleting a non-existent agent will return 404.
         No content will be returned from a successful deletion.
         """
+        await policy.authorize(
+            request=request,
+            operation=Operation.DELETE_AGENT,
+        )
+
         await agent_store.read_agent(agent_id=agent_id)
 
         await agent_store.delete_agent(agent_id=agent_id)

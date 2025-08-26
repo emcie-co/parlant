@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +13,14 @@
 # limitations under the License.
 
 from __future__ import annotations
+import base64
+from collections import defaultdict
+from enum import Enum
+import asyncio
 import hashlib
 from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+from typing_extensions import Self
+
 import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
 import semver  # type: ignore
@@ -62,6 +68,7 @@ JSONSerializable: TypeAlias = Union[
     Optional[Mapping[str, "JSONSerializable"]],
     Optional[Sequence["JSONSerializable"]],
 ]
+"""A JSON-serializable value."""
 
 UniqueId = NewType("UniqueId", str)
 
@@ -116,11 +123,63 @@ class ItemNotFoundError(Exception):
             super().__init__(f"Item '{item_id}' not found")
 
 
+class CancellationSuppressionLatch:
+    def __init__(self) -> None:
+        self._suppressed = False
+        self._task = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> bool:
+        if (
+            self._suppressed
+            and exc_type is not None
+            and issubclass(exc_type, asyncio.CancelledError)
+        ):
+            return True
+        return False
+
+    def enable(self) -> None:
+        self._suppressed = True
+
+
+id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+class IdGenerator:
+    def __init__(self) -> None:
+        self._unique_checksums: dict[str, int] = defaultdict(int)
+
+    def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
+        h = hashlib.md5(unique_str.encode("utf-8")).digest()
+        b64 = base64.urlsafe_b64encode(h).decode()
+        id = "".join([c for c in b64 if c in id_generation_alphabet])[:size]
+
+        if len(id) < size:
+            raise ValueError(
+                f"Generated ID '{id}' is shorter than expected size {size}. "
+                "This may indicate an issue with the input string or the ID generation logic. "
+                "Please open an issue at https://github.com/emcie-co/parlant"
+            )
+
+        return id
+
+    def generate(self, content_checksum: str) -> UniqueId:
+        self._unique_checksums[content_checksum] += 1
+        unique_str = f"{content_checksum}-{self._unique_checksums[content_checksum]}"
+
+        new_id = self._generate_deterministic_id(unique_str, size=10)
+        return UniqueId(new_id)
+
+
 def generate_id() -> UniqueId:
-    while True:
-        new_id = nanoid.generate(size=10)
-        if "-" not in (new_id[0], new_id[-1]) and "_" not in new_id:
-            return UniqueId(new_id)
+    return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 
 
 def md5_checksum(input: str) -> str:
@@ -128,3 +187,12 @@ def md5_checksum(input: str) -> str:
     md5_hash.update(input.encode("utf-8"))
 
     return md5_hash.hexdigest()
+
+
+def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
+    def adapt_value(v: Any) -> Any:
+        if isinstance(v, Enum):
+            return v.value
+        return v
+
+    return {k: adapt_value(v) for k, v in d.items()}

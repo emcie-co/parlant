@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 import asyncio
 import os
 import time
-from typing import Any, cast
+from typing import Any
 import dateutil
 from fastapi import status
 import httpx
@@ -23,17 +23,16 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from parlant.core.engines.alpha.fluid_message_generator import FluidMessageSchema
-from parlant.core.fragments import FragmentStore
-from parlant.core.nlp.service import NLPService
-from parlant.core.tags import Tag
+from parlant.core.common import generate_id
+from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.tools import ToolResult
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams
+from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
 from parlant.core.async_utils import Timeout
 from parlant.core.customers import CustomerId
 from parlant.core.sessions import (
+    AgentState,
+    EventKind,
     EventSource,
-    MessageEventData,
     SessionId,
     SessionListener,
     SessionStore,
@@ -41,14 +40,10 @@ from parlant.core.sessions import (
 
 from tests.test_utilities import (
     create_agent,
-    create_context_variable,
     create_customer,
     create_guideline,
     create_session,
-    create_term,
     post_message,
-    read_reply,
-    set_context_variable_value,
 )
 
 
@@ -61,12 +56,12 @@ async def long_session_id(
         container,
         session_id,
         [
-            make_event_params("customer"),
-            make_event_params("ai_agent"),
-            make_event_params("customer"),
-            make_event_params("ai_agent"),
-            make_event_params("ai_agent"),
-            make_event_params("customer"),
+            make_event_params(EventSource.CUSTOMER),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.CUSTOMER),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.AI_AGENT),
+            make_event_params(EventSource.CUSTOMER),
         ],
     )
 
@@ -80,7 +75,8 @@ async def strict_agent_id(
     agent_store = container[AgentStore]
     agent = await agent_store.create_agent(name="strict_test_agent")
     await agent_store.update_agent(
-        agent.id, params=AgentUpdateParams(composition_mode="strict_assembly")
+        agent.id,
+        params=AgentUpdateParams(composition_mode=CompositionMode.CANNED_STRICT),
     )
     return agent.id
 
@@ -88,13 +84,14 @@ async def strict_agent_id(
 def make_event_params(
     source: EventSource,
     data: dict[str, Any] = {},
-    kind: str = "custom",
+    kind: EventKind = EventKind.CUSTOM,
+    correlation_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "source": source,
         "kind": kind,
         "creation_utc": str(datetime.now(timezone.utc)),
-        "correlation_id": "dummy_correlation_id",
+        "correlation_id": correlation_id or generate_id(),
         "data": data,
         "deleted": False,
     }
@@ -121,11 +118,14 @@ def event_is_according_to_params(
     event: dict[str, Any],
     params: dict[str, Any],
 ) -> bool:
-    tested_properties = ["source", "kind", "data"]
+    if "source" in params:
+        assert EventSource(event["source"]) == params["source"]
 
-    for p in tested_properties:
-        if event[p] != params[p]:
-            return False
+    if "kind" in params:
+        assert EventKind(event["kind"]) == params["kind"]
+
+    if "data" in params:
+        assert event["data"] == params["data"]
 
     return True
 
@@ -357,6 +357,24 @@ async def test_that_title_can_be_updated(
     assert session_dto["title"] == "new session title"
 
 
+async def test_that_mode_can_be_updated(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session_id}",
+                json={"mode": "manual"},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["mode"] == "manual"
+
+
 async def test_that_deleting_a_nonexistent_session_returns_404(
     async_client: httpx.AsyncClient,
 ) -> None:
@@ -435,8 +453,8 @@ async def test_that_deleting_a_session_also_deletes_its_events(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -461,11 +479,11 @@ async def test_that_events_can_be_listed(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -487,11 +505,11 @@ async def test_that_events_can_be_filtered_by_offset(
     offset: int,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -544,8 +562,8 @@ async def test_that_posting_problematic_messages_with_moderation_enabled_causes_
         f"/sessions/{session_id}/events",
         params={"moderation": "auto"},
         json={
-            "kind": "message",
-            "source": "customer",
+            "kind": EventKind.MESSAGE.value,
+            "source": EventSource.CUSTOMER.value,
             "message": "Fuck all those guys",
         },
     )
@@ -760,11 +778,11 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     session_id: SessionId,
 ) -> None:
     session_events = [
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
-        make_event_params("ai_agent"),
-        make_event_params("customer"),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.CUSTOMER),
     ]
     await populate_session_id(container, session_id, session_events)
 
@@ -790,153 +808,41 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     assert all(e["offset"] > event_to_delete["offset"] for e in remaining_events) is False
 
 
-async def test_that_a_message_can_be_inspected(
+async def test_that_delete_events_raises_if_not_first_of_correlation_id(
     async_client: httpx.AsyncClient,
     container: Container,
-    agent_id: AgentId,
+    session_id: SessionId,
 ) -> None:
-    customer = await create_customer(
-        container=container,
-        name="John Smith",
+    correlation_id = generate_id()
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "first"},
+            correlation_id=correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "second"},
+            correlation_id=correlation_id,
+        ),
+    ]
+    await populate_session_id(container, session_id, session_events)
+
+    events = (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    assert len(events) == 2
+    first_event = events[0]
+    second_event = events[1]
+    assert first_event["correlation_id"] == correlation_id
+    assert second_event["correlation_id"] == correlation_id
+
+    response = await async_client.delete(
+        f"/sessions/{session_id}/events?min_offset={second_event['offset']}"
     )
-
-    session = await create_session(
-        container=container,
-        agent_id=agent_id,
-        customer_id=customer.id,
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert (
+        response.json()["detail"]
+        == "Cannot delete events with offset < min_offset unless they are the first event of their correlation ID"
     )
-
-    guideline = await create_guideline(
-        container=container,
-        agent_id=agent_id,
-        condition="a customer mentions cows",
-        action="answer like a cow while mentioning the customer's full name",
-        tool_function=get_cow_uttering,
-    )
-
-    term = await create_term(
-        container=container,
-        agent_id=agent_id,
-        name="Flubba",
-        description="A type of cow",
-        synonyms=["Bobo"],
-    )
-
-    context_variable = await create_context_variable(
-        container=container,
-        name="Customer full name",
-        tags=[Tag.for_agent_id(agent_id)],
-    )
-
-    await set_context_variable_value(
-        container=container,
-        variable_id=context_variable.id,
-        key=session.customer_id,
-        data=customer.name,
-    )
-
-    customer_event = await post_message(
-        container=container,
-        session_id=session.id,
-        message="Bobo!",
-        response_timeout=Timeout(60),
-    )
-
-    reply_event = await read_reply(
-        container=container,
-        session_id=session.id,
-        customer_event_offset=customer_event.offset,
-    )
-
-    trace = (
-        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
-        .raise_for_status()
-        .json()["trace"]
-    )
-
-    assert customer.name in cast(MessageEventData, reply_event.data)["message"]
-
-    iterations = trace["preparation_iterations"]
-    assert len(iterations) >= 1
-
-    assert len(iterations[0]["guideline_matches"]) == 1
-    assert iterations[0]["guideline_matches"][0]["guideline_id"] == guideline.id
-    assert iterations[0]["guideline_matches"][0]["condition"] == guideline.content.condition
-    assert iterations[0]["guideline_matches"][0]["action"] == guideline.content.action
-
-    assert len(iterations[0]["tool_calls"]) == 1
-    assert "get_cow_uttering" in iterations[0]["tool_calls"][0]["tool_id"]
-    assert iterations[0]["tool_calls"][0]["result"]["data"] == "moo"
-
-    assert len(iterations[0]["terms"]) == 1
-    assert iterations[0]["terms"][0]["name"] == term.name
-    assert iterations[0]["terms"][0]["description"] == term.description
-    assert iterations[0]["terms"][0]["synonyms"] == term.synonyms
-
-    assert len(iterations[0]["context_variables"]) == 1
-    assert iterations[0]["context_variables"][0]["name"] == context_variable.name
-    assert iterations[0]["context_variables"][0]["key"] == customer.id
-    assert iterations[0]["context_variables"][0]["value"] == customer.name
-
-
-async def test_that_a_message_is_generated_using_the_active_nlp_service(
-    async_client: httpx.AsyncClient,
-    container: Container,
-    agent_id: AgentId,
-) -> None:
-    nlp_service = container[NLPService]
-
-    customer = await create_customer(
-        container=container,
-        name="John Smith",
-    )
-
-    session = await create_session(
-        container=container,
-        agent_id=agent_id,
-        customer_id=customer.id,
-    )
-
-    _ = await create_guideline(
-        container=container,
-        agent_id=agent_id,
-        condition="a customer asks what the cow says",
-        action="answer 'Woof Woof'",
-    )
-
-    customer_event = await post_message(
-        container=container,
-        session_id=session.id,
-        message="What does the cow say?!",
-        response_timeout=Timeout(60),
-    )
-
-    reply_event = await read_reply(
-        container=container,
-        session_id=session.id,
-        customer_event_offset=customer_event.offset,
-    )
-
-    inspection_data = (
-        (await async_client.get(f"/sessions/{session.id}/events/{reply_event.id}"))
-        .raise_for_status()
-        .json()["trace"]
-    )
-
-    assert "Woof Woof" in cast(MessageEventData, reply_event.data)["message"]
-
-    message_generation_inspections = inspection_data["message_generations"]
-    assert len(message_generation_inspections) >= 1
-
-    assert message_generation_inspections[0]["generation"]["schema_name"] == "FluidMessageSchema"
-
-    schematic_generator = await nlp_service.get_schematic_generator(FluidMessageSchema)
-    assert message_generation_inspections[0]["generation"]["model"] == schematic_generator.id
-
-    assert message_generation_inspections[0]["generation"]["usage"]["input_tokens"] > 0
-
-    assert "Woof Woof" in message_generation_inspections[0]["messages"][0]
-    assert message_generation_inspections[0]["generation"]["usage"]["output_tokens"] >= 2
 
 
 async def test_that_an_agent_message_can_be_regenerated(
@@ -946,11 +852,11 @@ async def test_that_an_agent_message_can_be_regenerated(
     agent_id: AgentId,
 ) -> None:
     session_events = [
-        make_event_params("customer", data={"content": "Hello"}),
-        make_event_params("ai_agent", data={"content": "Hi, how can I assist you?"}),
-        make_event_params("customer", data={"content": "What's the weather today?"}),
-        make_event_params("ai_agent", data={"content": "It's sunny and warm."}),
-        make_event_params("customer", data={"content": "Thank you!"}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "Hello"}),
+        make_event_params(EventSource.AI_AGENT, data={"content": "Hi, how can I assist you?"}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "What's the weather today?"}),
+        make_event_params(EventSource.AI_AGENT, data={"content": "It's sunny and warm."}),
+        make_event_params(EventSource.CUSTOMER, data={"content": "Thank you!"}),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -985,7 +891,7 @@ async def test_that_an_agent_message_can_be_regenerated(
 
     await container[SessionListener].wait_for_events(
         session_id=session_id,
-        kinds=["message"],
+        kinds=[EventKind.MESSAGE],
         correlation_id=event["correlation_id"],
     )
 
@@ -1007,7 +913,7 @@ async def test_that_an_agent_message_can_be_regenerated(
     assert "cold" in events[0]["data"]["message"].lower()
 
 
-async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
+async def test_that_an_agent_message_can_be_generated_on_demand(
     async_client: httpx.AsyncClient,
     session_id: SessionId,
 ) -> None:
@@ -1018,10 +924,10 @@ async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
                 json={
                     "kind": "message",
                     "source": "ai_agent",
-                    "actions": [
+                    "guidelines": [
                         {
-                            "action": "Tell the user that you're thinking and will be right back with an answer",
-                            "reason": "buy_time",
+                            "action": "Tell the user you'll be back in a minute, and in the meantime offer them a Pepsi",
+                            "rationale": "buy_time",
                         }
                     ],
                 },
@@ -1047,15 +953,15 @@ async def test_that_an_agent_message_can_be_generated_from_utterance_requests(
 
     assert len(events) == 1
     assert events[0]["id"] == event["id"]
-    assert "thinking" in events[0]["data"]["message"].lower()
+    assert "pepsi" in events[0]["data"]["message"].lower()
 
 
-async def test_that_an_event_with_fragments_can_be_generated(
+async def test_that_an_event_with_canned_responses_can_be_generated(
     async_client: httpx.AsyncClient,
     container: Container,
     strict_agent_id: AgentId,
 ) -> None:
-    fragment_store = container[FragmentStore]
+    canrep_store = container[CannedResponseStore]
 
     customer = await create_customer(
         container=container,
@@ -1068,9 +974,7 @@ async def test_that_an_event_with_fragments_can_be_generated(
         customer_id=customer.id,
     )
 
-    fragment = await fragment_store.create_fragment(
-        value="Greetings from Booga booga hotel!", fields=[]
-    )
+    canrep = await canrep_store.create_canned_response(value="Hello, how can I assist?", fields=[])
 
     customer_event = await post_message(
         container=container,
@@ -1097,6 +1001,246 @@ async def test_that_an_event_with_fragments_can_be_generated(
     assert len(events) == 1
 
     event = events[0]
-    assert event["data"].get("fragments")
+    assert event["data"].get("canned_responses")
 
-    assert any(fragment.id == id for id, _ in event["data"]["fragments"])
+    assert any(canrep.id == id for id, _ in event["data"]["canned_responses"])
+
+
+async def test_that_agent_state_is_deleted_when_deleting_events(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    session_store = container[SessionStore]
+
+    first_event_correlation_id = generate_id()
+    second_event_correlation_id = generate_id()
+    third_event_correlation_id = generate_id()
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "Hello"},
+            correlation_id=first_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "Hi, how can I assist you?"},
+            correlation_id=first_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "What's the weather today?"},
+            correlation_id=second_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "It's sunny and warm."},
+            correlation_id=second_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            data={"content": "Thank you!"},
+            correlation_id=third_event_correlation_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            data={"content": "You're welcome!"},
+            correlation_id=third_event_correlation_id,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+    await session_store.update_session(
+        session_id=session_id,
+        params={
+            "agent_states": [
+                AgentState(
+                    correlation_id=first_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+                AgentState(
+                    correlation_id=second_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+                AgentState(
+                    correlation_id=third_event_correlation_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+            ]
+        },
+    )
+
+    initial_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
+
+    event_to_delete = initial_events[2]
+
+    (
+        await async_client.delete(
+            f"/sessions/{session_id}/events?min_offset={event_to_delete['offset']}"
+        )
+    ).raise_for_status()
+
+    session = await session_store.read_session(session_id)
+
+    assert len(session.agent_states) == 1
+
+
+async def test_that_a_custom_event_can_be_read(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    custom_event_data = {
+        "account_balance": "999",
+        "currency": "dollars",
+    }
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            data=custom_event_data,
+            kind=EventKind.CUSTOM,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+
+    data = (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+
+    assert len(data) == 1
+    event = data[0]
+    assert event["kind"] == EventKind.CUSTOM.value
+    assert event["source"] == EventSource.CUSTOMER.value
+    assert event["data"] == custom_event_data
+
+
+async def test_that_a_custom_event_can_be_created(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    session_store = container[SessionStore]
+
+    custom_event_data = {
+        "account_balance": "999",
+        "currency": "dollars",
+    }
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": EventKind.CUSTOM.value,
+            "source": EventSource.CUSTOMER.value,
+            "data": custom_event_data,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == EventKind.CUSTOM.value
+    assert event["source"] == EventSource.CUSTOMER.value
+    assert event["data"] == custom_event_data
+
+    events = await session_store.list_events(
+        session_id=session_id,
+        kinds=[EventKind.CUSTOM],
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == EventKind.CUSTOM
+    assert events[0].source == EventSource.CUSTOMER
+    assert events[0].data == custom_event_data
+
+
+async def test_that_human_agent_can_post_event_message(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "human_agent",
+            "message": "I'll take it from here.",
+            "participant": {"id": "agent_007", "display_name": "DorZo"},
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()
+    assert event["kind"] == "message"
+    assert event["source"] == "human_agent"
+    assert event["data"]["message"] == "I'll take it from here."
+    assert event["data"]["participant"]["display_name"] == "DorZo"
+
+    events = (
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert events
+    assert events[-1]["data"]["message"] == "I'll take it from here."
+
+
+async def test_that_posting_a_human_agent_message_requires_participant_display_name(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response_no_participant = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "human_agent",
+            "message": "Hello from human.",
+        },
+    )
+    assert response_no_participant.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+async def test_that_status_event_can_be_created(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "status",
+            "source": "human_agent",
+            "status": "processing",
+            "data": {"stage": "Fetching some legit data"},
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()
+    assert event["kind"] == "status"
+    assert event["source"] == "human_agent"
+    assert event["data"] == {"status": "processing", "data": {"stage": "Fetching some legit data"}}
+
+    events = (
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert events
+    assert events[-1]["data"] == {
+        "status": "processing",
+        "data": {"stage": "Fetching some legit data"},
+    }

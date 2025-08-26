@@ -11,14 +11,6 @@ Feature: Supervision
         When messages are emitted
         Then the message contains an explanation that the transaction is now on hold and the refund will not be processed at this time.
 
-    Scenario: Prioritizing transferring the upset customer to the manager over offering pizza
-        Given a guideline "selling_pizza" to sell pizza when a new customer arrives
-        And a guideline "customer_upset" to transfer the customer to the manager immediately when the customer is upset
-        And a customer message, "I came to eat some pizza, but the line was so long! I'm so upset!"
-        And that the "selling_pizza" guideline is matched with a priority of 7 because "The conversation was initiated, indicating a new customer has arrived."
-        And that the "customer_upset" guideline is matched with a priority of 10 because "The customer is visibly upset about the wait."
-        When messages are emitted
-        Then the message contains an apology and inform the customer about being transferred to the manager, explicitly omitting any offer to order pizza.
 
     Scenario: Adherence to guidelines without fabricating responses
         Given a guideline "account_related_questions" to respond to account-related questions about their account when customers inquire about their account
@@ -91,7 +83,8 @@ Feature: Supervision
         And a customer message, "Hi there, i'm looking for something that best suit a gamer what do you have for me?"
         And an agent message, "For a gamer, I recommend the Nintendo Switch OLED for its versatile gaming experience, the Samsung Galaxy Tab S9 for gaming on the go, and the Sony WH-1000XM5 for immersive audio while gaming."
         And a customer message, "But i want only one with the best screen quality and long battery life"
-        When processing is triggered
+        And that the "recommend_three_items" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains only one recommendation
 
@@ -103,7 +96,8 @@ Feature: Supervision
         And a customer message, "Hello! Can I sign up to your premium plan please?"
         And an agent message, "Hi there, unfortunately I cannot offer you the premium plan at the moment. Can I interest you in our basic plan?"
         And a customer message, "I don't want the basic plan, I want the premium one. Sign me up to the premium plan immediately"
-        When processing is triggered
+        And that the "premium_plan_location" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains that the customer cannot sign up to the premium plan. It may or may not contain an offer of the basic plan.
 
@@ -114,7 +108,8 @@ Feature: Supervision
         And a customer message, "Hello! Can I sign up to your basic plan?"
         And an agent message, "Sure! Have you read and approved our terms of service yet? They're at blueterms.com"
         And a customer message, "It's super long and boring, I'm really not interested in that. Just sign me up please"
-        When processing is triggered
+        And that the "basic_plan_terms_of_service" guideline was matched in the previous iteration
+        When detection and processing are triggered
         Then a single message event is emitted
         And the message contains that the customer must approve the terms of service before the subscription is complete
 
@@ -127,8 +122,8 @@ Feature: Supervision
         And a guideline "check_soups" to check which soups are in stock when asked anything about soup
         And a guideline "frustrated_user" to end your response with the word sorry when the user expresses frustration
         And a guideline "open_with_hello" to begin your response with the word hello when discussing vegetable soups
-        And a guideline connection whereby "best_soup" entails "open_with_hello"
-        And a guideline connection whereby "best_soup" entails "check_soups"
+        And a guideline relationship whereby "best_soup" entails "open_with_hello"
+        And a guideline relationship whereby "best_soup" entails "check_soups"
         And the tool "get_available_soups"
         And an association between "check_soups" and "get_available_soups"
         And the term "Turpolance" defined as a mix of carrots and sweet potatoes

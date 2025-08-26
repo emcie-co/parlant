@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +14,6 @@
 
 from __future__ import annotations
 import time
-from litellm import (
-    APIConnectionError,
-    APIResponseValidationError,
-    Timeout,
-    InternalServerError,
-    RateLimitError,
-)
 from typing import Any, Mapping
 from typing_extensions import override
 import json
@@ -36,7 +29,6 @@ from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
-from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
@@ -107,23 +99,10 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
     def tokenizer(self) -> LiteLLMEstimatingTokenizer:
         return self._tokenizer
 
-    @policy(
-        [
-            retry(
-                exceptions=(
-                    APIConnectionError,
-                    Timeout,
-                    RateLimitError,
-                    APIResponseValidationError,
-                ),
-            ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
-        ]
-    )
     @override
     async def generate(
         self,
-        prompt: str,
+        prompt: PromptBuilder | str,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.operation(f"LiteLLM Request ({self.schema.__name__})"):
@@ -141,28 +120,21 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             k: v for k, v in hints.items() if k in self.supported_litellm_params
         }
 
-        litellm_provider_url = os.environ["LITELLM_PROVIDER_URL"]
-        if litellm_provider_url:
-            litellm_api_arguments["api_base"] = litellm_provider_url
-
         t_start = time.time()
-        try:
-            response = self._client.completion(
-                api_key=os.environ["LITELLM_PROVIDER_API_KEY"],
-                messages=[{"role": "user", "content": prompt}],
-                model=self.model_name,
-                max_tokens=5000,
-                response_format={"type": "json_object"},
-                **litellm_api_arguments,
-            )
-        except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
-            raise
+
+        response = self._client.completion(
+            api_key=os.environ.get("LITELLM_PROVIDER_API_KEY"),
+            messages=[{"role": "user", "content": prompt}],
+            model=self.model_name,
+            max_tokens=5000,
+            response_format={"type": "json_object"},
+            **litellm_api_arguments,
+        )
 
         t_end = time.time()
 
         if response.usage:
-            self._logger.debug(response.usage.model_dump_json(indent=2))
+            self._logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
 
@@ -208,7 +180,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(
-            model_name=os.environ["LITELLM_PROVIDER_MODEL_NAME"],
+            model_name=os.environ.get("LITELLM_PROVIDER_MODEL_NAME"),  # type: ignore
             logger=logger,
         )
 
@@ -221,11 +193,28 @@ class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
 
 
 class LiteLLMService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("LITELLM_PROVIDER_MODEL_NAME"):
+            return """\
+You're using the LITELLM NLP service, but LITELLM_PROVIDER_MODEL_NAME is not set.
+Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlant.
+"""
+        if not os.environ.get("LITELLM_PROVIDER_API_KEY"):
+            return """\
+You're using the LITELLM NLP service, but LITELLM_PROVIDER_API_KEY is not set.
+Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,
     ) -> None:
-        self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
+        self._model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
         self._logger = logger
         self._logger.info("Initialized LiteLLMService")
 

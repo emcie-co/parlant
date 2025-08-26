@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -76,7 +76,7 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
                     RateLimitError,
                 ),
             ),
-            retry(InternalServerError, max_attempts=2, wait_times=(1.0, 5.0)),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override
@@ -109,6 +109,7 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
                     "json_schema": {
                         "schema": self.schema.model_json_schema(),
                         "name": self.schema.__name__,
+                        "strict": True,
                     },
                 },
                 **cerebras_api_arguments,
@@ -123,8 +124,8 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
 
         t_end = time.time()
 
-        if response.usage:
-            self._logger.debug(response.usage.model_dump_json(indent=2))
+        if response.usage:  # type: ignore
+            self._logger.trace(response.usage.model_dump_json(indent=2))  # type: ignore
 
         raw_content = response.choices[0].message.content or "{}"  # type: ignore
 
@@ -210,6 +211,18 @@ class Llama3_3_70B(CerebrasSchematicGenerator[T]):
 
 
 class CerebrasService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("CEREBRAS_API_KEY"):
+            return """\
+You're using the OpenAI NLP service, but CEREBRAS_API_KEY is not set.
+Please set CEREBRAS_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,

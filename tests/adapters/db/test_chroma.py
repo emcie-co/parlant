@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,21 +20,28 @@ import numpy as np
 from typing_extensions import Required
 from lagom import Container
 from pytest import fixture, raises
-from chromadb.api.types import IncludeEnum
 
 from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
-from parlant.core.common import Version, md5_checksum
+from parlant.core.common import IdGenerator, Version, md5_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import EmbedderFactory, NoOpEmbedder
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.tags import Tag, TagId
 from tests.test_utilities import SyncAwaiter
+
+
+async def _openai_embedder_type_provider() -> type[Embedder]:
+    return OpenAITextEmbedding3Large
+
+
+async def _no_op_embedder_type_provider() -> type[Embedder]:
+    return NoOpEmbedder
 
 
 class _TestDocument(TypedDict, total=False):
@@ -87,6 +94,7 @@ def create_database(context: _TestContext) -> ChromaDatabase:
         logger=context.container[Logger],
         dir_path=context.home_dir,
         embedder_factory=EmbedderFactory(context.container),
+        embedding_cache_provider=NullEmbeddingCache,
     )
 
 
@@ -351,15 +359,22 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
     container: Container,
     agent_id: AgentId,
 ) -> None:
+    async def embedder_type_provider() -> type[Embedder]:
+        return type(await container[NLPService].get_embedder())
+
     with tempfile.TemporaryDirectory() as temp_dir:
         async with ChromaDatabase(
-            container[Logger], Path(temp_dir), EmbedderFactory(container)
+            container[Logger],
+            Path(temp_dir),
+            EmbedderFactory(container),
+            embedding_cache_provider=NullEmbeddingCache,
         ) as chroma_db:
             async with GlossaryVectorStore(
+                id_generator=container[IdGenerator],
                 vector_db=chroma_db,
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(container),
-                embedder_type=type(await container[NLPService].get_embedder()),
+                embedder_type_provider=embedder_type_provider,
             ) as glossary_chroma_store:
                 bazoo = await glossary_chroma_store.create_term(
                     name="Bazoo",
@@ -376,29 +391,14 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
                     description="a type of horse",
                 )
 
-                await glossary_chroma_store.upsert_tag(
-                    term_id=kazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
-                await glossary_chroma_store.upsert_tag(
-                    term_id=shazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
-                await glossary_chroma_store.upsert_tag(
-                    term_id=bazoo.id,
-                    tag_id=Tag.for_agent_id(agent_id),
-                )
-
                 terms = await glossary_chroma_store.find_relevant_terms(
-                    ("walla " * 5000)
+                    query=("walla " * 5000)
                     + "Kazoo"
                     + ("balla " * 5000)
                     + "Shazoo"
                     + ("kalla " * 5000)
                     + "Bazoo",
-                    tags=[Tag.for_agent_id(agent_id)],
+                    available_terms=[bazoo, shazoo, kazoo],
                     max_terms=3,
                 )
 
@@ -421,10 +421,11 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
 ) -> None:
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
+            id_generator=IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type=NoOpEmbedder,
+            embedder_type_provider=_no_op_embedder_type_provider,
             allow_migration=False,
         ):
             metadata = await chroma_db.read_metadata()
@@ -597,15 +598,16 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
     context: _TestContext,
 ) -> None:
     async with create_database(context) as chroma_db:
-        await chroma_db.upsert_metadata("version", "NotRealVersion")
+        await chroma_db.upsert_metadata("version", "0.0.1")
 
     async with create_database(context) as chroma_db:
         with raises(MigrationRequired) as exc_info:
             async with GlossaryVectorStore(
+                IdGenerator(),
                 vector_db=chroma_db,
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(context.container),
-                embedder_type=NoOpEmbedder,
+                embedder_type_provider=_no_op_embedder_type_provider,
                 allow_migration=False,
             ):
                 pass
@@ -618,10 +620,11 @@ async def test_that_new_store_creates_metadata_with_correct_version(
 ) -> None:
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
+            IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder_type_provider=_openai_embedder_type_provider,
             allow_migration=False,
         ):
             metadata = await chroma_db.read_metadata()
@@ -636,10 +639,11 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
 ) -> None:
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
+            IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder_type_provider=_openai_embedder_type_provider,
             allow_migration=True,
         ) as store:
             term = await store.create_term(
@@ -654,14 +658,15 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
 
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
+            id_generator=IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type=NoOpEmbedder,
+            embedder_type_provider=_no_op_embedder_type_provider,
             allow_migration=True,
         ) as store:
             docs = chroma_db.chroma_client.get_collection(name="glossary_NoOpEmbedder").get(
-                include=[IncludeEnum.embeddings, IncludeEnum.metadatas]
+                include=["embeddings", "metadatas"]
             )
 
             assert docs["metadatas"]
@@ -739,10 +744,11 @@ async def test_that_in_filter_works_with_list_of_strings(
 ) -> None:
     async with create_database(context) as chroma_db:
         async with GlossaryVectorStore(
+            IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type=NoOpEmbedder,
+            embedder_type_provider=_no_op_embedder_type_provider,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
@@ -799,3 +805,31 @@ async def test_that_in_filter_works_with_list_of_strings(
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
             assert terms[2].id == third_term.id
+
+
+async def test_that_in_filter_works_with_single_tag(
+    context: _TestContext,
+) -> None:
+    async with create_database(context) as chroma_db:
+        async with GlossaryVectorStore(
+            id_generator=IdGenerator(),
+            vector_db=chroma_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=EmbedderFactory(context.container),
+            embedder_type_provider=_no_op_embedder_type_provider,
+            allow_migration=True,
+        ) as store:
+            first_term = await store.create_term(
+                name="Bazoo",
+                description="a type of cow",
+            )
+            await store.upsert_tag(
+                term_id=first_term.id,
+                tag_id=TagId("unique_tag"),
+            )
+
+            # Test with a single tag that matches one term
+            terms = await store.list_terms(tags=[TagId("unique_tag")])
+            assert len(terms) == 1
+            assert terms[0].id == first_term.id
+            assert terms[0].name == "Bazoo"

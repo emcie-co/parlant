@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 import asyncio
 import os
 import signal
-import traceback
 
 from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.services.tools.plugins import tool
@@ -61,63 +60,6 @@ async def test_that_the_server_starts_and_generates_a_message(
             agent_replies[0],
             "It greets the customer",
         )
-
-
-async def test_that_the_server_recovery_restarts_all_active_evaluation_tasks(
-    context: ContextOfTest,
-) -> None:
-    with run_server(context) as server_process:
-        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
-
-        agent_id = (await context.api.get_first_agent())["id"]
-
-        payloads = [
-            {
-                "kind": "guideline",
-                "guideline": {
-                    "content": {
-                        "condition": "the customer greets you",
-                        "action": "greet them back with 'Hello'",
-                    },
-                    "operation": "add",
-                    "coherence_check": True,
-                    "connection_proposition": True,
-                },
-            },
-            {
-                "kind": "guideline",
-                "guideline": {
-                    "content": {
-                        "condition": "the customer greeting you",
-                        "action": "greet them back with 'Hola'",
-                    },
-                    "operation": "add",
-                    "coherence_check": True,
-                    "connection_proposition": True,
-                },
-            },
-        ]
-
-        try:
-            evaluation = await context.api.create_evaluation(agent_id, payloads)
-
-            server_process.send_signal(signal.SIGINT)
-            server_process.wait(timeout=REASONABLE_AMOUNT_OF_TIME)
-            assert server_process.returncode == os.EX_OK
-        except:
-            traceback.print_exc()
-            raise
-
-    with run_server(context) as server_process:
-        EXTRA_TIME_TO_LET_THE_TASK_COMPLETE = 10
-        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME + EXTRA_TIME_TO_LET_THE_TASK_COMPLETE)
-
-        try:
-            evaluation = await context.api.read_evaluation(evaluation["id"])
-            assert evaluation["status"] == "completed"
-        except:
-            traceback.print_exc()
-            raise
 
 
 async def test_that_guidelines_are_loaded_after_server_restarts(
@@ -254,3 +196,50 @@ async def test_that_server_starts_with_single_module(context: ContextOfTest) -> 
             agent_replies[0]["data"]["message"],
             "laptops and chairs",
         )
+
+
+async def test_that_read_session_is_not_rate_limited_in_production(
+    context: ContextOfTest,
+) -> None:
+    with run_server(context):
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
+
+        agent = await context.api.get_first_agent()
+
+    os.environ["PARLANT_ENV"] = "production"
+    with run_server(context):
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
+
+        session = await context.api.create_session(agent["id"])
+
+        for _ in range(5):
+            dto = await context.api.read_session(session["id"])
+            assert dto["id"] == session["id"]
+
+
+async def test_that_list_events_hits_rate_limit_in_production(context: ContextOfTest) -> None:
+    with run_server(context):
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
+
+        agent = await context.api.get_first_agent()
+
+    os.environ["PARLANT_ENV"] = "production"
+
+    with run_server(context):
+        await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
+
+        session = await context.api.create_session(agent["id"])
+
+        exceeded = False
+        last_exc_text = ""
+
+        for i in range(50):
+            try:
+                _ = await context.api.read_session(session_id=session["id"])
+            except Exception as exc:
+                exceeded = True
+                last_exc_text = str(exc)
+                break
+
+        assert exceeded, "Expected to exceed the READ_SESSION rate limit but did not."
+        assert "Rate limit exceeded" in last_exc_text or "429" in last_exc_text

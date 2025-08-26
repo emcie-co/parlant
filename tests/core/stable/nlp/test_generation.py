@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from typing import Any, Mapping, cast
 from typing_extensions import override
 from lagom import Container
@@ -23,7 +24,7 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import (
     BuiltInSection,
     PromptBuilder,
-    Section,
+    PromptSection,
     SectionStatus,
 )
 from parlant.core.loggers import Logger
@@ -229,7 +230,7 @@ async def test_that_retry_handles_multiple_exception_types(container: Container)
         success_result,
     ]
 
-    @policy([retry(exceptions=(FirstException, AnotherException), max_attempts=3)])
+    @policy([retry(exceptions=(FirstException, AnotherException), max_exceptions=3)])
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
@@ -250,7 +251,7 @@ async def test_that_retry_doesnt_catch_unspecified_exceptions(container: Contain
     mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
     mock_generator.generate.side_effect = UnexpectedException("Unexpected error")
 
-    @policy([retry(exceptions=(FirstException), max_attempts=3)])
+    @policy([retry(exceptions=(FirstException), max_exceptions=3)])
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
@@ -277,7 +278,7 @@ async def test_that_stacked_retry_decorators_exceed_max_attempts(container: Cont
         success_result,
     ]
 
-    @policy([retry(SecondException, max_attempts=3), retry(FirstException, max_attempts=3)])
+    @policy([retry(SecondException, max_exceptions=3), retry(FirstException, max_exceptions=3)])
     async def embed(text: str) -> EmbeddingResult:
         return cast(EmbeddingResult, await mock_embedder(text=text))
 
@@ -308,8 +309,8 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
         def tokenizer(self) -> EstimatingTokenizer:
             return ZeroEstimatingTokenizer()
 
-        def _build_agent_identity(self, section: Section) -> Section:
-            new_section = Section(
+        def _build_agent_identity(self, section: PromptSection) -> PromptSection:
+            new_section = PromptSection(
                 template="You are NOT {name}",
                 props=section.props,
                 status=section.status,
@@ -353,3 +354,55 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
 
     result = await mock_service.generate(builder.build())
     assert result.content.result == "You are Bob"
+
+
+async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
+    container: Container,
+) -> None:
+    concurrency = 10
+
+    success_result = SchematicGenerationResult(
+        content=DummySchema(result="Success"),
+        info=GenerationInfo(
+            schema_name="DummySchema",
+            model="not-real-model",
+            duration=1,
+            usage=UsageInfo(input_tokens=1, output_tokens=1),
+        ),
+    )
+
+    private_side_effects = [
+        FirstException("First failure"),
+        FirstException("Second failure"),
+        success_result,
+    ]
+
+    @policy(retry(exceptions=(FirstException,)))
+    async def generate(
+        mock_object: AsyncMock,
+        prompt: str,
+        hints: Mapping[str, Any],
+    ) -> SchematicGenerationResult[DummySchema]:
+        return cast(
+            SchematicGenerationResult[DummySchema],
+            await mock_object.generate(prompt=prompt, hints=hints),
+        )
+
+    # Create 5 tasks, each with a different mock object
+    tasks = []
+    mock_generators = []
+
+    for i in range(concurrency):
+        mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
+        mock_generator.generate.side_effect = private_side_effects
+
+        mock_generators.append(mock_generator)
+
+        tasks.append(generate(mock_object=mock_generator, prompt="test prompt", hints={"a": i}))
+
+    results = await asyncio.gather(*tasks)
+
+    for i in range(concurrency):
+        assert mock_generators[i].generate.await_count == 3
+        mock_generators[i].generate.assert_awaited_with(prompt="test prompt", hints={"a": i})
+        assert results[i].content.result == "Success"

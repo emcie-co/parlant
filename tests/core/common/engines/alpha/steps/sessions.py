@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
 from datetime import datetime, timezone
 import json
 from pytest_bdd import given, parsers
+from typing import cast
 
 from parlant.core.agents import Agent, AgentId
 from parlant.core.customers import Customer, CustomerStore
-from parlant.core.sessions import Session, SessionId, SessionStore
+from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -86,9 +87,9 @@ def given_a_session_with_a_single_customer_message(
     context.sync_await(
         store.create_event(
             session_id=new_session.id,
-            source="customer",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data={
                 "message": "Hey there",
                 "participant": {
@@ -113,9 +114,9 @@ def given_a_session_with_a_thirsty_customer(
     context.sync_await(
         store.create_event(
             session_id=new_session.id,
-            source="customer",
-            kind="message",
-            correlation_id="test_correlation_id",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            correlation_id="<main>",
             data={
                 "message": "I'm thirsty",
                 "participant": {
@@ -140,15 +141,15 @@ def given_a_session_with_a_few_messages(
 
     messages = [
         {
-            "source": "customer",
+            "source": EventSource.CUSTOMER,
             "message": "hey there",
         },
         {
-            "source": "ai_agent",
+            "source": EventSource.AI_AGENT,
             "message": "Hi, how can I help you today?",
         },
         {
-            "source": "customer",
+            "source": EventSource.CUSTOMER,
             "message": "What was the first name of the famous Einstein?",
         },
     ]
@@ -157,11 +158,13 @@ def given_a_session_with_a_few_messages(
         context.sync_await(
             store.create_event(
                 session_id=new_session.id,
-                source=m["source"] == "ai_agent" and "ai_agent" or "customer",
-                kind="message",
-                correlation_id="test_correlation_id",
+                source=m["source"] == EventSource.AI_AGENT
+                and EventSource.AI_AGENT
+                or EventSource.CUSTOMER,
+                kind=EventKind.MESSAGE,
+                correlation_id="<main>",
                 data={
-                    "message": m["message"],
+                    "message": cast(str, m["message"]),
                     "participant": {
                         "customer": {
                             "id": customer.id,
@@ -171,7 +174,7 @@ def given_a_session_with_a_few_messages(
                             "id": agent.id,
                             "display_name": agent.name,
                         },
-                    }[m["source"]],
+                    }[cast(EventSource, m["source"]).value],
                 },
             )
         )
@@ -195,9 +198,9 @@ def given_a_session_with_tool_event(
     context.sync_await(
         store.create_event(
             session_id=session.id,
-            source="ai_agent",
-            kind="tool",
-            correlation_id="test_correlation_id",
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            correlation_id="<main>",
             data=json.loads(tool_event_data),
         )
     )

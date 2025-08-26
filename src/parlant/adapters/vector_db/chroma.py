@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,11 +18,21 @@ from pathlib import Path
 from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
 from typing_extensions import override, Self
 import chromadb
+from chromadb.api.collection_configuration import (
+    CreateCollectionConfiguration,
+    CreateHNSWConfiguration,
+)
+
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
 from parlant.core.loggers import Logger
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder
+from parlant.core.nlp.embedding import (
+    Embedder,
+    EmbedderFactory,
+    EmbeddingCacheProvider,
+    NoOpEmbedder,
+)
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
     BaseDocument,
@@ -43,6 +53,7 @@ class ChromaDatabase(VectorDatabase):
         logger: Logger,
         dir_path: Path,
         embedder_factory: EmbedderFactory,
+        embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._dir_path = dir_path
         self._logger = logger
@@ -50,6 +61,8 @@ class ChromaDatabase(VectorDatabase):
 
         self.chroma_client: chromadb.api.ClientAPI
         self._collections: dict[str, ChromaCollection[BaseDocument]] = {}
+
+        self._embedding_cache_provider = embedding_cache_provider
 
     async def __aenter__(self) -> Self:
         self.chroma_client = chromadb.PersistentClient(str(self._dir_path))
@@ -146,7 +159,7 @@ class ChromaDatabase(VectorDatabase):
         if docs := collection.get()["metadatas"]:
             for doc in docs:
                 if doc["id"] not in unembedded_docs_by_id:
-                    collection.delete(where={"id": doc["id"]})
+                    collection.delete(where={"id": cast(str, doc["id"])})
                 else:
                     if doc["checksum"] != unembedded_docs_by_id[doc["id"]]["checksum"]:
                         embeddings = list(
@@ -160,7 +173,7 @@ class ChromaDatabase(VectorDatabase):
                         collection.update(
                             ids=[str(doc["id"])],
                             documents=[cast(str, unembedded_docs_by_id[doc["id"]]["content"])],
-                            metadatas=[cast(chromadb.Metadata, unembedded_docs_by_id[doc["id"]])],
+                            metadatas=unembedded_docs_by_id[doc["id"]],
                             embeddings=embeddings,
                         )
                     unembedded_docs_by_id.pop(doc["id"])
@@ -190,6 +203,9 @@ class ChromaDatabase(VectorDatabase):
             name=self.format_collection_name(name, embedder_type),
             metadata={"version": 1},
             embedding_function=None,
+            configuration=CreateCollectionConfiguration(
+                hnsw=CreateHNSWConfiguration(space="cosine")
+            ),
         )
 
         unembedded_collection = self.chroma_client.create_collection(
@@ -205,6 +221,7 @@ class ChromaDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=self._embedder_factory.create_embedder(embedder_type),
+            embedding_cache_provider=self._embedding_cache_provider,
             version=1,
         )
 
@@ -244,6 +261,9 @@ class ChromaDatabase(VectorDatabase):
                 name=self.format_collection_name(name, embedder_type),
                 metadata={"version": 1},
                 embedding_function=None,
+                configuration=CreateCollectionConfiguration(
+                    hnsw=CreateHNSWConfiguration(space="cosine")
+                ),
             )
 
             await self._index_collection(
@@ -264,6 +284,7 @@ class ChromaDatabase(VectorDatabase):
                 name=name,
                 schema=schema,
                 embedder=self._embedder_factory.create_embedder(embedder_type),
+                embedding_cache_provider=self._embedding_cache_provider,
                 version=1,
             )
             return cast(ChromaCollection[TDocument], self._collections[name])
@@ -307,6 +328,9 @@ class ChromaDatabase(VectorDatabase):
         ) or self.chroma_client.create_collection(
             name=self.format_collection_name(name, embedder_type),
             metadata={"version": 1},
+            configuration=CreateCollectionConfiguration(
+                hnsw=CreateHNSWConfiguration(space="cosine")
+            ),
         )
 
         self._collections[name] = ChromaCollection(
@@ -321,6 +345,7 @@ class ChromaDatabase(VectorDatabase):
             name=name,
             schema=schema,
             embedder=self._embedder_factory.create_embedder(embedder_type),
+            embedding_cache_provider=self._embedding_cache_provider,
             version=1,
         )
 
@@ -424,12 +449,14 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         name: str,
         schema: type[TDocument],
         embedder: Embedder,
+        embedding_cache_provider: EmbeddingCacheProvider,
         version: int,
     ) -> None:
         self._logger = logger
         self._name = name
         self._schema = schema
         self._embedder = embedder
+        self._embedding_cache_provider = embedding_cache_provider
         self._version = version
 
         self._lock = ReaderWriterLock()
@@ -469,7 +496,18 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
     ) -> InsertResult:
         ensure_is_total(document, self._schema)
 
-        embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+        if e := await self._embedding_cache_provider().get(
+            embedder_type=type(self._embedder),
+            texts=[document["content"]],
+        ):
+            embeddings = list(e.vectors)
+        else:
+            embeddings = list((await self._embedder.embed([document["content"]])).vectors)
+            await self._embedding_cache_provider().set(
+                embedder_type=type(self._embedder),
+                texts=[document["content"]],
+                vectors=embeddings,
+            )
 
         async with self._lock.writer_lock:
             self._version += 1
@@ -511,11 +549,24 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
                 doc = docs[0]
 
                 if "content" in params:
-                    embeddings = list((await self._embedder.embed([params["content"]])).vectors)
+                    content = params["content"]
                     document = params["content"]
                 else:
-                    embeddings = list((await self._embedder.embed([str(doc["content"])])).vectors)
+                    content = str(doc["content"])
                     document = str(doc["content"])
+
+                if e := await self._embedding_cache_provider().get(
+                    embedder_type=type(self._embedder),
+                    texts=[content],
+                ):
+                    embeddings = list(e.vectors)
+                else:
+                    embeddings = list((await self._embedder.embed([content])).vectors)
+                    await self._embedding_cache_provider().set(
+                        embedder_type=type(self._embedder),
+                        texts=[content],
+                        vectors=embeddings,
+                    )
 
                 updated_document = {**doc, **params}
 
@@ -551,7 +602,18 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
             elif upsert:
                 ensure_is_total(params, self._schema)
 
-                embeddings = list((await self._embedder.embed([params["content"]])).vectors)
+                if e := await self._embedding_cache_provider().get(
+                    embedder_type=type(self._embedder),
+                    texts=[params["content"]],
+                ):
+                    embeddings = list(e.vectors)
+                else:
+                    embeddings = list((await self._embedder.embed([params["content"]])).vectors)
+                    await self._embedding_cache_provider().set(
+                        embedder_type=type(self._embedder),
+                        texts=[params["content"]],
+                        vectors=embeddings,
+                    )
 
                 self._version += 1
 
@@ -647,7 +709,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
             if not docs["metadatas"]:
                 return []
 
-            self._logger.debug(
+            self._logger.trace(
                 f"Similar documents found\n{json.dumps(docs['metadatas'][0], indent=2)}"
             )
 

@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ from parlant.core.application import Application
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.guidelines import GuidelineStore
-from parlant.core.sessions import Session, SessionStore
+from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolResult
 
@@ -128,13 +128,13 @@ async def test_that_a_new_customer_session_with_a_proactive_agent_contains_a_mes
     assert await context.app.wait_for_update(
         session_id=session.id,
         min_offset=0,
-        kinds=["message"],
+        kinds=[EventKind.MESSAGE],
         timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
     )
 
     events = list(await context.container[SessionStore].list_events(session.id))
 
-    assert len([e for e in events if e.kind == "message"]) == 1
+    assert len([e for e in events if e.kind == EventKind.MESSAGE]) == 1
 
 
 async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emitted(
@@ -143,7 +143,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
 ) -> None:
     event = await context.app.post_event(
         session_id=session.id,
-        kind="message",
+        kind=EventKind.MESSAGE,
         data={
             "message": "Hey there",
             "participant": {
@@ -155,7 +155,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     await context.app.wait_for_update(
         session_id=session.id,
         min_offset=1 + event.offset,
-        kinds=["message"],
+        kinds=[EventKind.MESSAGE],
         timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
     )
 
@@ -170,7 +170,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
 ) -> None:
     event = await context.app.post_event(
         session_id=session.id,
-        kind="message",
+        kind=EventKind.MESSAGE,
         data={
             "message": "Hey there",
             "participant": {
@@ -200,7 +200,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
     for m in messages:
         await context.app.post_event(
             session_id=session.id,
-            kind="message",
+            kind=EventKind.MESSAGE,
             data={
                 "message": m,
                 "participant": {
@@ -214,7 +214,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
     await asyncio.sleep(REASONABLE_AMOUNT_OF_TIME)
 
     events = list(await context.container[SessionStore].list_events(session.id))
-    message_events = [e for e in events if e.kind == "message"]
+    message_events = [e for e in events if e.kind == EventKind.MESSAGE]
 
     assert len(message_events) == 4
     assert await nlp_test(str(message_events[-1].data), "It talks about pineapples")
@@ -238,7 +238,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
 
     event = await context.app.post_event(
         session_id=session.id,
-        kind="message",
+        kind=EventKind.MESSAGE,
         data={
             "message": "I'm extremely dissatisfied with your service!",
             "participant": {
@@ -250,8 +250,8 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
     await context.app.wait_for_update(
         session_id=session.id,
         min_offset=event.offset,
-        kinds=["message"],
-        source="ai_agent",
+        kinds=[EventKind.MESSAGE],
+        source=EventSource.AI_AGENT,
         timeout=Timeout(30),
     )
 
@@ -259,3 +259,20 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
 
     assert session.mode == "auto"
     assert updated_session.mode == "manual"
+
+    event = await context.app.post_event(
+        session_id=session.id,
+        kind=EventKind.MESSAGE,
+        data={
+            "message": "Well?",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
+    )
+
+    assert not await context.app.wait_for_update(
+        session_id=session.id,
+        min_offset=event.offset + 1,
+        timeout=Timeout(3),
+    )

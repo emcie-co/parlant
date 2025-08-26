@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,13 +24,12 @@ from dataclasses import dataclass
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.entity_cq import EntityQueries
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.loggers import Logger
-from parlant.core.glossary import GlossaryStore
 from parlant.core.agents import Agent
 from parlant.core.services.indexing.common import ProgressReport
-from parlant.core.tags import Tag
 
 
 EVALUATION_BATCH_SIZE = 5
@@ -90,14 +89,14 @@ class CoherenceChecker:
         logger: Logger,
         conditions_test_schematic_generator: SchematicGenerator[ConditionsEntailmentTestsSchema],
         actions_test_schematic_generator: SchematicGenerator[ActionsContradictionTestsSchema],
-        glossary_store: GlossaryStore,
+        entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._conditions_entailment_checker = ConditionsEntailmentChecker(
-            logger, conditions_test_schematic_generator, glossary_store
+            logger, conditions_test_schematic_generator, entity_queries
         )
         self._actions_contradiction_checker = ActionsContradictionChecker(
-            logger, actions_test_schematic_generator, glossary_store
+            logger, actions_test_schematic_generator, entity_queries
         )
 
     async def propose_incoherencies(
@@ -194,11 +193,11 @@ class ConditionsEntailmentChecker:
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[ConditionsEntailmentTestsSchema],
-        glossary_store: GlossaryStore,
+        entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._glossary_store = glossary_store
+        self._entity_queries = entity_queries
 
     async def evaluate(
         self,
@@ -438,9 +437,9 @@ Expected Output:
         )
 
         builder.add_agent_identity(agent)
-        terms = await self._glossary_store.find_relevant_terms(
+        terms = await self._entity_queries.find_glossary_terms_for_context(
+            agent_id=agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
-            tags=[Tag.for_agent_id(agent.id)],
         )
         builder.add_glossary(terms)
 
@@ -478,11 +477,11 @@ class ActionsContradictionChecker:
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[ActionsContradictionTestsSchema],
-        glossary_store: GlossaryStore,
+        entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator
-        self._glossary_store = glossary_store
+        self._entity_queries = entity_queries
 
     async def evaluate(
         self,
@@ -690,9 +689,9 @@ Expected Output:
             props={"formatted_task_description": self.get_task_description()},
         )
         builder.add_agent_identity(agent)
-        terms = await self._glossary_store.find_relevant_terms(
+        terms = await self._entity_queries.find_glossary_terms_for_context(
+            agent_id=agent.id,
             query=guideline_to_evaluate_text + comparison_candidates_text,
-            tags=[Tag.for_agent_id(agent.id)],
         )
         builder.add_glossary(terms)
 

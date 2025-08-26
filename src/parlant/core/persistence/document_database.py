@@ -1,4 +1,4 @@
-# Copyright 2024 Emcie Co Ltd.
+# Copyright 2025 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ from typing import (
     Sequence,
     TypeVar,
     TypedDict,
+    cast,
 )
 
 from parlant.core.persistence.common import ObjectId, Where
@@ -59,6 +60,15 @@ class DeleteResult(Generic[TDocument]):
 
 async def identity_loader(doc: BaseDocument) -> BaseDocument:
     return doc
+
+
+def identity_loader_for(
+    type_: type[TDocument],
+) -> Callable[[BaseDocument], Awaitable[Optional[TDocument]]]:
+    async def loader(doc: BaseDocument) -> Optional[TDocument]:
+        return cast(TDocument, doc)
+
+    return loader
 
 
 class DocumentDatabase(ABC):

@@ -930,7 +930,11 @@ You will now be given the current state of the interaction to which you must gen
                     latch.enable()
 
                 if generation_result:
-                    events += await output_messages(generation_result)
+                    emitted_events = await output_messages(generation_result)
+                    events += emitted_events
+                    context.staged_message_events = (
+                        list(context.staged_message_events) + emitted_events
+                    )
                     break
             except Exception as exc:
                 self._logger.warning(
@@ -953,7 +957,6 @@ You will now be given the current state of the interaction to which you must gen
                     ) = await self.generate_supplemental_response(
                         context=context,
                         last_response_generation=generation_result,
-                        canned_responses=responses,
                         temperature=supplemental_selection_attempt_temperatures[
                             supplemental_generation_attempt
                         ],
@@ -1893,14 +1896,24 @@ Example {i} - {shot.description}: ###
         canned_responses: Mapping[str, str],
         shots: Sequence[SupplementalCannedResponseSelectionShot],
     ) -> PromptBuilder:
-        last_agent_message: str = next(
+        outputted_message: str | None = next(
             (
-                str(cast(dict[str, str], e.data).get("message", ""))
-                for e in reversed(context.interaction_history)
-                if e.kind == EventKind.MESSAGE and e.source in {EventSource.AI_AGENT}
+                cast(Mapping[str, str], e.data).get("message", None)
+                for e in reversed(context.staged_message_events)
+                if e.source == EventSource.AI_AGENT
             ),
-            "",
+            None,
         )
+        if not outputted_message:
+            outputted_message = next(
+                (
+                    cast(Mapping[str, str], e.data).get("message", None)
+                    for e in reversed(context.interaction_history)
+                    if e.source == EventSource.AI_AGENT and e.kind == EventKind.MESSAGE
+                ),
+                None,
+            )
+
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
                 f"Supplemental Canned Response Selection Prompt:\n{prompt}"
@@ -1990,7 +2003,7 @@ Pre-approved reply templates: ###
 """,
             props={
                 "draft": draft_message,
-                "last_agent_message": last_agent_message,
+                "last_agent_message": outputted_message or "",
                 "formatted_canned_responses": formatted_canreps,
             },
         )
@@ -2017,7 +2030,7 @@ Output a JSON object with three properties:
 """,
             props={
                 "draft": draft_message,
-                "last_agent_message": last_agent_message,
+                "last_agent_message": outputted_message or "",
             },
         )
 
@@ -2029,7 +2042,6 @@ Output a JSON object with three properties:
         self,
         context: CannedResponseContext,
         last_response_generation: _CannedResponseSelectionResult,
-        canned_responses: Sequence[CannedResponse],
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         selection_result: Optional[_CannedResponseSelectionResult] = None

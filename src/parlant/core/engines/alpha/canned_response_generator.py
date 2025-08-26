@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO Ask if there's no debug prints on purpose
-
 
 from __future__ import annotations
 
@@ -923,16 +921,20 @@ You will now be given the current state of the interaction to which you must gen
                         supplemental_generation_attempt
                     ],
                 )
+
                 if latch:
                     latch.enable()
 
                 if generation_result:
                     emitted_events = await output_messages(generation_result)
                     events += emitted_events
+
                     context.staged_message_events = (
                         list(context.staged_message_events) + emitted_events
                     )
+
                     break
+
             except Exception as exc:
                 self._logger.warning(
                     f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -945,6 +947,7 @@ You will now be given the current state of the interaction to which you must gen
                 hints={"type": "supplemental-canned_response-selection"}
             )
         )
+
         for supplemental_generation_attempt in range(3):
             try:
                 if generation_result:
@@ -958,6 +961,7 @@ You will now be given the current state of the interaction to which you must gen
                             supplemental_generation_attempt
                         ],
                     )
+
                     if supp_canrep_response:
                         supplemental_response_events = await output_messages(supp_canrep_response)
                         events += supplemental_response_events
@@ -965,12 +969,15 @@ You will now be given the current state of the interaction to which you must gen
                             self._logger.debug(
                                 "Skipping supplemental response; no additional response deemed necessary"
                             )
+
                     return [
                         MessageEventComposition(
                             {**generation_info, **supp_canrep_generation_info}, events
                         )
                     ]
+
                 return [MessageEventComposition({**generation_info}, events)]
+
             except Exception as exc:
                 self._logger.warning(
                     f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
@@ -1839,22 +1846,6 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
     def _format_supplemental_generation_shot(
         self, shot: SupplementalCannedResponseSelectionShot
     ) -> str:
-        def adapt_event(e: Event) -> JSONSerializable:
-            source_map: dict[EventSource, str] = {
-                EventSource.CUSTOMER: "user",
-                EventSource.CUSTOMER_UI: "frontend_application",
-                EventSource.HUMAN_AGENT: "human_service_agent",
-                EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT: "ai_agent",
-                EventSource.AI_AGENT: "ai_agent",
-                EventSource.SYSTEM: "system-provided",
-            }
-
-            return {
-                "event_kind": e.kind.value,
-                "event_source": source_map[e.source],
-                "data": e.data,
-            }
-
         formatted_shot = ""
 
         formatted_shot += f"""
@@ -1973,6 +1964,7 @@ Some nuances regarding choosing the correct template:
 
  """,
         )
+
         builder.add_section(
             name="supplemental-canned-response-generator-selection-examples",
             template="""
@@ -2011,9 +2003,11 @@ Pre-approved reply templates: ###
                 "formatted_canned_responses": formatted_canreps,
             },
         )
+
         builder.add_guideliens_for_canrep_selection(
             list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
         )
+
         builder.add_section(
             name="supplemental-canned-response-generator-selection-output_format",
             template="""
@@ -2056,6 +2050,7 @@ Output a JSON object with three properties:
             outputted_canreps_ids = [
                 crid for (crid, canrep) in last_response_generation.chosen_canned_responses
             ]
+
             filtered_rendered_canreps: Sequence[tuple[CannedResponseId, str]] = [
                 (cid, canrep)
                 for cid, canrep in last_response_generation.rendered_canned_responses
@@ -2080,9 +2075,11 @@ Output a JSON object with three properties:
                 prompt=prompt,
                 hints={"temperature": temperature},
             )
+
             self._logger.trace(
                 f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )
+
             with open("supplemental canrep output.txt", "w") as f:
                 f.write(response.content.model_dump_json(indent=2))
                 f.write(f"Time: {response.info.duration} seconds")
@@ -2095,6 +2092,7 @@ Output a JSON object with three properties:
                 chosen_canrep = chronological_id_rendered_canreps.get(
                     response.content.additional_template_id, None
                 )
+
                 if chosen_canrep is None:
                     self._logger.warning(
                         "Supplemental canned response returned an Illegal canned response ID"
@@ -2246,5 +2244,3 @@ supplemental_generation_shots: Sequence[SupplementalCannedResponseSelectionShot]
     supp_generation_example_1_shot,
     supp_generation_example_2_shot,
 ]
-
-# TODO add few shot for not using template due to wrong information

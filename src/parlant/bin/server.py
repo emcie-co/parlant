@@ -1088,14 +1088,6 @@ def main() -> None:
         default=False,
     )
     @click.option(
-        "--litellm",
-        is_flag=True,
-        help="""Run with LiteLLM. The following environment variables must be set: LITELLM_PROVIDER_MODEL_NAME, LITELLM_PROVIDER_API_KEY.
-                Check this link https://docs.litellm.ai/docs/providers for additional environment variables required for your provider,
-                set them and install the extra package parlant[litellm].""",
-        default=False,
-    )
-    @click.option(
         "--log-level",
         type=click.Choice(["debug", "info", "warning", "error", "critical"]),
         default="info",

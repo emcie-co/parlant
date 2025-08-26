@@ -111,13 +111,10 @@ class CannedResponseSelectionSchema(DefaultBaseModel):
 
 
 class SupplementalCannedResponseSelectionSchema(DefaultBaseModel):
-    draft: Optional[str] = None
-    last_agent_message: Optional[str] = None
     remaining_message_draft: Optional[str] = None
     unsatisfied_guidelines: Optional[str | list[str]] = None
-    rationale: Optional[str] = None
+    tldr: Optional[str] = None
     additional_response_required: Optional[bool] = False
-    additional_template: Optional[str] = None
     additional_template_id: Optional[str] = None
     match_quality: Optional[str] = None
 
@@ -1950,13 +1947,12 @@ You are provided with a number of pre-approved templates to choose from. These t
 Perform your task as follows:
 1. Identify Unsatisfied Guidelines: Document which behavioral guidelines (instructions in the form of "when <X> then do <Y>" which you must follow) aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
 2. Analyze Coverage Gap: Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under the key "remaining_message_draft".
-3. Evaluate Need for Additional Response: Examine whether an additional response is required, and if so, which template best captures the remaining message draft. Document your thought process under the key "rationale".
+3. Evaluate Need for Additional Response: Examine whether an additional response is required, and if so, which template best captures the remaining message draft. Document your thought process under the key "tldr". Prefer brevity, use fewer words when possible.
  - Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available templates
  - If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft
 4. Make Decision: Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
-5. Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
-6. Select Template (if needed): If "additional_response_required" is "True", then choose the template that best captures the "remaining_message_draft". Restate the chosen template exactly as it is given in the prompt under the key "additional_template". Do not alter the provided template at all. Additionally, output the ID of your chosen template under the key "additional_template_id".
-7. Assess Match Quality: Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
+5. Select Template (if needed): If "additional_response_required" is True, then choose the template that best captures the "remaining_message_draft". Output the ID of your chosen template under the key "additional_template_id".
+6. Assess Match Quality: Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
     a. "low": You couldn't find a template that even comes close, or any such template also adds new information that is not in the draft.
     b. "partial": You found a template that conveys at least some of the draft message's content, without adding information that is not in the draft or the active guidelines.
     c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
@@ -2017,13 +2013,10 @@ OUTPUT FORMAT
 -----------------
 Output a JSON object with three properties:
 {{
-    "draft": "{draft}",
-    "last_agent_message": "{last_agent_message}",
     "remaining_message_draft": "<str, rephrasing of the part of the draft that isn't covered by the last outputted message>"
     "unsatisfied_guidelines": "<str, restatement of all guidelines that were not satisfied by the last outputted message>"
-    "rationale": "<str, explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
+    "tldr": "<str, brief explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
     "additional_response_required": <bool, if False, all remaining keys should be omitted>,
-    "additional_template": Optional[str] = "<str, exact restatement of the relevant template>",
     "additional_template_id": "<str, ID of the chosen template>",
     "match_quality": "<str, either "high", "partial" or "low" depending on how similar the chosen template is to the remaining message draft>",
 }}
@@ -2197,13 +2190,10 @@ draft_generation_shot_collection = ShotCollection[CannedResponseGeneratorDraftSh
 
 
 supp_generation_example_1_expected = SupplementalCannedResponseSelectionSchema(
-    draft="You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
-    last_agent_message="I can assist you with altering the status of your account, or you can call a human representative.",
     remaining_message_draft="You can call a human representative at 1-800-123-1234.",
     unsatisfied_guidelines="",
-    rationale="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
+    tldr="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
     additional_response_required=True,
-    additional_template="Our customer support number is 1-800-123-1234. You can call a human representative at this number.",
     additional_template_id="2",
     match_quality="high",
 )
@@ -2223,11 +2213,9 @@ supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
 
 
 supp_generation_example_2_expected = SupplementalCannedResponseSelectionSchema(
-    draft="The order will be shipped to you in 5-7 business days. Thank you for your purchase!",
-    last_agent_message="The order will be shipped to you in 5-7 business days",
     remaining_message_draft="Thank you for your purchase!",
     unsatisfied_guidelines="",
-    rationale="The remaining part of the draft does not contain any critical information, and no template matches it, so no further response is necessary.",
+    tldr="The remaining part of the draft does not contain any critical information, and no template matches it, so no further response is necessary.",
     additional_response_required=False,
 )
 

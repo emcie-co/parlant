@@ -122,6 +122,8 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             k: v for k, v in hints.items() if k in self.supported_litellm_params
         }
 
+
+        # The base URL for the LiteLLM provider API
         litellm_provider_url = os.environ.get("LITELLM_PROVIDER_URL")
         if litellm_provider_url:
             litellm_api_arguments["api_base"] = litellm_provider_url

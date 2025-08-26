@@ -286,12 +286,9 @@ def then_the_ith_message_contains(
     message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
     message = cast(MessageEventData, message_events[index - 1].data)["message"]
 
-    assert context.sync_await(
-        nlp_test(
-            context=f"Here's a message from an AI agent to a customer, in the context of a conversation: {message}",
-            condition=f"The message contains {something}",
-        )
-    ), f"message: '{message}', expected to contain: '{something}'"
+    assert (
+        something.lower() in message.lower()
+    ), f"message: '{message}', expected to contain the text: '{something}'"
 
 
 @step(then, parsers.parse("the message doesn't contains {something}"))

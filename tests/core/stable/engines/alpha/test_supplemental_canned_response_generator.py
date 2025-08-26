@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent, AgentStore, CompositionMode
-from parlant.core.canned_responses import CannedResponseId
+from parlant.core.canned_responses import CannedResponseId, CannedResponseStore
 from parlant.core.common import generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
@@ -110,7 +110,7 @@ async def base_test_that_correct_canrep_is_selected(
     temperature: float = 0.1,
 ) -> None:
     # Create response context
-    canned_responses = [
+    rendered_canned_responses = [
         (CannedResponseId(str(i)), canrep_text)
         for i, canrep_text in enumerate(canned_responses_text, start=1)
     ]
@@ -172,14 +172,24 @@ async def base_test_that_correct_canrep_is_selected(
     last_response_generation = _CannedResponseSelectionResult(
         message=last_agent_message,
         draft=last_generation_draft,
-        chosen_canned_responses=canned_responses,
+        rendered_canned_responses=rendered_canned_responses,
+        chosen_canned_responses=[(CannedResponseId("fake-id"), last_agent_message)],
     )
 
-    canrep_generator: CannedResponseGenerator = context.container[CannedResponseGenerator]
+    canrep_store = context.container[CannedResponseStore]
+    canreps = [
+        await canrep_store.create_canned_response(
+            value=canrep,
+            fields=[],
+        )
+        for canrep in canned_responses_text
+    ]  # TODO ask dor why I couldn't sync await this when it's done in other places
 
+    canrep_generator: CannedResponseGenerator = context.container[CannedResponseGenerator]
     _, response = await canrep_generator.generate_supplemental_response(
         context=supplemental_canrep_context,
         last_response_generation=last_response_generation,
+        canned_responses=canreps,
         temperature=temperature,
     )
     if target_canned_response:

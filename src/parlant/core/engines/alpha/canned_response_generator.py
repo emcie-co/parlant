@@ -826,14 +826,13 @@ You will now be given the current state of the interaction to which you must gen
 
                     if next_message := sub_messages[0] if sub_messages else None:
                         await self._perceived_performance_policy.get_follow_up_delay()
-
-                            await context.event_emitter.emit_status_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data={
-                                    "status": "typing",
-                                    "data": {},
-                                },
-                            )
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "typing",
+                                "data": {},
+                            },
+                        )
 
                         typing_speed_in_words_per_minute = 50
 
@@ -1490,7 +1489,8 @@ Output a JSON object with three properties:
             return {}, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
                 draft=None,
-                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
         else:
             await context.event_emitter.emit_status_event(

@@ -650,6 +650,7 @@ def main() -> None:
         "--litellm",
         is_flag=True,
         help="""Run with LiteLLM. The following environment variables must be set: LITELLM_PROVIDER_MODEL_NAME, LITELLM_PROVIDER_API_KEY. 
+                You should also set LITELLM_PROVIDER_URL if you're using self hosted llm supported by LiteLLM.
                 Check this link https://docs.litellm.ai/docs/providers for additional environment variables required for your provider,
                 set them and install the extra package parlant[litellm].""",
         default=False,

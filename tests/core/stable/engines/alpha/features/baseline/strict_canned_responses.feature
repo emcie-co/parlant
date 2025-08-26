@@ -385,7 +385,7 @@ Feature: Strict Canned Response
         And an agent message, "Do you prefer paying by cash or credit"
         And a customer message, "Credit"
         And a tool event with data, {"tool_calls": [{"tool_id": "built-in:book_taxi", "arguments": {"departure": "customer-home", "arrival": "customer-work", "time": "12:00:00"}, "result": {"data": "ORDER STATUS: Confirmed, awaiting pick up"}}]}
-        And a canned response, "ORDER STATUS: Confirmed, awaiting pick up"
+        And a canned response, "Yes please"
         And a canned response, "Let me check that for you"
         And a canned response, "Your order is confirmed! A driver will be dispatched to {{generative.departure_address}} at the provided time"
         And a canned response, "How many passengers are in your party?"

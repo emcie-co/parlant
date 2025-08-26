@@ -114,7 +114,7 @@ class SupplementalCannedResponseSelectionSchema(DefaultBaseModel):
     draft: Optional[str] = None
     last_agent_message: Optional[str] = None
     remaining_message_draft: Optional[str] = None
-    unsatisfied_guidelines: Optional[str] = None
+    unsatisfied_guidelines: Optional[str | list[str]] = None
     rationale: Optional[str] = None
     additional_response_required: Optional[bool] = False
     additional_template: Optional[str] = None
@@ -256,7 +256,7 @@ class ToolBasedFieldExtraction(CannedResponseFieldExtractionMethod):
         )
 
         for tool_call in tool_calls_in_order_of_importance:
-            if value := tool_call["result"]["canned_response_fields"].get(field_name, None):
+            if value := tool_call["result"].get("canned_response_fields", {}).get(field_name, None):
                 return True, value
 
         return False, None
@@ -1908,7 +1908,7 @@ Example {i} - {shot.description}: ###
         )
 
         formatted_canreps = "\n".join(
-            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses]
+            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses.items()]
         )
 
         builder.add_section(
@@ -2006,8 +2006,9 @@ Output a JSON object with three properties:
 {{
     "draft": "{draft}",
     "last_agent_message": "{last_agent_message}",
-    "remaining_message_draft": <str, rephrasing of the part of the draft that isn't covered by the last outputted message>
-    "rationale": <str, explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>,
+    "remaining_message_draft": "<str, rephrasing of the part of the draft that isn't covered by the last outputted message>"
+    "unsatisfied_guidelines": "<str, restatement of all guidelines that were not satisfied by the last outputted message>"
+    "rationale": "<str, explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
     "additional_response_required": <bool, if False, all remaining keys should be omitted>,
     "additional_template": Optional[str] = "<str, exact restatement of the relevant template>",
     "additional_template_id": "<str, ID of the chosen template>",
@@ -2088,9 +2089,10 @@ Output a JSON object with three properties:
 
                 selection_result = (
                     _CannedResponseSelectionResult(
-                        message=chosen_canrep.value,
+                        message=chosen_canrep[1],
                         draft=response.content.remaining_message_draft,
-                        chosen_canned_responses=[(chosen_canrep.id, chosen_canrep.value)],
+                        rendered_canned_responses=filtered_rendered_canreps,
+                        chosen_canned_responses=[chosen_canrep],
                     )
                     if chosen_canrep
                     else None

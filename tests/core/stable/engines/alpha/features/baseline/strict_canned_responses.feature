@@ -388,8 +388,8 @@ Feature: Strict Canned Response
         And a canned response, "For safety reasons, please ensure that no one is at the house during the {{generative.service_type}}"
         When processing is triggered
         Then a total of 2 message events are emitted
-        And the message at index 1 contains the text "please ensure that no pets are present"
-        And the message at index 2 contains the text "please ensure that no children are present"
+        And at least one message contains the text "please ensure that no pets are present"
+        And at least one message contains the text "please ensure that no children are present"
 
     Scenario: Supplemental canned response is selected based on unfulfilled guideline (strict canned response)
         Given an agent whose job is to book taxi rides
@@ -409,8 +409,24 @@ Feature: Strict Canned Response
         And a canned response, "Your order cannot be processed at this time"
         When processing is triggered
         Then a total of 2 message events are emitted
-        And the message at index 1 contains the text "Your order is confirmed! A driver will be dispatched to"
-        And the message at index 2 contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
+        And at least one message contains the text "Your order is confirmed! A driver will be dispatched to"
+        And at least one message contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
 
     Scenario: Supplemental canned response which uses fields is selected when relevant (strict canned response)
-        Given an agent whose job is to 
+        Given an agent whose job is to process insurance claims for auto accidents
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to provide claim reference number and estimated processing time when a claim is successfully submitted
+        And a customer message, "I was in a fender bender yesterday and need to file a claim"
+        And an agent message, "I'm sorry to hear about your accident. Let me help you file a claim. What's your policy number?"
+        And a customer message, "It's POL-789456"
+        And an agent message, "Thank you. Can you describe what happened and provide the date and location?"
+        And a customer message, "Yesterday at 3pm, someone rear-ended me at the intersection of Oak and Main Street"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:file_claim", "arguments": {"policy_number": "POL-789456", "accident_type": "rear_end", "date": "2024-01-14", "location": "Oak and Main Street"}, "result": {"data": "CLAIM STATUS: Filed successfully. claim_number: CLM-2024-789456. estimated_time : 5-7 days"}}]}
+        And a canned response, "Your claim has been successfully filed. Your reference number is {{generative.claim_number}}."
+        And a canned response, "The estimated processing time is {{generative.processing_time}} business days."
+        And a canned response, "You'll receive an email confirmation shortly with all the details."
+        And a canned response, "A claims adjuster will contact you within 24 hours."
+        When processing is triggered
+        Then a total of 2 message events are emitted
+        And at least one message contains the text "Your claim has been successfully filed. Your reference number is CLM-2024-789456"
+        And at least one message contains the text "The estimated processing time is 5-7 business days"

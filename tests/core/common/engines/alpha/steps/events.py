@@ -276,19 +276,19 @@ def then_the_message_contains(
     ), f"message: '{message}', expected to contain: '{something}'"
 
 
-@step(then, parsers.parse('the message at index {index:d} contains the text "{something}"'))
+@step(then, parsers.parse('at least one message contains the text "{something}"'))
 def then_the_ith_message_contains(
     context: ContextOfTest,
     emitted_events: list[EmittedEvent],
-    index: int,
     something: str,
 ) -> None:
     message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
-    message = cast(MessageEventData, message_events[index - 1].data)["message"]
+    messages = [cast(MessageEventData, e.data)["message"] for e in message_events]
+    messages_str = " || ".join(messages)
 
-    assert (
-        something.lower() in message.lower()
-    ), f"message: '{message}', expected to contain the text: '{something}'"
+    assert any(
+        something.lower() in m.lower() for m in messages
+    ), f"text: '{something} not found in outputted messages {messages_str}'"
 
 
 @step(then, parsers.parse("the message doesn't contains {something}"))

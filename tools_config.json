@@ -25,16 +25,9 @@
       },
       "required": ["q"]
     },
-    "api": {
-      "url": "https://api.openweathermap.org/data/2.5/weather",
-      "method": "GET",
-      "auth": [
-        {
-          "type": "query_param",
-          "key": "appid",
-          "value": "377637a8a6633d518b0eae6391887dbc"
-        }
-      ]
+    "endpoint": {
+      "url": "https://api.openweathermap.org/data/2.5/weather?appid=377637a8a6633d518b0eae6391887dbc",
+      "method": "GET"
     }
   },
   {
@@ -52,20 +45,19 @@
           "type": "string",
           "description": "Body content of the post",
           "examples": ["This is the content of my post", "Today I learned something new"]
-        },
-        "userId": {
-          "type": "integer",
-          "description": "User ID of the post author",
-          "examples": [1, 2, 3],
-          "default": 1
         }
       },
       "required": ["title", "body"]
     },
-    "api": {
+    "endpoint": {
       "url": "https://jsonplaceholder.typicode.com/posts",
       "method": "POST",
-      "auth": []
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "userId": 666
+      }
     }
   },
   {
@@ -85,12 +77,14 @@
           "examples": [1, 2, 3, 4, 5]
         }
       },
-      "required": ["postId"]
+      "required": ["postId", "id"]
     },
-    "api": {
+    "endpoint": {
       "url": "https://jsonplaceholder.typicode.com/posts/{postId}/comments?id={id}",
       "method": "GET",
-      "auth": []
+      "headers": {
+        "Content-Type": "application/json"
+      }
     }
   },
   {
@@ -115,15 +109,17 @@
           "type": "number",
           "description": "The amount of money to convert",
           "examples": [100, 200, 300],
-          "default": 100
+          "default": 1
         }
       },
-      "required": []
+      "required": ["base", "target", "amount"]
     },
-    "api": {
+    "endpoint": {
       "url": "https://v6.exchangerate-api.com/v6/9dd0f717def0b44c86ecdd95/pair/{base}/{target}/{amount}",
       "method": "GET",
-      "auth": []
+      "headers": {
+        "Content-Type": "application/json"
+      }
     }
   },
   {
@@ -139,79 +135,28 @@
           "default": "post"
         },
         "data": {
-          "type": "array",
-          "description": "Array of mixed data items - can include strings, numbers, objects, booleans, etc.",
-          "items": {
-            "oneOf": [
-              {"type": "string"},
-              {"type": "number"},
-              {"type": "boolean"},
-              {"type": "object"},
-              {"type": "array"}
-            ]
-          },
-          "examples": [
-            ["hello", 123, true, {"key": "value"}, [1, 2, 3]],
-            ["user123", 45.67, false, {"name": "John", "age": 30}],
-            [{"id": 1}, {"id": 2}, "separator", 999, ["tag1", "tag2"]]
-          ]
-        },
-        "metadata": {
-          "type": "object",
-          "description": "Additional metadata to send with the request",
-          "properties": {
-            "timestamp": {
-              "type": "string",
-              "description": "ISO timestamp"
-            },
-            "source": {
-              "type": "string",
-              "description": "Source identifier"
-            },
-            "tags": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Tags for categorization"
-            }
-          },
-          "examples": [
-            {
-              "timestamp": "2024-01-01T12:00:00Z",
-              "source": "api-test",
-              "tags": ["test", "mixed-data"]
-            }
-          ]
-        },
-        "test_mode": {
-          "type": "boolean",
-          "description": "Enable test mode for debugging",
-          "default": true
+          "type": "string",
+          "description": "Mixed data types to send to httpbin.org for testing"
         }
       },
-      "required": ["data"]
+      "required": ["endpoint", "data"]
     },
-    "api": {
+    "endpoint": {
       "url": "https://httpbin.org/{endpoint}",
       "method": "POST",
-      "auth": [
-        {
-          "type": "header",
-          "key": "Content-Type",
-          "value": "application/json"
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "metadata": {
+          "timestamp": "2024-01-01T12:00:00Z",
+          "source": "api-test",
+          "tags": ["test", "mixed-data"]
         },
-        {
-          "type": "header",
-          "key": "X-Test-Header",
-          "value": "mixed-array-test"
-        },
-        {
-          "type": "query_param",
-          "key": "show_env",
-          "value": "1"
-        }
-      ]
+        "data": "{data}",
+        "endpoint": "post",
+        "test_mode": true
+      }
     }
   }
 ]

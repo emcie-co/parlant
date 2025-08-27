@@ -1,0 +1,158 @@
+[
+  {
+    "name": "send_mixed_data_v2",
+    "description": "Send mixed data to httpbin.org (new endpoint format)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "The endpoint to use",
+          "enum": ["post", "put", "patch"],
+          "default": "post"
+        },
+        "data": {
+          "type": "array",
+          "description": "Array of mixed data items",
+          "examples": [
+            ["hello", 123, true, {"key": "value"}],
+            ["test", 456, false, {"name": "John"}]
+          ]
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User ID for the request",
+          "examples": ["user123", "admin"]
+        },
+        "session_token": {
+          "type": "string",
+          "description": "Session token for authentication",
+          "examples": ["token123", "bearer-xyz"]
+        }
+      },
+      "required": ["data", "user_id"]
+    },
+    "endpoint": {
+      "url": "https://httpbin.org/{endpoint}",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "User-Agent": "DynamicAPI/1.0",
+        "X-User-ID": "{user_id}",
+        "Authorization": "Bearer {session_token}"
+      },
+      "body": {
+        "metadata": {
+          "timestamp": "2024-01-01T12:00:00Z",
+          "source": "api-test",
+          "user": "{user_id}"
+        },
+        "data": "{data}",
+        "config": {
+          "endpoint": "{endpoint}",
+          "test_mode": true
+        }
+      }
+    }
+  },
+  {
+    "name": "create_content_v2",
+    "description": "Create content with complex nested structure",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "description": "Platform name",
+          "examples": ["blog", "forum", "wiki"]
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User ID",
+          "examples": ["user123", "john_doe"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Content title"
+        },
+        "content": {
+          "type": "string",
+          "description": "Main content"
+        },
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Content tags"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional metadata",
+          "properties": {
+            "category": {"type": "string"},
+            "priority": {"type": "integer"}
+          }
+        }
+      },
+      "required": ["platform", "user_id", "title", "content"]
+    },
+    "endpoint": {
+      "url": "https://api.example.com/v2/{platform}/users/{user_id}/content",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "X-Platform": "{platform}",
+        "X-User-ID": "{user_id}"
+      },
+      "body": {
+        "title": "{title}",
+        "content": "{content}",
+        "tags": "{tags}",
+        "metadata": "{metadata}",
+        "system_info": {
+          "created_by": "{user_id}",
+          "platform": "{platform}",
+          "version": "2.0"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_user_data_v2",
+    "description": "Get user data with flexible query parameters",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User ID to fetch",
+          "examples": ["123", "456"]
+        },
+        "fields": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Fields to include in response",
+          "examples": [["name", "email"], ["profile", "settings"]]
+        },
+        "include_history": {
+          "type": "boolean",
+          "description": "Include user history",
+          "default": false
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Limit number of results",
+          "default": 10
+        }
+      },
+      "required": ["user_id"]
+    },
+    "endpoint": {
+      "url": "https://api.example.com/v2/users/{user_id}",
+      "method": "GET",
+      "headers": {
+        "Accept": "application/json",
+        "X-API-Version": "2.0"
+      }
+    }
+  }
+]

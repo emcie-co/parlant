@@ -60,16 +60,160 @@ def load_tools_config(config_path: str = "tools_config.json") -> Dict[str, Any]:
         return []
 
 
+def validate_and_format_param(param_value: Any, param_schema: Dict[str, Any]) -> Any:
+    """根据 JSON Schema 验证和格式化参数
+    
+    支持的类型：
+    - 基础类型: string, number, integer, boolean, null
+    - 复合类型: array, object
+    - 组合类型: oneOf, anyOf, allOf
+    """
+    param_type = param_schema.get("type")
+    
+    # 处理字符串形式的数组和对象（来自框架的类型转换）
+    if isinstance(param_value, str):
+        if param_type == "array":
+            try:
+                # 尝试解析为 JSON 数组
+                import json
+                parsed_value = json.loads(param_value)
+                if isinstance(parsed_value, list):
+                    param_value = parsed_value
+                else:
+                    logger.warning(f"字符串 {param_value} 解析后不是数组")
+                    return param_value
+            except json.JSONDecodeError:
+                logger.warning(f"无法将字符串 {param_value} 解析为 JSON 数组")
+                return param_value
+        elif param_type == "object":
+            try:
+                # 尝试解析为 JSON 对象
+                import json
+                parsed_value = json.loads(param_value)
+                if isinstance(parsed_value, dict):
+                    param_value = parsed_value
+                else:
+                    logger.warning(f"字符串 {param_value} 解析后不是对象")
+                    return param_value
+            except json.JSONDecodeError:
+                logger.warning(f"无法将字符串 {param_value} 解析为 JSON 对象")
+                return param_value
+    
+    # 处理 oneOf/anyOf/allOf 组合类型
+    if "oneOf" in param_schema:
+        # oneOf: 必须匹配其中一个schema
+        for schema in param_schema["oneOf"]:
+            try:
+                return validate_and_format_param(param_value, schema)
+            except:
+                continue
+        # 如果都不匹配，返回原值
+        logger.warning(f"参数值 {param_value} 不匹配任何 oneOf schema")
+        return param_value
+    
+    if "anyOf" in param_schema:
+        # anyOf: 至少匹配一个schema
+        for schema in param_schema["anyOf"]:
+            try:
+                return validate_and_format_param(param_value, schema)
+            except:
+                continue
+        logger.warning(f"参数值 {param_value} 不匹配任何 anyOf schema")
+        return param_value
+    
+    # 处理基础类型
+    if param_type == "array":
+        if not isinstance(param_value, list):
+            logger.warning(f"期望数组类型，但获得 {type(param_value)}")
+            return param_value
+        
+        # 处理数组项
+        items_schema = param_schema.get("items", {})
+        if items_schema:
+            # 如果定义了items schema，验证每个元素
+            formatted_array = []
+            for item in param_value:
+                formatted_item = validate_and_format_param(item, items_schema)
+                formatted_array.append(formatted_item)
+            return formatted_array
+        return param_value
+    
+    elif param_type == "object":
+        if not isinstance(param_value, dict):
+            logger.warning(f"期望对象类型，但获得 {type(param_value)}")
+            return param_value
+        
+        # 处理对象属性
+        properties = param_schema.get("properties", {})
+        if properties:
+            formatted_obj = {}
+            for key, value in param_value.items():
+                if key in properties:
+                    formatted_obj[key] = validate_and_format_param(value, properties[key])
+                else:
+                    # 保留未定义的属性
+                    formatted_obj[key] = value
+            return formatted_obj
+        return param_value
+    
+    elif param_type == "string":
+        # 检查枚举值
+        if "enum" in param_schema and param_value not in param_schema["enum"]:
+            logger.warning(f"参数值 {param_value} 不在枚举值 {param_schema['enum']} 中")
+        return str(param_value) if param_value is not None else param_value
+    
+    elif param_type == "number":
+        try:
+            return float(param_value)
+        except (ValueError, TypeError):
+            logger.warning(f"无法将 {param_value} 转换为数字")
+            return param_value
+    
+    elif param_type == "integer":
+        try:
+            return int(param_value)
+        except (ValueError, TypeError):
+            logger.warning(f"无法将 {param_value} 转换为整数")
+            return param_value
+    
+    elif param_type == "boolean":
+        if isinstance(param_value, bool):
+            return param_value
+        return str(param_value).lower() in ("true", "1", "yes")
+    
+    elif param_type == "null":
+        return None
+    
+    # 如果没有指定类型或类型未知，返回原值
+    return param_value
+
+
 async def call_api(config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
-    """通用 API 调用函数"""
+    """通用 API 调用函数，支持完整的 JSON Schema 参数解析"""
     api_config = config["api"]
     
     url = api_config["url"]
     method = api_config.get("method", "GET").upper()
     headers = {}
     
-    # 过滤掉 None 值，只保留有效参数
-    request_params = {k: v for k, v in params.items() if v is not None}
+    # 获取参数schema定义
+    param_schemas = config.get("parameters", {}).get("properties", {})
+    
+    # 验证和格式化参数
+    formatted_params = {}
+    for param_name, param_value in params.items():
+        if param_value is None:
+            continue
+        
+        if param_name in param_schemas:
+            # 根据schema验证和格式化参数
+            formatted_value = validate_and_format_param(param_value, param_schemas[param_name])
+            formatted_params[param_name] = formatted_value
+        else:
+            # 没有schema定义的参数，保持原样
+            formatted_params[param_name] = param_value
+    
+    request_params = formatted_params
     
     # 处理 URL 中的参数替换（例如 {base} -> USD）
     url_params = set()
@@ -84,7 +228,19 @@ async def call_api(config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, 
     
     # 记录API调用开始
     logger.info(f"开始API调用: {method} {url}")
-    logger.debug(f"请求参数: {request_params}")
+    logger.debug(f"原始参数: {params}")
+    logger.debug(f"格式化后的参数: {request_params}")
+    
+    # 详细记录复杂参数类型
+    for param_name, param_value in request_params.items():
+        if isinstance(param_value, list):
+            logger.debug(f"数组参数 '{param_name}': 包含 {len(param_value)} 个元素")
+            if param_value and param_name in param_schemas:
+                # 显示数组中不同类型的元素
+                types_in_array = set(type(item).__name__ for item in param_value)
+                logger.debug(f"  - 元素类型: {', '.join(types_in_array)}")
+        elif isinstance(param_value, dict):
+            logger.debug(f"对象参数 '{param_name}': 包含 {len(param_value)} 个属性")
     
     # 处理认证
     auth_configs = api_config.get("auth", [])
@@ -131,29 +287,60 @@ def create_dynamic_tool(tool_config: Dict[str, Any]):
     properties = parameters.get("properties", {})
     required_params = parameters.get("required", [])
     
-    # 类型映射
+    # 类型映射 - 使用框架支持的基础类型
     type_mapping = {
         "string": str,
         "integer": int,
         "number": float,
         "boolean": bool,
-        "array": list,
-        "object": dict
+        "array": str,  # 使用 str 类型，在运行时解析为 list
+        "object": str   # 使用 str 类型，在运行时解析为 dict
     }
     
     # 构建函数签名
     sig_params = [Parameter('context', Parameter.POSITIONAL_OR_KEYWORD, annotation=p.ToolContext)]
     call_params = []
     
-    # 处理所有参数（先必需参数，后可选参数）
+    # 分离必需参数和可选参数
+    required_param_configs = []
+    optional_param_configs = []
+    
     for param_name, param_config in properties.items():
-        param_type = type_mapping.get(param_config.get("type", "string"), str)
+        is_required = param_name in required_params
+        if is_required:
+            required_param_configs.append((param_name, param_config))
+        else:
+            optional_param_configs.append((param_name, param_config))
+    
+    # 先处理必需参数，再处理可选参数
+    for param_name, param_config in required_param_configs + optional_param_configs:
+        # 获取参数类型
+        if "oneOf" in param_config or "anyOf" in param_config or "allOf" in param_config:
+            # 对于组合类型，使用 str 类型，在运行时解析
+            param_type = str
+        else:
+            param_type = type_mapping.get(param_config.get("type", "string"), str)
+        
         is_required = param_name in required_params
         default_value = param_config.get("default") if not is_required else None
 
         # 从配置中提取参数描述
         param_description = param_config.get("description", f"Parameter {param_name}")
         param_examples = param_config.get("examples", [])
+        
+        # 增强描述信息，包含类型信息
+        if "oneOf" in param_config:
+            types = [s.get("type", "any") for s in param_config["oneOf"]]
+            param_description += f" (JSON格式，可以是: {', '.join(types)})"
+        elif param_config.get("type") == "array" and "items" in param_config:
+            items_schema = param_config["items"]
+            if "oneOf" in items_schema:
+                types = [s.get("type", "any") for s in items_schema["oneOf"]]
+                param_description += f" (JSON数组格式，元素可以是: {', '.join(types)})"
+            else:
+                param_description += " (JSON数组格式)"
+        elif param_config.get("type") == "object":
+            param_description += " (JSON对象格式)"
         
         # 只传递必要的描述信息，避免冗余
         # 框架会自动将 ToolParameterOptions 中的信息复制到 ToolParameterDescriptor

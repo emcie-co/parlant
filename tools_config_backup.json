@@ -1,0 +1,97 @@
+[
+  {
+    "name": "send_discord_message",
+    "description": "Send a message to Discord webhook with rich content (real-world example of mixed array types)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "webhook_id": {
+          "type": "string",
+          "description": "Discord webhook ID (path variable)",
+          "examples": ["1234567890123456789"]
+        },
+        "webhook_token": {
+          "type": "string",
+          "description": "Discord webhook token (path variable)",
+          "examples": ["abcdefghijklmnopqrstuvwxyz123456789"]
+        },
+        "content": {
+          "type": "string",
+          "description": "The main message content",
+          "examples": ["Hello from API!", "Check out this embed!"]
+        },
+        "embeds": {
+          "type": "array",
+          "description": "Array of embed objects with various field types",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {"type": "string"},
+              "description": {"type": "string"},
+              "color": {"type": "number"},
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": "string"},
+                    "value": {"type": "string"},
+                    "inline": {"type": "boolean"}
+                  }
+                }
+              },
+              "footer": {
+                "type": "object",
+                "properties": {
+                  "text": {"type": "string"}
+                }
+              },
+              "timestamp": {"type": "string"}
+            }
+          },
+          "examples": [
+            [{
+              "title": "Status Update",
+              "description": "System is operational",
+              "color": 5763719,
+              "fields": [
+                {"name": "CPU", "value": "45%", "inline": true},
+                {"name": "Memory", "value": "2.3GB", "inline": true},
+                {"name": "Status", "value": "✅ All good", "inline": false}
+              ],
+              "footer": {"text": "Last checked"},
+              "timestamp": "2024-01-01T12:00:00.000Z"
+            }]
+          ]
+        },
+        "username": {
+          "type": "string",
+          "description": "Override the default webhook username",
+          "examples": ["API Bot", "System Monitor"]
+        },
+        "avatar_url": {
+          "type": "string",
+          "description": "Override the default webhook avatar",
+          "examples": ["https://example.com/avatar.png"]
+        }
+      },
+      "required": ["webhook_id", "webhook_token"]
+    },
+    "api": {
+      "url": "https://discord.com/api/webhooks/{webhook_id}/{webhook_token}",
+      "method": "POST",
+      "auth": [
+        {
+          "type": "header",
+          "key": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "type": "query_param",
+          "key": "wait",
+          "value": "true"
+        }
+      ]
+    }
+  }
+]

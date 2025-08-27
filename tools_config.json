@@ -69,6 +69,31 @@
     }
   },
   {
+    "name": "get_post_comments",
+    "description": "Get comments for a specific post by a specific user (JSONPlaceholder - multiple path params)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "postId": {
+          "type": "integer",
+          "description": "The ID of the post",
+          "examples": [1, 2, 3, 4, 5]
+        },
+        "id": {
+          "type": "integer",
+          "description": "The ID of the comment",
+          "examples": [1, 2, 3, 4, 5]
+        }
+      },
+      "required": ["postId"]
+    },
+    "api": {
+      "url": "https://jsonplaceholder.typicode.com/posts/{postId}/comments?id={id}",
+      "method": "GET",
+      "auth": []
+    }
+  },
+  {
     "name": "get_exchange_rate",
     "description": "Get real-time currency exchange rates (using exchangerate-api.com free tier)",
     "parameters": {
@@ -79,76 +104,114 @@
           "description": "Base currency code (3-letter ISO code)",
           "examples": ["USD", "EUR", "GBP", "CNY", "JPY"],
           "default": "USD"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target currency code (3-letter ISO code)",
+          "examples": ["USD", "EUR", "GBP", "CNY", "JPY"],
+          "default": "CNY"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount of money to convert",
+          "examples": [100, 200, 300],
+          "default": 100
         }
       },
       "required": []
     },
     "api": {
-      "url": "https://api.exchangerate-api.com/v4/latest/{base}",
+      "url": "https://v6.exchangerate-api.com/v6/9dd0f717def0b44c86ecdd95/pair/{base}/{target}/{amount}",
       "method": "GET",
       "auth": []
     }
   },
   {
-    "name": "get_github_repo",
-    "description": "Get information about a GitHub repository (demonstrates multiple path variables)",
+    "name": "send_mixed_data",
+    "description": "Send mixed data types to httpbin.org for testing (demonstrates array with mixed item types)",
     "parameters": {
       "type": "object",
       "properties": {
-        "owner": {
+        "endpoint": {
           "type": "string",
-          "description": "The GitHub username or organization that owns the repository",
-          "examples": ["microsoft", "facebook", "google", "torvalds"]
+          "description": "The endpoint to use (path variable)",
+          "enum": ["post", "put", "patch"],
+          "default": "post"
         },
-        "repo": {
-          "type": "string",
-          "description": "The name of the repository",
-          "examples": ["vscode", "react", "tensorflow", "linux"]
+        "data": {
+          "type": "array",
+          "description": "Array of mixed data items - can include strings, numbers, objects, booleans, etc.",
+          "items": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "number"},
+              {"type": "boolean"},
+              {"type": "object"},
+              {"type": "array"}
+            ]
+          },
+          "examples": [
+            ["hello", 123, true, {"key": "value"}, [1, 2, 3]],
+            ["user123", 45.67, false, {"name": "John", "age": 30}],
+            [{"id": 1}, {"id": 2}, "separator", 999, ["tag1", "tag2"]]
+          ]
         },
-        "q": {
-          "type": "string",
-          "enum": ["is:open", "is:closed", "is:merged", "is:unmerged"],
-          "description": "The query string",
-          "default": "is:open"
+        "metadata": {
+          "type": "object",
+          "description": "Additional metadata to send with the request",
+          "properties": {
+            "timestamp": {
+              "type": "string",
+              "description": "ISO timestamp"
+            },
+            "source": {
+              "type": "string",
+              "description": "Source identifier"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Tags for categorization"
+            }
+          },
+          "examples": [
+            {
+              "timestamp": "2024-01-01T12:00:00Z",
+              "source": "api-test",
+              "tags": ["test", "mixed-data"]
+            }
+          ]
+        },
+        "test_mode": {
+          "type": "boolean",
+          "description": "Enable test mode for debugging",
+          "default": true
         }
       },
-      "required": ["owner", "repo"]
+      "required": ["data"]
     },
     "api": {
-      "url": "https://api.github.com/{owner}/{repo}/issues",
-      "method": "GET",
+      "url": "https://httpbin.org/{endpoint}",
+      "method": "POST",
       "auth": [
         {
           "type": "header",
-          "key": "Accept",
-          "value": "application/vnd.github.v3+json"
+          "key": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "type": "header",
+          "key": "X-Test-Header",
+          "value": "mixed-array-test"
+        },
+        {
+          "type": "query_param",
+          "key": "show_env",
+          "value": "1"
         }
       ]
-    }
-  },
-  {
-    "name": "get_user_post_comments",
-    "description": "Get comments for a specific post by a specific user (JSONPlaceholder - multiple path params)",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "userId": {
-          "type": "integer",
-          "description": "The ID of the user",
-          "examples": [1, 2, 3, 4, 5]
-        },
-        "postId": {
-          "type": "integer",
-          "description": "The ID of the post",
-          "examples": [1, 2, 3, 4, 5]
-        }
-      },
-      "required": ["postId"]
-    },
-    "api": {
-      "url": "https://jsonplaceholder.typicode.com/posts/{postId}/comments",
-      "method": "GET",
-      "auth": []
     }
   }
 ]

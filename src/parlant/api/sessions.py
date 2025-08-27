@@ -15,40 +15,32 @@
 from datetime import datetime
 from enum import Enum
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
-from itertools import chain
 from pydantic import Field
-from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast
+from typing import Annotated, Mapping, Sequence, TypeAlias, cast
 
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
-from parlant.core.agents import AgentId, AgentStore
+from parlant.app_modules.sessions import Moderation
+from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
-from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.nlp.moderation import ModerationService
-from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (
     Event,
     EventId,
     EventKind,
     EventSource,
-    MessageEventData,
     MessageGenerationInspection,
     Participant,
     PreparationIteration,
     SessionId,
-    SessionListener,
     SessionStatus,
-    SessionStore,
     SessionUpdateParams,
-    StatusEventData,
-    ToolEventData,
 )
 from parlant.core.canned_responses import CannedResponseId
 
@@ -83,7 +75,7 @@ class EventSourceDTO(Enum):
     SYSTEM = "system"
 
 
-class Moderation(Enum):
+class ModerationDTO(Enum):
     """Content moderation settings."""
 
     AUTO = "auto"
@@ -122,7 +114,7 @@ class ConsumptionOffsetsDTO(
 ):
     """Tracking for message consumption state."""
 
-    client: Optional[ConsumptionOffsetClientField] = None
+    client: ConsumptionOffsetClientField | None = None
 
 
 SessionIdPath: TypeAlias = Annotated[
@@ -204,13 +196,13 @@ class SessionDTO(
     agent_id: SessionAgentIdPath
     customer_id: SessionCustomerIdField
     creation_utc: SessionCreationUTCField
-    title: Optional[SessionTitleField] = None
+    title: SessionTitleField | None = None
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
 
 
 SessionCreationParamsCustomerIdField: TypeAlias = Annotated[
-    Optional[CustomerId],
+    CustomerId | None,
     Field(
         default=None,
         description=" ID of the customer this session belongs to. If not provided, a guest customer will be created.",
@@ -234,7 +226,7 @@ class SessionCreationParamsDTO(
 
     agent_id: SessionAgentIdPath
     customer_id: SessionCreationParamsCustomerIdField = None
-    title: Optional[SessionTitleField] = None
+    title: SessionTitleField | None = None
 
 
 message_example = "Hello, I need help with my order"
@@ -310,11 +302,11 @@ class EventCreationParamsDTO(
 
     kind: EventKindDTO
     source: EventSourceDTO
-    message: Optional[SessionEventCreationParamsMessageField] = None
-    data: Optional[JSONSerializableDTO] = None
-    guidelines: Optional[list[AgentMessageGuidelineDTO]] = None
-    participant: Optional[ParticipantDTO] = None
-    status: Optional[SessionStatusDTO] = None
+    message: SessionEventCreationParamsMessageField | None = None
+    data: JSONSerializableDTO | None = None
+    guidelines: list[AgentMessageGuidelineDTO] | None = None
+    participant: ParticipantDTO | None = None
+    status: SessionStatusDTO | None = None
 
 
 EventIdPath: TypeAlias = Annotated[
@@ -384,7 +376,7 @@ class ConsumptionOffsetsUpdateParamsDTO(
 ):
     """Parameters for updating consumption offsets."""
 
-    client: Optional[ConsumptionOffsetClientField] = None
+    client: ConsumptionOffsetClientField | None = None
 
 
 session_update_params_example: ExampleJson = {
@@ -399,9 +391,9 @@ class SessionUpdateParamsDTO(
 ):
     """Parameters for updating a session."""
 
-    consumption_offsets: Optional[ConsumptionOffsetsUpdateParamsDTO] = None
-    title: Optional[SessionTitleField] = None
-    mode: Optional[SessionModeField] = None
+    consumption_offsets: ConsumptionOffsetsUpdateParamsDTO | None = None
+    title: SessionTitleField | None = None
+    mode: SessionModeField | None = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -650,7 +642,7 @@ class UsageInfoDTO(
 
     input_tokens: UsageInfoInputTokensField
     output_tokens: UsageInfoOutputTokensField
-    extra: Optional[UsageInfoExtraField] = None
+    extra: UsageInfoExtraField | None = None
 
 
 GenerationInfoSchemaNameField: TypeAlias = Annotated[
@@ -715,7 +707,7 @@ MessageEventDataMessageField: TypeAlias = Annotated[
 ]
 
 MessageEventDataFlaggedField: TypeAlias = Annotated[
-    Optional[bool],
+    bool | None,
     Field(
         description="Indicates whether the message was flagged by moderation",
         examples=[True, False, None],
@@ -723,7 +715,7 @@ MessageEventDataFlaggedField: TypeAlias = Annotated[
 ]
 
 MessageEventDataTagsField: TypeAlias = Annotated[
-    Optional[Sequence[str]],
+    Sequence[str] | None,
     Field(
         description="Sequence of tags providing additional context about the message",
         examples=[["greeting", "urgent"], ["support-request"]],
@@ -731,7 +723,7 @@ MessageEventDataTagsField: TypeAlias = Annotated[
 ]
 
 MessageEventDataCannedResponsesField: TypeAlias = Annotated[
-    Optional[Sequence[CannedResponseId]],
+    Sequence[CannedResponseId] | None,
     Field(
         description="List of associated canned response references, if any",
         examples=[["frag_123xyz", "frag_789abc"]],
@@ -794,7 +786,7 @@ class MessageGenerationInspectionDTO(
     """Inspection data for message generation."""
 
     generations: Mapping[str, GenerationInfoDTO]
-    messages: Sequence[Optional[str]]
+    messages: Sequence[str | None]
 
 
 GuidelineMatchingInspectionTotalDurationField: TypeAlias = Annotated[
@@ -986,7 +978,7 @@ class EventInspectionResult(
 
     session_id: SessionIdPath
     event: EventDTO
-    trace: Optional[EventTraceDTO] = None
+    trace: EventTraceDTO | None = None
 
 
 def event_to_dto(event: Event) -> EventDTO:
@@ -1117,7 +1109,7 @@ CustomerIdQuery: TypeAlias = Annotated[
 ]
 
 ModerationQuery: TypeAlias = Annotated[
-    Moderation,
+    ModerationDTO,
     Query(
         description="Content moderation level for the event",
     ),
@@ -1146,12 +1138,6 @@ KindsQuery: TypeAlias = Annotated[
         examples=["message,tool", "message,status"],
     ),
 ]
-
-
-def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
-    from parlant.adapters.nlp.lakera import LakeraGuard
-
-    return LakeraGuard(logger)
 
 
 def agent_message_guideline_dto_to_utterance_request(
@@ -1221,15 +1207,27 @@ def _event_source_to_event_source_dto(source: EventSource) -> EventSourceDTO:
     raise ValueError(f"Invalid event source: {source}")
 
 
+def _moderation_dto_to_moderation(dto: ModerationDTO) -> Moderation:
+    if moderation := {
+        ModerationDTO.AUTO: Moderation.AUTO,
+        ModerationDTO.PARANOID: Moderation.PARANOID,
+        ModerationDTO.NONE: Moderation.NONE,
+    }.get(dto):
+        return moderation
+
+    raise ValueError(f"Invalid moderation: {dto}")
+
+
+def _participant_dto_to_participant(dto: ParticipantDTO) -> Participant:
+    return Participant(
+        id=AgentId(dto.id) if dto.id else None,
+        display_name=dto.display_name,
+    )
+
+
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    logger: Logger,
-    application: Application,
-    agent_store: AgentStore,
-    customer_store: CustomerStore,
-    session_store: SessionStore,
-    session_listener: SessionListener,
-    nlp_service: NLPService,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -1259,8 +1257,6 @@ def create_router(
         The session will be initialized with the specified agent and optional customer.
         If no customer_id is provided, a guest customer will be created.
         """
-        _ = await agent_store.read_agent(agent_id=params.agent_id)
-
         if params.customer_id:
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_CUSTOMER_SESSION
@@ -1271,7 +1267,7 @@ def create_router(
                 request=request, operation=Operation.CREATE_GUEST_SESSION
             )
 
-        session = await application.create_customer_session(
+        session = await app.sessions.create(
             customer_id=params.customer_id or CustomerStore.GUEST_ID,
             agent_id=params.agent_id,
             title=params.title,
@@ -1308,7 +1304,7 @@ def create_router(
         """Retrieves details of a specific session by ID."""
         await authorization_policy.authorize(request=request, operation=Operation.READ_SESSION)
 
-        session = await session_store.read_session(session_id=session_id)
+        session = await app.sessions.read(session_id=session_id)
 
         return SessionDTO(
             id=session.id,
@@ -1339,8 +1335,8 @@ def create_router(
     )
     async def list_sessions(
         request: Request,
-        agent_id: Optional[AgentIdQuery] = None,
-        customer_id: Optional[CustomerIdQuery] = None,
+        agent_id: AgentIdQuery | None = None,
+        customer_id: CustomerIdQuery | None = None,
     ) -> Sequence[SessionDTO]:
         """Lists all sessions matching the specified filters.
 
@@ -1348,7 +1344,7 @@ def create_router(
         filters are provided."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
-        sessions = await session_store.list_sessions(
+        sessions = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
         )
@@ -1387,8 +1383,7 @@ def create_router(
         The operation is idempotent - deleting a non-existent session will return 404."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSION)
 
-        await session_store.read_session(session_id)
-        await session_store.delete_session(session_id)
+        await app.sessions.delete(session_id=session_id)
 
     @router.delete(
         "",
@@ -1406,8 +1401,8 @@ def create_router(
     )
     async def delete_sessions(
         request: Request,
-        agent_id: Optional[AgentIdQuery] = None,
-        customer_id: Optional[CustomerIdQuery] = None,
+        agent_id: AgentIdQuery | None = None,
+        customer_id: CustomerIdQuery | None = None,
     ) -> None:
         """Deletes all sessions matching the specified filters.
 
@@ -1415,13 +1410,13 @@ def create_router(
         filters are provided."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSIONS)
 
-        sessions = await session_store.list_sessions(
+        sessions = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
         )
 
         for s in sessions:
-            await session_store.delete_session(s.id)
+            await app.sessions.delete(s.id)
 
     @router.patch(
         "/{session_id}",
@@ -1449,7 +1444,7 @@ def create_router(
             params: SessionUpdateParams = {}
 
             if dto.consumption_offsets:
-                session = await session_store.read_session(session_id)
+                session = await app.sessions.read(session_id)
 
                 if dto.consumption_offsets.client:
                     params["consumption_offsets"] = {
@@ -1465,10 +1460,7 @@ def create_router(
 
             return params
 
-        session = await session_store.update_session(
-            session_id=session_id,
-            params=await from_dto(params),
-        )
+        session = await app.sessions.update(session_id=session_id, params=await from_dto(params))
 
         return SessionDTO(
             id=session.id,
@@ -1503,7 +1495,7 @@ def create_router(
         request: Request,
         session_id: SessionIdPath,
         params: EventCreationParamsDTO,
-        moderation: ModerationQuery = Moderation.NONE,
+        moderation: ModerationQuery = ModerationDTO.NONE,
     ) -> EventDTO:
         """Creates a new event in the specified session.
 
@@ -1588,17 +1580,11 @@ def create_router(
                 detail='Status event "data" must be a JSON object',
             )
 
-        status_data: StatusEventData = {
-            "status": status_dto_to_status(params.status),
-            "data": raw_data,
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_status_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=status_data,
+            status=status_dto_to_status(params.status),
+            data=raw_data,
             source=_event_source_dto_to_event_source(params.source),
-            trigger_processing=False,
         )
 
         return event_to_dto(event)
@@ -1606,7 +1592,7 @@ def create_router(
     async def _add_customer_message(
         session_id: SessionIdPath,
         params: EventCreationParamsDTO,
-        moderation: Moderation = Moderation.NONE,
+        moderation: ModerationDTO = ModerationDTO.NONE,
     ) -> EventDTO:
         if not params.message:
             raise HTTPException(
@@ -1614,43 +1600,10 @@ def create_router(
                 detail="Missing 'message' field for event",
             )
 
-        flagged = False
-        tags: Set[str] = set()
-
-        if moderation in [Moderation.AUTO, Moderation.PARANOID]:
-            moderation_service = await nlp_service.get_moderation_service()
-            check = await moderation_service.check(params.message)
-            flagged |= check.flagged
-            tags.update(check.tags)
-
-        if moderation == Moderation.PARANOID:
-            check = await _get_jailbreak_moderation_service(logger).check(params.message)
-            if "jailbreak" in check.tags:
-                flagged = True
-                tags.update({"jailbreak"})
-
-        session = await session_store.read_session(session_id)
-
-        try:
-            customer = await customer_store.read_customer(session.customer_id)
-            customer_display_name = customer.name
-        except Exception:
-            customer_display_name = session.customer_id
-
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": session.customer_id,
-                "display_name": customer_display_name,
-            },
-            "flagged": flagged,
-            "tags": list(tags),
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_customer_message(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
+            moderation=_moderation_dto_to_moderation(moderation),
+            message=params.message,
             source=EventSource.CUSTOMER,
             trigger_processing=True,
         )
@@ -1667,38 +1620,14 @@ def create_router(
                 detail="If you add an agent message, you cannot specify what the message will be, as it will be auto-generated by the agent.",
             )
 
-        session = await session_store.read_session(session_id)
-
         if params.guidelines:
             requests = [
                 agent_message_guideline_dto_to_utterance_request(a) for a in params.guidelines
             ]
-            correlation_id = await application.utter(session, requests)
-            event, *_ = await session_store.list_events(
-                session_id=session_id,
-                correlation_id=correlation_id,
-                kinds=[EventKind.MESSAGE],
-            )
+            event = await app.sessions.utter(session_id, requests)
             return event_to_dto(event)
         else:
-            correlation_id = await application.dispatch_processing_task(session)
-
-            await session_listener.wait_for_events(
-                session_id=session_id,
-                correlation_id=correlation_id,
-                timeout=Timeout(60),
-            )
-
-            event = next(
-                iter(
-                    await session_store.list_events(
-                        session_id=session_id,
-                        correlation_id=correlation_id,
-                        kinds=[EventKind.STATUS],
-                    )
-                )
-            )
-
+            event = await app.sessions.process(session_id)
             return event_to_dto(event)
 
     async def _add_human_agent_message(
@@ -1716,20 +1645,10 @@ def create_router(
                 detail="Missing 'participant' with 'display_name' for human agent message",
             )
 
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": AgentId(params.participant.id) if params.participant.id else None,
-                "display_name": params.participant.display_name,
-            },
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_human_agent_message_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
-            source=EventSource.HUMAN_AGENT,
-            trigger_processing=False,
+            message=params.message,
+            participant=_participant_dto_to_participant(params.participant),
         )
 
         return event_to_dto(event)
@@ -1744,23 +1663,9 @@ def create_router(
                 detail="Missing 'data' field for message",
             )
 
-        session = await session_store.read_session(session_id)
-        agent = await agent_store.read_agent(session.agent_id)
-
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": agent.id,
-                "display_name": agent.name,
-            },
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_human_agent_on_behalf_of_ai_agent_message_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
-            source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
-            trigger_processing=False,
+            message=params.message,
         )
 
         return EventDTO(
@@ -1784,7 +1689,7 @@ def create_router(
                 detail="Missing 'data' field for custom event",
             )
 
-        event = await application.post_event(
+        event = await app.sessions.create_event(
             session_id=session_id,
             kind=_event_kind_dto_to_event_kind(params.kind),
             data=params.data,
@@ -1827,10 +1732,10 @@ def create_router(
     async def list_events(
         request: Request,
         session_id: SessionIdPath,
-        min_offset: Optional[MinOffsetQuery] = None,
-        source: Optional[EventSourceDTO] = None,
-        correlation_id: Optional[CorrelationIdQuery] = None,
-        kinds: Optional[KindsQuery] = None,
+        min_offset: MinOffsetQuery | None = None,
+        source: EventSourceDTO | None = None,
+        correlation_id: CorrelationIdQuery | None = None,
+        kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
     ) -> Sequence[EventDTO]:
         """Lists events from a session with optional filtering and waiting capabilities.
@@ -1856,11 +1761,13 @@ def create_router(
             for k in (kinds.split(",") if kinds else [])
         ]
 
+        event_source = _event_source_dto_to_event_source(source) if source else None
+
         if wait_for_data > 0:
-            if not await session_listener.wait_for_events(
+            if not await app.sessions.wait_for_update(
                 session_id=session_id,
                 min_offset=min_offset or 0,
-                source=_event_source_dto_to_event_source(source) if source else None,
+                source=event_source,
                 kinds=kind_list,
                 correlation_id=correlation_id,
                 timeout=Timeout(wait_for_data),
@@ -1870,10 +1777,10 @@ def create_router(
                     detail="Request timed out",
                 )
 
-        events = await session_store.list_events(
+        events = await app.sessions.find_events(
             session_id=session_id,
-            min_offset=min_offset,
-            source=_event_source_dto_to_event_source(source) if source else None,
+            min_offset=min_offset or 0,
+            source=event_source,
             kinds=kind_list,
             correlation_id=correlation_id,
         )
@@ -1915,76 +1822,9 @@ def create_router(
         This operation is permanent and cannot be undone."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_EVENTS)
 
-        session = await session_store.read_session(session_id)
-
-        events = await session_store.list_events(
-            session_id=session_id,
-            min_offset=0,
-            exclude_deleted=True,
-        )
-
-        events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
-
-        if not events_starting_from_min_offset:
-            return
-
-        event_at_min_offset = events_starting_from_min_offset[0]
-
-        first_event_of_correlation_id = next(
-            e for e in events if e.correlation_id == event_at_min_offset.correlation_id
-        )
-
-        if event_at_min_offset.id != first_event_of_correlation_id.id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Cannot delete events with offset < min_offset unless they are the first event of their correlation ID",
-            )
-
-        for e in events_starting_from_min_offset:
-            await session_store.delete_event(e.id)
-
-        if not session.agent_states:
-            return
-
-        state_index_offset = next(
-            i
-            for i, s in enumerate(session.agent_states, start=0)
-            if s.correlation_id.startswith(event_at_min_offset.correlation_id)
-        )
-
-        agent_states = session.agent_states[:state_index_offset]
-
-        await session_store.update_session(
-            session_id=session_id,
-            params={"agent_states": agent_states},
-        )
-
-    async def _find_correlated_tool_calls(
-        session_id: SessionIdPath,
-        event: Event,
-    ) -> Sequence[ToolCallDTO]:
-        """Helper function to find tool calls correlated with an event."""
-
-        tool_events = await session_store.list_events(
-            session_id=session_id,
-            kinds=[EventKind.TOOL],
-            correlation_id=event.correlation_id,
-        )
-
-        tool_calls = list(
-            chain.from_iterable(cast(ToolEventData, e.data)["tool_calls"] for e in tool_events)
-        )
-
-        return [
-            ToolCallDTO(
-                tool_id=tc["tool_id"],
-                arguments=cast(Mapping[str, JSONSerializableDTO], tc["arguments"]),
-                result=ToolResultDTO(
-                    data=cast(JSONSerializableDTO, tc["result"]["data"]),
-                    metadata=cast(Mapping[str, JSONSerializableDTO], tc["result"]["metadata"]),
-                ),
-            )
-            for tc in tool_calls
-        ]
+        try:
+            await app.sessions.delete_events(session_id=session_id, min_offset=min_offset)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{e}")
 
     return router

@@ -29,6 +29,7 @@ from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
+from parlant.app_modules.sessions import SessionModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -552,7 +553,9 @@ async def container(
 
         container[Engine] = Singleton(AlphaEngine)
 
-        container[Application] = Application(container)
+        container[SessionModule] = SessionModule(container)
+
+        container[Application] = Singleton(Application)
 
         yield container
 

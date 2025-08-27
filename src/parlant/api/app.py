@@ -57,9 +57,7 @@ from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.nlp.service import NLPService
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
@@ -102,8 +100,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     agent_store = container[AgentStore]
     customer_store = container[CustomerStore]
     tag_store = container[TagStore]
-    session_store = container[SessionStore]
-    session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
     evaluation_service = container[BehavioralChangeEvaluator]
@@ -116,7 +112,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     journey_store = container[JourneyStore]
     capability_store = container[CapabilityStore]
     service_registry = container[ServiceRegistry]
-    nlp_service = container[NLPService]
     application = container[Application]
 
     api_app = FastAPI()
@@ -241,13 +236,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/sessions",
         router=sessions.create_router(
             authorization_policy=authorization_policy,
-            logger=logger,
-            application=application,
-            agent_store=agent_store,
-            customer_store=customer_store,
-            session_store=session_store,
-            session_listener=session_listener,
-            nlp_service=nlp_service,
+            app=application,
         ),
     )
 

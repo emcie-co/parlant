@@ -71,6 +71,7 @@ from parlant.api.authorization import (
     RateLimitExceededException,
     RateLimiter,
 )
+from parlant.app_modules.sessions import SessionModule
 from parlant.core import async_utils
 from parlant.core.agents import (
     AgentDocumentStore,
@@ -2921,7 +2922,8 @@ class Server:
                     )  # type: ignore
                 )
 
-            c()[Application] = lambda rc: Application(rc)
+            c()[SessionModule] = lambda rc: SessionModule(rc)
+            c()[Application] = Application(c()[SessionModule])
 
         async def configure(c: Container) -> Container:
             latest_container = c

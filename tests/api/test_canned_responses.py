@@ -193,7 +193,7 @@ async def test_that_relevant_canned_responses_can_be_retrieved_based_on_closest_
 
     closest_canned_response = next(
         iter(
-            await canned_response_store.find_relevant_canned_responses(
+            await canned_response_store.filter_relevant_canned_responses(
                 query="Colors",
                 available_canned_responses=canned_responses,
                 max_count=1,

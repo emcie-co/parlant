@@ -85,7 +85,7 @@ from parlant.core.context_variables import (
     ContextVariableTagAssociationDocument,
     ContextVariableId,
 )
-from parlant.core.contextual_correlator import BasicContextualCorrelator
+from parlant.core.contextual_correlator import LocalTracer
 from parlant.core.evaluations import (
     EvaluationDocument_v0_1_0,
     EvaluationDocument_v0_2_0,
@@ -161,7 +161,7 @@ sys.path.append(PARLANT_HOME_DIR.as_posix())
 sys.path.append(".")
 
 LOGGER = StdoutLogger(
-    correlator=BasicContextualCorrelator(),
+    correlator=LocalTracer(),
     log_level=LogLevel.INFO,
     logger_id="parlant.bin.prepare_migration",
 )

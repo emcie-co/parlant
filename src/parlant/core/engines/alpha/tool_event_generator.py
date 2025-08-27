@@ -18,7 +18,7 @@ from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.tools import ToolContext
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.loggers import Logger
 from parlant.core.agents import Agent
@@ -62,7 +62,7 @@ class ToolEventGenerator:
         self,
         logger: Logger,
         tool_caller: ToolCaller,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
@@ -108,7 +108,7 @@ class ToolEventGenerator:
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "processing",
                 "data": {"stage": "Fetching data"},
@@ -173,14 +173,14 @@ class ToolEventGenerator:
             if r.result["control"].get("lifespan", "session") == "session":
                 events.append(
                     await context.session_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.correlation_id,
+                        correlation_id=self._correlator.trace_id,
                         data=event_data,
                     )
                 )
             else:
                 events.append(
                     await context.response_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.correlation_id,
+                        correlation_id=self._correlator.trace_id,
                         data=event_data,
                     )
                 )

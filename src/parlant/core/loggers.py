@@ -27,7 +27,7 @@ from typing import Any, Iterator, Sequence
 from typing_extensions import override
 
 from parlant.core.common import generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 
 
 class LogLevel(Enum):
@@ -163,7 +163,7 @@ class CorrelationalLogger(Logger):
 
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
@@ -299,7 +299,7 @@ class CorrelationalLogger(Logger):
         return self._get_scopes()
 
     def _add_correlation_id_and_scopes(self, message: str) -> str:
-        return f"[{self._correlator.correlation_id}]{self.current_scope} {message}"
+        return f"[{self._correlator.trace_id}]{self.current_scope} {message}"
 
     def _get_scopes(self) -> str:
         if scopes := self._scopes.get():
@@ -312,7 +312,7 @@ class StdoutLogger(CorrelationalLogger):
 
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
@@ -326,7 +326,7 @@ class FileLogger(CorrelationalLogger):
     def __init__(
         self,
         log_file_path: Path,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:

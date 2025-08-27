@@ -41,7 +41,7 @@ from parlant.core.tools import (
     ToolParameterType,
 )
 from parlant.core.common import JSONSerializable
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.emissions import EventEmitterFactory
 
 DEFAULT_MCP_PORT: int = 8181
@@ -130,7 +130,7 @@ class MCPToolClient(ToolService):
         url: str,
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         port: int = DEFAULT_MCP_PORT,
     ) -> None:
         self._event_emitter_factory = event_emitter_factory

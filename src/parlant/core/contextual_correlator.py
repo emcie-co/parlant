@@ -23,7 +23,7 @@ from parlant.core.common import generate_id
 _UNINITIALIZED = 0xC0FFEE
 
 
-class ContextualCorrelator(ABC):
+class Tracer(ABC):
     @contextmanager
     @abstractmethod
     def scope(
@@ -41,12 +41,12 @@ class ContextualCorrelator(ABC):
 
     @property
     @abstractmethod
-    def correlation_id(self) -> str: ...
+    def trace_id(self) -> str: ...
 
     def get(self, property_name: str) -> Any | None: ...
 
 
-class BasicContextualCorrelator(ContextualCorrelator):
+class LocalTracer(Tracer):
     def __init__(self) -> None:
         self._instance_id = generate_id()
 
@@ -102,7 +102,7 @@ class BasicContextualCorrelator(ContextualCorrelator):
 
     @property
     @override
-    def correlation_id(self) -> str:
+    def trace_id(self) -> str:
         if scopes := self._scopes.get():
             return scopes
 

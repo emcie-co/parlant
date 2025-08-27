@@ -47,7 +47,7 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
@@ -86,7 +86,7 @@ class AppWrapper:
 async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
-    correlator = container[ContextualCorrelator]
+    correlator = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
 

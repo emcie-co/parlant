@@ -23,7 +23,7 @@ import httpx
 from typing_extensions import Literal
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService
@@ -115,7 +115,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         database: DocumentDatabase,
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
     ):

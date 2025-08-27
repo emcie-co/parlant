@@ -33,7 +33,7 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
-from parlant.core.contextual_correlator import BasicContextualCorrelator, ContextualCorrelator
+from parlant.core.contextual_correlator import LocalTracer, Tracer
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
@@ -229,15 +229,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 @fixture
-def correlator(request: pytest.FixtureRequest) -> Iterator[ContextualCorrelator]:
-    correlator = BasicContextualCorrelator()
+def correlator(request: pytest.FixtureRequest) -> Iterator[Tracer]:
+    correlator = LocalTracer()
 
     with correlator.properties({"scope": request.node.name}):
         yield correlator
 
 
 @fixture
-def logger(correlator: ContextualCorrelator) -> Logger:
+def logger(correlator: Tracer) -> Logger:
     return StdoutLogger(correlator=correlator, log_level=LogLevel.INFO)
 
 
@@ -301,7 +301,7 @@ async def make_schematic_generator(
     if os.environ.get("PARLANT_DATA_COLLECTION", "false").lower() not in ["false", "no", "0"]:
         generator = DataCollectingSchematicGenerator[schema](  # type: ignore
             generator,
-            container[ContextualCorrelator],
+            container[Tracer],
         )
 
     return generator
@@ -309,15 +309,15 @@ async def make_schematic_generator(
 
 @fixture
 async def container(
-    correlator: ContextualCorrelator,
+    correlator: Tracer,
     logger: Logger,
     cache_options: CacheOptions,
 ) -> AsyncIterator[Container]:
     container = Container()
 
-    container[ContextualCorrelator] = correlator
+    container[Tracer] = correlator
     container[Logger] = logger
-    container[WebSocketLogger] = WebSocketLogger(container[ContextualCorrelator])
+    container[WebSocketLogger] = WebSocketLogger(container[Tracer])
 
     container[IdGenerator] = Singleton(IdGenerator)
 
@@ -368,7 +368,7 @@ async def container(
                 database=TransientDocumentDatabase(),
                 event_emitter_factory=container[EventEmitterFactory],
                 logger=container[Logger],
-                correlator=container[ContextualCorrelator],
+                correlator=container[Tracer],
                 nlp_services_provider=lambda: {"default": OpenAIService(container[Logger])},
             )
         )

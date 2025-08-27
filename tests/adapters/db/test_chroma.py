@@ -27,7 +27,7 @@ from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import IdGenerator, Version, md5_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder, NullEmbeddingCache
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
@@ -41,7 +41,7 @@ async def _openai_embedder_type_provider() -> type[Embedder]:
 
 
 async def _no_op_embedder_type_provider() -> type[Embedder]:
-    return NoOpEmbedder
+    return NullEmbedder
 
 
 class _TestDocument(TypedDict, total=False):
@@ -724,7 +724,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         new_collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=NoOpEmbedder,
+            embedder_type=NullEmbedder,
             document_loader=_document_loader,
         )
 

@@ -90,7 +90,7 @@ from parlant.core.engines.alpha.tool_event_generator import (
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceRationale, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
@@ -125,7 +125,7 @@ class AlphaEngine(Engine):
     def __init__(
         self,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
         guideline_matcher: GuidelineMatcher,
@@ -311,7 +311,7 @@ class AlphaEngine(Engine):
                 # Save results for later inspection.
                 await self._entity_commands.create_inspection(
                     session_id=context.session.id,
-                    correlation_id=self._correlator.correlation_id,
+                    correlation_id=self._correlator.trace_id,
                     preparation_iterations=preparation_iteration_inspections,
                     message_generations=message_generation_inspections,
                 )
@@ -366,7 +366,7 @@ class AlphaEngine(Engine):
             # Save results for later inspection.
             await self._entity_commands.create_inspection(
                 session_id=context.session.id,
-                correlation_id=self._correlator.correlation_id,
+                correlation_id=self._correlator.trace_id,
                 preparation_iterations=[],
                 message_generations=message_generation_inspections,
             )
@@ -899,7 +899,7 @@ class AlphaEngine(Engine):
 
     async def _emit_error_event(self, context: LoadedContext, exception_details: str) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "error",
                 "data": {"exception": exception_details},
@@ -908,7 +908,7 @@ class AlphaEngine(Engine):
 
     async def _emit_acknowledgement_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "acknowledged",
                 "data": {},
@@ -917,7 +917,7 @@ class AlphaEngine(Engine):
 
     async def _emit_processing_event(self, context: LoadedContext, stage: str) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "processing",
                 "data": {"stage": stage},
@@ -926,7 +926,7 @@ class AlphaEngine(Engine):
 
     async def _emit_cancellation_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "cancelled",
                 "data": {},
@@ -935,7 +935,7 @@ class AlphaEngine(Engine):
 
     async def _emit_ready_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "ready",
                 "data": {},
@@ -1737,7 +1737,7 @@ class AlphaEngine(Engine):
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id=self._correlator.correlation_id,
+                        correlation_id=self._correlator.trace_id,
                         applied_guideline_ids=applied_guideline_ids,
                         journey_paths=context.state.journey_paths,
                     )

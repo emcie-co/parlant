@@ -113,7 +113,6 @@ class Operation(Enum):
     )
     CREATE_STATUS_EVENT = "create_status_event"
     CREATE_CUSTOM_EVENT = "create_custom_event"
-    READ_EVENT = "read_event"
     LIST_EVENTS = "list_events"
     DELETE_EVENTS = "delete_events"
 
@@ -211,7 +210,6 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
                 Operation.CREATE_GUEST_SESSION: RateLimitItemPerMinute(10),
                 Operation.READ_SESSION: RateLimitItemPerMinute(30),
                 Operation.LIST_EVENTS: RateLimitItemPerMinute(240),
-                Operation.READ_EVENT: RateLimitItemPerMinute(30),
                 Operation.CREATE_CUSTOMER_EVENT: RateLimitItemPerMinute(30),
                 Operation.CREATE_STATUS_EVENT: RateLimitItemPerMinute(60),
             }
@@ -229,7 +227,6 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
             Operation.CREATE_GUEST_SESSION,
             Operation.READ_SESSION,
             Operation.LIST_EVENTS,
-            Operation.READ_EVENT,
             Operation.CREATE_CUSTOMER_EVENT,
         ]:
             return True

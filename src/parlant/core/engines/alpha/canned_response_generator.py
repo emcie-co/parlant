@@ -30,7 +30,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.capabilities import Capability
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -466,7 +466,7 @@ class CannedResponseGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         hooks: EngineHooks,
         optimization_policy: OptimizationPolicy,
         canned_response_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
@@ -646,7 +646,7 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         await canrep_context.event_emitter.emit_status_event(
-            correlation_id=f"{self._correlator.correlation_id}",
+            correlation_id=f"{self._correlator.trace_id}",
             data={
                 "status": "typing",
                 "data": {},
@@ -672,7 +672,7 @@ You will now be given the current state of the interaction to which you must gen
             # If we're in, the hook did not bail out.
 
             emitted_event = await canrep_context.event_emitter.emit_message_event(
-                correlation_id=f"{self._correlator.correlation_id}",
+                correlation_id=f"{self._correlator.trace_id}",
                 data=MessageEventData(
                     message=canrep.content.preamble,
                     participant=Participant(id=agent.id, display_name=agent.name),
@@ -898,7 +898,7 @@ You will now be given the current state of the interaction to which you must gen
             staged_message_events=staged_message_events,
         )
 
-        responses = await self._get_relevant_canned_responses(context)
+        canreps = await self._get_relevant_canned_responses(context)
 
         follow_up_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
@@ -916,7 +916,7 @@ You will now be given the current state of the interaction to which you must gen
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
-                    responses,
+                    canreps,
                     agent.composition_mode,
                     temperature=follow_up_selection_attempt_temperatures[generation_attempt],
                 )
@@ -960,7 +960,7 @@ You will now be given the current state of the interaction to which you must gen
 
                     if follow_up_canrep_response:
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            correlation_id=self._correlator.trace_id,
                             data={
                                 "status": "typing",
                                 "data": {},
@@ -1499,7 +1499,7 @@ Output a JSON object with three properties:
 
         if direct_draft_output_mode:
             await context.event_emitter.emit_status_event(
-                correlation_id=self._correlator.correlation_id,
+                correlation_id=self._correlator.trace_id,
                 data={
                     "status": "typing",
                     "data": {},
@@ -1518,7 +1518,7 @@ Output a JSON object with three properties:
             )
         else:
             await context.event_emitter.emit_status_event(
-                correlation_id=self._correlator.correlation_id,
+                correlation_id=self._correlator.trace_id,
                 data={
                     "status": "processing",
                     "data": {"stage": "Articulating"},
@@ -1563,7 +1563,7 @@ Output a JSON object with three properties:
             )
 
         await context.event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data={
                 "status": "typing",
                 "data": {},

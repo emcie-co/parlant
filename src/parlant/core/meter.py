@@ -43,7 +43,7 @@ class Meter(ABC):
             await self.record_histogram(name, duration, attributes)
 
 
-class NoOpMeter(Meter):
+class NullMeter(Meter):
     async def record_counter(
         self,
         name: str,

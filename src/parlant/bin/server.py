@@ -153,7 +153,7 @@ from parlant.core.shots import ShotCollection
 from parlant.core.tags import TagDocumentStore, TagStore
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.contextual_correlator import BasicContextualCorrelator, ContextualCorrelator
+from parlant.core.contextual_correlator import LocalTracer, Tracer
 from parlant.core.agents import AgentDocumentStore, AgentStore
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -241,7 +241,7 @@ DEFAULT_AGENT_NAME = "Default Agent"
 sys.path.append(PARLANT_HOME_DIR.as_posix())
 sys.path.append(".")
 
-CORRELATOR = BasicContextualCorrelator()
+CORRELATOR = LocalTracer()
 
 LOGGER = FileLogger(PARLANT_HOME_DIR / "parlant.log", CORRELATOR, LogLevel.INFO)
 
@@ -450,7 +450,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c = Container()
 
     c[BackgroundTaskService] = BACKGROUND_TASK_SERVICE
-    c[ContextualCorrelator] = CORRELATOR
+    c[Tracer] = CORRELATOR
     web_socket_logger = WebSocketLogger(CORRELATOR, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
@@ -693,7 +693,7 @@ async def initialize_container(
                     database=db,
                     event_emitter_factory=c[EventEmitterFactory],
                     logger=c[Logger],
-                    correlator=c[ContextualCorrelator],
+                    correlator=c[Tracer],
                     nlp_services_provider=lambda: {nlp_service_name: nlp_service_instance},
                     allow_migration=migrate,
                 )
@@ -780,7 +780,7 @@ async def initialize_container(
         if os.environ.get("PARLANT_DATA_COLLECTION", "false").lower() not in ["false", "no", "0"]:
             generator = DataCollectingSchematicGenerator[schema](  # type: ignore
                 generator,
-                c[ContextualCorrelator],
+                c[Tracer],
             )
 
         try_define(

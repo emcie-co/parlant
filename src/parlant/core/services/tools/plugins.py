@@ -65,7 +65,7 @@ from parlant.core.tools import (
     ToolOverlap,
 )
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
@@ -739,7 +739,7 @@ class PluginClient(ToolService):
         url: str,
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
     ) -> None:
         self.url = url
         self._event_emitter_factory = event_emitter_factory
@@ -915,7 +915,7 @@ class PluginClient(ToolService):
                         return _ToolResultShim.model_validate(chunk_dict).result
                     elif "status" in chunk_dict:
                         await event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            correlation_id=self._correlator.trace_id,
                             data={
                                 "status": chunk_dict["status"],
                                 "data": chunk_dict.get("data", {}),
@@ -923,12 +923,12 @@ class PluginClient(ToolService):
                         )
                     elif "message" in chunk_dict:
                         await event_emitter.emit_message_event(
-                            correlation_id=self._correlator.correlation_id,
+                            correlation_id=self._correlator.trace_id,
                             data=str(chunk_dict["message"]),
                         )
                     elif "custom" in chunk_dict:
                         await event_emitter.emit_custom_event(
-                            correlation_id=self._correlator.correlation_id,
+                            correlation_id=self._correlator.trace_id,
                             data=chunk_dict["custom"],
                         )
                     elif "error" in chunk_dict:

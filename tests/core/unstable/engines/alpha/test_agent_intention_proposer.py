@@ -22,7 +22,7 @@ from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import JSONSerializable, generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
@@ -118,7 +118,7 @@ def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
-        correlator=context.container[ContextualCorrelator],
+        correlator=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,

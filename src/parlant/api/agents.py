@@ -383,10 +383,15 @@ def create_router(
 
         agent = await agent_store.read_agent(agent_id=agent_id)
 
+        if await policy.check_permission(request, Operation.READ_AGENT_DESCRIPTION):
+            description = agent.description
+        else:
+            description = None
+
         return AgentDTO(
             id=agent.id,
             name=agent.name,
-            description=agent.description,
+            description=description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),

@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
 from typing_extensions import override, Self
 import chromadb
+from chromadb.api.collection_configuration import (
+    CreateCollectionConfiguration,
+    CreateHNSWConfiguration,
+)
+
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
@@ -198,6 +203,9 @@ class ChromaDatabase(VectorDatabase):
             name=self.format_collection_name(name, embedder_type),
             metadata={"version": 1},
             embedding_function=None,
+            configuration=CreateCollectionConfiguration(
+                hnsw=CreateHNSWConfiguration(space="cosine")
+            ),
         )
 
         unembedded_collection = self.chroma_client.create_collection(
@@ -253,6 +261,9 @@ class ChromaDatabase(VectorDatabase):
                 name=self.format_collection_name(name, embedder_type),
                 metadata={"version": 1},
                 embedding_function=None,
+                configuration=CreateCollectionConfiguration(
+                    hnsw=CreateHNSWConfiguration(space="cosine")
+                ),
             )
 
             await self._index_collection(
@@ -317,6 +328,9 @@ class ChromaDatabase(VectorDatabase):
         ) or self.chroma_client.create_collection(
             name=self.format_collection_name(name, embedder_type),
             metadata={"version": 1},
+            configuration=CreateCollectionConfiguration(
+                hnsw=CreateHNSWConfiguration(space="cosine")
+            ),
         )
 
         self._collections[name] = ChromaCollection(

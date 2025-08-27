@@ -110,7 +110,6 @@ class ToolEventGenerator:
         await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "status": "processing",
                 "data": {"stage": "Fetching data"},
             },

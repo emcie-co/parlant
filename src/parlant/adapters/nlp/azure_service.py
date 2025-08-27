@@ -234,12 +234,31 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
                 raise
 
 
+class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        _client = AsyncAzureOpenAI(
+            api_key=os.environ["AZURE_API_KEY"],
+            azure_endpoint=os.environ["AZURE_ENDPOINT"],
+            api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
+        )
+
+        super().__init__(
+            model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
+            logger=logger,
+            client=_client,
+        )
+
+    @property
+    def max_tokens(self) -> int:
+        return int(os.environ.get("AZURE_GENERATIVE_MODEL_WINDOW", 4096))
+
+
 class GPT_4o(AzureSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2024-08-01-preview",
+            api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
         )
         super().__init__(model_name="gpt-4o", logger=logger, client=_client)
 
@@ -253,7 +272,7 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2024-08-01-preview",
+            api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
         )
         super().__init__(model_name="gpt-4o-mini", logger=logger, client=_client)
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -314,12 +333,33 @@ class AzureEmbedder(Embedder):
         return EmbeddingResult(vectors=vectors)
 
 
+class CustomAzureEmbedder(AzureEmbedder):
+    def __init__(self, logger: Logger) -> None:
+        _client = AsyncAzureOpenAI(
+            api_key=os.environ["AZURE_API_KEY"],
+            azure_endpoint=os.environ["AZURE_ENDPOINT"],
+            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
+        )
+        super().__init__(
+            model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"], logger=logger, client=_client
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return int(os.environ["AZURE_EMBEDDING_MODEL_WINDOW"])
+
+    @property
+    def dimensions(self) -> int:
+        return int(os.environ["AZURE_EMBEDDING_MODEL_DIMS"])
+
+
 class AzureTextEmbedding3Large(AzureEmbedder):
     def __init__(self, logger: Logger) -> None:
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2023-05-15",
+            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
         )
         super().__init__(model_name="text-embedding-3-large", logger=logger, client=_client)
 
@@ -338,7 +378,7 @@ class AzureTextEmbedding3Small(AzureEmbedder):
         _client = AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
             azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version="2023-05-15",
+            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
         )
         super().__init__(model_name="text-embedding-3-small", logger=logger, client=_client)
 
@@ -352,6 +392,29 @@ class AzureTextEmbedding3Small(AzureEmbedder):
 
 
 class AzureService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("AZURE_API_KEY"):
+            return """\
+You're using the Azure NLP service, but AZURE_API_KEY is not set.
+Please set AZURE_API_KEY in your environment before running Parlant.
+
+- AZURE_API_KEY
+- AZURE_ENDPOINT
+
+You can also set any specific models you'd like to use, using a few more variables:
+
+- AZURE_GENERATIVE_MODEL_NAME (e.g., gpt-4o)
+- AZURE_GENERATIVE_MODEL_WINDOW (size of the generative model's context window)
+
+- AZURE_EMBEDDING_MODEL_NAME (e.g., text-embedding-3-large)
+- AZURE_EMBEDDING_MODEL_DIMS (dimensions of the embedding model)
+- AZURE_EMBEDDING_MODEL_WINDOW (size of of the embedding model's context window)
+"""
+        return None
+
     def __init__(
         self,
         logger: Logger,
@@ -359,9 +422,13 @@ class AzureService(NLPService):
         self._logger = logger
 
     async def get_schematic_generator(self, t: type[T]) -> AzureSchematicGenerator[T]:
+        if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
+            return CustomAzureSchematicGenerator[t](logger=self._logger)  # type: ignore
         return GPT_4o[t](self._logger)  # type: ignore
 
     async def get_embedder(self) -> Embedder:
+        if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
+            return CustomAzureEmbedder(self._logger)
         return AzureTextEmbedding3Large(self._logger)
 
     async def get_moderation_service(self) -> ModerationService:

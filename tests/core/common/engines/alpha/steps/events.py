@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from pprint import pformat
-from typing import Optional, cast
+from typing import cast
 from pytest_bdd import given, then, parsers, when
 
 from parlant.core.agents import AgentId, AgentStore
@@ -367,7 +367,6 @@ def then_a_no_match_message_is_emitted(
 
 def _has_status_event(
     status: SessionStatus,
-    acknowledged_event_offset: Optional[int],
     events: list[EmittedEvent],
 ) -> bool:
     for e in (e for e in events if e.kind == EventKind.STATUS):
@@ -375,12 +374,7 @@ def _has_status_event(
 
         has_same_status = data["status"] == status
 
-        if acknowledged_event_offset:
-            has_same_acknowledged_offset = data["acknowledged_offset"] == acknowledged_event_offset
-
-            if has_same_status and has_same_acknowledged_offset:
-                return True
-        elif has_same_status:
+        if has_same_status:
             return True
 
     return False
@@ -388,75 +382,61 @@ def _has_status_event(
 
 @step(
     then,
-    parsers.parse("a status event is emitted, acknowledging event {acknowledged_event_offset:d}"),
+    parsers.parse("a status event is emitted, acknowledging event"),
 )
 def then_an_acknowledgement_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("acknowledged", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("acknowledged", emitted_events)
 
 
-@step(
-    then, parsers.parse("a status event is emitted, processing event {acknowledged_event_offset:d}")
-)
+@step(then, parsers.parse("a status event is emitted, processing event"))
 def then_a_processing_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("processing", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("processing", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, typing in response to event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, typing in response to event"),
 )
 def then_a_typing_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("typing", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("typing", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, cancelling the response to event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, cancelling the response to event"),
 )
 def then_a_cancelled_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("cancelled", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("cancelled", emitted_events)
 
 
 @step(
     then,
     parsers.parse(
-        "a status event is emitted, ready for further engagement after reacting to event {acknowledged_event_offset:d}"
+        "a status event is emitted, ready for further engagement after reacting to event"
     ),
 )
 def then_a_ready_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("ready", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("ready", emitted_events)
 
 
 @step(
     then,
-    parsers.parse(
-        "a status event is emitted, encountering an error while processing event {acknowledged_event_offset:d}"
-    ),
+    parsers.parse("a status event is emitted, encountering an error while processing event"),
 )
 def then_an_error_status_event_is_emitted(
     emitted_events: list[EmittedEvent],
-    acknowledged_event_offset: int,
 ) -> None:
-    assert _has_status_event("error", acknowledged_event_offset, emitted_events)
+    assert _has_status_event("error", emitted_events)
 
 
 @step(then, parsers.parse("no tool error has occurred"))
@@ -476,7 +456,7 @@ def then_a_status_event_type_is_not_emitted(
     emitted_events: list[EmittedEvent],
     status_type: SessionStatus,
 ) -> None:
-    assert not _has_status_event(status_type, None, emitted_events)
+    assert not _has_status_event(status_type, emitted_events)
 
 
 @step(then, "no tool calls event is emitted")

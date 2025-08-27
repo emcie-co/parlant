@@ -363,6 +363,18 @@ class GeminiTextEmbedding_004(GoogleEmbedder):
 
 
 class GeminiService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("GEMINI_API_KEY"):
+            return """\
+You're using the GEMINI NLP service, but GEMINI_API_KEY is not set.
+Please set GEMINI_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,

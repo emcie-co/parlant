@@ -359,10 +359,7 @@ def when_messages_are_emitted(
         session=session,
         session_event_emitter=EventBuffer(agent),
         response_event_emitter=EventBuffer(agent),
-        interaction=Interaction(
-            history=context.events,
-            last_known_event_offset=context.events[-1].offset if context.events else -1,
-        ),
+        interaction=Interaction(history=context.events),
         state=ResponseState(
             context_variables=[],
             glossary_terms=set(),

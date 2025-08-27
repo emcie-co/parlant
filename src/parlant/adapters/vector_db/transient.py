@@ -373,10 +373,20 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
 
         self._logger.trace(f"Similar documents found\n{json.dumps(docs, indent=2)}")
 
+        # FIXME: Distances here are fake (rank → normalized 0–0.8).
+        # Proper cosine distance should be computed.
+        # Currently NanoDB doesn’t return similarity scores or embeddings, so
+        # this is only a placeholder for ordering. Replace once real scores
+        # are implemented in the database client.
+        n = len(docs)
+
+        def distance_formula(i: int) -> float:
+            return ((i / (n - 1)) * 0.8) if n > 1 else 0.8
+
         return [
             SimilarDocumentResult(
                 document=cast(TDocument, d),
-                distance=i,
+                distance=distance_formula(i),
             )
             for i, d in enumerate(docs)
         ]

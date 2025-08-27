@@ -184,7 +184,6 @@ SessionStatus: TypeAlias = Literal[
 
 
 class StatusEventData(TypedDict):
-    acknowledged_offset: NotRequired[int]
     status: SessionStatus
     data: JSONSerializable
 

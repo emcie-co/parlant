@@ -232,11 +232,9 @@ class AlphaEngine(Engine):
 
     async def _load_interaction_state(self, context: Context) -> Interaction:
         history = await self._entity_queries.find_events(context.session_id)
-        last_known_event_offset = history[-1].offset if history else -1
 
         return Interaction(
             history=history,
-            last_known_event_offset=last_known_event_offset,
         )
 
     async def _do_process(
@@ -394,7 +392,7 @@ class AlphaEngine(Engine):
         if load_interaction:
             interaction = await self._load_interaction_state(context)
         else:
-            interaction = Interaction([], -1)
+            interaction = Interaction([])
 
         return LoadedContext(
             info=context,
@@ -900,7 +898,6 @@ class AlphaEngine(Engine):
             correlation_id=self._correlator.correlation_id,
             data={
                 "status": "error",
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "data": {"exception": exception_details},
             },
         )
@@ -909,7 +906,6 @@ class AlphaEngine(Engine):
         await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "status": "acknowledged",
                 "data": {},
             },
@@ -919,7 +915,6 @@ class AlphaEngine(Engine):
         await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "status": "processing",
                 "data": {"stage": stage},
             },
@@ -929,7 +924,6 @@ class AlphaEngine(Engine):
         await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "status": "cancelled",
                 "data": {},
             },
@@ -939,7 +933,6 @@ class AlphaEngine(Engine):
         await context.session_event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": context.interaction.last_known_event_offset,
                 "status": "ready",
                 "data": {},
             },
@@ -980,6 +973,9 @@ class AlphaEngine(Engine):
             + [ContextVariableStore.GLOBAL_KEY]  # Global value
         )
 
+        # TODO: Parallelize this, as some tool-enabled context vars
+        # might run long-running tasks. One example we've encountered
+        # is analyzing an image and putting the analysis into a variable.
         for variable in variables_supported_by_agent:
             # Try keys in order of importance, stopping at and using
             # the first (and most important) set key for each variable.
@@ -1205,9 +1201,10 @@ class AlphaEngine(Engine):
         )
 
         for journey_id, path in new_journey_paths.items():
-            if journey_id in journey_paths:
-                journey_paths[journey_id].extend(path)
-            else:
+            if journey_paths and journey_paths.get(journey_id):
+                if path != [None] or journey_paths[journey_id][-1] is not None:
+                    journey_paths[journey_id].extend(path)
+            elif path != [None]:
                 journey_paths[journey_id] = path
 
         return journey_paths

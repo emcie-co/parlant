@@ -199,7 +199,7 @@ async def test_that_relevant_canned_responses_can_be_retrieved_based_on_closest_
         )
     )
 
-    assert closest_canned_response.value == "Paneer Cheese"
+    assert closest_canned_response.canned_response.value == "Paneer Cheese"
 
 
 async def test_that_a_canned_response_can_be_updated(

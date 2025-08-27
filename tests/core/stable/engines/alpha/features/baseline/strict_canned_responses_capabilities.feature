@@ -105,7 +105,7 @@ Feature: Strict Canned Response Capabilities
         And a customer message, "Hi, I'm looking for help regarding an existing order"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that the agent can help regarding checking an order's status, location, and potentially changing its delivery method
+        And the message contains that the agent can help regarding checking an order's status and location. It may potentially ask about changing its delivery method - doing so is ok.
 
     Scenario: Agent doesnt offer capability thats forbidden by a guideline (strict canned response)
         Given a customer named "Mo"

@@ -25,11 +25,11 @@ Feature: Conversation
         And an empty session
         And a guideline to greet with 'Howdy' when the session starts
         When processing is triggered
-        Then a status event is emitted, acknowledging event -1
-        And a status event is emitted, typing in response to event -1
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains a 'Howdy' greeting
-        And a status event is emitted, ready for further engagement after reacting to event -1
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent offers a thirsty customer a drink
         Given an agent
@@ -37,11 +37,11 @@ Feature: Conversation
         And a customer message, "I'm thirsty"
         And a guideline to offer thirsty customers a Pepsi when the customer is thirsty
         When processing is triggered
-        Then a status event is emitted, acknowledging event 0
-        And a status event is emitted, typing in response to event 0
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains an offering of a Pepsi
-        And a status event is emitted, ready for further engagement after reacting to event 0
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent finds and follows relevant guidelines like a needle in a haystack
         Given an agent
@@ -70,8 +70,8 @@ Feature: Conversation
         And a guideline to do your job when the customer says hello
         When processing is triggered and cancelled in the middle
         Then no message events are emitted
-        And a status event is emitted, cancelling the response to event 0
-        And a status event is emitted, ready for further engagement after reacting to event 0
+        And a status event is emitted, cancelling the response to event
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent ignores deleted messages when responding
         Given an agent

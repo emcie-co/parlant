@@ -66,3 +66,22 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "local:send_email" to morgan with subject of a meeting tomorrow and doesn't contains a call to "local:schedule_meeting"
+
+    Scenario: Overlapped tool that has both missing and invalid parameters, some hidden and some have display names, communicate the problems correctly
+        Given an empty session
+        And a guideline "calculate your salary" to calculate the salary of a person when the customer wants to know their salary
+        And the tool "calculate_salary"
+        And an association between "calculate your salary" and "calculate_salary"
+        And the tool "calculate_expected_salary"
+        And an association between "calculate your salary" and "calculate_expected_salary"
+        And a tool relationship whereby "calculate_salary" overlaps with "calculate_expected_salary"
+        And a customer message, "Hi, My name is Chris Pikrim, I work in Mike Andike's team. My mistress KittyKat and my friend Shuki asked me for my salary, so I would like you to calculate my salary based on those people I mentioned. Please provide me with all details regarding missing or invalid data, including what would be valid options for each choice, if you know that."
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message mentions that parameters are missing
+        And the number of missing parameters is exactly 1
+        And the message mentions that parameters are invalid
+        And the number of invalid parameters is exactly 2
+        And the message mentions the robot, mistress and homie
+        And the message mentions Chris Pikrim, Mike Andike, Jay Libelly and Bruno Twix

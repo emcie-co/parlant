@@ -36,7 +36,8 @@ ROOT_INDEX = "1"
 DEFAULT_ROOT_ACTION = (
     "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
 )
-BEGIN_JOURNEY_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance to the next node based on the relevant transition."
+BEGIN_JOURNEY_AT_ACTIONLESS_ROOT_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance to the next node based on the relevant transition."
+BEGIN_JOURNEY_AT_ROOT_WITH_ACTION_FLAG_TEXT = "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed."
 EXIT_JOURNEY_INSTRUCTION = "RETURN 'NONE'"
 ELSE_CONDITION_STR = "This step was completed, and no other transition applies"
 SINGLE_FOLLOW_UP_CONDITION_STR = "This step was completed"
@@ -111,7 +112,7 @@ def get_pruned_nodes(
 ) -> dict[str, _JourneyNode]:
     # TODO can be implemented in cleaner fashion if we maintain a dictionary of the distance of each node from the previous path / current node
     # If we encounter any trouble with pruning - we should implement it as such
-    if previous_path:
+    if previous_path and set(previous_path) != set([None]):
         nodes_to_traverse = set(previous_path)
     else:
         nodes_to_traverse = set("1")
@@ -146,6 +147,8 @@ def get_pruned_nodes(
                 queue.append((neighbor, depth + 1))
 
     pruned_nodes = {idx: nodes[idx] for idx in result if idx}
+    if not pruned_nodes:  # Recover in case some unexpected error caused all nodes to be pruned
+        return get_pruned_nodes(nodes, [], max_depth)
     return pruned_nodes
 
 
@@ -300,67 +303,69 @@ def get_journey_transition_map_text(
     else:
         journey_conditions_str = ""
 
+    last_executed_node_id = next(
+        (node_id for node_id in reversed(previous_path) if node_id is not None), None
+    )
     first_node_to_execute: str | None = None
     nodes_str = ""
+    displayed_node_action = ""
     for node_index in sorted(unpruned_nodes.keys(), key=node_sort_key):
         node: _JourneyNode = nodes[node_index]
-        if (
-            node.id == ROOT_INDEX
-            and (not node.action or node.action == DEFAULT_ROOT_ACTION)
-            and len(node.outgoing_edges) == 1
-        ):  # Don't print root node
-            if not previous_path:
-                first_node_to_execute = node.outgoing_edges[0].target_node_index
-        elif (
-            node.id == ROOT_INDEX
-            and (not node.action or node.action == DEFAULT_ROOT_ACTION)
-            and len(node.outgoing_edges) > 1
-        ):  # Print root node
-            if previous_path:
-                flags_str = ""
+        print_node = True
+        flags_str = "Step Flags:\n"
+        if node.id == ROOT_INDEX:
+            if (
+                node.action and node.action != DEFAULT_ROOT_ACTION
+            ):  # Root with real action, so we must print it
+                if not previous_path or set(previous_path) == set([None]):
+                    flags_str += BEGIN_JOURNEY_AT_ROOT_WITH_ACTION_FLAG_TEXT + "\n"
+                displayed_node_action = node.action
+            elif (
+                len(node.outgoing_edges) > 1
+            ):  # Root has no real action but has multiple followups, so should be printed
+                if not previous_path or set(previous_path) == set([None]):
+                    flags_str += BEGIN_JOURNEY_AT_ACTIONLESS_ROOT_FLAG_TEXT + "\n"
+                displayed_node_action = FORK_NODE_ACTION_STR
+            else:  # Root has no action and a single follow up, so that follow up is first to be executed
+                print_node = False
+                if not previous_path or set(previous_path) == set([None]):
+                    first_node_to_execute = node.outgoing_edges[0].target_node_index
+        # Customer / Agent dependent flags
+        if node.customer_dependent_action:
+            if print_customer_action_description and node.customer_action_description:
+                flags_str += f'- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. It is completed if the following action was completed: "{node.customer_action_description}" \n'
             else:
-                flags_str = "Step Flags:\n"
-                flags_str += BEGIN_JOURNEY_FLAG_TEXT + "\n"
+                flags_str += "- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
+        elif node.kind == JourneyNodeKind.CHAT:
+            flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
 
+        # Node kind flags
+        if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
+            print_node = False
+        elif node.kind == JourneyNodeKind.FORK:
+            displayed_node_action = FORK_NODE_ACTION_STR
+            flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
+        else:
+            displayed_node_action = cast(str, node.action)
+        if node.kind == JourneyNodeKind.TOOL and node.id != last_executed_node_id:
+            flags_str += (
+                "- REQUIRES TOOL CALLS: Do not advance past this step! If you got here, stop.\n"
+            )
+
+        # Previously executed-related flags
+        if node.id == first_node_to_execute:
+            flags_str += BEGIN_JOURNEY_AT_ROOT_WITH_ACTION_FLAG_TEXT
+        elif node.id == last_executed_node_id:
+            flags_str += (
+                "- This is the last step that was executed. Begin advancing on from this step\n"
+            )
+        elif node.id in previous_path:
+            flags_str += "- PREVIOUSLY EXECUTED: This step was previously executed. You may backtrack to this step.\n"
+        elif node.id != ROOT_INDEX:
+            flags_str += "- NOT PREVIOUSLY EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
+        if print_node:
             nodes_str += f"""
-STEP {node_index}: No action necessary. Advance to the next step.
-{flags_str}
-TRANSITIONS:
-{get_node_transition_text(node)}
-"""
-            pass
-        elif node.action:  # not root
-            flags_str = "Step Flags:\n"
-            if node.customer_dependent_action:
-                if print_customer_action_description and node.customer_action_description:
-                    flags_str += f'- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. It is completed if the following action was completed: "{node.customer_action_description}" \n'
-                else:
-                    flags_str += "- CUSTOMER_DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
-            if (
-                node.kind == JourneyNodeKind.TOOL
-                and (not previous_path or node.id != previous_path[-1])
-            ):  # Not including this flag for current step - if we got here, the tool call should've executed so the flag would be misleading. TODO find a better solution here
-                flags_str += (
-                    "- REQUIRES_TOOL_CALLS: Do not advance past this step! If you got here, stop.\n"
-                )
-            if node.id == first_node_to_execute:
-                flags_str += "- BEGIN HERE: Begin the journey advancement at this step. Advance onward if this step was already completed.\n"
-            elif previous_path and node.id == previous_path[-1]:
-                flags_str += (
-                    "- This is the last step that was executed. Begin advancing on from this step\n"
-                )
-            elif node.id in previous_path:
-                flags_str += "- PREVIOUSLY_EXECUTED: This step was previously executed. You may backtrack to this step.\n"
-            else:
-                flags_str += "- NOT_PREVIOUSLY_EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
-            if (
-                node.kind == JourneyNodeKind.FORK
-            ):  # TODO change why I know how to recognize fork nodes
-                flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
-            if node.kind == JourneyNodeKind.CHAT and not node.customer_dependent_action:
-                flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
-            nodes_str += f"""
-STEP {node_index}: {node.action}
+STEP {node_index}: {displayed_node_action}
 {flags_str}
 TRANSITIONS:
 {get_node_transition_text(node)}
@@ -818,7 +823,6 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
-
         return builder
 
     def _get_output_format_section(self) -> str:

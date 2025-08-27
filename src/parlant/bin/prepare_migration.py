@@ -1905,7 +1905,7 @@ async def detect_required_migrations(
     required_migrations = []
 
     for component, current_version in component_versions:
-        applicable_migrations = []
+        applicable_migrations: list[Any] = []
         for key in migration_registry:
             migration_component, from_version, to_version = key
             if migration_component == component:

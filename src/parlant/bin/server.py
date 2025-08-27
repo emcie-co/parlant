@@ -1039,7 +1039,13 @@ def main() -> None:
     @click.option(
         "--aws",
         is_flag=True,
-        help="Run with AWS Bedrock. The following environment variables must be set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and install the extra package parlant[aws].",
+        help=(
+            """
+    Run with AWS Bedrock. The following environment variables must be set: 
+    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION 
+    (optionally AWS_SESSION_TOKEN if you are using temporary credentials). 
+    Also, install the extra package parlant[aws]."""
+        ),
         default=False,
     )
     @click.option(

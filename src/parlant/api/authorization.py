@@ -34,6 +34,7 @@ class Operation(Enum):
 
     CREATE_AGENT = "create_agent"
     READ_AGENT = "read_agent"
+    READ_AGENT_DESCRIPTION = "read_agent_description"
     LIST_AGENTS = "list_agents"
     UPDATE_AGENT = "update_agent"
     DELETE_AGENT = "delete_agent"
@@ -110,6 +111,7 @@ class Operation(Enum):
     CREATE_HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT_EVENT = (
         "create_human_agent_on_behalf_of_ai_agent_event"
     )
+    CREATE_STATUS_EVENT = "create_status_event"
     CREATE_CUSTOM_EVENT = "create_custom_event"
     READ_EVENT = "read_event"
     LIST_EVENTS = "list_events"
@@ -205,11 +207,13 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
         self.default_limiter: RateLimiter = BasicRateLimiter(
             rate_limit_item_per_operation={
                 # Some reasonable defaults...
+                Operation.READ_AGENT: RateLimitItemPerMinute(30),
                 Operation.CREATE_GUEST_SESSION: RateLimitItemPerMinute(10),
                 Operation.READ_SESSION: RateLimitItemPerMinute(30),
                 Operation.LIST_EVENTS: RateLimitItemPerMinute(240),
                 Operation.READ_EVENT: RateLimitItemPerMinute(30),
                 Operation.CREATE_CUSTOMER_EVENT: RateLimitItemPerMinute(30),
+                Operation.CREATE_STATUS_EVENT: RateLimitItemPerMinute(60),
             }
         )
 
@@ -221,6 +225,7 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
     @override
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         if operation in [
+            Operation.READ_AGENT,
             Operation.CREATE_GUEST_SESSION,
             Operation.READ_SESSION,
             Operation.LIST_EVENTS,

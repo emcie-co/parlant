@@ -89,6 +89,12 @@ class CannedResponse:
         return hash(self.id)
 
 
+@dataclass(frozen=True)
+class CannedResponseRelevantResult:
+    canned_response: CannedResponse
+    score: float
+
+
 class CannedResponseUpdateParams(TypedDict, total=False):
     value: str
     fields: Sequence[CannedResponseField]
@@ -137,7 +143,7 @@ class CannedResponseStore(ABC):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponse]: ...
+    ) -> Sequence[CannedResponseRelevantResult]: ...
 
     @abstractmethod
     async def upsert_tag(
@@ -656,7 +662,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponse]:
+    ) -> Sequence[CannedResponseRelevantResult]:
         if not available_canned_responses:
             return []
 
@@ -697,7 +703,10 @@ class CannedResponseVectorStore(CannedResponseStore):
         top_results = sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
 
         return [
-            await self._deserialize_canned_response(d)
+            CannedResponseRelevantResult(
+                canned_response=await self._deserialize_canned_response(d),
+                score=(1 - unique_sdocs[d["id"]].distance),
+            )
             for d in await self._canreps_collection.find(
                 {"id": {"$in": [r.document["canned_response_id"] for r in top_results]}}
             )

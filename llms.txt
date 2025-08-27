@@ -1,0 +1,59 @@
+# Parlant
+
+> Open-source AI agent framework for building customer-facing conversational agents with ensured rule compliance and enterprise-grade behavior control
+
+Parlant is an Agentic Behavior Modeling Engine that enables developers to create predictable, business-aligned AI agents. Unlike traditional prompt-based approaches, Parlant ensures agents follow behavioral guidelines through structured rule matching and contextual application. It also supports deterministic outputs via canned responses.
+
+## Key Concepts
+
+- [Sessions](docs/concepts/sessions.md): Interactions sessions between a customer and an agent
+
+### Entities
+
+- [Agents](docs/concepts/agents): AI personalities that interact with customers as coherent entities
+- [Customers](docs/concepts/customers.md): Customer entity management and personalization
+
+### Behavior Modeling
+Note that you'll need to review the following content carefully before making design suggestions or writing code, as it definitely may not be what you expect.
+
+- [Behavioral Guidelines](docs/concepts/customization/guidelines): Natural language rules that agents follow contextually. Read this page to understand exactly how guidelines work in Parlant and how to use them.
+- [Journeys](docs/concepts/customization/journeys): Structured customer interaction flows. Read this page to understand exactly how to create step-by-step customer interaction flows.
+- [Tools](docs/concepts/customization/tools): External API and service integrations
+- [Glossary](docs/concepts/customization/glossary): Teaching agents domain-specific terminology
+- [Canned Responses](docs/concepts/customization/canned-responses): Template-based responses to eliminate hallucination and control language style
+
+## Getting Started
+
+- [Installation Guide](docs/quickstart/installation): Python 3.10+ setup and first agent creation
+- [Examples](docs/quickstart/examples): Healthcare agent and other practical implementations
+- [Motivation](docs/quickstart/motivation): Why Parlant solves traditional AI agent reliability problems
+
+## Advanced Features
+
+- [Custom LLMs](docs/advanced/custom-llms.md): Integrating custom language model providers
+- [Explainability](docs/advanced/explainability.md): Understanding guideline matching and decision-making
+- [Engine Extensions](docs/advanced/engine-extensions.md): Extending Parlant's core engine capabilities
+- [Few-Shot Learning](docs/advanced/few-shots.md): Improving agent responses with examples
+- [Optimization](docs/advanced/optimization.md): Performance tuning and scaling strategies
+- [Triggered Responses](docs/advanced/triggered-responses.md): Proactive agent communication
+
+## Production Deployment
+
+- [API Hardening](docs/production/api-hardening.md): Authorization policies and rate limiting
+- [Agentic Design](docs/production/agentic-design.md): Best practices for agent architecture
+- [Custom Frontend](docs/production/custom-frontend.md): Building custom user interfaces
+- [Human Handoff](docs/production/human-handoff.md): Seamless escalation to human agents
+- [Input Moderation](docs/production/input-moderation.md): Content filtering and safety measures
+
+## Development & Contributing
+
+- [GitHub Repository](https://github.com/emcie-co/parlant): Apache 2.0 licensed source code
+- [Discord Community](https://discord.gg/duxWqxKk6J): Developer support and discussions
+
+## API & SDK
+
+- [Python SDK](https://pypi.org/project/parlant/): Core framework installation
+- [REST API Documentation](https://parlant.io/docs/api/): Complete API reference
+- [Client SDKs](https://github.com/emcie-co/parlant-client-python): Python API client
+- [Client SDKs](https://github.com/emcie-co/parlant-client-typescript): TypeScript API client
+- [React Chat Widget](https://github.com/emcie-co/parlant-chat-react): Drop-in UI component

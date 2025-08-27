@@ -1207,3 +1207,40 @@ async def test_that_posting_a_human_agent_message_requires_participant_display_n
         },
     )
     assert response_no_participant.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+async def test_that_status_event_can_be_created(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "status",
+            "source": "human_agent",
+            "status": "processing",
+            "data": {"stage": "Fetching some legit data"},
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()
+    assert event["kind"] == "status"
+    assert event["source"] == "human_agent"
+    assert event["data"] == {"status": "processing", "data": {"stage": "Fetching some legit data"}}
+
+    events = (
+        (
+            await async_client.get(
+                f"/sessions/{session_id}/events",
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert events
+    assert events[-1]["data"] == {
+        "status": "processing",
+        "data": {"stage": "Fetching some legit data"},
+    }

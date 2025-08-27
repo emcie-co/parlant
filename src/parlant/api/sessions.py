@@ -44,8 +44,10 @@ from parlant.core.sessions import (
     PreparationIteration,
     SessionId,
     SessionListener,
+    SessionStatus,
     SessionStore,
     SessionUpdateParams,
+    StatusEventData,
     ToolEventData,
 )
 from parlant.core.canned_responses import CannedResponseId
@@ -87,6 +89,19 @@ class Moderation(Enum):
     AUTO = "auto"
     PARANOID = "paranoid"
     NONE = "none"
+
+
+class SessionStatusDTO(Enum):
+    """
+    Type of status in a session.
+    """
+
+    ACKNOWLEDGED = "acknowledged"
+    CANCELLED = "cancelled"
+    PROCESSING = "processing"
+    READY = "ready"
+    TYPING = "typing"
+    ERROR = "error"
 
 
 ConsumptionOffsetClientField: TypeAlias = Annotated[
@@ -299,6 +314,7 @@ class EventCreationParamsDTO(
     data: Optional[JSONSerializableDTO] = None
     guidelines: Optional[list[AgentMessageGuidelineDTO]] = None
     participant: Optional[ParticipantDTO] = None
+    status: Optional[SessionStatusDTO] = None
 
 
 EventIdPath: TypeAlias = Annotated[
@@ -1526,14 +1542,66 @@ def create_router(
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_CUSTOM_EVENT
             )
-
             return await _add_custom_event(session_id, params)
+
+        elif params.kind == EventKindDTO.STATUS:
+            await authorization_policy.authorize(
+                request=request, operation=Operation.CREATE_STATUS_EVENT
+            )
+            return await _add_status_event(session_id, params)
 
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Only message and custom events can currently be added manually",
+                detail="Only message, custom and status events can currently be added manually",
             )
+
+    async def _add_status_event(
+        session_id: SessionIdPath,
+        params: EventCreationParamsDTO,
+    ) -> EventDTO:
+        def status_dto_to_status(dto: SessionStatusDTO) -> SessionStatus:
+            match dto:
+                case SessionStatusDTO.ACKNOWLEDGED:
+                    return "acknowledged"
+                case SessionStatusDTO.CANCELLED:
+                    return "cancelled"
+                case SessionStatusDTO.PROCESSING:
+                    return "processing"
+                case SessionStatusDTO.READY:
+                    return "ready"
+                case SessionStatusDTO.TYPING:
+                    return "typing"
+                case SessionStatusDTO.ERROR:
+                    return "error"
+
+        if params.status is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Missing "status" field for status event',
+            )
+
+        raw_data = params.data or {}
+        if not isinstance(raw_data, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail='Status event "data" must be a JSON object',
+            )
+
+        status_data: StatusEventData = {
+            "status": status_dto_to_status(params.status),
+            "data": raw_data,
+        }
+
+        event = await application.post_event(
+            session_id=session_id,
+            kind=_event_kind_dto_to_event_kind(params.kind),
+            data=status_data,
+            source=_event_source_dto_to_event_source(params.source),
+            trigger_processing=False,
+        )
+
+        return event_to_dto(event)
 
     async def _add_customer_message(
         session_id: SessionIdPath,

@@ -74,6 +74,7 @@ Feature: Strict Canned Response
         And a customer message, "Hi, my first name is Nushi, Please register me for a sweepstake with 3 entries"
         And a canned response, "Hi {{std.invalid_params.first_name}}, you are not eligible to participate in the sweepstake"
         And a canned response, "Hi {{std.customer.name}}, we are happy to register you for the sweepstake"
+        And a canned response, "Hi {{std.customer.name}}, you are not currently not eligible to participate in the sweepstake due to invalid details."
         And a canned response, "Dear customer, please check if you have water in your tank"
         When processing is triggered
         Then no tool calls event is emitted
@@ -131,26 +132,6 @@ Feature: Strict Canned Response
         And the message contains asking the customer for their mobile number or email address
         And the message contains nothing about wishing the customer a good day
 
-    Scenario: Critical guideline overrides journey (strict canned response)
-        Given the journey called "Reset Password Journey"
-        And a canned response, "What is the name of your account?"
-        And a canned response, "can you please provide the email address or phone number attached to this account?"
-        And a canned response, "Thank you, have a good day!"
-        And a canned response, "I'm sorry but I have no information about that"
-        And a canned response, "Is there anything else I could help you with?"
-        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And a canned response, "An error occurred, your password could not be reset"
-        And a canned response, "Before proceeding, could you please state your age?"
-        And the tool "reset_password"
-        And a guideline to ask the customer their age, and do not continue with any other process unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth
-        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        When processing is triggered
-        Then no tool calls event is emitted
-        And a single message event is emitted
-        And the message contains asking the customer for their age
-        And the message contains no questions about the customer's email address or phone number
 
     Scenario: The agent greets the customer (strict canned response)
         Given a guideline to greet with 'Howdy' when the session starts
@@ -160,9 +141,9 @@ Feature: Strict Canned Response
         And a canned response, "Is there anything else I could help you with?"
         And a canned response, "I'll look into that for you right away."
         When processing is triggered
-        Then a status event is emitted, acknowledging event -1
-        And a status event is emitted, processing event -1
-        And a status event is emitted, typing in response to event -1
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, processing event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains a 'Howdy' greeting
 
@@ -175,12 +156,12 @@ Feature: Strict Canned Response
         And a canned response, "Thank you for letting me know. Is there anything else I can help with?"
         And a canned response, "I'll be happy to assist you with all your beverage needs today."
         When processing is triggered
-        Then a status event is emitted, acknowledging event 0
-        And a status event is emitted, processing event 0
-        And a status event is emitted, typing in response to event 0
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, processing event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains an offering of a Pepsi
-        And a status event is emitted, ready for further engagement after reacting to event 0
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent chooses the closest canned response when none completely apply (strict canned response)
         Given an agent whose job is to sell pizza

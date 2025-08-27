@@ -339,15 +339,15 @@ class EntityQueries:
 
     async def find_canned_responses_for_context(
         self,
-        agent_id: AgentId,
+        agent: Agent,
         journeys: Sequence[Journey],
+        guidelines: Sequence[Guideline],
     ) -> Sequence[CannedResponse]:
         agent_canreps = await self._canned_response_store.list_canned_responses(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent.id)],
         )
         global_canreps = await self._canned_response_store.list_canned_responses(tags=[])
 
-        agent = await self._agent_store.read_agent(agent_id)
         canreps_for_agent_tags = await self._canned_response_store.list_canned_responses(
             tags=[tag for tag in agent.tags]
         )
@@ -356,12 +356,15 @@ class EntityQueries:
             tags=[Tag.for_journey_id(journey.id) for journey in journeys]
         )
 
+        guideline_canreps = await self.find_canned_responses_for_guidelines(guidelines)
+
         all_canreps = set(
             chain(
                 agent_canreps,
                 global_canreps,
                 canreps_for_agent_tags,
                 journey_canreps,
+                guideline_canreps,
             )
         )
 
@@ -369,18 +372,18 @@ class EntityQueries:
 
     async def find_canned_responses_for_guidelines(
         self,
-        guidelines: Sequence[GuidelineId],
+        guidelines: Sequence[Guideline],
     ) -> Sequence[CannedResponse]:
         tags = []
 
-        for id in guidelines:
-            if id.startswith("journey_node:"):
+        for g in guidelines:
+            if g.id.startswith("journey_node:"):
                 tags.append(
-                    Tag.for_journey_node_id(extract_node_id_from_journey_node_guideline_id(id))
+                    Tag.for_journey_node_id(extract_node_id_from_journey_node_guideline_id(g.id))
                 )
 
             else:
-                tags.append(Tag.for_guideline_id(id))
+                tags.append(Tag.for_guideline_id(g.id))
 
         return await self._canned_response_store.list_canned_responses(tags=tags)
 

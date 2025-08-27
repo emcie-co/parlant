@@ -23,6 +23,8 @@ from hashlib import md5
 import importlib.util
 from itertools import chain
 from pathlib import Path
+import sys
+import rich
 from rich.console import Group
 from rich.progress import (
     BarColumn,
@@ -33,6 +35,7 @@ from rich.progress import (
     TextColumn,
 )
 from rich.live import Live
+from rich.text import Text
 from types import TracebackType
 from typing import (
     Any,
@@ -43,6 +46,7 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
+    NoReturn,
     Optional,
     Sequence,
     TypeVar,
@@ -227,9 +231,22 @@ class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
     @staticmethod
+    def azure(container: Container) -> NLPService:
+        """Creates an Azure NLPService instance using the provided container."""
+        from parlant.adapters.nlp.azure_service import AzureService
+
+        if error := AzureService.verify_environment():
+            raise SDKError(error)
+
+        return AzureService(container[Logger])
+
+    @staticmethod
     def openai(container: Container) -> NLPService:
         """Creates an OpenAI NLPService instance using the provided container."""
         from parlant.adapters.nlp.openai_service import OpenAIService
+
+        if error := OpenAIService.verify_environment():
+            raise SDKError(error)
 
         return OpenAIService(container[Logger])
 
@@ -238,12 +255,18 @@ class NLPServices:
         """Creates an Anthropic NLPService instance using the provided container."""
         from parlant.adapters.nlp.anthropic_service import AnthropicService
 
+        if error := AnthropicService.verify_environment():
+            raise SDKError(error)
+
         return AnthropicService(container[Logger])
 
     @staticmethod
     def cerebras(container: Container) -> NLPService:
         """Creates a Cerebras NLPService instance using the provided container."""
         from parlant.adapters.nlp.cerebras_service import CerebrasService
+
+        if error := CerebrasService.verify_environment():
+            raise SDKError(error)
 
         return CerebrasService(container[Logger])
 
@@ -252,6 +275,9 @@ class NLPServices:
         """Creates a Together NLPService instance using the provided container."""
         from parlant.adapters.nlp.together_service import TogetherService
 
+        if error := TogetherService.verify_environment():
+            raise SDKError(error)
+
         return TogetherService(container[Logger])
 
     @staticmethod
@@ -259,7 +285,46 @@ class NLPServices:
         """Creates a Gemini NLPService instance using the provided container."""
         from parlant.adapters.nlp.gemini_service import GeminiService
 
+        if error := GeminiService.verify_environment():
+            raise SDKError(error)
+
         return GeminiService(container[Logger])
+
+    @staticmethod
+    def litellm(container: Container) -> NLPService:
+        """Creates a Litellm NLPService instance using the provided container."""
+        from parlant.adapters.nlp.litellm_service import LiteLLMService
+
+        if error := LiteLLMService.verify_environment():
+            raise SDKError(error)
+
+        return LiteLLMService(container[Logger])
+
+    @staticmethod
+    def vertex(container: Container) -> NLPService:
+        """Creates a Vertex NLPService instance using the provided container."""
+        from parlant.adapters.nlp.vertex_service import VertexAIService
+
+        if error := VertexAIService.verify_environment():
+            raise SDKError(error)
+
+        if err := VertexAIService.validate_adc():
+            raise SDKError(err)
+
+        return VertexAIService(container[Logger])
+
+    @staticmethod
+    def ollama(container: Container) -> NLPService:
+        """Creates a Ollama NLPService instance using the provided container."""
+        from parlant.adapters.nlp.ollama_service import OllamaService
+
+        if error := OllamaService.verify_environment():
+            raise SDKError(error)
+
+        if err := OllamaService.verify_models():
+            raise SDKError(err)
+
+        return OllamaService(container[Logger])
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
@@ -309,13 +374,13 @@ class _CachedEvaluator:
         await self._exit_stack.enter_async_context(self._db)
 
         self._guideline_collection = await self._db.get_or_create_collection(
-            name="guideline_evaluations",
+            name=f"guideline_evaluations_{VERSION}",
             schema=_CachedGuidelineEvaluation,
             document_loader=identity_loader_for(_CachedGuidelineEvaluation),
         )
 
         self._journey_collection = await self._db.get_or_create_collection(
-            name="journey_evaluations",
+            name=f"journey_evaluations_{VERSION}",
             schema=_CachedJourneyEvaluation,
             document_loader=identity_loader_for(_CachedJourneyEvaluation),
         )
@@ -336,12 +401,13 @@ class _CachedEvaluator:
         g: GuidelineContent,
         tool_ids: Sequence[ToolId],
         journey_state_propositions: bool,
+        properties_proposition: bool,
     ) -> str:
         """Generate a hash for the guideline evaluation request."""
         tool_ids_str = ",".join(str(tool_id) for tool_id in tool_ids) if tool_ids else ""
 
         return md5(
-            f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_state_propositions}".encode()
+            f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_state_propositions}:{properties_proposition}".encode()
         ).hexdigest()
 
     def _hash_journey_evaluation_request(
@@ -367,6 +433,7 @@ class _CachedEvaluator:
             g=g,
             tool_ids=tool_ids,
             journey_state_proposition=True,
+            properties_proposition=False,
         )
 
     async def evaluate_guideline(
@@ -388,33 +455,24 @@ class _CachedEvaluator:
         tool_ids: Sequence[ToolId] = [],
         action_proposition: bool = True,
         journey_state_proposition: bool = False,
+        properties_proposition: bool = True,
     ) -> _CachedEvaluator.GuidelineEvaluation:
         # First check if we have a cached evaluation for this guideline
         _hash = self._hash_guideline_evaluation_request(
             g=g,
             tool_ids=tool_ids,
             journey_state_propositions=journey_state_proposition,
+            properties_proposition=properties_proposition,
         )
 
         if cached_evaluation := await self._guideline_collection.find_one({"id": {"$eq": _hash}}):
-            # Check if the cached evaluation is based on our current runtime version.
-            # This is important as the required evaluation data can change between versions.
-            if cached_evaluation["version"] == VERSION:
-                self._logger.trace(
-                    f"Using cached evaluation for guideline: Condition: {g.condition or 'None'}; Action: {g.action or 'None'}"
-                )
+            self._logger.trace(
+                f"Using cached evaluation for guideline: Condition: {g.condition or 'None'}; Action: {g.action or 'None'}"
+            )
 
-                return self.GuidelineEvaluation(
-                    properties=cached_evaluation["properties"],
-                )
-            else:
-                self._logger.trace(
-                    f"Deleting outdated cached evaluation for guideline: {g.condition or 'None'}"
-                )
-
-                await self._guideline_collection.delete_one(
-                    {"id": {"$eq": cached_evaluation["id"]}}
-                )
+            return self.GuidelineEvaluation(
+                properties=cached_evaluation["properties"],
+            )
 
         self._logger.trace(
             f"Evaluating guideline: Condition: {g.condition or 'None'}, Action: {g.action or 'None'}"
@@ -434,7 +492,7 @@ class _CachedEvaluator:
                         coherence_check=False,  # Legacy and will be removed in the future
                         connection_proposition=False,  # Legacy and will be removed in the future
                         action_proposition=action_proposition,
-                        properties_proposition=True,
+                        properties_proposition=properties_proposition,
                         journey_node_proposition=journey_state_proposition,
                     ),
                 )
@@ -493,25 +551,14 @@ class _CachedEvaluator:
         )
 
         if cached_evaluation := await self._journey_collection.find_one({"id": {"$eq": _hash}}):
-            # Check if the cached evaluation is based on our current runtime version.
-            # This is important as the required evaluation data can change between versions.
-            if cached_evaluation["version"] == VERSION:
-                self._logger.trace(
-                    f"Using cached evaluation for journey: Title: {journey.title or 'None'};"
-                )
+            self._logger.trace(
+                f"Using cached evaluation for journey: Title: {journey.title or 'None'};"
+            )
 
-                return self.JourneyEvaluation(
-                    node_properties=cached_evaluation["node_properties"],
-                    edge_properties=cached_evaluation["edge_properties"],
-                )
-            else:
-                self._logger.trace(
-                    f"Deleting outdated cached evaluation for journey: {journey.title or 'None'}"
-                )
-
-                await self._guideline_collection.delete_one(
-                    {"id": {"$eq": cached_evaluation["id"]}}
-                )
+            return self.JourneyEvaluation(
+                node_properties=cached_evaluation["node_properties"],
+                edge_properties=cached_evaluation["edge_properties"],
+            )
 
         self._logger.trace(f"Evaluating journey: Title: {journey.title or 'None'}")
 
@@ -1249,6 +1296,15 @@ class Journey:
             _container=self._container,
         )
 
+    async def create_observation(
+        self,
+        condition: str,
+        canned_responses: Sequence[CannedResponseId] = [],
+    ) -> Guideline:
+        """A shorthand for creating an observational guideline with the specified condition."""
+
+        return await self.create_guideline(condition=condition, canned_responses=canned_responses)
+
     async def attach_tool(
         self,
         tool: ToolEntry,
@@ -1896,6 +1952,15 @@ class ToolContextAccessor:
         return self.server._container[Logger]
 
 
+def _die(message: str, exc: Exception | None) -> NoReturn:
+    if exc:
+        import traceback
+
+        traceback.print_exception(exc)
+    rich.print(Text(message, style="bold red"), file=sys.stderr)
+    sys.exit(1)
+
+
 class Server:
     """The main server class that manages the agent, journeys, tools, and other components.
 
@@ -1984,16 +2049,20 @@ class Server:
         )
 
     async def __aenter__(self) -> Server:
-        self._startup_context_manager = start_parlant(self._get_startup_params())
-        self._container = await self._startup_context_manager.__aenter__()
+        try:
+            self._startup_context_manager = start_parlant(self._get_startup_params())
+            self._container = await self._startup_context_manager.__aenter__()
 
-        assert self._creation_progress
-        self._creation_progress = self._creation_progress.__enter__()
-        self._creation_progress_task_id = self._creation_progress.add_task(
-            "Caching entity embeddings", total=None
-        )
+            assert self._creation_progress
+            self._creation_progress = self._creation_progress.__enter__()
+            self._creation_progress_task_id = self._creation_progress.add_task(
+                "Caching entity embeddings", total=None
+            )
 
-        return self
+            return self
+        except SDKError as e:
+            _die(str(e), e)
+            raise
 
     async def __aexit__(
         self,

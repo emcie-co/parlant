@@ -3,4 +3,4 @@
         And a session with a single customer message
         And a faulty message production mechanism
         When processing is triggered
-        Then a status event is emitted, encountering an error while processing event 0
+        Then a status event is emitted, encountering an error while processing event

@@ -84,7 +84,7 @@ class Interaction:
     @staticmethod
     def empty() -> Interaction:
         """Returns an empty interaction state"""
-        return Interaction(history=[], last_known_event_offset=-1)
+        return Interaction(history=[])
 
     @property
     def messages(self) -> Sequence[InteractionMessage]:
@@ -119,9 +119,6 @@ class Interaction:
 
     history: Sequence[Event]
     """An sequenced event-by-event representation of the interaction"""
-
-    last_known_event_offset: int
-    """An accessor which is often useful when emitting status events"""
 
 
 @dataclass(frozen=False)

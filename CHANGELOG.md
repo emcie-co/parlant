@@ -6,6 +6,35 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.0.2] - 2025-08-27
+
+### Added
+
+- Added docs/\* and llms.txt
+- Added Vertex NLP service
+- Added Ollama NLP service
+- Added LiteLLM support to the SDK
+- Added Gemini support to the SDK
+- Added Journey.create_observation() helper
+- Added auth permission READ_AGENT_DESCRIPTION
+- Added optional AWS_SESSION_TOKEN to BedrockService
+- Support creating status events via the API
+
+### Changed
+
+- Moved tool call success log to DEBUG level
+- Optimized canrep to not generate a draft in strict mode if no canrep candidates found
+- Removed `acknowledged_event_offset` from status events
+- Removed `last_known_event_offset` from `LoadedContext.interaction`
+
+### Fixed
+
+- Fixed presentation of missing API keys for built-in NLP services
+- Improvements to canned response generation
+- Fixed bug with null journey paths in some cases
+- Fixed tiny bug with terminal nodes in journey node selection
+- Fixed evaluations not showing properly after version upgrade
+
 ## [3.0.1] - 2025-08-16
 
 ### Changed

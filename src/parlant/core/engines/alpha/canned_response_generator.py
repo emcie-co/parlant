@@ -556,8 +556,9 @@ You must generate the preamble message. You must produce a JSON object with a si
             preamble_responses = [
                 canrep
                 for canrep in await self._entity_queries.find_canned_responses_for_context(
-                    agent_id=agent.id,
+                    agent=agent,
                     journeys=canrep_context.journeys,
+                    guidelines=[m.guideline for m in canrep_context.guideline_matches],
                 )
                 if Tag.preamble() in canrep.tags
             ]
@@ -621,16 +622,9 @@ You will now be given the current state of the interaction to which you must gen
             context.state.message_events,
         )
 
-        last_known_event_offset = (
-            canrep_context.interaction_history[-1].offset
-            if canrep_context.interaction_history
-            else -1
-        )
-
         await canrep_context.event_emitter.emit_status_event(
             correlation_id=f"{self._correlator.correlation_id}",
             data={
-                "acknowledged_offset": last_known_event_offset,
                 "status": "typing",
                 "data": {},
             },
@@ -693,8 +687,9 @@ You will now be given the current state of the interaction to which you must gen
         stored_responses = [
             canrep
             for canrep in await self._entity_queries.find_canned_responses_for_context(
-                agent_id=context.agent.id,
+                agent=context.agent,
                 journeys=context.journeys,
+                guidelines=[m.guideline for m in context.guideline_matches],
             )
             if Tag.preamble() not in canrep.tags
         ]
@@ -856,7 +851,6 @@ You will now be given the current state of the interaction to which you must gen
                         await context.event_emitter.emit_status_event(
                             correlation_id=self._correlator.correlation_id,
                             data={
-                                "acknowledged_offset": 0,
                                 "status": "ready",
                                 "data": {},
                             },
@@ -868,7 +862,6 @@ You will now be given the current state of the interaction to which you must gen
                             await context.event_emitter.emit_status_event(
                                 correlation_id=self._correlator.correlation_id,
                                 data={
-                                    "acknowledged_offset": 0,
                                     "status": "typing",
                                     "data": {},
                                 },
@@ -1342,7 +1335,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
 5. Note that there may be multiple relevant choices. Out of those, you must choose the MOST suitable one that is MOST LIKE the human operator's draft reply.
 6. In cases where there are multiple templates that provide a partial match, you may encounter different types of partial matches. Prefer templates that do not deviate from the draft message semantically, even if they only address part of the draft message. They are better than a template that would have captured multiple parts of the draft message while introducing semantic deviations. In other words, better to match fewer parts with higher semantic fidelity than to match more parts with lower semantic fidelity.
 7. If there is any noticeable semantic deviation between the draft message and the template, i.e., the draft says "Do X" and the template says "Do Y" (even if Y is a sibling concept under the same category as X), you should not choose that template, even if it captures other parts of the draft message. We want to maintain true fidelity with the draft message.
-8. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
+8. If the deviation between the draft and the template is quantitative in nature (e.g., the draft says "5 apples" and the template says "10 apples"), you should assume that the template has it right. Don't consider this a failure, as the template will definitely contain the correct information. So as long as it's a good *qualitative match*, you can assume that the *quantitative part* will be handled correctly.
+9. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
         )
 
         builder.add_glossary(context.terms)
@@ -1397,10 +1391,6 @@ Output a JSON object with three properties:
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
         # This will be needed throughout the process for emitting status events
-        last_known_event_offset = (
-            context.interaction_history[-1].offset if context.interaction_history else -1
-        )
-
         direct_draft_output_mode = (
             not canned_responses and context.agent.composition_mode != CompositionMode.CANNED_STRICT
         )
@@ -1426,16 +1416,24 @@ Output a JSON object with three properties:
             await context.event_emitter.emit_status_event(
                 correlation_id=self._correlator.correlation_id,
                 data={
-                    "acknowledged_offset": last_known_event_offset,
                     "status": "typing",
                     "data": {},
                 },
+            )
+        elif (
+            not canned_responses and context.agent.composition_mode == CompositionMode.CANNED_STRICT
+        ):
+            no_match_canrep = await self._no_match_provider.get_response(loaded_context, None)
+
+            return {}, _CannedResponseSelectionResult(
+                message=no_match_canrep.value,
+                draft=None,
+                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
         else:
             await context.event_emitter.emit_status_event(
                 correlation_id=self._correlator.correlation_id,
                 data={
-                    "acknowledged_offset": last_known_event_offset,
                     "status": "processing",
                     "data": {"stage": "Articulating"},
                 },
@@ -1465,7 +1463,6 @@ Output a JSON object with three properties:
         await context.event_emitter.emit_status_event(
             correlation_id=self._correlator.correlation_id,
             data={
-                "acknowledged_offset": last_known_event_offset,
                 "status": "typing",
                 "data": {},
             },
@@ -1478,7 +1475,8 @@ Output a JSON object with three properties:
             level=LogLevel.TRACE,
         ):
             relevant_canreps = set(
-                await self._canned_response_store.find_relevant_canned_responses(
+                r.canned_response
+                for r in await self._canned_response_store.find_relevant_canned_responses(
                     query=draft_response.content.response_body,
                     available_canned_responses=canned_responses,
                     max_count=30,
@@ -1493,7 +1491,7 @@ Output a JSON object with three properties:
 
             relevant_canreps.update(
                 await self._entity_queries.find_canned_responses_for_guidelines(
-                    guidelines=[m.guideline.id for m in context.guideline_matches]
+                    guidelines=[m.guideline for m in context.guideline_matches]
                 )
             )
 
@@ -1645,6 +1643,8 @@ Output a JSON object with three properties:
         context: CannedResponseContext,
         response: CannedResponse,
     ) -> _CannedResponseRenderResult:
+        faulty_field_name: str | None = None
+
         try:
             args = {}
 
@@ -1658,6 +1658,7 @@ Output a JSON object with three properties:
                 if success:
                     args[field_name] = value
                 else:
+                    faulty_field_name = field_name
                     self._logger.error(f"CannedResponse field extraction: missing '{field_name}'")
                     raise KeyError(f"Missing field '{field_name}' in canned response")
 
@@ -1669,12 +1670,15 @@ Output a JSON object with three properties:
                 rendered_text=result,
             )
         except Exception as exc:
-            self._logger.error(
-                f"Failed to pre-render canned response for matching '{response.id}' ('{response.value}')"
-            )
-            self._logger.error(
-                f"Canned response rendering failed: {traceback.format_exception(exc)}"
-            )
+            # TODO: Once we have the extractor registry, maybe control this using
+            # something like "excluded from error" extractors or field names.
+            if faulty_field_name != "generative":
+                self._logger.error(
+                    f"Failed to pre-render canned response for matching '{response.id}' ('{response.value}')"
+                )
+                self._logger.error(
+                    f"Canned response rendering failed: {traceback.format_exception(exc)}"
+                )
 
             return _CannedResponseRenderResult(
                 response=response,

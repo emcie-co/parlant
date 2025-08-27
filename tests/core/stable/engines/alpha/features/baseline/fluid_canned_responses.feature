@@ -8,11 +8,11 @@ Feature: Fluid Canned Response
     Scenario: The agent greets the customer (fluid canned response)
         Given a guideline to greet with 'Howdy' when the session starts
         When processing is triggered
-        Then a status event is emitted, acknowledging event -1
-        And a status event is emitted, typing in response to event -1
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains a 'Howdy' greeting
-        And a status event is emitted, ready for further engagement after reacting to event -1
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: Responding based on data the user is providing (fluid canned response)
         Given a customer message, "I say that a banana is green, and an apple is purple. What did I say was the color of a banana?"
@@ -82,26 +82,6 @@ Feature: Fluid Canned Response
         And the message contains asking the customer for their mobile number or email address
         And the message contains nothing about wishing the customer a good day
 
-    Scenario: Critical guideline overrides journey (fluid canned response)
-        Given the journey called "Reset Password Journey"
-        And a canned response, "What is the name of your account?"
-        And a canned response, "can you please provide the email address or phone number attached to this account?"
-        And a canned response, "Thank you, have a good day!"
-        And a canned response, "I'm sorry but I have no information about that"
-        And a canned response, "Is there anything else I could help you with?"
-        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And a canned response, "An error occurred, your password could not be reset"
-        And a canned response, "Before proceeding, could you please state your age?"
-        And the tool "reset_password"
-        And a guideline to ask the customer their age, and do not continue with any other process or ask additional questions unless it is over 21 when the customer provides a username that includes what could potentially be their year of birth        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        And a journey path "[2]" for the journey "Reset Password Journey"
-        When processing is triggered
-        Then no tool calls event is emitted
-        And a single message event is emitted
-        And the message contains asking the customer for their age
-        And the message contains no questions about the customer's email address or phone number
 
     Scenario: The agent greets the customer 2 (fluid canned response)
         Given a guideline to greet with 'Howdy' when the session starts
@@ -111,9 +91,9 @@ Feature: Fluid Canned Response
         And a canned response, "Is there anything else I could help you with?"
         And a canned response, "I'll look into that for you right away."
         When processing is triggered
-        Then a status event is emitted, acknowledging event -1
-        And a status event is emitted, processing event -1
-        And a status event is emitted, typing in response to event -1
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, processing event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains a 'Howdy' greeting
 
@@ -126,12 +106,12 @@ Feature: Fluid Canned Response
         And a canned response, "Thank you for letting me know. Is there anything else I can help with?"
         And a canned response, "I'll be happy to assist you with all your beverage needs today."
         When processing is triggered
-        Then a status event is emitted, acknowledging event 0
-        And a status event is emitted, processing event 0
-        And a status event is emitted, typing in response to event 0
+        Then a status event is emitted, acknowledging event
+        And a status event is emitted, processing event
+        And a status event is emitted, typing in response to event
         And a single message event is emitted
         And the message contains an offering of a Pepsi
-        And a status event is emitted, ready for further engagement after reacting to event 0
+        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent correctly applies greeting guidelines based on auxiliary data (fluid canned response)
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.

@@ -244,7 +244,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 condition=None,
                 action="Welcome the customer to the Low Cal Calzone Zone",
                 follow_up_ids=["2"],
-                customer_dependent_action=True,
+                customer_dependent_action=False,
                 kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
@@ -2062,4 +2062,53 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
         expected_path=["8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,
+    )
+
+
+async def test_that_empty_previous_path_is_treated_as_if_journey_just_started(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I lost my password but actually give me a sec to see if I can remember it",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Alright! Let me know how that goes. I can help you reset your password if necessary.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Just give me a sec",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure! Take your time.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "We'll probably end up resetting it, but let me try one more time before we do...",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "No problem, Let me know how that goes.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Alright that's not it either. Best if I reset it...",
+        ),
+    ]
+    await base_test_that_correct_node_is_selected(
+        context=context,
+        agent=agent,
+        session_id=new_session.id,
+        customer=customer,
+        conversation_context=conversation_context,
+        journey_name="reset_password_journey",
+        journey_previous_path=[None, None, None],
+        expected_path=["1"],
+        expected_next_node_index="1",
     )

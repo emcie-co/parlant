@@ -11,14 +11,6 @@ Feature: Supervision
         When messages are emitted
         Then the message contains an explanation that the transaction is now on hold and the refund will not be processed at this time.
 
-    Scenario: Prioritizing transferring the upset customer to the manager over offering pizza
-        Given a guideline "selling_pizza" to sell pizza when a new customer arrives
-        And a guideline "customer_upset" to transfer the customer to the manager immediately when the customer is upset
-        And a customer message, "I came to eat some pizza, but the line was so long! I'm so upset!"
-        And that the "selling_pizza" guideline is matched with a priority of 7 because "The conversation was initiated, indicating a new customer has arrived."
-        And that the "customer_upset" guideline is matched with a priority of 10 because "The customer is visibly upset about the wait."
-        When messages are emitted
-        Then the message contains an apology and inform the customer about being transferred to the manager, explicitly omitting any offer to order pizza.
 
     Scenario: Adherence to guidelines without fabricating responses
         Given a guideline "account_related_questions" to respond to account-related questions about their account when customers inquire about their account

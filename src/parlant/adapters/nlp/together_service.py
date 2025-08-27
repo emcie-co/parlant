@@ -318,6 +318,18 @@ class M2Bert32K(TogetherAIEmbedder):
 
 
 class TogetherService(NLPService):
+    @staticmethod
+    def verify_environment() -> str | None:
+        """Returns an error message if the environment is not set up correctly."""
+
+        if not os.environ.get("TOGETHER_API_KEY"):
+            return """\
+You're using the OpenAI NLP service, but TOGETHER_API_KEY is not set.
+Please set TOGETHER_API_KEY in your environment before running Parlant.
+"""
+
+        return None
+
     def __init__(
         self,
         logger: Logger,

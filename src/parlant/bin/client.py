@@ -86,11 +86,6 @@ class FastExit(Exception):
     pass
 
 
-class CoherenceCheckFailure(Exception):
-    def __init__(self, contradictions: list[dict[str, Any]]) -> None:
-        self.contradictions = contradictions
-
-
 def format_datetime(datetime_str: str) -> str:
     return datetime.fromisoformat(datetime_str).strftime("%Y-%m-%d %I:%M:%S %p %Z")
 

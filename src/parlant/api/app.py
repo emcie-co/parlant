@@ -28,7 +28,6 @@ from lagom import Container
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.api import agents, capabilities
 from parlant.api import evaluations
-from parlant.api import index
 from parlant.api import journeys
 from parlant.api import relationships
 from parlant.api import sessions
@@ -64,7 +63,6 @@ from parlant.core.sessions import SessionListener, SessionStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
-    LegacyBehavioralChangeEvaluator,
 )
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
@@ -108,7 +106,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     session_listener = container[SessionListener]
     evaluation_store = container[EvaluationStore]
     evaluation_listener = container[EvaluationListener]
-    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
     evaluation_service = container[BehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
@@ -227,28 +224,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
     agent_router = APIRouter(prefix="/agents")
 
-    agent_router.include_router(
-        guidelines.create_legacy_router(
-            application=application,
-            guideline_store=guideline_store,
-            tag_store=tag_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
-        ),
-    )
-    agent_router.include_router(
-        glossary.create_legacy_router(
-            glossary_store=glossary_store,
-        ),
-    )
-    agent_router.include_router(
-        variables.create_legacy_router(
-            context_variable_store=context_variable_store,
-            service_registry=service_registry,
-        ),
-    )
-
     api_app.include_router(
         router=agents.create_router(
             policy=authorization_policy,
@@ -273,16 +248,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
             session_store=session_store,
             session_listener=session_listener,
             nlp_service=nlp_service,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/index",
-        router=index.legacy_create_router(
-            evaluation_service=legacy_evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
-            agent_store=agent_store,
         ),
     )
 

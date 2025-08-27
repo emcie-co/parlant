@@ -302,8 +302,6 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
             ],
             operation=operation_dto_to_operation(dto.guideline.operation),
             updated_id=dto.guideline.updated_id,
-            coherence_check=False,  # Legacy and will be removed in the future
-            connection_proposition=False,  # Legacy and will be removed in the future
             action_proposition=dto.guideline.action_proposition,
             properties_proposition=dto.guideline.properties_proposition,
             journey_node_proposition=dto.guideline.journey_node_proposition,

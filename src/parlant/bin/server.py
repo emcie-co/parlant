@@ -215,19 +215,7 @@ from parlant.core.engines.alpha.message_generator import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
-    LegacyBehavioralChangeEvaluator,
-)
-from parlant.core.services.indexing.coherence_checker import (
-    CoherenceChecker,
-    ConditionsEntailmentTestsSchema,
-    ActionsContradictionTestsSchema,
-)
-from parlant.core.services.indexing.guideline_connection_proposer import (
-    GuidelineConnectionProposer,
-    GuidelineConnectionPropositionsSchema,
-)
+from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.version import VERSION
@@ -502,8 +490,6 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, PerceivedPerformancePolicy, BasicPerceivedPerformancePolicy)
     _define_singleton(c, OptimizationPolicy, BasicOptimizationPolicy)
 
-    _define_singleton(c, GuidelineConnectionProposer, GuidelineConnectionProposer)
-    _define_singleton(c, CoherenceChecker, CoherenceChecker)
     _define_singleton(c, GuidelineActionProposer, GuidelineActionProposer)
     _define_singleton(c, GuidelineContinuousProposer, GuidelineContinuousProposer)
     _define_singleton(c, CustomerDependentActionDetector, CustomerDependentActionDetector)
@@ -511,7 +497,6 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, JourneyGuidelineProjection, JourneyGuidelineProjection)
 
-    _define_singleton(c, LegacyBehavioralChangeEvaluator, LegacyBehavioralChangeEvaluator)
     _define_singleton(c, BehavioralChangeEvaluator, BehavioralChangeEvaluator)
     _define_singleton(c, EvaluationListener, PollingEvaluationListener)
 
@@ -779,9 +764,6 @@ async def initialize_container(
         CannedResponseFieldExtractionSchema,
         FollowUpCannedResponseSelectionSchema,
         SingleToolBatchSchema,
-        ConditionsEntailmentTestsSchema,
-        ActionsContradictionTestsSchema,
-        GuidelineConnectionPropositionsSchema,
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,
@@ -808,7 +790,7 @@ async def initialize_container(
 
 async def recover_server_tasks(
     evaluation_store: EvaluationStore,
-    evaluator: LegacyBehavioralChangeEvaluator,
+    evaluator: BehavioralChangeEvaluator,
 ) -> None:
     for evaluation in await evaluation_store.list_evaluations():
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
@@ -872,7 +854,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         await recover_server_tasks(
             evaluation_store=actual_container[EvaluationStore],
-            evaluator=actual_container[LegacyBehavioralChangeEvaluator],
+            evaluator=actual_container[BehavioralChangeEvaluator],
         )
 
         if not params.configure:

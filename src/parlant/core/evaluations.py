@@ -68,20 +68,6 @@ class PayloadKind(Enum):
     JOURNEY = auto()
 
 
-class CoherenceCheckKind(Enum):
-    # Legacy and will be removed in the future
-    CONTRADICTION_WITH_EXISTING_GUIDELINE = "contradiction_with_existing_guideline"
-    CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE = (
-        "contradiction_with_another_evaluated_guideline"
-    )
-
-
-class EntailmentRelationshipPropositionKind(Enum):
-    # Legacy and will be removed in the future
-    CONNECTION_WITH_EXISTING_GUIDELINE = "connection_with_existing_guideline"
-    CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE = "connection_with_another_evaluated_guideline"
-
-
 class PayloadOperation(Enum):
     ADD = "add"
     UPDATE = "update"
@@ -92,8 +78,6 @@ class GuidelinePayload:
     content: GuidelineContent
     tool_ids: Sequence[ToolId]
     operation: PayloadOperation
-    coherence_check: bool  # Legacy and will be removed in the future
-    connection_proposition: bool  # Legacy and will be removed in the future
     action_proposition: bool
     properties_proposition: bool
     journey_node_proposition: bool
@@ -118,25 +102,7 @@ class PayloadDescriptor(NamedTuple):
 
 
 @dataclass(frozen=True)
-class CoherenceCheck:
-    kind: CoherenceCheckKind
-    first: GuidelineContent
-    second: GuidelineContent
-    issue: str
-    severity: int
-
-
-@dataclass(frozen=True)
-class EntailmentRelationshipProposition:
-    check_kind: EntailmentRelationshipPropositionKind
-    source: GuidelineContent
-    target: GuidelineContent
-
-
-@dataclass(frozen=True)
 class InvoiceGuidelineData:
-    coherence_checks: Optional[Sequence[CoherenceCheck]]
-    entailment_propositions: Optional[Sequence[EntailmentRelationshipProposition]]
     properties_proposition: Optional[dict[str, JSONSerializable]]
     _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
 
@@ -248,13 +214,23 @@ class GuidelinePayloadDocument_v0_2_0(TypedDict):
     properties_proposition: bool
 
 
-class GuidelinePayloadDocument(TypedDict):
+class GuidelinePayloadDocument_v0_4_0(TypedDict):
     content: GuidelineContentDocument
     tool_ids: Sequence[ToolId]
     action: Literal["add", "update"]
     updated_id: Optional[GuidelineId]
     coherence_check: bool
     connection_proposition: bool
+    action_proposition: bool
+    properties_proposition: bool
+    journey_node_proposition: bool
+
+
+class GuidelinePayloadDocument(TypedDict):
+    content: GuidelineContentDocument
+    tool_ids: Sequence[ToolId]
+    action: Literal["add", "update"]
+    updated_id: Optional[GuidelineId]
     action_proposition: bool
     properties_proposition: bool
     journey_node_proposition: bool
@@ -307,7 +283,7 @@ class InvoiceGuidelineDataDocument_v0_3_0(TypedDict):
 _InvoiceDataDocument_v0_3_0 = Union[InvoiceGuidelineDataDocument_v0_3_0]
 
 
-class InvoiceGuidelineDataDocument(TypedDict):
+class InvoiceGuidelineDataDocument_v0_4_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     properties_proposition: Optional[dict[str, JSONSerializable]]
@@ -316,6 +292,13 @@ class InvoiceGuidelineDataDocument(TypedDict):
 class InvoiceJourneyDataDocument(TypedDict):
     node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]]
     edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument_v0_4_0 = Union[InvoiceGuidelineDataDocument_v0_4_0, InvoiceJourneyDataDocument]
+
+
+class InvoiceGuidelineDataDocument(TypedDict):
+    properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
 _InvoiceDataDocument = Union[InvoiceGuidelineDataDocument, InvoiceJourneyDataDocument]
@@ -348,6 +331,16 @@ class InvoiceDocument_v0_3_0(TypedDict, total=False):
     state_version: str
     approved: bool
     data: Optional[_InvoiceDataDocument_v0_3_0]
+    error: Optional[str]
+
+
+class InvoiceDocument_v0_4_0(TypedDict, total=False):
+    kind: str
+    payload: _PayloadDocument
+    checksum: str
+    state_version: str
+    approved: bool
+    data: Optional[_InvoiceDataDocument_v0_4_0]
     error: Optional[str]
 
 
@@ -393,6 +386,16 @@ class EvaluationDocument_v0_3_0(TypedDict, total=False):
     progress: float
 
 
+class EvaluationDocument_v0_4_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    status: str
+    error: Optional[str]
+    invoices: Sequence[InvoiceDocument_v0_4_0]
+    progress: float
+
+
 class EvaluationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -412,7 +415,7 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
 
 
 class EvaluationDocumentStore(EvaluationStore):
-    VERSION = Version.from_string("0.4.0")
+    VERSION = Version.from_string("0.5.0")
 
     def __init__(
         self,
@@ -456,12 +459,24 @@ class EvaluationDocumentStore(EvaluationStore):
                 tag_id=TagId(doc["tag_id"]),
             )
 
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationTagAssociationDocument, doc)
+
+            return EvaluationTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                evaluation_id=EvaluationId(doc["evaluation_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
         return await DocumentMigrationHelper[EvaluationTagAssociationDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 
@@ -483,7 +498,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 invoices=[
                     InvoiceDocument_v0_3_0(
                         kind=inv["kind"],
-                        payload=GuidelinePayloadDocument(
+                        payload=GuidelinePayloadDocument_v0_4_0(
                             content=GuidelineContentDocument(
                                 condition=inv["payload"]["content"]["condition"],
                                 action=inv["payload"]["content"].get("action"),
@@ -523,7 +538,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         checksum=inv["checksum"],
                         state_version=inv["state_version"],
                         approved=inv["approved"],
-                        data=InvoiceGuidelineDataDocument(
+                        data=InvoiceGuidelineDataDocument_v0_4_0(
                             coherence_checks=inv["data"].get("coherence_checks"),
                             connection_propositions=inv["data"].get("connection_propositions"),
                             properties_proposition={
@@ -532,6 +547,45 @@ class EvaluationDocumentStore(EvaluationStore):
                                     inv["data"].get("properties_proposition", {}),
                                 ),
                                 **({"internal_action": inv["data"].get("action_proposition", {})}),
+                            }
+                            if inv["data"].get("properties_proposition")
+                            or inv["data"].get("action_proposition")
+                            else None,
+                        )
+                        if inv["data"]
+                        else None,
+                    )
+                    for inv in doc["invoices"]
+                ],
+                progress=doc["progress"],
+            )
+
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(EvaluationDocument_v0_4_0, doc)
+
+            return EvaluationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                status=doc["status"],
+                error=doc.get("error"),
+                invoices=[
+                    InvoiceDocument(
+                        kind=inv["kind"],
+                        payload=inv["payload"],
+                        checksum=inv["checksum"],
+                        state_version=inv["state_version"],
+                        approved=inv["approved"],
+                        data=InvoiceGuidelineDataDocument(
+                            properties_proposition={
+                                **cast(
+                                    dict[str, JSONSerializable],
+                                    inv["data"].get("properties_proposition", {}),
+                                ),
+                                **cast(
+                                    dict[str, JSONSerializable],
+                                    {"internal_action": inv["data"].get("action_proposition", {})},
+                                ),
                             }
                             if inv["data"].get("properties_proposition")
                             or inv["data"].get("action_proposition")
@@ -583,50 +637,10 @@ class EvaluationDocumentStore(EvaluationStore):
         pass
 
     def _serialize_invoice(self, invoice: Invoice) -> InvoiceDocument:
-        def serialize_coherence_check(check: CoherenceCheck) -> _CoherenceCheckDocument:
-            return _CoherenceCheckDocument(
-                kind=check.kind.value,
-                first=GuidelineContentDocument(
-                    condition=check.first.condition,
-                    action=check.first.action,
-                ),
-                second=GuidelineContentDocument(
-                    condition=check.second.condition,
-                    action=check.second.action,
-                ),
-                issue=check.issue,
-                severity=check.severity,
-            )
-
-        def serialize_connection_proposition(
-            cp: EntailmentRelationshipProposition,
-        ) -> _ConnectionPropositionDocument:
-            return _ConnectionPropositionDocument(
-                check_kind=cp.check_kind.value,
-                source=GuidelineContentDocument(
-                    condition=cp.source.condition,
-                    action=cp.source.action,
-                ),
-                target=GuidelineContentDocument(
-                    condition=cp.target.condition,
-                    action=cp.target.action,
-                ),
-            )
-
         def serialize_invoice_guideline_data(
             data: InvoiceGuidelineData,
         ) -> InvoiceGuidelineDataDocument:
             return InvoiceGuidelineDataDocument(
-                coherence_checks=(
-                    [serialize_coherence_check(cc) for cc in data.coherence_checks]
-                    if data.coherence_checks
-                    else None
-                ),
-                connection_propositions=(
-                    [serialize_connection_proposition(cp) for cp in data.entailment_propositions]
-                    if data.entailment_propositions
-                    else None
-                ),
                 properties_proposition=(
                     data.properties_proposition if data.properties_proposition is not None else None
                 ),
@@ -650,8 +664,6 @@ class EvaluationDocumentStore(EvaluationStore):
                     tool_ids=payload.tool_ids,
                     action=payload.operation.value,
                     updated_id=payload.updated_id,
-                    coherence_check=payload.coherence_check,
-                    connection_proposition=payload.connection_proposition,
                     action_proposition=payload.action_proposition,
                     properties_proposition=payload.properties_proposition,
                     journey_node_proposition=payload.journey_node_proposition,
@@ -717,44 +729,10 @@ class EvaluationDocumentStore(EvaluationStore):
                 action=gc_doc["action"],
             )
 
-        def deserialize_coherence_check_document(cc_doc: _CoherenceCheckDocument) -> CoherenceCheck:
-            return CoherenceCheck(
-                kind=CoherenceCheckKind(cc_doc["kind"]),
-                first=deserialize_guideline_content_document(cc_doc["first"]),
-                second=deserialize_guideline_content_document(cc_doc["second"]),
-                issue=cc_doc["issue"],
-                severity=cc_doc["severity"],
-            )
-
-        def deserialize_connection_proposition_document(
-            cp_doc: _ConnectionPropositionDocument,
-        ) -> EntailmentRelationshipProposition:
-            return EntailmentRelationshipProposition(
-                check_kind=EntailmentRelationshipPropositionKind(cp_doc["check_kind"]),
-                source=deserialize_guideline_content_document(cp_doc["source"]),
-                target=deserialize_guideline_content_document(cp_doc["target"]),
-            )
-
         def deserialize_invoice_guideline_data(
             data_doc: InvoiceGuidelineDataDocument,
         ) -> InvoiceGuidelineData:
             return InvoiceGuidelineData(
-                coherence_checks=(
-                    [
-                        deserialize_coherence_check_document(cc_doc)
-                        for cc_doc in data_doc["coherence_checks"]
-                    ]
-                    if data_doc["coherence_checks"] is not None
-                    else None
-                ),
-                entailment_propositions=(
-                    [
-                        deserialize_connection_proposition_document(cp_doc)
-                        for cp_doc in data_doc["connection_propositions"]
-                    ]
-                    if data_doc["connection_propositions"] is not None
-                    else None
-                ),
                 properties_proposition=(
                     data_doc["properties_proposition"]
                     if data_doc["properties_proposition"] is not None
@@ -777,8 +755,6 @@ class EvaluationDocumentStore(EvaluationStore):
                     tool_ids=payload_doc["tool_ids"],
                     operation=PayloadOperation(payload_doc["action"]),
                     updated_id=payload_doc["updated_id"],
-                    coherence_check=payload_doc["coherence_check"],
-                    connection_proposition=payload_doc["connection_proposition"],
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
                     journey_node_proposition=payload_doc["journey_node_proposition"],

@@ -509,8 +509,6 @@ class _CachedEvaluator:
                         ),
                         tool_ids=tool_ids,
                         operation=PayloadOperation.ADD,
-                        coherence_check=False,  # Legacy and will be removed in the future
-                        connection_proposition=False,  # Legacy and will be removed in the future
                         action_proposition=action_proposition,
                         properties_proposition=properties_proposition,
                         journey_node_proposition=journey_state_proposition,

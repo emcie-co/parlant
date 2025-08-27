@@ -22,10 +22,9 @@ from parlant.core.services.tools.plugins import tool
 from parlant.core.tools import ToolResult, ToolContext
 from parlant.core.services.tools.service_registry import ServiceRegistry
 
-from tests.core.stable.services.indexing.test_evaluator import (
-    AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING,
-)
 from tests.test_utilities import run_service_server
+
+AMOUNT_OF_TIME_TO_WAIT_FOR_EVALUATION_TO_START_RUNNING = 2
 
 
 async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_status(

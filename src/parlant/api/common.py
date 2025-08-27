@@ -112,26 +112,6 @@ class GuidelinePayloadOperationDTO(Enum):
     UPDATE = "update"
 
 
-class CoherenceCheckKindDTO(Enum):
-    """
-    The specific relationship between the contradicting guidelines.
-    """
-
-    CONTRADICTION_WITH_EXISTING_GUIDELINE = "contradiction_with_existing_guideline"
-    CONTRADICTION_WITH_ANOTHER_EVALUATED_GUIDELINE = (
-        "contradiction_with_another_evaluated_guideline"
-    )
-
-
-class ConnectionPropositionKindDTO(Enum):
-    """
-    The specific relationship between the connected guidelines.
-    """
-
-    CONNECTION_WITH_EXISTING_GUIDELINE = "connection_with_existing_guideline"
-    CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE = "connection_with_another_evaluated_guideline"
-
-
 class PayloadKindDTO(Enum):
     """
     The kind of payload.
@@ -151,47 +131,6 @@ GuidelineIdField: TypeAlias = Annotated[
 ]
 
 
-GuidelinePayloadCoherenceCheckField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="Whether to check for contradictions with other Guidelines",
-        examples=[True, False],
-    ),
-]
-
-GuidelinePayloadConnectionPropositionField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="Whether to propose logical connections with other Guidelines",
-        examples=[True, False],
-    ),
-]
-
-legacy_guideline_payload_example: ExampleJson = {
-    "content": {
-        "condition": "User asks about product pricing",
-        "action": "Provide current price list and any active discounts",
-    },
-    "operation": "add",
-    "updated_id": None,
-    "coherence_check": True,
-    "connection_proposition": True,
-}
-
-
-class LegacyGuidelinePayloadDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": legacy_guideline_payload_example},
-):
-    """Payload data for a Guideline operation"""
-
-    content: GuidelineContentDTO
-    operation: GuidelinePayloadOperationDTO
-    updated_id: Optional[GuidelineIdField] = None
-    coherence_check: GuidelinePayloadCoherenceCheckField
-    connection_proposition: GuidelinePayloadConnectionPropositionField
-
-
 def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> PayloadOperation:
     if operation := {
         GuidelinePayloadOperationDTO.ADD: PayloadOperation.ADD,
@@ -200,132 +139,6 @@ def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> PayloadOper
         return operation
 
     raise ValueError(f"Unsupported operation: {dto}")
-
-
-legacy_payload_example: ExampleJson = {
-    "kind": "guideline",
-    "guideline": {
-        "content": {
-            "condition": "User asks about product pricing",
-            "action": "Provide current price list and any active discounts",
-        },
-        "operation": "add",
-        "updated_id": None,
-        "coherence_check": True,
-        "connection_proposition": True,
-    },
-}
-
-
-class LegacyPayloadDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": legacy_payload_example},
-):
-    """
-    A container for a guideline payload along with its kind
-
-    Only `"guideline"` is available at this point.
-    """
-
-    kind: PayloadKindDTO
-    guideline: Optional[LegacyGuidelinePayloadDTO] = None
-
-
-CoherenceCheckIssueField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Description of the contradiction or conflict between Guidelines",
-        examples=[
-            "The actions contradict each other: one suggests being formal while the other suggests being casual",
-            "The conditions overlap but lead to opposing actions",
-        ],
-    ),
-]
-
-CoherenceCheckSeverityField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="Numerical rating of the contradiction's severity (1-10, where 10 is most severe)",
-        examples=[5, 8],
-        ge=1,
-        le=10,
-    ),
-]
-
-
-coherence_check_example: ExampleJson = {
-    "kind": "contradiction_with_existing_guideline",
-    "first": {"condition": "User is frustrated", "action": "Respond with technical details"},
-    "second": {"condition": "User is frustrated", "action": "Focus on emotional support first"},
-    "issue": "Conflicting approaches to handling user frustration",
-    "severity": 7,
-}
-
-
-class CoherenceCheckDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": coherence_check_example},
-):
-    """Potential contradiction found between guidelines"""
-
-    kind: CoherenceCheckKindDTO
-    first: GuidelineContentDTO
-    second: GuidelineContentDTO
-    issue: CoherenceCheckIssueField
-    severity: CoherenceCheckSeverityField
-
-
-connection_proposition_example: ExampleJson = {
-    "check_kind": "connection_with_existing_guideline",
-    "source": {"condition": "User mentions technical problem", "action": "Request system logs"},
-    "target": {
-        "condition": "System logs are available",
-        "action": "Analyze logs for error patterns",
-    },
-}
-
-
-class ConnectionPropositionDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": connection_proposition_example},
-):
-    """Proposed logical connection between guidelines"""
-
-    check_kind: ConnectionPropositionKindDTO
-    source: GuidelineContentDTO
-    target: GuidelineContentDTO
-
-
-guideline_invoice_data_example: ExampleJson = {
-    "coherence_checks": [coherence_check_example],
-    "connection_propositions": [connection_proposition_example],
-}
-
-
-class LegacyGuidelineInvoiceDataDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": guideline_invoice_data_example},
-):
-    """Evaluation results for a Guideline, including contradiction checks and connection proposals"""
-
-    coherence_checks: Sequence[CoherenceCheckDTO]
-    connection_propositions: Optional[Sequence[ConnectionPropositionDTO]] = None
-
-
-invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
-
-
-class LegacyInvoiceDataDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": invoice_data_example},
-):
-    """
-    Contains the relevant invoice data.
-
-    At this point only `guideline` is supported.
-    """
-
-    guideline: Optional[LegacyGuidelineInvoiceDataDTO] = None
 
 
 ServiceNameField: TypeAlias = Annotated[

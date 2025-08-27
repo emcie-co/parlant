@@ -747,8 +747,6 @@ async def test_evaluation_creation(
                     ),
                     tool_ids=[],
                     operation=PayloadOperation.ADD,
-                    coherence_check=False,
-                    connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
                     journey_node_proposition=False,
@@ -795,8 +793,6 @@ async def test_evaluation_update(
                     ),
                     tool_ids=[],
                     operation=PayloadOperation.ADD,
-                    coherence_check=False,
-                    connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
                     journey_node_proposition=False,
@@ -808,8 +804,6 @@ async def test_evaluation_update(
             )
 
             invoice_data: InvoiceData = InvoiceGuidelineData(
-                coherence_checks=[],
-                entailment_propositions=None,
                 properties_proposition={
                     "continuous": True,
                     "internal_action": "Provide a list of book recommendations",

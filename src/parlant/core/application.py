@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, Optional, TypeAlias, cast
+from typing import Any, Mapping, Optional, TypeAlias
 from lagom import Container
 
 from parlant.core.async_utils import Timeout
@@ -25,23 +25,12 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerId
-from parlant.core.evaluations import (
-    EntailmentRelationshipProposition,
-    EntailmentRelationshipPropositionKind,
-    GuidelinePayload,
-    InvoiceGuidelineData,
-    PayloadOperation,
-    Invoice,
-)
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
-    RelationshipEntityKind,
-    RelationshipKind,
-    RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import GuidelineId, GuidelineStore
+from parlant.core.guidelines import GuidelineStore
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -171,128 +160,3 @@ class Application:
             )
 
             return self._correlator.correlation_id
-
-    async def create_guidelines(
-        self,
-        invoices: Sequence[Invoice],
-    ) -> Iterable[GuidelineId]:
-        async def _create_with_existing_guideline(
-            source_key: str,
-            target_key: str,
-            content_guidelines: dict[str, GuidelineId],
-            proposition: EntailmentRelationshipProposition,
-        ) -> None:
-            if source_key in content_guidelines:
-                source_guideline_id = content_guidelines[source_key]
-                target_guideline_id = (
-                    await self._guideline_store.find_guideline(
-                        guideline_content=proposition.target,
-                    )
-                ).id
-            else:
-                source_guideline_id = (
-                    await self._guideline_store.find_guideline(
-                        guideline_content=proposition.source,
-                    )
-                ).id
-                target_guideline_id = content_guidelines[target_key]
-
-            await self._relationship_store.create_relationship(
-                source=RelationshipEntity(
-                    id=source_guideline_id,
-                    kind=RelationshipEntityKind.GUIDELINE,
-                ),
-                target=RelationshipEntity(
-                    id=target_guideline_id,
-                    kind=RelationshipEntityKind.GUIDELINE,
-                ),
-                kind=RelationshipKind.ENTAILMENT,
-            )
-
-        content_guidelines: dict[str, GuidelineId] = {}
-
-        for invoice in invoices:
-            payload = cast(GuidelinePayload, invoice.payload)
-
-            content_guidelines[
-                f"{cast(GuidelinePayload, invoice.payload).content.condition}_{cast(GuidelinePayload, invoice.payload).content.action}"
-            ] = (
-                await self._guideline_store.create_guideline(
-                    condition=payload.content.condition,
-                    action=payload.content.action,
-                )
-                if invoice.payload.operation == PayloadOperation.ADD
-                else await self._guideline_store.update_guideline(
-                    guideline_id=cast(GuidelineId, payload.updated_id),
-                    params={
-                        "condition": payload.content.condition,
-                        "action": payload.content.action or None,
-                    },
-                )
-            ).id
-
-        for invoice in invoices:
-            payload = cast(GuidelinePayload, invoice.payload)
-
-            if payload.operation == PayloadOperation.UPDATE and payload.connection_proposition:
-                guideline_id = cast(GuidelineId, payload.updated_id)
-
-                relationships_to_delete = list(
-                    await self._relationship_store.list_relationships(
-                        kind=RelationshipKind.ENTAILMENT,
-                        indirect=False,
-                        source_id=guideline_id,
-                    )
-                )
-
-                relationships_to_delete.extend(
-                    await self._relationship_store.list_relationships(
-                        kind=RelationshipKind.ENTAILMENT,
-                        indirect=False,
-                        target_id=guideline_id,
-                    )
-                )
-
-                for relationship in relationships_to_delete:
-                    await self._relationship_store.delete_relationship(relationship.id)
-
-        entailment_propositions: set[EntailmentRelationshipProposition] = set([])
-
-        for invoice in invoices:
-            assert invoice.data
-            data = cast(InvoiceGuidelineData, invoice.data)
-
-            if not data.entailment_propositions:
-                continue
-
-            for proposition in data.entailment_propositions:
-                source_key = f"{proposition.source.condition}_{proposition.source.action}"
-                target_key = f"{proposition.target.condition}_{proposition.target.action}"
-
-                if proposition not in entailment_propositions:
-                    if (
-                        proposition.check_kind
-                        == EntailmentRelationshipPropositionKind.CONNECTION_WITH_ANOTHER_EVALUATED_GUIDELINE
-                    ):
-                        await self._relationship_store.create_relationship(
-                            source=RelationshipEntity(
-                                id=content_guidelines[source_key],
-                                kind=RelationshipEntityKind.GUIDELINE,
-                            ),
-                            target=RelationshipEntity(
-                                id=content_guidelines[target_key],
-                                kind=RelationshipEntityKind.GUIDELINE,
-                            ),
-                            kind=RelationshipKind.ENTAILMENT,
-                        )
-                    else:
-                        await _create_with_existing_guideline(
-                            source_key,
-                            target_key,
-                            content_guidelines,
-                            proposition,
-                        )
-
-                    entailment_propositions.add(proposition)
-
-        return content_guidelines.values()

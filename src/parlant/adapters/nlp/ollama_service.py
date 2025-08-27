@@ -16,7 +16,11 @@
 
 import os
 import time
+<<<<<<< HEAD
 from typing import Any, Callable, Mapping
+=======
+from typing import Any, Mapping
+>>>>>>> ce0ba5927 (Removing Legacy APIs, including coherence check and connection proposition)
 from typing_extensions import override
 import asyncio
 import tiktoken
@@ -416,6 +420,7 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
 class OllamaEmbedder(Embedder):
     """Embedder that uses Ollama embedding models."""
     supported_arguments = ["dimensions"]
+
     def __init__(self, model_name: str, logger: Logger):
         self.model_name = model_name
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
@@ -454,6 +459,7 @@ class OllamaEmbedder(Embedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
+
         try:
             response = await self._client.embed(model=self.model_name, input=texts, **filtered_hints)
 
@@ -518,6 +524,7 @@ class OllamaCustomEmbedding(OllamaEmbedder):
     def __init__(self, logger:Logger) -> None:
         self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768")) 
+
         super().__init__(model_name=self.model_name, logger=logger)
 
     @property
@@ -584,6 +591,7 @@ Please set these environment variables before running Parlant.
         self.default_timeout = int(
             os.environ.get("OLLAMA_API_TIMEOUT", 300)
         )  # always convert to int
+
         self._logger = logger
         self._logger.info(f"Initialized OllamaService with {self.model_name} at {self.base_url}")
 

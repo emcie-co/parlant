@@ -1,0 +1,154 @@
+[
+  {
+    "name": "get_weather",
+    "description": "Get current weather information for a specific location",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "The city name, state/country code (e.g., 'London,UK' or 'New York,NY,US')",
+          "examples": ["London,UK", "New York,NY,US", "Tokyo,JP", "Paris,FR"]
+        },
+        "units": {
+          "type": "string",
+          "description": "The unit of the temperature (e.g., 'metric' for Celsius or 'imperial' for Fahrenheit)",
+          "examples": ["metric", "imperial"],
+          "default": "metric"
+        },
+        "lang": {
+          "type": "string",
+          "description": "The language of the weather information",
+          "examples": ["en", "zh", "fr", "es", "de", "ja", "ko"],
+          "default": "en"
+        }
+      },
+      "required": ["q"]
+    },
+    "api": {
+      "url": "https://api.openweathermap.org/data/2.5/weather",
+      "method": "GET",
+      "auth": [
+        {
+          "type": "query_param",
+          "key": "appid",
+          "value": "377637a8a6633d518b0eae6391887dbc"
+        }
+      ]
+    }
+  },
+  {
+    "name": "create_post",
+    "description": "Create a new post using JSONPlaceholder API (fake REST API for testing)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Title of the post",
+          "examples": ["My first post", "Important announcement", "Daily update"]
+        },
+        "body": {
+          "type": "string",
+          "description": "Body content of the post",
+          "examples": ["This is the content of my post", "Today I learned something new"]
+        },
+        "userId": {
+          "type": "integer",
+          "description": "User ID of the post author",
+          "examples": [1, 2, 3],
+          "default": 1
+        }
+      },
+      "required": ["title", "body"]
+    },
+    "api": {
+      "url": "https://jsonplaceholder.typicode.com/posts",
+      "method": "POST",
+      "auth": []
+    }
+  },
+  {
+    "name": "get_exchange_rate",
+    "description": "Get real-time currency exchange rates (using exchangerate-api.com free tier)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string",
+          "description": "Base currency code (3-letter ISO code)",
+          "examples": ["USD", "EUR", "GBP", "CNY", "JPY"],
+          "default": "USD"
+        }
+      },
+      "required": []
+    },
+    "api": {
+      "url": "https://api.exchangerate-api.com/v4/latest/{base}",
+      "method": "GET",
+      "auth": []
+    }
+  },
+  {
+    "name": "get_github_repo",
+    "description": "Get information about a GitHub repository (demonstrates multiple path variables)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "description": "The GitHub username or organization that owns the repository",
+          "examples": ["microsoft", "facebook", "google", "torvalds"]
+        },
+        "repo": {
+          "type": "string",
+          "description": "The name of the repository",
+          "examples": ["vscode", "react", "tensorflow", "linux"]
+        },
+        "q": {
+          "type": "string",
+          "enum": ["is:open", "is:closed", "is:merged", "is:unmerged"],
+          "description": "The query string",
+          "default": "is:open"
+        }
+      },
+      "required": ["owner", "repo"]
+    },
+    "api": {
+      "url": "https://api.github.com/{owner}/{repo}/issues",
+      "method": "GET",
+      "auth": [
+        {
+          "type": "header",
+          "key": "Accept",
+          "value": "application/vnd.github.v3+json"
+        }
+      ]
+    }
+  },
+  {
+    "name": "get_user_post_comments",
+    "description": "Get comments for a specific post by a specific user (JSONPlaceholder - multiple path params)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "integer",
+          "description": "The ID of the user",
+          "examples": [1, 2, 3, 4, 5]
+        },
+        "postId": {
+          "type": "integer",
+          "description": "The ID of the post",
+          "examples": [1, 2, 3, 4, 5]
+        }
+      },
+      "required": ["postId"]
+    },
+    "api": {
+      "url": "https://jsonplaceholder.typicode.com/posts/{postId}/comments",
+      "method": "GET",
+      "auth": []
+    }
+  }
+]

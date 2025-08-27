@@ -1003,7 +1003,7 @@ async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_h
     canned_responses: list[str] = [
         "Thank you for choosing PetRx for your pet's healthcare needs.",
         "Our pharmacy team reviews all submissions promptly.",
-        "Expedited shipping options are available for critical medications.",
+        "Personal shipping options are available for critical medications.",
         "Document processing typically occurs within business hours.",
         "We prioritize neurological medication requests.",
         "Please ensure all uploaded documents are clearly legible.",

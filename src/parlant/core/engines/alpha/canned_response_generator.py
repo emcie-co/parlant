@@ -2088,7 +2088,6 @@ Output a JSON object with three properties:
             if (
                 response.content.additional_response_required
                 and response.content.additional_template_id
-                and response.content.match_quality in ["partial", "high"]
             ):
                 chosen_canrep = chronological_id_rendered_canreps.get(
                     response.content.additional_template_id, None

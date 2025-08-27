@@ -35,7 +35,7 @@ networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "1.1.21"
 opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
-parlant-client = "^3.0.0"
+parlant-client = "^3.0.1"
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -102,7 +102,14 @@ deepseek = ["torch", "transformers"]
 
 gemini = ["google-genai", "google-api-core", "torch"]
 
-vertex = ["google-genai", "google-api-core", "google-auth", "torch", "anthropic", "transformers"]
+vertex = [
+    "google-genai",
+    "google-api-core",
+    "google-auth",
+    "torch",
+    "anthropic",
+    "transformers",
+]
 
 ollama = ["ollama"]
 

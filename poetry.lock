@@ -5078,20 +5078,6 @@ pytest = ">=4.6"
 testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 
 [[package]]
-name = "pytest-repeat"
-version = "0.9.4"
-description = "pytest plugin for repeating tests"
-optional = false
-python-versions = ">=3.9"
-files = [
-    {file = "pytest_repeat-0.9.4-py3-none-any.whl", hash = "sha256:c1738b4e412a6f3b3b9e0b8b29fcd7a423e50f87381ad9307ef6f5a8601139f3"},
-    {file = "pytest_repeat-0.9.4.tar.gz", hash = "sha256:d92ac14dfaa6ffcfe6917e5d16f0c9bc82380c135b03c2a5f412d2637f224485"},
-]
-
-[package.dependencies]
-pytest = "*"
-
-[[package]]
 name = "pytest-stochastics"
 version = "0.5.2.beta1"
 description = "pytest plugin that allows selectively running tests several times and accepting *some* failures."
@@ -7192,9 +7178,7 @@ deepseek = ["torch", "transformers"]
 gemini = ["google-api-core", "google-genai", "torch"]
 litellm = ["litellm", "torch", "transformers"]
 mongo = ["pymongo"]
-ollama = ["ollama"]
 together = ["together", "torch", "transformers"]
-vertex = ["anthropic", "google-api-core", "google-auth", "google-genai", "torch", "transformers"]
 
 [metadata]
 lock-version = "2.0"

@@ -70,7 +70,6 @@ fastmcp = "2.6.1"
 cachetools = "5.5.2"
 types-cachetools = "^6.0.0.20250525"
 limits = "^5.5.0"
-pytest-repeat = "^0.9.4"
 
 
 [tool.poetry.group.dev.dependencies]

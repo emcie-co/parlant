@@ -372,7 +372,7 @@ Feature: Strict Canned Response
         And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
 
 
-    Scenario: Supplemental canned response is selected when relevant (strict canned response)
+    Scenario: Follow-up canned response is selected when relevant (strict canned response)
         Given an agent whose job is to schedule automatic vaccum cleaning services using robots
         And that the agent uses the canned_strict message composition mode
         And a guideline to ensure that no pets and no children are in the house when a customer asks to schedule a deep-clean in a residential area 
@@ -391,7 +391,7 @@ Feature: Strict Canned Response
         And at least one message contains the text "please ensure that no pets are present"
         And at least one message contains the text "please ensure that no children are present"
 
-    Scenario: Supplemental canned response is selected based on unfulfilled guideline (strict canned response)
+    Scenario: Follow-up canned response is selected based on unfulfilled guideline (strict canned response)
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
         And a guideline to tell the customer to wait at curbside when a taxi booking is confirmed
@@ -412,7 +412,7 @@ Feature: Strict Canned Response
         And at least one message contains the text "Your order is confirmed! A driver will be dispatched to"
         And at least one message contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
 
-    Scenario: Supplemental canned response which uses fields is selected when relevant (strict canned response)
+    Scenario: Follow-up canned response which uses fields is selected when relevant (strict canned response)
         Given an agent whose job is to process insurance claims for auto accidents
         And that the agent uses the canned_strict message composition mode
         And a guideline to provide claim reference number and estimated processing time when a claim is successfully submitted

@@ -101,7 +101,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponsePreambleSchema,
     CannedResponseGenerator,
     CannedResponseSelectionSchema,
-    SupplementalCannedResponseSelectionSchema,
+    FollowUpCannedResponseSelectionSchema,
     CannedResponseRevisionSchema,
     BasicNoMatchResponseProvider,
     NoMatchResponseProvider,
@@ -466,7 +466,7 @@ async def container(
             MessageSchema,
             CannedResponseDraftSchema,
             CannedResponseSelectionSchema,
-            SupplementalCannedResponseSelectionSchema,
+            FollowUpCannedResponseSelectionSchema,
             CannedResponsePreambleSchema,
             CannedResponseRevisionSchema,
             CannedResponseFieldExtractionSchema,
@@ -666,12 +666,12 @@ def no_cache(container: Container) -> None:
         ).use_cache = False
 
     if isinstance(
-        container[SchematicGenerator[SupplementalCannedResponseSelectionSchema]],
+        container[SchematicGenerator[FollowUpCannedResponseSelectionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[SupplementalCannedResponseSelectionSchema],
-            container[SchematicGenerator[SupplementalCannedResponseSelectionSchema]],
+            CachedSchematicGenerator[FollowUpCannedResponseSelectionSchema],
+            container[SchematicGenerator[FollowUpCannedResponseSelectionSchema]],
         ).use_cache = False
 
     if isinstance(

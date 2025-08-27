@@ -21,7 +21,7 @@ from lagom import Container
 
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.agents import AgentId
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.customers import CustomerId
@@ -60,7 +60,7 @@ TaskQueue: TypeAlias = list[asyncio.Task[None]]
 class Application:
     def __init__(self, container: Container) -> None:
         self._logger = container[Logger]
-        self._correlator = container[ContextualCorrelator]
+        self._correlator = container[Tracer]
         self._session_store = container[SessionStore]
         self._session_listener = container[SessionListener]
         self._guideline_store = container[GuidelineStore]
@@ -120,7 +120,7 @@ class Application:
             session_id=session_id,
             source=source,
             kind=kind,
-            correlation_id=self._correlator.correlation_id,
+            correlation_id=self._correlator.trace_id,
             data=data,
         )
 
@@ -137,7 +137,7 @@ class Application:
                 tag=f"process-session({session.id})",
             )
 
-            return self._correlator.correlation_id
+            return self._correlator.trace_id
 
     async def _process_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(
@@ -170,7 +170,7 @@ class Application:
                 requests=requests,
             )
 
-            return self._correlator.correlation_id
+            return self._correlator.trace_id
 
     async def create_guidelines(
         self,

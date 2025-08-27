@@ -72,14 +72,14 @@ class EmbedderFactory:
         self._container = container
 
     def create_embedder(self, embedder_type: type[Embedder]) -> Embedder:
-        if embedder_type == NoOpEmbedder:
-            return NoOpEmbedder()
+        if embedder_type == NullEmbedder:
+            return NullEmbedder()
         else:
             return self._container[embedder_type]
 
 
-class NoOpEmbedder(Embedder):
-    """A no-op embedder that returns zero vectors."""
+class NullEmbedder(Embedder):
+    """A null embedder that returns zero vectors."""
 
     def __init__(self) -> None:
         self._tokenizer = ZeroEstimatingTokenizer()

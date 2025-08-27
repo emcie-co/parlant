@@ -20,7 +20,7 @@ from fastapi import WebSocket
 from typing_extensions import override
 
 from parlant.core.common import UniqueId, generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.loggers import CorrelationalLogger, LogLevel
 
 
@@ -33,7 +33,7 @@ class WebSocketSubscription:
 class WebSocketLogger(CorrelationalLogger):
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
@@ -47,7 +47,7 @@ class WebSocketLogger(CorrelationalLogger):
     def _enqueue_message(self, level: str, message: str) -> None:
         payload = {
             "level": level,
-            "correlation_id": self._correlator.correlation_id,
+            "correlation_id": self._correlator.trace_id,
             "message": message,
         }
 

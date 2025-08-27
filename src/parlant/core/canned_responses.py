@@ -138,7 +138,7 @@ class CannedResponseStore(ABC):
     ) -> Sequence[CannedResponse]: ...
 
     @abstractmethod
-    async def find_relevant_canned_responses(
+    async def filter_relevant_canned_responses(
         self,
         query: str,
         available_canned_responses: Sequence[CannedResponse],
@@ -657,7 +657,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 raise ItemNotFoundError(item_id=UniqueId(tag_id))
 
     @override
-    async def find_relevant_canned_responses(
+    async def filter_relevant_canned_responses(
         self,
         query: str,
         available_canned_responses: Sequence[CannedResponse],

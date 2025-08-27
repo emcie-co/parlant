@@ -19,6 +19,7 @@ from enum import Enum
 import asyncio
 import hashlib
 from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+from uuid import uuid4
 from typing_extensions import Self
 
 import nanoid  # type: ignore
@@ -190,8 +191,15 @@ class IdGenerator:
         return UniqueId(new_id)
 
 
-def generate_id() -> UniqueId:
-    return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
+def generate_id(hints: Optional[Mapping[str, Any]] = None) -> UniqueId:
+    hints = hints or {}
+
+    strategy = hints.get("strategy", "nanoid")
+
+    if strategy == "uuid4":
+        return UniqueId(str(uuid4()))
+    else:
+        return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 
 
 def md5_checksum(input: str) -> str:

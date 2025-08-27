@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.common import generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import T, SchematicGenerationResult, SchematicGenerator
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -20,7 +20,7 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
     def __init__(
         self,
         wrapped_generator: SchematicGenerator[T],
-        correlator: ContextualCorrelator,
+        correlator: Tracer,
     ) -> None:
         self._wrapped_generator = wrapped_generator
         self._correlator = correlator

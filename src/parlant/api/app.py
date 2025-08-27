@@ -48,7 +48,7 @@ from parlant.api.authorization import (
 )
 from parlant.core.capabilities import CapabilityStore
 from parlant.core.context_variables import ContextVariableStore
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerStore
@@ -99,7 +99,7 @@ class AppWrapper:
 async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
-    correlator = container[ContextualCorrelator]
+    correlator = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     agent_store = container[AgentStore]
     customer_store = container[CustomerStore]

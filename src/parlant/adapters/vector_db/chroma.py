@@ -31,7 +31,7 @@ from parlant.core.nlp.embedding import (
     Embedder,
     EmbedderFactory,
     EmbeddingCacheProvider,
-    NoOpEmbedder,
+    NullEmbedder,
 )
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
@@ -124,7 +124,7 @@ class ChromaDatabase(VectorDatabase):
                 failed_migrations_collection = await self.get_or_create_collection(
                     "failed_migrations",
                     BaseDocument,
-                    NoOpEmbedder,
+                    NullEmbedder,
                     identity_loader,
                 )
 

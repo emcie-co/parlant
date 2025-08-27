@@ -52,7 +52,7 @@ def make_request(
 async def test_that_a_configured_operation_is_limited_per_minute() -> None:
     limiter = BasicRateLimiter(
         rate_limit_item_per_operation={
-            Operation.READ_EVENT: RateLimitItemPerMinute(2),
+            Operation.LIST_EVENTS: RateLimitItemPerMinute(2),
         }
     )
 

@@ -29,7 +29,7 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableValueId,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.contextual_correlator import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
@@ -297,7 +297,7 @@ async def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
-        correlator=context.container[ContextualCorrelator],
+        correlator=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,

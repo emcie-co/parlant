@@ -507,7 +507,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                 .incoming_edges[0]
                                 .target_guideline
                             )
-                    # TODO how do we return the path if we're exiting the journey?
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(

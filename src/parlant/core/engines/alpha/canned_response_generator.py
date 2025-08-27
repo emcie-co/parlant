@@ -108,7 +108,7 @@ class CannedResponseSelectionSchema(DefaultBaseModel):
     match_quality: Optional[str] = None
 
 
-class SupplementalCannedResponseSelectionSchema(DefaultBaseModel):
+class FollowUpCannedResponseSelectionSchema(DefaultBaseModel):
     remaining_message_draft: Optional[str] = None
     unsatisfied_guidelines: Optional[str | list[str]] = None
     tldr: Optional[str] = None
@@ -132,12 +132,12 @@ class CannedResponseGeneratorDraftShot(Shot):
 
 
 @dataclass
-class SupplementalCannedResponseSelectionShot(Shot):
+class FollowUpCannedResponseSelectionShot(Shot):
     description: str
     canned_responses: Mapping[str, str]
     draft: str
     last_agent_message: str
-    expected_result: SupplementalCannedResponseSelectionSchema
+    expected_result: FollowUpCannedResponseSelectionSchema
 
 
 @dataclass
@@ -473,8 +473,8 @@ class CannedResponseGenerator(MessageEventComposer):
         canned_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
         canned_response_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
         canned_response_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
-        supplemental_canned_response_generator: SchematicGenerator[
-            SupplementalCannedResponseSelectionSchema
+        follow_up_canned_response_generator: SchematicGenerator[
+            FollowUpCannedResponseSelectionSchema
         ],
         perceived_performance_policy: PerceivedPerformancePolicy,
         canned_response_store: CannedResponseStore,
@@ -491,7 +491,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_selection_generator = canned_selection_generator
         self._canrep_composition_generator = canned_response_composition_generator
         self._canrep_preamble_generator = canned_response_preamble_generator
-        self._supplemental_canrep_generator = supplemental_canned_response_generator
+        self._follow_up_canrep_generator = follow_up_canned_response_generator
         self._canned_response_store = canned_response_store
         self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
@@ -899,7 +899,7 @@ You will now be given the current state of the interaction to which you must gen
 
         responses = await self._get_relevant_canned_responses(context)
 
-        supplemental_selection_attempt_temperatures = (
+        follow_up_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
                 hints={"type": "canned-response-generation"}
             )
@@ -910,15 +910,15 @@ You will now be given the current state of the interaction to which you must gen
         generation_info: Mapping[str, GenerationInfo] = {}
         events: list[EmittedEvent] = []
 
-        for supplemental_generation_attempt in range(3):
+        for follow_up_generation_attempt in range(3):
             try:
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
                     responses,
                     agent.composition_mode,
-                    temperature=supplemental_selection_attempt_temperatures[
-                        supplemental_generation_attempt
+                    temperature=follow_up_selection_attempt_temperatures[
+                        follow_up_generation_attempt
                     ],
                 )
 
@@ -937,42 +937,53 @@ You will now be given the current state of the interaction to which you must gen
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
 
-        supplemental_selection_attempt_temperatures = (
+        follow_up_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "supplemental-canned_response-selection"}
+                hints={"type": "follow-up_canned_response-selection"}
             )
         )
 
-        for supplemental_generation_attempt in range(3):
+        for follow_up_generation_attempt in range(3):
             try:
                 if generation_result:
                     (
-                        supp_canrep_generation_info,
-                        supp_canrep_response,
-                    ) = await self.generate_supplemental_response(
+                        follow_up_canrep_generation_info,
+                        follow_up_canrep_response,
+                    ) = await self.generate_follow_up_response(
                         context=context,
                         last_response_generation=generation_result,
-                        temperature=supplemental_selection_attempt_temperatures[
-                            supplemental_generation_attempt
+                        temperature=follow_up_selection_attempt_temperatures[
+                            follow_up_generation_attempt
                         ],
                     )
 
-                    if supp_canrep_response:
-                        supplemental_response_events = await output_messages(supp_canrep_response)
-                        events += supplemental_response_events
-                        if not supplemental_response_events:
+                    if follow_up_canrep_response:
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "typing",
+                                "data": {},
+                            },
+                        )
+
+                        follow_up_delay_time = 1.5
+                        await asyncio.sleep(follow_up_delay_time)
+
+                        follow_up_response_events = await output_messages(follow_up_canrep_response)
+                        events += follow_up_response_events
+                        if not follow_up_response_events:
                             self._logger.debug(
-                                "Skipping supplemental response; no additional response deemed necessary"
+                                "Skipping follow up response; no additional response deemed necessary"
                             )
 
                     return [
                         MessageEventComposition(
-                            {**generation_info, **supp_canrep_generation_info}, events
+                            {**generation_info, **follow_up_canrep_generation_info}, events
                         )
                     ]
 
@@ -980,7 +991,7 @@ You will now be given the current state of the interaction to which you must gen
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Supplemental Generation attempt {supplemental_generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
                 last_generation_exception = exc
 
@@ -1843,9 +1854,7 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
 
         return result.info, result.content.revised_canned_response
 
-    def _format_supplemental_generation_shot(
-        self, shot: SupplementalCannedResponseSelectionShot
-    ) -> str:
+    def _format_follow_up_generation_shot(self, shot: FollowUpCannedResponseSelectionShot) -> str:
         formatted_shot = ""
 
         formatted_shot += f"""
@@ -1871,25 +1880,25 @@ Last agent message: {shot.last_agent_message}
 
         return formatted_shot
 
-    def _format_supplemental_generation_shots(
+    def _format_follow_up_generation_shots(
         self,
-        shots: Sequence[SupplementalCannedResponseSelectionShot],
+        shots: Sequence[FollowUpCannedResponseSelectionShot],
     ) -> str:
         return "\n".join(
             f"""
 Example {i} - {shot.description}: ###
-{self._format_supplemental_generation_shot(shot)}
+{self._format_follow_up_generation_shot(shot)}
 ###
     """
             for i, shot in enumerate(shots, 1)
         )
 
-    def _build_supplemental_canned_response_prompt(
+    def _build_follow_up_canned_response_prompt(
         self,
         context: CannedResponseContext,
         draft_message: str,
         canned_responses: Mapping[str, str],
-        shots: Sequence[SupplementalCannedResponseSelectionShot],
+        shots: Sequence[FollowUpCannedResponseSelectionShot],
     ) -> PromptBuilder:
         outputted_message: str | None = next(
             (
@@ -1911,7 +1920,7 @@ Example {i} - {shot.description}: ###
 
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
-                f"Supplemental Canned Response Selection Prompt:\n{prompt}"
+                f"Follow-up Canned Response Selection Prompt:\n{prompt}"
             )
         )
 
@@ -1920,7 +1929,7 @@ Example {i} - {shot.description}: ###
         )
 
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-general_instructions",
+            name="follow-up-canned-response-generator-selection-general_instructions",
             template="""
 
 GENERAL INSTRUCTIONS
@@ -1936,7 +1945,7 @@ Key Terms:
         )
 
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-task-description",
+            name="follow-up-canned-response-generator-selection-task-description",
             template="""
 TASK DESCRIPTION
 -----------------
@@ -1967,13 +1976,13 @@ Some nuances regarding choosing the correct template:
         )
 
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-examples",
+            name="follow-up-canned-response-generator-selection-examples",
             template="""
 EXAMPLES
 -----------------
 {formatted_shots}
 """,
-            props={"formatted_shots": self._format_supplemental_generation_shots(shots)},
+            props={"formatted_shots": self._format_follow_up_generation_shots(shots)},
         )
 
         builder.add_agent_identity(context.agent)
@@ -1984,7 +1993,7 @@ EXAMPLES
         )
 
         builder.add_section(
-            name="supplemental-canned-response-generator-inputs",
+            name="follow-up-canned-response-generator-inputs",
             template="""
 INPUTS
 ---------------
@@ -2010,14 +2019,14 @@ Pre-approved reply templates: ###
         )
 
         builder.add_section(
-            name="supplemental-canned-response-generator-selection-output_format",
+            name="follow-up-canned-response-generator-selection-output_format",
             template="""
 OUTPUT FORMAT
 -----------------
 Output a JSON object with three properties:
 {{
     "remaining_message_draft": "<str, rephrasing of the part of the draft that isn't covered by the last outputted message>"
-    "unsatisfied_guidelines": "<str, restatement of all guidelines that were not satisfied by the last outputted message>"
+    "unsatisfied_guidelines": "<str, restatement of all guidelines that were not satisfied by the last outputted message. Only restate the actionable part of the guideline (the one after 'then')>"
     "tldr": "<str, brief explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
     "additional_response_required": <bool, if False, all remaining keys should be omitted>,
     "additional_template_id": "<str, ID of the chosen template>",
@@ -2030,11 +2039,14 @@ Output a JSON object with three properties:
             },
         )
 
-        with open("SupplementalCannedResponsePrompt.txt", "w") as f:
+        with open("FollowUpCannedResponsePrompt.txt", "w") as f:
             f.write(builder.build())
         return builder
 
-    async def generate_supplemental_response(
+    # FIXME: handle cases where the customer sends a message before the follow-up generation is finished
+    # In the engine, we need to freeze the generation of the next message if the follow-up generation of the previous one has yet to finish.
+    # This is because we need the follow-up message to be in the context when we generate the next message.
+    async def generate_follow_up_response(
         self,
         context: CannedResponseContext,
         last_response_generation: _CannedResponseSelectionResult,
@@ -2063,25 +2075,25 @@ Output a JSON object with three properties:
                 for i, (cid, canrep) in enumerate(filtered_rendered_canreps, start=1)
             }
 
-            prompt = self._build_supplemental_canned_response_prompt(
+            prompt = self._build_follow_up_canned_response_prompt(
                 context=context,
                 draft_message=last_response_generation.draft,
                 canned_responses={
                     i: canrep for i, (cid, canrep) in chronological_id_rendered_canreps.items()
                 },
-                shots=supplemental_generation_shots,
+                shots=follow_up_generation_shots,
             )
 
-            response = await self._supplemental_canrep_generator.generate(
+            response = await self._follow_up_canrep_generator.generate(
                 prompt=prompt,
                 hints={"temperature": temperature},
             )
 
             self._logger.trace(
-                f"Supplemental Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
+                f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )
 
-            with open("supplemental canrep output.txt", "w") as f:
+            with open("Follow-up canrep output.txt", "w") as f:
                 f.write(response.content.model_dump_json(indent=2))
                 f.write(f"Time: {response.info.duration} seconds")
 
@@ -2095,7 +2107,7 @@ Output a JSON object with three properties:
 
                 if chosen_canrep is None:
                     self._logger.warning(
-                        "Supplemental canned response returned an Illegal canned response ID"
+                        "Follow-up canned response returned an Illegal canned response ID"
                     )
 
                 selection_result = (
@@ -2109,10 +2121,10 @@ Output a JSON object with three properties:
                     else None
                 )
 
-            return ({"supplemental": response.info}, selection_result)
+            return ({"follow-up": response.info}, selection_result)
 
         except Exception as e:
-            self._logger.error(f"Failed to choose supplemental canned response: {e}")
+            self._logger.error(f"Failed to choose follow-up canned response: {e}")
             return ({}, None)
 
 
@@ -2195,7 +2207,7 @@ draft_generation_shot_collection = ShotCollection[CannedResponseGeneratorDraftSh
 )
 
 
-supp_generation_example_1_expected = SupplementalCannedResponseSelectionSchema(
+follow_up_generation_example_1_expected = FollowUpCannedResponseSelectionSchema(
     remaining_message_draft="You can call a human representative at 1-800-123-1234.",
     unsatisfied_guidelines="",
     tldr="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
@@ -2204,9 +2216,9 @@ supp_generation_example_1_expected = SupplementalCannedResponseSelectionSchema(
     match_quality="high",
 )
 
-supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
-    description="A simple example where a supplemental response is necessary",
-    draft=cast(str, supp_generation_example_1_expected.remaining_message_draft),
+follow_up_generation_example_1_shot = FollowUpCannedResponseSelectionShot(
+    description="A simple example where a follow-up response is necessary",
+    draft=cast(str, follow_up_generation_example_1_expected.remaining_message_draft),
     canned_responses={
         "1": "Your account status is currently set to Active. You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
         "2": "Our customer support number is 1-800-123-1234. You can call a human representative at this number.",
@@ -2215,20 +2227,20 @@ supp_generation_example_1_shot = SupplementalCannedResponseSelectionShot(
         "5": "Our customer support line is open from 8 AM to 8 PM Monday through Friday. You can call us at 1-800-123-1234.",
     },
     last_agent_message="I can assist you with altering the status of your account, or you can call a human representative.",
-    expected_result=supp_generation_example_1_expected,
+    expected_result=follow_up_generation_example_1_expected,
 )
 
 
-supp_generation_example_2_expected = SupplementalCannedResponseSelectionSchema(
+follow_up_generation_example_2_expected = FollowUpCannedResponseSelectionSchema(
     remaining_message_draft="Thank you for your purchase!",
     unsatisfied_guidelines="",
     tldr="The remaining part of the draft does not contain any critical information, and no template matches it, so no further response is necessary.",
     additional_response_required=False,
 )
 
-supp_generation_example_2_shot = SupplementalCannedResponseSelectionShot(
-    description="A simple example where a supplemental response is not necessary",
-    draft=cast(str, supp_generation_example_2_expected.remaining_message_draft),
+follow_up_generation_example_2_shot = FollowUpCannedResponseSelectionShot(
+    description="A simple example where a follow-up response is not necessary",
+    draft=cast(str, follow_up_generation_example_2_expected.remaining_message_draft),
     canned_responses={
         "1": "The order will be shipped to you in up to 10 business days. Thank you for your purchase!",
         "2": "Domestic orders are shipped through UPS",
@@ -2237,10 +2249,10 @@ supp_generation_example_2_shot = SupplementalCannedResponseSelectionShot(
         "5": "You can track your order status on our website at verygoodstore.com",
     },
     last_agent_message="The order will be shipped to you in 5-7 business days",
-    expected_result=supp_generation_example_2_expected,
+    expected_result=follow_up_generation_example_2_expected,
 )
 
-supp_generation_example_3_expected = SupplementalCannedResponseSelectionSchema(
+follow_up_generation_example_3_expected = FollowUpCannedResponseSelectionSchema(
     remaining_message_draft="Thank you for your purchase!",
     unsatisfied_guidelines="",
     tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
@@ -2248,7 +2260,7 @@ supp_generation_example_3_expected = SupplementalCannedResponseSelectionSchema(
     additional_template_id="1",
     match_quality="partial",
 )
-supp_generation_example_3_shot = SupplementalCannedResponseSelectionShot(
+follow_up_generation_example_3_shot = FollowUpCannedResponseSelectionShot(
     description="An example where one response is prioritized for its importance",
     draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
     canned_responses={
@@ -2259,11 +2271,11 @@ supp_generation_example_3_shot = SupplementalCannedResponseSelectionShot(
         "5": "Would you like to book another table?",
     },
     last_agent_message="Your table has been booked!",
-    expected_result=supp_generation_example_3_expected,
+    expected_result=follow_up_generation_example_3_expected,
 )
 
-supplemental_generation_shots: Sequence[SupplementalCannedResponseSelectionShot] = [
-    supp_generation_example_1_shot,
-    supp_generation_example_2_shot,
-    supp_generation_example_3_shot,
+follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
+    follow_up_generation_example_1_shot,
+    follow_up_generation_example_2_shot,
+    follow_up_generation_example_3_shot,
 ]

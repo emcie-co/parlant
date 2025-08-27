@@ -948,6 +948,7 @@ async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_h
     )
 
 
+# TODO change to something clearer
 async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_has_multiple_uncovered_parts_2(
     context: ContextOfTest,
     agent: Agent,
@@ -998,7 +999,11 @@ async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_h
         ),
     ]
 
-    last_generation_draft = "Prescriptions dated within the last 6 months are acceptable for emergency refills. Once you upload the documents, our pharmacist will review them within 12 hours. For seizure medications, we offer same-day dispatch with overnight delivery to ensure continuity of treatment."
+    last_generation_draft = (
+        "Prescriptions dated within the last 6 months are acceptable for emergency refills. "
+        "Once you upload the documents, our pharmacist will review them within 12 hours. "
+        "For seizure medications, we offer same-day dispatch with overnight delivery to ensure continuity of treatment."
+    )
 
     canned_responses: list[str] = [
         "Thank you for choosing PetRx for your pet's healthcare needs.",
@@ -1007,7 +1012,7 @@ async def test_that_the_agent_chooses_correct_supplemental_response_when_draft_h
         "Document processing typically occurs within business hours.",
         "We prioritize neurological medication requests.",
         "Please ensure all uploaded documents are clearly legible.",
-        "For this type of medication, we can ensure that the shipment will arrive to you today.",
+        "For this type of medication, we can ensure that the shipment will arrive to you in an hour.",
     ]
 
     guidelines = [

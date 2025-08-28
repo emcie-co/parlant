@@ -220,8 +220,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     api_app.include_router(
         router=agents.create_router(
             policy=authorization_policy,
-            agent_store=agent_store,
-            tag_store=tag_store,
+            app=application,
         ),
         prefix="/agents",
     )

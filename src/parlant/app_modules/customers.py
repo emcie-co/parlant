@@ -37,7 +37,7 @@ class CustomerModule:
         self._agent_store = container[AgentStore]
         self._tag_store = container[TagStore]
 
-    async def _validate_tag(self, tag_id: TagId) -> None:
+    async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):
             _ = await self._agent_store.read_agent(agent_id=AgentId(agent_id))
         else:
@@ -51,7 +51,7 @@ class CustomerModule:
     ) -> Customer:
         if tags:
             for tag_id in tags:
-                await self._validate_tag(tag_id)
+                await self._ensure_tag(tag_id)
 
             tags = list(set(tags))
 
@@ -90,7 +90,7 @@ class CustomerModule:
         if params.tags:
             if params.tags.add:
                 for tag_id in params.tags.add:
-                    await self._validate_tag(tag_id)
+                    await self._ensure_tag(tag_id)
                     await self._customer_store.upsert_tag(customer_id, tag_id)
             if params.tags.remove:
                 for tag_id in params.tags.remove:

@@ -17,8 +17,9 @@ from fastapi import APIRouter, Path, Request, status
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import TagDTO, TagNameField, apigen_config, ExampleJson, tag_example
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.tags import TagId, TagStore
+from parlant.core.tags import TagId
 
 API_GROUP = "tags"
 
@@ -77,7 +78,7 @@ tag_list_example: ExampleJson = [
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    tag_store: TagStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -109,7 +110,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_TAG)
 
-        tag = await tag_store.create_tag(
+        tag = await app.tags.create(
             name=params.name,
         )
 
@@ -139,7 +140,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_TAG)
 
-        tag = await tag_store.read_tag(tag_id=tag_id)
+        tag = await app.tags.read(tag_id=tag_id)
 
         return TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name)
 
@@ -164,7 +165,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_TAGS)
 
-        tags = await tag_store.list_tags()
+        tags = await app.tags.find()
 
         return [TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name) for tag in tags]
 
@@ -197,7 +198,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.UPDATE_TAG)
 
-        tag = await tag_store.update_tag(
+        tag = await app.tags.update(
             tag_id=tag_id,
             params={"name": params.name},
         )
@@ -226,6 +227,6 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_TAG)
 
-        await tag_store.delete_tag(tag_id=tag_id)
+        await app.tags.delete(tag_id=tag_id)
 
     return router

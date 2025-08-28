@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.sessions import SessionModule
+from parlant.app_modules.tags import TagModule
 
 
 class Application:
-    def __init__(self, session_module: SessionModule) -> None:
+    def __init__(
+        self,
+        session_module: SessionModule,
+        service_module: ServiceModule,
+        tag_module: TagModule,
+    ) -> None:
         self.sessions = session_module
+        self.services = service_module
+        self.tags = tag_module

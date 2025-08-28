@@ -55,7 +55,6 @@ from parlant.core.journeys import JourneyStore
 from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.guidelines import GuidelineStore
-from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
@@ -104,7 +103,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     glossary_store = container[GlossaryStore]
     guideline_store = container[GuidelineStore]
     relationship_store = container[RelationshipStore]
-    guideline_tool_association_store = container[GuidelineToolAssociationStore]
     context_variable_store = container[ContextVariableStore]
     canned_response_store = container[CannedResponseStore]
     journey_store = container[JourneyStore]
@@ -295,13 +293,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/guidelines",
         router=guidelines.create_router(
             authorization_policy=authorization_policy,
-            guideline_store=guideline_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
-            journey_store=journey_store,
+            app=application,
         ),
     )
 

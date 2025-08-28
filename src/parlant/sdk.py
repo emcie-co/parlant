@@ -71,9 +71,11 @@ from parlant.api.authorization import (
     RateLimitExceededException,
     RateLimiter,
 )
+from parlant.app_modules.agents import AgentModule
 from parlant.app_modules.sessions import SessionModule
 from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.tags import TagModule
+from parlant.app_modules.customers import CustomerModule
 
 from parlant.core import async_utils
 from parlant.core.agents import (
@@ -2924,15 +2926,18 @@ class Server:
                         embedder_type_provider=get_embedder_type,
                     )  # type: ignore
                 )
-
+            c()[AgentModule] = lambda rc: AgentModule(rc)
             c()[SessionModule] = lambda rc: SessionModule(rc)
             c()[ServiceModule] = lambda rc: ServiceModule(rc)
             c()[TagModule] = lambda rc: TagModule(rc)
+            c()[CustomerModule] = lambda rc: CustomerModule(rc)
 
             c()[Application] = Application(
+                agent_module=c()[AgentModule],
                 session_module=c()[SessionModule],
                 service_module=c()[ServiceModule],
                 tag_module=c()[TagModule],
+                customer_module=c()[CustomerModule],
             )
 
         async def configure(c: Container) -> Container:

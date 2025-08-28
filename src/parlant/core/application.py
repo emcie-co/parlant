@@ -17,6 +17,7 @@ from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.sessions import SessionModule
 from parlant.app_modules.tags import TagModule
 from parlant.app_modules.customers import CustomerModule
+from parlant.app_modules.guidelines import GuidelineModule
 
 
 class Application:
@@ -27,9 +28,11 @@ class Application:
         service_module: ServiceModule,
         tag_module: TagModule,
         customer_module: CustomerModule,
+        guideline_module: GuidelineModule,
     ) -> None:
         self.agents = agent_module
         self.sessions = session_module
         self.services = service_module
         self.tags = tag_module
         self.customers = customer_module
+        self.guidelines = guideline_module

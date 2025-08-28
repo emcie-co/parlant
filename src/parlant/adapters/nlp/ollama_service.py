@@ -16,11 +16,7 @@
 
 import os
 import time
-<<<<<<< HEAD
 from typing import Any, Callable, Mapping
-=======
-from typing import Any, Mapping
->>>>>>> ce0ba5927 (Removing Legacy APIs, including coherence check and connection proposition)
 from typing_extensions import override
 import asyncio
 import tiktoken
@@ -419,6 +415,7 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
 
 class OllamaEmbedder(Embedder):
     """Embedder that uses Ollama embedding models."""
+
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger):
@@ -461,7 +458,9 @@ class OllamaEmbedder(Embedder):
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
         try:
-            response = await self._client.embed(model=self.model_name, input=texts, **filtered_hints)
+            response = await self._client.embed(
+                model=self.model_name, input=texts, **filtered_hints
+            )
 
             vectors = response.get("embeddings", [])
 
@@ -481,6 +480,7 @@ class OllamaEmbedder(Embedder):
             self._logger.error(f"Error during embedding: {e}")
             raise OllamaConnectionError(f"Unexpected error: {e}")
 
+
 class OllamaNomicEmbedding(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="nomic-embed-text", logger=logger)
@@ -493,6 +493,7 @@ class OllamaNomicEmbedding(OllamaEmbedder):
     @property
     def dimensions(self) -> int:
         return 768
+
 
 class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
@@ -507,6 +508,7 @@ class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
     def dimensions(self) -> int:
         return 1024
 
+
 class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="bge-m3", logger=logger)
@@ -520,10 +522,11 @@ class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
     def dimensions(self) -> int:
         return 1024
 
+
 class OllamaCustomEmbedding(OllamaEmbedder):
-    def __init__(self, logger:Logger) -> None:
+    def __init__(self, logger: Logger) -> None:
         self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-        self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768")) 
+        self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768"))
 
         super().__init__(model_name=self.model_name, logger=logger)
 
@@ -535,6 +538,7 @@ class OllamaCustomEmbedding(OllamaEmbedder):
     @property
     def dimensions(self) -> int:
         return self.vector_size
+
 
 class OllamaService(NLPService):
     """NLP Service that uses Ollama models."""
@@ -658,7 +662,7 @@ Please set these environment variables before running Parlant.
             return OllamaMxbiEmbeddingLarge(self._logger)
         elif "bge" in self.embedding_model.lower():
             return OllamaBgeM3EmbeddingLarge(self._logger)
-        else: #its a custom embedding model
+        else:  # its a custom embedding model
             return OllamaCustomEmbedding(self._logger)
 
     @override

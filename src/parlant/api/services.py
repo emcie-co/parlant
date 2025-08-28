@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from pydantic import Field
 
@@ -25,11 +25,12 @@ from parlant.api.common import (
     ServiceNameField,
     tool_to_dto,
 )
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.services.tools.mcp_service import MCPToolClient
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.services.tools.openapi import OpenAPIClient
-from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
+from parlant.core.services.tools.service_registry import ToolServiceKind
 from parlant.core.tools import ToolService
 
 API_GROUP = "services"
@@ -169,9 +170,9 @@ class ServiceUpdateParamsDTO(
     """
 
     kind: ToolServiceKindDTO
-    sdk: Optional[ServiceUpdateSDKServiceParamsField] = None
-    openapi: Optional[ServiceUpdateOpenAPIServiceParamsField] = None
-    mcp: Optional[ServiceUpdateMCPServiceParamsField] = None
+    sdk: ServiceUpdateSDKServiceParamsField | None = None
+    openapi: ServiceUpdateOpenAPIServiceParamsField | None = None
+    mcp: ServiceUpdateMCPServiceParamsField | None = None
 
 
 ServiceURLField: TypeAlias = Annotated[
@@ -231,7 +232,7 @@ class ServiceDTO(
     name: ServiceNameField
     kind: ToolServiceKindDTO
     url: ServiceURLField
-    tools: Optional[ServiceToolsField] = None
+    tools: ServiceToolsField | None = None
 
 
 def _get_service_kind(service: ToolService) -> ToolServiceKindDTO:
@@ -284,7 +285,7 @@ ServiceNamePath: TypeAlias = Annotated[
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    service_registry: ServiceRegistry,
+    app: Application,
 ) -> APIRouter:
     """
     Creates a router instance for service-related operations.
@@ -389,7 +390,7 @@ def create_router(
         else:
             raise Exception("Should never logically get here")
 
-        service = await service_registry.update_tool_service(
+        service = await app.services.update(
             name=name,
             kind=_tool_service_kind_dto_to_tool_service_kind(params.kind),
             url=url,
@@ -431,9 +432,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SERVICE)
 
-        await service_registry.read_tool_service(name)
-
-        await service_registry.delete_service(name)
+        await app.services.delete(name)
 
     @router.get(
         "",
@@ -465,7 +464,7 @@ def create_router(
                 kind=_get_service_kind(service),
                 url=_get_service_url(service),
             )
-            for name, service in await service_registry.list_tool_services()
+            for name, service in await app.services.find()
             if type(service) in [OpenAPIClient, PluginClient, MCPToolClient]
         ]
 
@@ -504,7 +503,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_SERVICE)
 
-        service = await service_registry.read_tool_service(name)
+        service = await app.services.read(name)
 
         return ServiceDTO(
             name=name,

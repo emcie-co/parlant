@@ -244,7 +244,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/services",
         router=services.create_router(
             authorization_policy=authorization_policy,
-            service_registry=service_registry,
+            app=application,
         ),
     )
 
@@ -252,7 +252,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/tags",
         router=tags.create_router(
             authorization_policy=authorization_policy,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 

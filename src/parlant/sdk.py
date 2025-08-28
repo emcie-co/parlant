@@ -72,6 +72,7 @@ from parlant.api.authorization import (
     RateLimiter,
 )
 from parlant.app_modules.agents import AgentModule
+from parlant.app_modules.guidelines import GuidelineModule
 from parlant.app_modules.sessions import SessionModule
 from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.tags import TagModule
@@ -2931,6 +2932,7 @@ class Server:
             c()[ServiceModule] = lambda rc: ServiceModule(rc)
             c()[TagModule] = lambda rc: TagModule(rc)
             c()[CustomerModule] = lambda rc: CustomerModule(rc)
+            c()[GuidelineModule] = lambda rc: GuidelineModule(rc)
 
             c()[Application] = Application(
                 agent_module=c()[AgentModule],
@@ -2938,6 +2940,7 @@ class Server:
                 service_module=c()[ServiceModule],
                 tag_module=c()[TagModule],
                 customer_module=c()[CustomerModule],
+                guideline_module=c()[GuidelineModule],
             )
 
         async def configure(c: Container) -> Container:

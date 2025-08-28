@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
-from itertools import chain
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, Request, status, Query
 from pydantic import Field
 
@@ -33,7 +31,14 @@ from parlant.api.common import (
     apigen_config,
     guideline_dto_example,
 )
-from parlant.core.agents import AgentStore, AgentId
+from parlant.app_modules.guidelines import (
+    GuidelineMetadataUpdateParamsModule,
+    GuidelineRelationshipModule,
+    GuidelineTagsUpdateParamsModule,
+    GuidelineToolAssociationUpdateParamsModule,
+    GuidelineUpdateParamsModule,
+)
+from parlant.core.application import Application
 from parlant.core.common import (
     DefaultBaseModel,
 )
@@ -43,26 +48,17 @@ from parlant.api.common import (
     GuidelineActionField,
 )
 
-from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
-    RelationshipId,
     RelationshipKind,
-    RelationshipStore,
 )
 from parlant.core.guidelines import (
     Guideline,
     GuidelineId,
-    GuidelineStore,
-    GuidelineUpdateParams,
 )
-from parlant.core.guideline_tool_associations import (
-    GuidelineToolAssociationId,
-    GuidelineToolAssociationStore,
-)
-from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import TagId, TagStore, Tag
-from parlant.core.tools import Tool, ToolId
+from parlant.core.guideline_tool_associations import GuidelineToolAssociationId
+from parlant.core.tags import TagId, Tag
+from parlant.core.tools import ToolId
 
 API_GROUP = "guidelines"
 
@@ -135,124 +131,12 @@ class GuidelineToolAssociationUpdateParamsDTO(
 ):
     """Parameters for adding/removing tool associations."""
 
-    add: Optional[Sequence[ToolIdDTO]] = None
-    remove: Optional[Sequence[ToolIdDTO]] = None
-
-
-@dataclass
-class _GuidelineRelationship:
-    """Represents a relationship between a guideline and another entity (guideline, tag, or tool)."""
-
-    id: RelationshipId
-    source: Guideline | Tag | Tool
-    source_type: RelationshipEntityKind
-    target: Guideline | Tag | Tool
-    target_type: RelationshipEntityKind
-    kind: RelationshipKind
-
-
-async def _get_guideline_relationships_by_kind(
-    guideline_store: GuidelineStore,
-    tag_store: TagStore,
-    relationship_store: RelationshipStore,
-    entity_id: GuidelineId | TagId,
-    kind: RelationshipKind,
-    include_indirect: bool = True,
-) -> Sequence[tuple[_GuidelineRelationship, bool]]:
-    async def _get_entity(
-        entity_id: GuidelineId | TagId,
-        entity_type: RelationshipEntityKind,
-    ) -> Guideline | Tag:
-        if entity_type == RelationshipEntityKind.GUIDELINE:
-            return await guideline_store.read_guideline(guideline_id=cast(GuidelineId, entity_id))
-        elif entity_type == RelationshipEntityKind.TAG:
-            return await tag_store.read_tag(tag_id=cast(TagId, entity_id))
-        else:
-            raise ValueError(f"Unsupported entity type: {entity_type}")
-
-    relationships = []
-
-    for r in chain(
-        await relationship_store.list_relationships(
-            kind=kind,
-            indirect=include_indirect,
-            source_id=entity_id,
-        ),
-        await relationship_store.list_relationships(
-            kind=kind,
-            indirect=include_indirect,
-            target_id=entity_id,
-        ),
-    ):
-        assert r.source.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
-        assert r.target.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
-        assert type(r.kind) is RelationshipKind
-
-        relationships.append(
-            _GuidelineRelationship(
-                id=r.id,
-                source=await _get_entity(cast(GuidelineId | TagId, r.source.id), r.source.kind),
-                source_type=r.source.kind,
-                target=await _get_entity(cast(GuidelineId | TagId, r.target.id), r.target.kind),
-                target_type=r.target.kind,
-                kind=r.kind,
-            )
-        )
-
-    return [
-        (
-            r,
-            entity_id
-            not in [cast(Guideline | Tag, r.source).id, cast(Guideline | Tag, r.target).id],
-        )
-        for r in relationships
-    ]
-
-
-def _guideline_relationship_kind_to_dto(
-    kind: RelationshipKind,
-) -> RelationshipKindDTO:
-    match kind:
-        case RelationshipKind.ENTAILMENT:
-            return RelationshipKindDTO.ENTAILMENT
-        case RelationshipKind.PRIORITY:
-            return RelationshipKindDTO.PRIORITY
-        case RelationshipKind.DEPENDENCY:
-            return RelationshipKindDTO.DEPENDENCY
-        case RelationshipKind.DISAMBIGUATION:
-            return RelationshipKindDTO.DISAMBIGUATION
-        case RelationshipKind.REEVALUATION:
-            return RelationshipKindDTO.REEVALUATION
-        case _:
-            raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
-
-
-async def _get_relationships(
-    guideline_store: GuidelineStore,
-    tag_store: TagStore,
-    relationship_store: RelationshipStore,
-    guideline_id: GuidelineId,
-    include_indirect: bool = True,
-) -> Sequence[tuple[_GuidelineRelationship, bool]]:
-    return list(
-        chain.from_iterable(
-            [
-                await _get_guideline_relationships_by_kind(
-                    guideline_store=guideline_store,
-                    tag_store=tag_store,
-                    relationship_store=relationship_store,
-                    entity_id=guideline_id,
-                    kind=kind,
-                    include_indirect=include_indirect,
-                )
-                for kind in list(RelationshipKind)
-            ]
-        )
-    )
+    add: Sequence[ToolIdDTO] | None = None
+    remove: Sequence[ToolIdDTO] | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
-    Optional[TagId],
+    TagId | None,
     Query(
         description="The tag ID to filter guidelines by",
         examples=["tag:123"],
@@ -296,8 +180,8 @@ class GuidelineTagsUpdateParamsDTO(
     Parameters for updating the tags of an existing guideline.
     """
 
-    add: Optional[GuidelineTagsUpdateAddField] = None
-    remove: Optional[GuidelineTagsUpdateRemoveField] = None
+    add: GuidelineTagsUpdateAddField | None = None
+    remove: GuidelineTagsUpdateRemoveField | None = None
 
 
 TagIdField: TypeAlias = Annotated[
@@ -331,10 +215,10 @@ class GuidelineCreationParamsDTO(
     """Parameters for creating a new guideline."""
 
     condition: GuidelineConditionField
-    action: Optional[GuidelineActionField] = None
-    metadata: Optional[GuidelineMetadataField] = None
-    enabled: Optional[GuidelineEnabledField] = None
-    tags: Optional[GuidelineTagsField] = None
+    action: GuidelineActionField | None = None
+    metadata: GuidelineMetadataField | None = None
+    enabled: GuidelineEnabledField | None = None
+    tags: GuidelineTagsField | None = None
 
 
 GuidelineMetadataUnsetField: TypeAlias = Annotated[
@@ -357,8 +241,8 @@ class GuidelineMetadataUpdateParamsDTO(
 ):
     """Parameters for updating the metadata of a guideline."""
 
-    set: Optional[GuidelineMetadataField] = None
-    unset: Optional[GuidelineMetadataUnsetField] = None
+    set: GuidelineMetadataField | None = None
+    unset: GuidelineMetadataUnsetField | None = None
 
 
 guideline_update_params_example: ExampleJson = {
@@ -396,12 +280,12 @@ class GuidelineUpdateParamsDTO(
 ):
     """Parameters for updating a guideline."""
 
-    condition: Optional[GuidelineConditionField] = None
-    action: Optional[GuidelineActionField] = None
-    tool_associations: Optional[GuidelineToolAssociationUpdateParamsDTO] = None
-    enabled: Optional[GuidelineEnabledField] = None
-    tags: Optional[GuidelineTagsUpdateParamsDTO] = None
-    metadata: Optional[GuidelineMetadataUpdateParamsDTO] = None
+    condition: GuidelineConditionField | None = None
+    action: GuidelineActionField | None = None
+    tool_associations: GuidelineToolAssociationUpdateParamsDTO | None = None
+    enabled: GuidelineEnabledField | None = None
+    tags: GuidelineTagsUpdateParamsDTO | None = None
+    metadata: GuidelineMetadataUpdateParamsDTO | None = None
 
 
 guideline_with_relationships_example: ExampleJson = {
@@ -451,8 +335,26 @@ class GuidelineWithRelationshipsAndToolAssociationsDTO(
     tool_associations: Sequence[GuidelineToolAssociationDTO]
 
 
+def _guideline_relationship_kind_to_dto(
+    kind: RelationshipKind,
+) -> RelationshipKindDTO:
+    match kind:
+        case RelationshipKind.ENTAILMENT:
+            return RelationshipKindDTO.ENTAILMENT
+        case RelationshipKind.PRIORITY:
+            return RelationshipKindDTO.PRIORITY
+        case RelationshipKind.DEPENDENCY:
+            return RelationshipKindDTO.DEPENDENCY
+        case RelationshipKind.DISAMBIGUATION:
+            return RelationshipKindDTO.DISAMBIGUATION
+        case RelationshipKind.REEVALUATION:
+            return RelationshipKindDTO.REEVALUATION
+        case _:
+            raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
+
+
 def _guideline_relationship_to_dto(
-    relationship: _GuidelineRelationship,
+    relationship: GuidelineRelationshipModule,
     indirect: bool,
 ) -> RelationshipDTO:
     if relationship.source_type == RelationshipEntityKind.GUIDELINE:
@@ -506,15 +408,45 @@ def _guideline_relationship_to_dto(
     )
 
 
+def _dto_to_update_params_module(dto: GuidelineUpdateParamsDTO) -> GuidelineUpdateParamsModule:
+    return GuidelineUpdateParamsModule(
+        condition=dto.condition,
+        action=dto.action,
+        tool_associations=GuidelineToolAssociationUpdateParamsModule(
+            add=[
+                ToolId(service_name=t.service_name, tool_name=t.tool_name)
+                for t in dto.tool_associations.add
+            ]
+            if dto.tool_associations.add
+            else None,
+            remove=[
+                ToolId(service_name=t.service_name, tool_name=t.tool_name)
+                for t in dto.tool_associations.remove
+            ]
+            if dto.tool_associations.remove
+            else None,
+        )
+        if dto.tool_associations
+        else None,
+        enabled=dto.enabled,
+        tags=GuidelineTagsUpdateParamsModule(
+            add=dto.tags.add,
+            remove=dto.tags.remove,
+        )
+        if dto.tags
+        else None,
+        metadata=GuidelineMetadataUpdateParamsModule(
+            set=dto.metadata.set,
+            unset=dto.metadata.unset,
+        )
+        if dto.metadata
+        else None,
+    )
+
+
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    guideline_store: GuidelineStore,
-    relationship_store: RelationshipStore,
-    service_registry: ServiceRegistry,
-    guideline_tool_association_store: GuidelineToolAssociationStore,
-    agent_store: AgentStore,
-    tag_store: TagStore,
-    journey_store: JourneyStore,
+    app: Application,
 ) -> APIRouter:
     """Creates a router for the guidelines API with tag-based paths."""
     router = APIRouter()
@@ -546,24 +478,12 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_GUIDELINE)
 
-        tags = []
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                elif journey_id := Tag.extract_journey_id(tag_id):
-                    _ = await journey_store.read_journey(journey_id=JourneyId(journey_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        guideline = await guideline_store.create_guideline(
+        guideline = await app.guidelines.create(
             condition=params.condition,
             action=params.action or None,
             metadata=params.metadata or {},
             enabled=params.enabled or True,
-            tags=tags or None,
+            tags=params.tags,
         )
 
         return GuidelineDTO(
@@ -600,12 +520,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_GUIDELINES)
 
-        if tag_id:
-            guidelines = await guideline_store.list_guidelines(
-                tags=[tag_id],
-            )
-        else:
-            guidelines = await guideline_store.list_guidelines()
+        guidelines = await app.guidelines.find(tag_id=tag_id)
 
         return [
             GuidelineDTO(
@@ -645,19 +560,20 @@ def create_router(
         await authorization_policy.authorize(request=request, operation=Operation.READ_GUIDELINE)
 
         try:
-            guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
+            guideline = await app.guidelines.read(guideline_id=guideline_id)
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Guideline not found",
             )
 
-        relationships = await _get_relationships(
-            guideline_store=guideline_store,
-            tag_store=tag_store,
-            relationship_store=relationship_store,
+        relationships = await app.guidelines.find_relationships(
             guideline_id=guideline_id,
             include_indirect=True,
+        )
+
+        guideline_tool_associations = await app.guidelines.find_tool_associations(
+            guideline_id=guideline_id
         )
 
         return GuidelineWithRelationshipsAndToolAssociationsDTO(
@@ -682,8 +598,7 @@ def create_router(
                         tool_name=a.tool_id.tool_name,
                     ),
                 )
-                for a in await guideline_tool_association_store.list_associations()
-                if a.guideline_id == guideline_id
+                for a in guideline_tool_associations
             ],
         )
 
@@ -724,101 +639,12 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.UPDATE_GUIDELINE)
 
-        _ = await guideline_store.read_guideline(guideline_id=guideline_id)
+        updated_guideline = await app.guidelines.update(
+            guideline_id=guideline_id,
+            params=_dto_to_update_params_module(params),
+        )
 
-        if params.condition or params.action or params.enabled is not None:
-            update_params: GuidelineUpdateParams = {}
-            if params.condition:
-                update_params["condition"] = params.condition
-            if params.action:
-                update_params["action"] = params.action
-            if params.enabled is not None:
-                update_params["enabled"] = params.enabled
-
-            await guideline_store.update_guideline(
-                guideline_id=guideline_id,
-                params=GuidelineUpdateParams(**update_params),
-            )
-
-        if params.metadata:
-            if params.metadata.set:
-                for key, value in params.metadata.set.items():
-                    await guideline_store.set_metadata(
-                        guideline_id=guideline_id,
-                        key=key,
-                        value=value,
-                    )
-
-            if params.metadata.unset:
-                for key in params.metadata.unset:
-                    await guideline_store.unset_metadata(
-                        guideline_id=guideline_id,
-                        key=key,
-                    )
-
-        if params.tool_associations and params.tool_associations.add:
-            for tool_id_dto in params.tool_associations.add:
-                service_name = tool_id_dto.service_name
-                tool_name = tool_id_dto.tool_name
-
-                try:
-                    service = await service_registry.read_tool_service(service_name)
-                    _ = await service.read_tool(tool_name)
-                except Exception:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Tool not found (service='{service_name}', tool='{tool_name}')",
-                    )
-
-                await guideline_tool_association_store.create_association(
-                    guideline_id=guideline_id,
-                    tool_id=ToolId(service_name=service_name, tool_name=tool_name),
-                )
-
-        if params.tool_associations and params.tool_associations.remove:
-            associations = await guideline_tool_association_store.list_associations()
-
-            for tool_id_dto in params.tool_associations.remove:
-                if association := next(
-                    (
-                        assoc
-                        for assoc in associations
-                        if assoc.tool_id.service_name == tool_id_dto.service_name
-                        and assoc.tool_id.tool_name == tool_id_dto.tool_name
-                        and assoc.guideline_id == guideline_id
-                    ),
-                    None,
-                ):
-                    await guideline_tool_association_store.delete_association(association.id)
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Tool association not found for service '{tool_id_dto.service_name}' and tool '{tool_id_dto.tool_name}'",
-                    )
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    elif journey_id := Tag.extract_journey_id(tag_id):
-                        _ = await journey_store.read_journey(journey_id=JourneyId(journey_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-
-                    await guideline_store.upsert_tag(
-                        guideline_id=guideline_id,
-                        tag_id=tag_id,
-                    )
-
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await guideline_store.remove_tag(
-                        guideline_id=guideline_id,
-                        tag_id=tag_id,
-                    )
-
-        updated_guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
+        guideline_tool_associations = await app.guidelines.find_tool_associations(guideline_id)
 
         return GuidelineWithRelationshipsAndToolAssociationsDTO(
             guideline=GuidelineDTO(
@@ -831,10 +657,7 @@ def create_router(
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
-                for relationship, indirect in await _get_relationships(
-                    guideline_store=guideline_store,
-                    tag_store=tag_store,
-                    relationship_store=relationship_store,
+                for relationship, indirect in await app.guidelines.find_relationships(
                     guideline_id=guideline_id,
                     include_indirect=True,
                 )
@@ -848,8 +671,7 @@ def create_router(
                         tool_name=a.tool_id.tool_name,
                     ),
                 )
-                for a in await guideline_tool_association_store.list_associations()
-                if a.guideline_id == guideline_id
+                for a in guideline_tool_associations
             ],
         )
 
@@ -871,38 +693,6 @@ def create_router(
     ) -> None:
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_GUIDELINE)
 
-        guideline = await guideline_store.read_guideline(guideline_id=guideline_id)
-
-        for r, _ in await _get_relationships(
-            guideline_store=guideline_store,
-            tag_store=tag_store,
-            relationship_store=relationship_store,
-            guideline_id=guideline_id,
-            include_indirect=False,
-        ):
-            related_guideline = (
-                r.target if cast(Guideline | Tag, r.source).id == guideline_id else r.source
-            )
-            if (
-                isinstance(related_guideline, Guideline)
-                and related_guideline.tags
-                and not any(t in related_guideline.tags for t in guideline.tags)
-            ):
-                await relationship_store.delete_relationship(r.id)
-
-        for associastion in await guideline_tool_association_store.list_associations():
-            if associastion.guideline_id == guideline_id:
-                await guideline_tool_association_store.delete_association(associastion.id)
-
-        journeys = await journey_store.list_journeys()
-        for journey in journeys:
-            for condition in journey.conditions:
-                if condition == guideline_id:
-                    await journey_store.remove_condition(
-                        journey_id=journey.id,
-                        condition=condition,
-                    )
-
-        await guideline_store.delete_guideline(guideline_id=guideline_id)
+        await app.guidelines.delete(guideline_id=guideline_id)
 
     return router

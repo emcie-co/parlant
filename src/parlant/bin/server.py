@@ -48,6 +48,8 @@ from parlant.api.authorization import (
     ProductionAuthorizationPolicy,
 )
 from parlant.app_modules.sessions import SessionModule
+from parlant.app_modules.services import ServiceModule
+from parlant.app_modules.tags import TagModule
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha import message_generator
@@ -539,6 +541,9 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, Engine, AlphaEngine)
 
     c[SessionModule] = Singleton(SessionModule)
+    c[ServiceModule] = Singleton(ServiceModule)
+    c[TagModule] = Singleton(TagModule)
+
     c[Application] = Singleton(Application)
 
     yield c

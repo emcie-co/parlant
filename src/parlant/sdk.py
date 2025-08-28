@@ -72,6 +72,9 @@ from parlant.api.authorization import (
     RateLimiter,
 )
 from parlant.app_modules.sessions import SessionModule
+from parlant.app_modules.services import ServiceModule
+from parlant.app_modules.tags import TagModule
+
 from parlant.core import async_utils
 from parlant.core.agents import (
     AgentDocumentStore,
@@ -2923,7 +2926,14 @@ class Server:
                 )
 
             c()[SessionModule] = lambda rc: SessionModule(rc)
-            c()[Application] = Application(c()[SessionModule])
+            c()[ServiceModule] = lambda rc: ServiceModule(rc)
+            c()[TagModule] = lambda rc: TagModule(rc)
+
+            c()[Application] = Application(
+                session_module=c()[SessionModule],
+                service_module=c()[ServiceModule],
+                tag_module=c()[TagModule],
+            )
 
         async def configure(c: Container) -> Container:
             latest_container = c

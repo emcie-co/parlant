@@ -418,15 +418,13 @@ class OllamaEmbedder(Embedder):
 
     def __init__(
         self,
-        logger: Logger,
-        base_url: str = "http://localhost:11434",
-        model_name: str = "nomic-embed-text",
+        logger: Logger
     ):
-        self.model_name = model_name
-        self.base_url = base_url.rstrip("/")
+        self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         self._logger = logger
-        self._tokenizer = OllamaEstimatingTokenizer(model_name)
-        self._client = ollama.AsyncClient(host=base_url)
+        self._tokenizer = OllamaEstimatingTokenizer(self.model_name)
+        self._client = ollama.AsyncClient(host=self.base_url)
 
     @property
     @override
@@ -450,6 +448,8 @@ class OllamaEmbedder(Embedder):
             return 768
         elif "mxbai" in self.model_name.lower():
             return 512
+        elif "bge" in self.model_name.lower():
+            return 1024
         else:
             return 768
 
@@ -606,9 +606,7 @@ Please set these environment variables before running Parlant.
     @override
     async def get_embedder(self) -> Embedder:
         """Get an embedder for text embeddings."""
-        return OllamaEmbedder(
-            logger=self._logger, base_url=self.base_url, model_name=self.embedding_model
-        )
+        return OllamaEmbedder(logger=self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

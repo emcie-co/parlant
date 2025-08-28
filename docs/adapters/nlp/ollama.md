@@ -82,6 +82,7 @@ ollama pull llama3.1:405b
 
 To use custom embedding model set OLLAMA_EMBEDDING_MODEL environment value as required name
 Note that this implementation is tested using nomic-embed-text
+NOTE: You should use a model which can generate 512, 768 or 1024 size vectors
 
 ```bash
 # Alternative embedding model (512 dimensions)

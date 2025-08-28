@@ -12,18 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from parlant.app_modules.agents import AgentModule
 from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.sessions import SessionModule
 from parlant.app_modules.tags import TagModule
+from parlant.app_modules.customers import CustomerModule
 
 
 class Application:
     def __init__(
         self,
+        agent_module: AgentModule,
         session_module: SessionModule,
         service_module: ServiceModule,
         tag_module: TagModule,
+        customer_module: CustomerModule,
     ) -> None:
+        self.agents = agent_module
         self.sessions = session_module
         self.services = service_module
         self.tags = tag_module
+        self.customers = customer_module

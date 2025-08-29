@@ -416,9 +416,9 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
 class OllamaEmbedder(Embedder):
     """Embedder that uses Ollama embedding models."""
     supported_arguments = ["dimensions"]
-    def __init__(self, base_url: str, model_name: str, logger: Logger):
+    def __init__(self, model_name: str, logger: Logger):
         self.model_name = model_name
-        self.base_url = base_url
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         self._logger = logger
         self._tokenizer = OllamaEstimatingTokenizer(self.model_name)
         self._client = ollama.AsyncClient(host=self.base_url)
@@ -477,9 +477,7 @@ class OllamaEmbedder(Embedder):
 
 class OllamaNomicEmbedding(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        super().__init__(base_url=self.base_url, model_name="nomic-embed-text", logger=logger)
-        # super().__init__(model_name="text-embedding-3-large", logger=logger)
+        super().__init__(model_name="nomic-embed-text", logger=logger)
 
     @property
     @override
@@ -492,8 +490,7 @@ class OllamaNomicEmbedding(OllamaEmbedder):
 
 class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        super().__init__(base_url=self.base_url, model_name="mxbai-embed-large", logger=logger)
+        super().__init__(model_name="mxbai-embed-large", logger=logger)
 
     @property
     @override
@@ -506,8 +503,7 @@ class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
 
 class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
     def __init__(self, logger: Logger) -> None:
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        super().__init__(base_url=self.base_url, model_name="bge-m3", logger=logger)
+        super().__init__(model_name="bge-m3", logger=logger)
 
     @property
     @override
@@ -520,10 +516,9 @@ class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
 
 class OllamaCustomEmbedding(OllamaEmbedder):
     def __init__(self, logger:Logger) -> None:
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768")) 
-        super().__init__(base_url=self.base_url, model_name=self.model_name, logger=logger)
+        super().__init__(model_name=self.model_name, logger=logger)
 
     @property
     @override
@@ -570,7 +565,7 @@ Please set these environment variables before running Parlant.
         Verify that the required models are available in Ollama.
         Returns an error message if models are missing, None if all are available.
         """
-        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         embedding_model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         generation_model = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
 

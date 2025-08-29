@@ -80,6 +80,19 @@ async with p.Server(nlp_service=p.NLPServices.cerebras) as server:
   ...
 ```
 
+### Using OpenRouter
+
+OpenRouter provides access to models from multiple providers through a single API. To use OpenRouter:
+
+```python
+export OPENROUTER_API_KEY="<YOUR_API_KEY>"
+
+async with p.Server(nlp_service=p.NLPServices.openrouter) as server:
+  ...
+```
+
+See the [OpenRouter documentation](https://parlant.io/docs/adapters/nlp/openrouter) for detailed configuration options.
+
 Note that you may need to install an additional "extra" package for some providers. For example, to use the Cerebras NLP service:
 
 ```bash

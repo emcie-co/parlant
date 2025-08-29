@@ -332,6 +332,16 @@ class NLPServices:
             raise SDKError(err)
 
         return OllamaService(container[Logger])
+    
+    @staticmethod
+    def glm(container: Container) -> NLPService:
+        """Creates a GLM NLPService instance using the provided container."""
+        from parlant.adapters.nlp.glm_service import GLMService
+
+        if error := GLMService.verify_environment():
+            raise SDKError(error)
+
+        return GLMService(container[Logger])
 
     @staticmethod
     def glm(container: Container) -> NLPService:

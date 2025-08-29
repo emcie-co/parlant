@@ -16,7 +16,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
-from parlant.core.common import CancellationSuppressionLatch
+from parlant.core.cancellations import CancellationSuppressionLatch
 from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.generation_info import GenerationInfo

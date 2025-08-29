@@ -29,6 +29,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
+from parlant.core.cancellations import CancellationSuppressionLatch
 from parlant.core.capabilities import Capability
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import Agent, CompositionMode
@@ -69,7 +70,7 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel, JSONSerializable
+from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId

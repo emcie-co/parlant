@@ -82,7 +82,11 @@ ollama pull llama3.1:405b
 
 To use custom embedding model set OLLAMA_EMBEDDING_MODEL environment value as required name
 Note that this implementation is tested using nomic-embed-text
-NOTE: You should use a model which can generate 512, 768 or 1024 size vectors
+**⚠️ IMPORTANT**:
+Support for using other embedding models has been added including a custom embedding model of your own choice
+Ensure to set OLLAMA_EMBEDDING_VECTOR_SIZE which is compatible with your own embedding model before starting the server
+Tested with `snowflake-arctic-embed` with vector size of 1024
+It is not NECESSARY to put OLLAMA_EMBEDDING_VECTOR_SIZE if you are using the supported `nomic-embed-text`, `mxbai-embed-large` or `bge-m3`. The vector size defaults to 768, 1024 and 1024 respectively for these
 
 ```bash
 # Alternative embedding model (512 dimensions)

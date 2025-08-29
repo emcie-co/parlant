@@ -415,13 +415,10 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
 
 class OllamaEmbedder(Embedder):
     """Embedder that uses Ollama embedding models."""
-
-    def __init__(
-        self,
-        logger: Logger
-    ):
-        self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    supported_arguments = ["dimensions"]
+    def __init__(self, base_url: str, model_name: str, logger: Logger):
+        self.model_name = model_name
+        self.base_url = base_url
         self._logger = logger
         self._tokenizer = OllamaEstimatingTokenizer(self.model_name)
         self._client = ollama.AsyncClient(host=self.base_url)
@@ -441,18 +438,6 @@ class OllamaEmbedder(Embedder):
     def max_tokens(self) -> int:
         return 8192
 
-    @property
-    @override
-    def dimensions(self) -> int:
-        if "nomic" in self.model_name.lower():
-            return 768
-        elif "mxbai" in self.model_name.lower():
-            return 512
-        elif "bge" in self.model_name.lower():
-            return 1024
-        else:
-            return 768
-
     @policy(
         [
             retry(
@@ -468,8 +453,9 @@ class OllamaEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            response = await self._client.embed(model=self.model_name, input=texts)
+            response = await self._client.embed(model=self.model_name, input=texts, **filtered_hints)
 
             vectors = response.get("embeddings", [])
 
@@ -489,6 +475,64 @@ class OllamaEmbedder(Embedder):
             self._logger.error(f"Error during embedding: {e}")
             raise OllamaConnectionError(f"Unexpected error: {e}")
 
+class OllamaNomicEmbedding(OllamaEmbedder):
+    def __init__(self, logger: Logger) -> None:
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        super().__init__(base_url=self.base_url, model_name="nomic-embed-text", logger=logger)
+        # super().__init__(model_name="text-embedding-3-large", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    def dimensions(self) -> int:
+        return 768
+
+class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
+    def __init__(self, logger: Logger) -> None:
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        super().__init__(base_url=self.base_url, model_name="mxbai-embed-large", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    def dimensions(self) -> int:
+        return 1024
+
+class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
+    def __init__(self, logger: Logger) -> None:
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        super().__init__(base_url=self.base_url, model_name="bge-m3", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    def dimensions(self) -> int:
+        return 1024
+
+class OllamaCustomEmbedding(OllamaEmbedder):
+    def __init__(self, logger:Logger) -> None:
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768")) 
+        super().__init__(base_url=self.base_url, model_name=self.model_name, logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    def dimensions(self) -> int:
+        return self.vector_size
 
 class OllamaService(NLPService):
     """NLP Service that uses Ollama models."""
@@ -605,8 +649,14 @@ Please set these environment variables before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        """Get an embedder for text embeddings."""
-        return OllamaEmbedder(logger=self._logger)
+        if "nomic" in self.embedding_model.lower():
+            return OllamaNomicEmbedding(self._logger)
+        elif "mxbai" in self.embedding_model.lower():
+            return OllamaMxbiEmbeddingLarge(self._logger)
+        elif "bge" in self.embedding_model.lower():
+            return OllamaBgeM3EmbeddingLarge(self._logger)
+        else: #its a custom embedding model
+            return OllamaCustomEmbedding(self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

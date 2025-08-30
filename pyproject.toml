@@ -72,6 +72,7 @@ types-cachetools = "^6.0.0.20250525"
 limits = "^5.5.0"
 
 
+
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"
 mypy = "^1.16.0"

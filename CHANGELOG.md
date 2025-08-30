@@ -4,7 +4,10 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-TBD
+- Follow-up canned responses
+- Ollama integration
+- VertexAI Intergation
+- GLM Intergation
 
 ## [3.0.2] - 2025-08-20
 

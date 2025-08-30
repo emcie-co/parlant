@@ -15,7 +15,6 @@
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
-import ast
 import json
 import traceback
 from typing import Any, Literal, Optional, Sequence, TypeAlias
@@ -49,7 +48,13 @@ from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventKind
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
+from parlant.core.tools import (
+    Tool,
+    ToolId,
+    ToolParameterDescriptor,
+    ToolParameterOptions,
+    split_list_by_type_label,
+)
 
 
 class ValidationStatus(Enum):
@@ -168,7 +173,10 @@ class SingleToolBatch(ToolCallBatch):
             if descriptor["type"] == "string":
                 return value in descriptor["enum"]
             if descriptor["type"] == "array":
-                return all(v in descriptor["enum"] for v in ast.literal_eval(value))
+                return all(
+                    v in descriptor["enum"]
+                    for v in split_list_by_type_label(value, descriptor["item_type"])
+                )
         return True
 
     async def _infer_calls_for_single_tool(

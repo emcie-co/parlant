@@ -1,33 +1,64 @@
+# Copyright 2025 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 from __future__ import annotations
-import contextvars
-from typing import Optional
+import asyncio
+from typing import Any
+
+_TASK_FLAG = "_cancel_suppressed"
 
 
-LATCH = contextvars.ContextVar[bool](
-    "cancellation_suppression_enabled",
-    default=False,
-)
+def task_suppression_enabled(task: asyncio.Task[object]) -> bool:
+    return bool(getattr(task, _TASK_FLAG, False))
 
 
 class CancellationSuppressionLatch:
-    @staticmethod
-    def enabled_for_context() -> bool:
-        return LATCH.get()
-
     def __init__(self) -> None:
-        self._reset_token: Optional[contextvars.Token[bool]] = None
+        self._suppressed = False
 
-    def __enter__(self) -> CancellationSuppressionLatch:
+    @staticmethod
+    def enabled_for_task(task: asyncio.Task[Any]) -> bool:
+        return task_suppression_enabled(task)
+
+    def __enter__(self) -> "CancellationSuppressionLatch":
         return self
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> None:
-        if self._reset_token is not None:
-            LATCH.reset(self._reset_token)
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> bool:
+        if self._suppressed:
+            t = asyncio.current_task()
+
+            if t is not None and hasattr(t, _TASK_FLAG):
+                delattr(t, _TASK_FLAG)
+
+            if exc_type is not None and issubclass(exc_type, asyncio.CancelledError):
+                return True
+
+        return False
 
     def enable(self) -> None:
-        self._reset_token = LATCH.set(True)
+        if self._suppressed:
+            return
+
+        t = asyncio.current_task()
+        if t is None:
+            return
+
+        setattr(t, _TASK_FLAG, True)
+        self._suppressed = True

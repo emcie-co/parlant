@@ -17,7 +17,7 @@ import traceback
 from typing import Any, Coroutine, Optional, TypeAlias
 from typing_extensions import Self
 
-from parlant.core.cancellations import CancellationSuppressionLatch
+from parlant.core.cancellations import task_suppression_enabled
 from parlant.core.loggers import Logger
 
 
@@ -141,5 +141,5 @@ class BackgroundTaskService:
             )
 
     def _cancel_if_not_suppressed(self, task: Task, message: str) -> None:
-        if not CancellationSuppressionLatch.enabled_for_context():
+        if not task_suppression_enabled(task):
             task.cancel(message)

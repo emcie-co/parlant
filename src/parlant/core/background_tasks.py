@@ -150,9 +150,9 @@ class BackgroundTaskService:
             )
 
     def _cancel_if_not_suppressed(self, task: Task, message: str) -> None:
-        task_tag = getattr(task, "__parlant_background_task_tag__", None)
+        task_tag = getattr(task, "__parlant_background_task_tag__")
 
-        if task_tag and cancellations.is_contextual_suppression_latch_enabled(task_tag):
+        if cancellations.is_contextual_suppression_latch_enabled(task_tag):
             self._logger.info(f"{type(self).__name__}: Task cancellation was suppressed '{task}'")
             return
 

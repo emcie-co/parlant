@@ -17,6 +17,7 @@ import traceback
 from typing import Any, Coroutine, Optional, TypeAlias
 from typing_extensions import Self
 
+from parlant.core import cancellations
 from parlant.core.loggers import Logger
 
 
@@ -54,7 +55,9 @@ class BackgroundTaskService:
         async with self._lock:
             if task := self._tasks.get(tag):
                 if not task.done():
-                    task.cancel(f"Forced cancellation by {type(self).__name__} [reason: {reason}]")
+                    self._cancel_if_not_suppressed(
+                        task, f"Forced cancellation by {type(self).__name__} [reason: {reason}]"
+                    )
 
         await self.collect()
 
@@ -66,7 +69,9 @@ class BackgroundTaskService:
 
             for task in self._tasks.values():
                 if not task.done():
-                    task.cancel(f"Forced cancellation by {type(self).__name__} [reason: {reason}]")
+                    self._cancel_if_not_suppressed(
+                        task, f"Forced cancellation by {type(self).__name__} [reason: {reason}]"
+                    )
 
         await self.collect()
 
@@ -81,7 +86,7 @@ class BackgroundTaskService:
                     )
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = asyncio.create_task(f)
+            task = self._create_shimmed_task(f)
             self._tasks[tag] = task
             return task
 
@@ -91,11 +96,11 @@ class BackgroundTaskService:
         async with self._lock:
             if existing_task := self._tasks.get(tag):
                 if not existing_task.done():
-                    existing_task.cancel(f"Restarting task '{tag}'")
+                    self._cancel_if_not_suppressed(existing_task, f"Restarting task '{tag}'")
                     await self._await_task(existing_task)
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = asyncio.create_task(f)
+            task = self._create_shimmed_task(f)
             self._tasks[tag] = task
             return task
 
@@ -125,6 +130,13 @@ class BackgroundTaskService:
 
         self._last_garbage_collection = now
 
+    def _create_shimmed_task(self, f: Coroutine[Any, Any, None]) -> Task:
+        async def shimmed_task() -> None:
+            cancellations.initialize_contextual_suppression_latch()
+            await f
+
+        return asyncio.create_task(shimmed_task())
+
     async def _await_task(self, task: Task) -> None:
         try:
             await task
@@ -134,3 +146,10 @@ class BackgroundTaskService:
             self._logger.warning(
                 f"{type(self).__name__}: Awaited task raised an exception: {traceback.format_exception(exc)}"
             )
+
+    def _cancel_if_not_suppressed(self, task: Task, message: str) -> None:
+        if cancellations.is_contextual_suppression_latch_enabled():
+            self._logger.info(f"{type(self).__name__}: Task cancellation was suppressed '{task}'")
+            return
+
+        task.cancel(message)

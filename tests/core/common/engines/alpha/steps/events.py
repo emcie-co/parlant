@@ -224,7 +224,7 @@ def then_a_single_message_event_is_emitted(
     assert len(list(filter(lambda e: e.kind == EventKind.MESSAGE, emitted_events))) == 1
 
 
-@step(then, parsers.parse("a total of {count:d} message event(s) (is|are) emitted"))
+@step(then, parsers.parse("a total of {count:d} message events are emitted"))
 def then_message_events_are_emitted(
     emitted_events: list[EmittedEvent],
     count: int,
@@ -274,6 +274,21 @@ def then_the_message_contains(
             condition=f"The message contains {something}",
         )
     ), f"message: '{message}', expected to contain: '{something}'"
+
+
+@step(then, parsers.parse('at least one message contains the text "{something}"'))
+def then_the_ith_message_contains(
+    context: ContextOfTest,
+    emitted_events: list[EmittedEvent],
+    something: str,
+) -> None:
+    message_events = [e for e in emitted_events if e.kind == EventKind.MESSAGE]
+    messages = [cast(MessageEventData, e.data)["message"] for e in message_events]
+    messages_str = " || ".join(messages)
+
+    assert any(
+        something.lower() in m.lower() for m in messages
+    ), f"text: '{something} not found in outputted messages {messages_str}'"
 
 
 @step(then, parsers.parse("the message doesn't contains {something}"))

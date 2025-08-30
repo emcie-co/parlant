@@ -28,8 +28,9 @@ from typing_extensions import override
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, CompositionMode
+from parlant.core.cancellations import CancellationSuppressionLatch
 from parlant.core.capabilities import Capability
-from parlant.core.common import CancellationSuppressionLatch, JSONSerializable
+from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,

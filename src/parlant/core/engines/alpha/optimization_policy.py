@@ -99,6 +99,13 @@ class BasicOptimizationPolicy(OptimizationPolicy):
                 0.2,
             ]
 
+        elif hints.get("type") == "follow-up_canned_response-selection":
+            return [
+                0.1,
+                0.05,
+                0.2,
+            ]
+
         return [
             0.1,
             0.3,

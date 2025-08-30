@@ -1741,7 +1741,6 @@ Output a JSON object with three properties:
                     args[field_name] = value
                 else:
                     faulty_field_name = field_name
-                    self._logger.error(f"CannedResponse field extraction: missing '{field_name}'")
                     raise KeyError(f"Missing field '{field_name}' in canned response")
 
             result = jinja2.Template(response.value).render(**args)

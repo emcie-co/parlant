@@ -16,31 +16,23 @@ from __future__ import annotations
 import contextvars
 
 
-class _LatchShim:
-    def __init__(self) -> None:
-        self.enabled = False
+_CURRENT_TASK_ID = contextvars.ContextVar[str | None]("_cancellations_current_task", default=None)
+_SUPPRESSION_LATCHES = dict[str, bool]()
 
 
-_CONTEXTUAL_LATCH = contextvars.ContextVar[_LatchShim | None](
-    "_cancellation_suppression_latch",
-    default=None,
-)
+def initialize_contextual_suppression_latch(key: str) -> None:
+    _SUPPRESSION_LATCHES[key] = False
+    _CURRENT_TASK_ID.set(key)
 
 
-def initialize_contextual_suppression_latch() -> None:
-    _CONTEXTUAL_LATCH.set(_LatchShim())
-
-
-def is_contextual_suppression_latch_enabled() -> bool:
-    if latch := _CONTEXTUAL_LATCH.get():
-        return latch.enabled
-    return False
+def is_contextual_suppression_latch_enabled(key: str) -> bool:
+    return _SUPPRESSION_LATCHES.get(key, False)
 
 
 class CancellationSuppressionLatch:
     def __enter__(self) -> "CancellationSuppressionLatch":
-        if latch := _CONTEXTUAL_LATCH.get():
-            self._latch = latch
+        if task_id := _CURRENT_TASK_ID.get():
+            self._task_id = task_id
         else:
             raise RuntimeError(
                 "CancellationSuppressionLatch must be used within a supported context"
@@ -54,7 +46,7 @@ class CancellationSuppressionLatch:
         exc_value: BaseException | None,
         traceback: object | None,
     ) -> None:
-        self._latch.enabled = False
+        del _SUPPRESSION_LATCHES[self._task_id]
 
     def enable(self) -> None:
-        self._latch.enabled = True
+        _SUPPRESSION_LATCHES[self._task_id] = True

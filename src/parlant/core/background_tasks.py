@@ -86,7 +86,7 @@ class BackgroundTaskService:
                     )
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = self._create_shimmed_task(f)
+            task = self._create_shimmed_task(f, tag)
             self._tasks[tag] = task
             return task
 
@@ -100,7 +100,7 @@ class BackgroundTaskService:
                     await self._await_task(existing_task)
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = self._create_shimmed_task(f)
+            task = self._create_shimmed_task(f, tag)
             self._tasks[tag] = task
             return task
 
@@ -130,12 +130,14 @@ class BackgroundTaskService:
 
         self._last_garbage_collection = now
 
-    def _create_shimmed_task(self, f: Coroutine[Any, Any, None]) -> Task:
+    def _create_shimmed_task(self, f: Coroutine[Any, Any, None], tag: str) -> Task:
         async def shimmed_task() -> None:
-            cancellations.initialize_contextual_suppression_latch()
+            cancellations.initialize_contextual_suppression_latch(tag)
             await f
 
-        return asyncio.create_task(shimmed_task())
+        task = asyncio.create_task(shimmed_task())
+        setattr(task, "__parlant_background_task_tag__", tag)
+        return task
 
     async def _await_task(self, task: Task) -> None:
         try:
@@ -148,7 +150,9 @@ class BackgroundTaskService:
             )
 
     def _cancel_if_not_suppressed(self, task: Task, message: str) -> None:
-        if cancellations.is_contextual_suppression_latch_enabled():
+        task_tag = getattr(task, "__parlant_background_task_tag__", None)
+
+        if cancellations.is_contextual_suppression_latch_enabled(task_tag):
             self._logger.info(f"{type(self).__name__}: Task cancellation was suppressed '{task}'")
             return
 

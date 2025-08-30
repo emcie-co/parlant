@@ -17,7 +17,7 @@ import traceback
 from typing import Any, Coroutine, Optional, TypeAlias
 from typing_extensions import Self
 
-from parlant.core.cancellations import task_suppression_enabled
+from parlant.core import cancellations
 from parlant.core.loggers import Logger
 
 
@@ -86,7 +86,7 @@ class BackgroundTaskService:
                     )
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = asyncio.create_task(f)
+            task = self._create_shimmed_task(f)
             self._tasks[tag] = task
             return task
 
@@ -100,7 +100,7 @@ class BackgroundTaskService:
                     await self._await_task(existing_task)
 
             self._logger.trace(f"{type(self).__name__}: Starting task '{tag}'")
-            task = asyncio.create_task(f)
+            task = self._create_shimmed_task(f)
             self._tasks[tag] = task
             return task
 
@@ -130,6 +130,13 @@ class BackgroundTaskService:
 
         self._last_garbage_collection = now
 
+    def _create_shimmed_task(self, f: Coroutine[Any, Any, None]) -> Task:
+        async def shimmed_task() -> None:
+            cancellations.initialize_contextual_suppression_latch()
+            await f
+
+        return asyncio.create_task(shimmed_task())
+
     async def _await_task(self, task: Task) -> None:
         try:
             await task
@@ -141,5 +148,8 @@ class BackgroundTaskService:
             )
 
     def _cancel_if_not_suppressed(self, task: Task, message: str) -> None:
-        if not task_suppression_enabled(task):
-            task.cancel(message)
+        if cancellations.is_contextual_suppression_latch_enabled():
+            self._logger.info(f"{type(self).__name__}: Task cancellation was suppressed '{task}'")
+            return
+
+        task.cancel(message)

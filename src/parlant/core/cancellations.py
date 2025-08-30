@@ -12,27 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
-import asyncio
-from typing import Any
-
-_TASK_FLAG = "_cancel_suppressed"
+import contextvars
 
 
-def task_suppression_enabled(task: asyncio.Task[object]) -> bool:
-    return bool(getattr(task, _TASK_FLAG, False))
+class _LatchShim:
+    def __init__(self) -> None:
+        self.enabled = False
+
+
+_CONTEXTUAL_LATCH = contextvars.ContextVar[_LatchShim | None](
+    "_cancellation_suppression_latch",
+    default=None,
+)
+
+
+def initialize_contextual_suppression_latch() -> None:
+    _CONTEXTUAL_LATCH.set(_LatchShim())
+
+
+def is_contextual_suppression_latch_enabled() -> bool:
+    if latch := _CONTEXTUAL_LATCH.get():
+        return latch.enabled
+    return False
 
 
 class CancellationSuppressionLatch:
-    def __init__(self) -> None:
-        self._suppressed = False
-
-    @staticmethod
-    def enabled_for_task(task: asyncio.Task[Any]) -> bool:
-        return task_suppression_enabled(task)
-
     def __enter__(self) -> "CancellationSuppressionLatch":
+        if latch := _CONTEXTUAL_LATCH.get():
+            self._latch = latch
+        else:
+            raise RuntimeError(
+                "CancellationSuppressionLatch must be used within a supported context"
+            )
+
         return self
 
     def __exit__(
@@ -40,25 +53,8 @@ class CancellationSuppressionLatch:
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
         traceback: object | None,
-    ) -> bool:
-        if self._suppressed:
-            t = asyncio.current_task()
-
-            if t is not None and hasattr(t, _TASK_FLAG):
-                delattr(t, _TASK_FLAG)
-
-            if exc_type is not None and issubclass(exc_type, asyncio.CancelledError):
-                return True
-
-        return False
+    ) -> None:
+        self._latch.enabled = False
 
     def enable(self) -> None:
-        if self._suppressed:
-            return
-
-        t = asyncio.current_task()
-        if t is None:
-            return
-
-        setattr(t, _TASK_FLAG, True)
-        self._suppressed = True
+        self._latch.enabled = True

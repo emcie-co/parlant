@@ -41,20 +41,8 @@ class GuidelineToolAssociationUpdateParamsModel:
     remove: Sequence[ToolId] | None = None
 
 
-@dataclass(frozen=True)
-class GuidelineUpdateParamsModel:
-    condition: str | None
-    action: str | None
-    tool_associations: GuidelineToolAssociationUpdateParamsModel | None
-    enabled: bool | None
-    tags: GuidelineTagsUpdateParamsModel | None
-    metadata: GuidelineMetadataUpdateParamsModel | None
-
-
 @dataclass
-class GuidelineRelationshipModule:
-    """Represents a relationship between a guideline and another entity (guideline, tag, or tool)."""
-
+class GuidelineRelationshipModel:
     id: RelationshipId
     source: Guideline | Tag | Tool
     source_type: RelationshipEntityKind
@@ -129,42 +117,47 @@ class GuidelineModule:
     async def update(
         self,
         guideline_id: GuidelineId,
-        params: GuidelineUpdateParamsModel,
+        condition: str | None,
+        action: str | None,
+        tool_associations: GuidelineToolAssociationUpdateParamsModel | None,
+        enabled: bool | None,
+        tags: GuidelineTagsUpdateParamsModel | None,
+        metadata: GuidelineMetadataUpdateParamsModel | None,
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
-        if params.condition or params.action or params.enabled is not None:
+        if condition or action or enabled is not None:
             update_params: GuidelineUpdateParams = {}
-            if params.condition:
-                update_params["condition"] = params.condition
-            if params.action:
-                update_params["action"] = params.action
-            if params.enabled is not None:
-                update_params["enabled"] = params.enabled
+            if condition:
+                update_params["condition"] = condition
+            if action:
+                update_params["action"] = action
+            if enabled is not None:
+                update_params["enabled"] = enabled
 
             await self._guideline_store.update_guideline(
                 guideline_id=guideline_id,
                 params=GuidelineUpdateParams(**update_params),
             )
 
-        if params.metadata:
-            if params.metadata.set:
-                for key, value in params.metadata.set.items():
+        if metadata:
+            if metadata.set:
+                for key, value in metadata.set.items():
                     await self._guideline_store.set_metadata(
                         guideline_id=guideline_id,
                         key=key,
                         value=value,
                     )
 
-            if params.metadata.unset:
-                for key in params.metadata.unset:
+            if metadata.unset:
+                for key in metadata.unset:
                     await self._guideline_store.unset_metadata(
                         guideline_id=guideline_id,
                         key=key,
                     )
 
-        if params.tool_associations and params.tool_associations.add:
-            for tool_id in params.tool_associations.add:
+        if tool_associations and tool_associations.add:
+            for tool_id in tool_associations.add:
                 service_name = tool_id.service_name
                 tool_name = tool_id.tool_name
 
@@ -182,10 +175,10 @@ class GuidelineModule:
                     tool_id=ToolId(service_name=service_name, tool_name=tool_name),
                 )
 
-        if params.tool_associations and params.tool_associations.remove:
+        if tool_associations and tool_associations.remove:
             associations = await self._guideline_tool_association_store.list_associations()
 
-            for tool_id in params.tool_associations.remove:
+            for tool_id in tool_associations.remove:
                 if association := next(
                     (
                         assoc
@@ -203,9 +196,9 @@ class GuidelineModule:
                         f"Tool association not found for service '{tool_id.service_name}' and tool '{tool_id.tool_name}'",
                     )
 
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
+        if tags:
+            if tags.add:
+                for tag_id in tags.add:
                     await self._ensure_tag(tag_id)
 
                     await self._guideline_store.upsert_tag(
@@ -213,8 +206,8 @@ class GuidelineModule:
                         tag_id=tag_id,
                     )
 
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
+            if tags.remove:
+                for tag_id in tags.remove:
                     await self._guideline_store.remove_tag(
                         guideline_id=guideline_id,
                         tag_id=tag_id,
@@ -261,7 +254,7 @@ class GuidelineModule:
         entity_id: GuidelineId | TagId,
         kind: RelationshipKind,
         include_indirect: bool = True,
-    ) -> Sequence[tuple[GuidelineRelationshipModule, bool]]:
+    ) -> Sequence[tuple[GuidelineRelationshipModel, bool]]:
         async def _get_entity(
             entity_id: GuidelineId | TagId,
             entity_type: RelationshipEntityKind,
@@ -294,7 +287,7 @@ class GuidelineModule:
             assert type(r.kind) is RelationshipKind
 
             relationships.append(
-                GuidelineRelationshipModule(
+                GuidelineRelationshipModel(
                     id=r.id,
                     source=await _get_entity(cast(GuidelineId | TagId, r.source.id), r.source.kind),
                     source_type=r.source.kind,
@@ -317,7 +310,7 @@ class GuidelineModule:
         self,
         guideline_id: GuidelineId,
         include_indirect: bool = True,
-    ) -> Sequence[tuple[GuidelineRelationshipModule, bool]]:
+    ) -> Sequence[tuple[GuidelineRelationshipModel, bool]]:
         return list(
             chain.from_iterable(
                 [

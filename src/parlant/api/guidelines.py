@@ -33,10 +33,9 @@ from parlant.api.common import (
 )
 from parlant.app_modules.guidelines import (
     GuidelineMetadataUpdateParamsModel,
-    GuidelineRelationshipModule,
+    GuidelineRelationshipModel,
     GuidelineTagsUpdateParamsModel,
     GuidelineToolAssociationUpdateParamsModel,
-    GuidelineUpdateParamsModel,
 )
 from parlant.core.application import Application
 from parlant.core.common import (
@@ -354,7 +353,7 @@ def _guideline_relationship_kind_to_dto(
 
 
 def _guideline_relationship_to_dto(
-    relationship: GuidelineRelationshipModule,
+    relationship: GuidelineRelationshipModel,
     indirect: bool,
 ) -> RelationshipDTO:
     if relationship.source_type == RelationshipEntityKind.GUIDELINE:
@@ -405,42 +404,6 @@ def _guideline_relationship_to_dto(
         else None,
         indirect=indirect,
         kind=_guideline_relationship_kind_to_dto(relationship.kind),
-    )
-
-
-def _dto_to_update_params_module(dto: GuidelineUpdateParamsDTO) -> GuidelineUpdateParamsModel:
-    return GuidelineUpdateParamsModel(
-        condition=dto.condition,
-        action=dto.action,
-        tool_associations=GuidelineToolAssociationUpdateParamsModel(
-            add=[
-                ToolId(service_name=t.service_name, tool_name=t.tool_name)
-                for t in dto.tool_associations.add
-            ]
-            if dto.tool_associations.add
-            else None,
-            remove=[
-                ToolId(service_name=t.service_name, tool_name=t.tool_name)
-                for t in dto.tool_associations.remove
-            ]
-            if dto.tool_associations.remove
-            else None,
-        )
-        if dto.tool_associations
-        else None,
-        enabled=dto.enabled,
-        tags=GuidelineTagsUpdateParamsModel(
-            add=dto.tags.add,
-            remove=dto.tags.remove,
-        )
-        if dto.tags
-        else None,
-        metadata=GuidelineMetadataUpdateParamsModel(
-            set=dto.metadata.set,
-            unset=dto.metadata.unset,
-        )
-        if dto.metadata
-        else None,
     )
 
 
@@ -641,7 +604,37 @@ def create_router(
 
         updated_guideline = await app.guidelines.update(
             guideline_id=guideline_id,
-            params=_dto_to_update_params_module(params),
+            condition=params.condition,
+            action=params.action,
+            tool_associations=GuidelineToolAssociationUpdateParamsModel(
+                add=[
+                    ToolId(service_name=t.service_name, tool_name=t.tool_name)
+                    for t in params.tool_associations.add
+                ]
+                if params.tool_associations.add
+                else None,
+                remove=[
+                    ToolId(service_name=t.service_name, tool_name=t.tool_name)
+                    for t in params.tool_associations.remove
+                ]
+                if params.tool_associations.remove
+                else None,
+            )
+            if params.tool_associations
+            else None,
+            enabled=params.enabled,
+            tags=GuidelineTagsUpdateParamsModel(
+                add=params.tags.add,
+                remove=params.tags.remove,
+            )
+            if params.tags
+            else None,
+            metadata=GuidelineMetadataUpdateParamsModel(
+                set=params.metadata.set,
+                unset=params.metadata.unset,
+            )
+            if params.metadata
+            else None,
         )
 
         guideline_tool_associations = await app.guidelines.find_tool_associations(guideline_id)

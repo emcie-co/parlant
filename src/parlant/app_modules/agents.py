@@ -8,18 +8,9 @@ from parlant.core.tags import TagId, TagStore
 
 
 @dataclass(frozen=True)
-class AgentTagUpdateParamsModule:
+class AgentTagUpdateParamsModel:
     add: list[TagId] | None = None
     remove: list[TagId] | None = None
-
-
-@dataclass(frozen=True)
-class AgentUpdateParamsModule:
-    name: str | None = None
-    description: str | None = None
-    max_engine_iterations: int | None = None
-    composition_mode: CompositionMode | None = None
-    tags: AgentTagUpdateParamsModule | None = None
 
 
 class AgentModule:
@@ -65,26 +56,34 @@ class AgentModule:
         agents = await self._agent_store.list_agents()
         return agents
 
-    async def update(self, agent_id: AgentId, params: AgentUpdateParamsModule) -> Agent:
+    async def update(
+        self,
+        agent_id: AgentId,
+        name: str | None,
+        description: str | None,
+        max_engine_iterations: int | None,
+        composition_mode: CompositionMode | None,
+        tags: AgentTagUpdateParamsModel | None,
+    ) -> Agent:
         update_params: AgentUpdateParams = {}
 
-        if params.name:
-            update_params["name"] = params.name
+        if name:
+            update_params["name"] = name
 
-        if params.description:
-            update_params["description"] = params.description
+        if description:
+            update_params["description"] = description
 
-        if params.max_engine_iterations:
-            update_params["max_engine_iterations"] = params.max_engine_iterations
+        if max_engine_iterations:
+            update_params["max_engine_iterations"] = max_engine_iterations
 
-        if params.composition_mode:
-            update_params["composition_mode"] = params.composition_mode
+        if composition_mode:
+            update_params["composition_mode"] = composition_mode
 
         await self._agent_store.update_agent(agent_id=agent_id, params=update_params)
 
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
+        if tags:
+            if tags.add:
+                for tag_id in tags.add:
                     await self._ensure_tag(tag_id)
 
                     await self._agent_store.upsert_tag(
@@ -92,8 +91,8 @@ class AgentModule:
                         tag_id=tag_id,
                     )
 
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
+            if tags.remove:
+                for tag_id in tags.remove:
                     await self._agent_store.remove_tag(
                         agent_id=agent_id,
                         tag_id=tag_id,

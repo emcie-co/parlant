@@ -110,6 +110,8 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
+                    with open("guideline_previously_applied_actionable_batch_output.txt", "w") as f:
+                            f.write(inference.content.model_dump_json(indent=2))
 
                 matches = []
 
@@ -629,6 +631,47 @@ example_4_guidelines = [
 
 
 example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer asks to cancel their food order.",
+            action="ask for the order number and confirm cancellation",
+            condition_met_again=True,
+            action_wasnt_taken=False,
+            should_reapply=False,
+        )
+    ]
+)
+
+example_5_events = [
+    _make_event("11", EventSource.CUSTOMER, "Hi there, can you cancel my food order?"),
+    _make_event("23", EventSource.AI_AGENT, "Sure please provide me your order number. Are you sure you want to cancel? it can't be undone."),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Food prices are so high these days.",
+    ),
+    _make_event("56", EventSource.AI_AGENT, "Would you like me to cancel your order now? please provide the order number and confirm."),
+    _make_event(
+        "78", EventSource.CUSTOMER, "Yes, it's 12345 and please cancel it."
+    ),
+    _make_event("99", EventSource.AI_AGENT, "Your order 12345 has been successfully cancelled."),
+    _make_event("111", EventSource.CUSTOMER, "Cool thanks"),
+]
+
+example_5_guidelines = [
+    GuidelineContent(
+        condition="the customer asks about the value of a stock.",
+        action="provide the price using the 'check_stock_price' tool",
+    ),
+    GuidelineContent(
+        condition="the weather at a certain location is discussed.",
+        action="check the weather at that location using the 'check_weather' tool",
+    ),
+]
+
+
+example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
     checks=[
         GenericPreviouslyAppliedActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),

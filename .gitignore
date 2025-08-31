@@ -22,3 +22,4 @@ scripts/fern/openapi
 fern.generate.log
 schematic_generation_test_cache.json
 test_timing.csv
+*.txt

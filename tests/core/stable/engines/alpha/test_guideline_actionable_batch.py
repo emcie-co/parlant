@@ -280,7 +280,7 @@ async def test_that_guideline_are_not_matched_when_there_is_no_reason(
         ),
         (
             EventSource.CUSTOMER,
-            "It worked. That was so frustrating!",
+            "It worked. That was so annoying!",
         ),
     ]
 
@@ -462,8 +462,8 @@ async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_ma
             EventSource.AI_AGENT,
             "We opened in 2020. Would you like to order something?",
         ),
-        {EventSource.CUSTOMER, "Are you guys open on weekends?"},
-        {EventSource.AI_AGENT, "Yes, we are open on weekends. What would you like to order?"},
+        (EventSource.CUSTOMER, "Are you guys open on weekends?"),
+        (EventSource.AI_AGENT, "Yes, we are open on weekends. What would you like to order?"),
         (
             EventSource.CUSTOMER,
             "I want 2 pizzas please",

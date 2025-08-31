@@ -52,7 +52,6 @@ from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.evaluations import EvaluationStore, EvaluationListener
 from parlant.core.journeys import JourneyStore
 from parlant.core.canned_responses import CannedResponseStore
-from parlant.core.guidelines import GuidelineStore
 from parlant.core.glossary import GlossaryStore
 from parlant.core.services.indexing.behavioral_change_evaluation import (
     BehavioralChangeEvaluator,
@@ -98,7 +97,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     evaluation_listener = container[EvaluationListener]
     evaluation_service = container[BehavioralChangeEvaluator]
     glossary_store = container[GlossaryStore]
-    guideline_store = container[GuidelineStore]
     canned_response_store = container[CannedResponseStore]
     journey_store = container[JourneyStore]
     capability_store = container[CapabilityStore]
@@ -300,8 +298,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/journeys",
         router=journeys.create_router(
             authorization_policy=authorization_policy,
-            journey_store=journey_store,
-            guideline_store=guideline_store,
+            app=application,
         ),
     )
 

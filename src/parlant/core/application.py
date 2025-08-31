@@ -14,6 +14,7 @@
 
 from parlant.app_modules.agents import AgentModule
 from parlant.app_modules.context_variables import ContextVariableModule
+from parlant.app_modules.journeys import JourneyModule
 from parlant.app_modules.relationships import RelationshipModule
 from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.sessions import SessionModule
@@ -33,6 +34,7 @@ class Application:
         guideline_module: GuidelineModule,
         context_variable_module: ContextVariableModule,
         relationship_module: RelationshipModule,
+        journey_module: JourneyModule,
     ) -> None:
         self.agents = agent_module
         self.sessions = session_module
@@ -42,3 +44,4 @@ class Application:
         self.customers = customer_module
         self.guidelines = guideline_module
         self.relationships = relationship_module
+        self.journeys = journey_module

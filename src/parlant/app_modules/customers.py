@@ -20,13 +20,6 @@ class CustomerTagUpdateParams:
     remove: Sequence[TagId] | None = None
 
 
-@dataclass(frozen=True)
-class CustomerUpdateParamsModule:
-    name: str | None = None
-    metadata: CustomerMetadataUpdateParams | None = None
-    tags: CustomerTagUpdateParams | None = None
-
-
 class CustomerModule:
     def __init__(
         self,
@@ -73,27 +66,29 @@ class CustomerModule:
     async def update(
         self,
         customer_id: CustomerId,
-        params: CustomerUpdateParamsModule,
+        name: str | None,
+        metadata: CustomerMetadataUpdateParams | None,
+        tags: CustomerTagUpdateParams | None,
     ) -> Customer:
-        if params.name:
+        if name:
             _ = await self._customer_store.update_customer(
                 customer_id=customer_id,
-                params={"name": params.name},
+                params={"name": name},
             )
 
-        if params.metadata:
-            if params.metadata.set:
-                await self._customer_store.add_extra(customer_id, params.metadata.set)
-            if params.metadata.unset:
-                await self._customer_store.remove_extra(customer_id, params.metadata.unset)
+        if metadata:
+            if metadata.set:
+                await self._customer_store.add_extra(customer_id, metadata.set)
+            if metadata.unset:
+                await self._customer_store.remove_extra(customer_id, metadata.unset)
 
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
+        if tags:
+            if tags.add:
+                for tag_id in tags.add:
                     await self._ensure_tag(tag_id)
                     await self._customer_store.upsert_tag(customer_id, tag_id)
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
+            if tags.remove:
+                for tag_id in tags.remove:
                     await self._customer_store.remove_tag(customer_id, tag_id)
 
         customer = await self.read(customer_id)

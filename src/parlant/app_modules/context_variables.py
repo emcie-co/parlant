@@ -18,18 +18,9 @@ from parlant.core.tools import ToolId
 
 
 @dataclass(frozen=True)
-class ContextVariableTagsUpdateParamsModule:
+class ContextVariableTagsUpdateParamsModel:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
-
-
-@dataclass(frozen=True)
-class ContextVariableUpdateParamsModule:
-    name: str | None = None
-    description: str | None = None
-    tool_id: ToolId | None = None
-    freshness_rules: str | None = None
-    tags: ContextVariableTagsUpdateParamsModule | None = None
 
 
 class ContextVariableModule:
@@ -90,35 +81,39 @@ class ContextVariableModule:
     async def update(
         self,
         variable_id: ContextVariableId,
-        params: ContextVariableUpdateParamsModule,
+        name: str | None,
+        description: str | None,
+        tool_id: ToolId | None,
+        freshness_rules: str | None,
+        tags: ContextVariableTagsUpdateParamsModel | None,
     ) -> ContextVariable:
-        if params.name or params.description or params.tool_id or params.freshness_rules:
+        if name or description or tool_id or freshness_rules:
             update_params: ContextVariableUpdateParams = {}
-            if params.name:
-                update_params["name"] = params.name
-            if params.description:
-                update_params["description"] = params.description
-            if params.tool_id:
-                update_params["tool_id"] = params.tool_id
-            if params.freshness_rules:
-                update_params["freshness_rules"] = params.freshness_rules
+            if name:
+                update_params["name"] = name
+            if description:
+                update_params["description"] = description
+            if tool_id:
+                update_params["tool_id"] = tool_id
+            if freshness_rules:
+                update_params["freshness_rules"] = freshness_rules
 
             await self._variable_store.update_variable(
                 variable_id=variable_id,
                 params=update_params,
             )
 
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
+        if tags:
+            if tags.add:
+                for tag_id in tags.add:
                     if agent_id := Tag.extract_agent_id(tag_id):
                         _ = await self._agent_store.read_agent(agent_id=AgentId(agent_id))
                     else:
                         _ = await self._tag_store.read_tag(tag_id=tag_id)
                     await self._variable_store.add_variable_tag(variable_id, tag_id)
 
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
+            if tags.remove:
+                for tag_id in tags.remove:
                     await self._variable_store.remove_variable_tag(variable_id, tag_id)
 
         updated_variable = await self._variable_store.read_variable(variable_id=variable_id)

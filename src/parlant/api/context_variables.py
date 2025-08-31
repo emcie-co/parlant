@@ -28,8 +28,7 @@ from parlant.api.common import (
     ExampleJson,
 )
 from parlant.app_modules.context_variables import (
-    ContextVariableTagsUpdateParamsModule,
-    ContextVariableUpdateParamsModule,
+    ContextVariableTagsUpdateParamsModel,
 )
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
@@ -446,20 +445,18 @@ def create_router(
 
         updated_variable = await app.variables.update(
             variable_id=variable_id,
-            params=ContextVariableUpdateParamsModule(
-                name=params.name,
-                description=params.description,
-                tool_id=ToolId(params.tool_id.service_name, params.tool_id.tool_name)
-                if params.tool_id
-                else None,
-                freshness_rules=params.freshness_rules,
-                tags=ContextVariableTagsUpdateParamsModule(
-                    add=params.tags.add,
-                    remove=params.tags.remove,
-                )
-                if params.tags
-                else None,
-            ),
+            name=params.name,
+            description=params.description,
+            tool_id=ToolId(params.tool_id.service_name, params.tool_id.tool_name)
+            if params.tool_id
+            else None,
+            freshness_rules=params.freshness_rules,
+            tags=ContextVariableTagsUpdateParamsModel(
+                add=params.tags.add,
+                remove=params.tags.remove,
+            )
+            if params.tags
+            else None,
         )
 
         return ContextVariableDTO(

@@ -19,7 +19,7 @@ from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.app_modules.agents import AgentTagUpdateParamsModule, AgentUpdateParamsModule
+from parlant.app_modules.agents import AgentTagUpdateParamsModel
 from parlant.core.agents import AgentId, CompositionMode
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
@@ -425,22 +425,17 @@ def create_router(
             operation=Operation.UPDATE_AGENT,
         )
 
-        def dto_to_update_params_module(dto: AgentUpdateParamsDTO) -> AgentUpdateParamsModule:
-            return AgentUpdateParamsModule(
-                name=dto.name,
-                description=dto.description,
-                max_engine_iterations=dto.max_engine_iterations,
-                composition_mode=_composition_mode_dto_to_composition_mode(dto.composition_mode)
-                if dto.composition_mode
-                else None,
-                tags=AgentTagUpdateParamsModule(add=dto.tags.add, remove=dto.tags.remove)
-                if dto.tags
-                else None,
-            )
-
         agent = await app.agents.update(
             agent_id=agent_id,
-            params=dto_to_update_params_module(params),
+            name=params.name,
+            description=params.description,
+            max_engine_iterations=params.max_engine_iterations,
+            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
+            if params.composition_mode
+            else None,
+            tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
+            if params.tags
+            else None,
         )
 
         return AgentDTO(

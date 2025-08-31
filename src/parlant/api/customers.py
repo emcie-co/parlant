@@ -23,7 +23,6 @@ from parlant.api.common import apigen_config, ExampleJson, example_json_content
 from parlant.app_modules.customers import (
     CustomerMetadataUpdateParams,
     CustomerTagUpdateParams,
-    CustomerUpdateParamsModule,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
@@ -221,24 +220,6 @@ class CustomerUpdateParamsDTO(
     tags: CustomerTagUpdateParamsDTO | None = None
 
 
-def _update_dto_to_update_module(dto: CustomerUpdateParamsDTO) -> CustomerUpdateParamsModule:
-    return CustomerUpdateParamsModule(
-        name=dto.name,
-        metadata=CustomerMetadataUpdateParams(
-            set=dto.metadata.set,
-            unset=dto.metadata.unset,
-        )
-        if dto.metadata
-        else None,
-        tags=CustomerTagUpdateParams(
-            add=dto.tags.add,
-            remove=dto.tags.remove,
-        )
-        if dto.tags
-        else None,
-    )
-
-
 def create_router(
     authorization_policy: AuthorizationPolicy,
     app: Application,
@@ -404,7 +385,19 @@ def create_router(
 
         customer = await app.customers.update(
             customer_id=customer_id,
-            params=_update_dto_to_update_module(params),
+            name=params.name,
+            metadata=CustomerMetadataUpdateParams(
+                set=params.metadata.set,
+                unset=params.metadata.unset,
+            )
+            if params.metadata
+            else None,
+            tags=CustomerTagUpdateParams(
+                add=params.tags.add,
+                remove=params.tags.remove,
+            )
+            if params.tags
+            else None,
         )
 
         return CustomerDTO(

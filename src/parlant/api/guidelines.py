@@ -32,11 +32,11 @@ from parlant.api.common import (
     guideline_dto_example,
 )
 from parlant.app_modules.guidelines import (
-    GuidelineMetadataUpdateParamsModule,
+    GuidelineMetadataUpdateParamsModel,
     GuidelineRelationshipModule,
-    GuidelineTagsUpdateParamsModule,
-    GuidelineToolAssociationUpdateParamsModule,
-    GuidelineUpdateParamsModule,
+    GuidelineTagsUpdateParamsModel,
+    GuidelineToolAssociationUpdateParamsModel,
+    GuidelineUpdateParamsModel,
 )
 from parlant.core.application import Application
 from parlant.core.common import (
@@ -408,11 +408,11 @@ def _guideline_relationship_to_dto(
     )
 
 
-def _dto_to_update_params_module(dto: GuidelineUpdateParamsDTO) -> GuidelineUpdateParamsModule:
-    return GuidelineUpdateParamsModule(
+def _dto_to_update_params_module(dto: GuidelineUpdateParamsDTO) -> GuidelineUpdateParamsModel:
+    return GuidelineUpdateParamsModel(
         condition=dto.condition,
         action=dto.action,
-        tool_associations=GuidelineToolAssociationUpdateParamsModule(
+        tool_associations=GuidelineToolAssociationUpdateParamsModel(
             add=[
                 ToolId(service_name=t.service_name, tool_name=t.tool_name)
                 for t in dto.tool_associations.add
@@ -429,13 +429,13 @@ def _dto_to_update_params_module(dto: GuidelineUpdateParamsDTO) -> GuidelineUpda
         if dto.tool_associations
         else None,
         enabled=dto.enabled,
-        tags=GuidelineTagsUpdateParamsModule(
+        tags=GuidelineTagsUpdateParamsModel(
             add=dto.tags.add,
             remove=dto.tags.remove,
         )
         if dto.tags
         else None,
-        metadata=GuidelineMetadataUpdateParamsModule(
+        metadata=GuidelineMetadataUpdateParamsModel(
             set=dto.metadata.set,
             unset=dto.metadata.unset,
         )

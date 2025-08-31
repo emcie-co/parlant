@@ -24,31 +24,31 @@ from parlant.core.tools import Tool, ToolId
 
 
 @dataclass(frozen=True)
-class GuidelineMetadataUpdateParamsModule:
+class GuidelineMetadataUpdateParamsModel:
     set: Mapping[str, JSONSerializable] | None = None
     unset: Sequence[str] | None = None
 
 
 @dataclass(frozen=True)
-class GuidelineTagsUpdateParamsModule:
+class GuidelineTagsUpdateParamsModel:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
 
 
 @dataclass(frozen=True)
-class GuidelineToolAssociationUpdateParamsModule:
+class GuidelineToolAssociationUpdateParamsModel:
     add: Sequence[ToolId] | None = None
     remove: Sequence[ToolId] | None = None
 
 
 @dataclass(frozen=True)
-class GuidelineUpdateParamsModule:
+class GuidelineUpdateParamsModel:
     condition: str | None
     action: str | None
-    tool_associations: GuidelineToolAssociationUpdateParamsModule | None
+    tool_associations: GuidelineToolAssociationUpdateParamsModel | None
     enabled: bool | None
-    tags: GuidelineTagsUpdateParamsModule | None
-    metadata: GuidelineMetadataUpdateParamsModule | None
+    tags: GuidelineTagsUpdateParamsModel | None
+    metadata: GuidelineMetadataUpdateParamsModel | None
 
 
 @dataclass
@@ -127,7 +127,9 @@ class GuidelineModule:
         return guidelines
 
     async def update(
-        self, guideline_id: GuidelineId, params: GuidelineUpdateParamsModule
+        self,
+        guideline_id: GuidelineId,
+        params: GuidelineUpdateParamsModel,
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 

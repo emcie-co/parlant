@@ -54,6 +54,7 @@ from parlant.app_modules.tags import TagModule
 from parlant.app_modules.customers import CustomerModule
 from parlant.app_modules.guidelines import GuidelineModule
 from parlant.app_modules.context_variables import ContextVariableModule
+from parlant.app_modules.relationships import RelationshipModule
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha import message_generator
@@ -551,6 +552,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[CustomerModule] = Singleton(CustomerModule)
     c[GuidelineModule] = Singleton(GuidelineModule)
     c[ContextVariableModule] = Singleton(ContextVariableModule)
+    c[RelationshipModule] = Singleton(RelationshipModule)
 
     c[Application] = Singleton(Application)
 

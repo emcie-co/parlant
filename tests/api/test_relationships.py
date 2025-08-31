@@ -331,7 +331,7 @@ async def test_that_entailment_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_dependency_relationship_can_be_created(
@@ -393,7 +393,7 @@ async def test_that_dependency_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_priority_relationship_can_be_created(
@@ -460,7 +460,7 @@ async def test_that_priority_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_disambiguation_relationship_can_be_created(
@@ -527,7 +527,7 @@ async def test_that_disambiguation_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_reevaluation_relationship_can_be_created(
@@ -594,7 +594,7 @@ async def test_that_reevaluation_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_overlap_relationship_can_be_created(
@@ -668,7 +668,7 @@ async def test_that_overlap_relationship_can_be_deleted(
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await relationship_store.read_relationship(id=relationship.id)
+        await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
 async def test_that_all_relationships_can_be_listed(

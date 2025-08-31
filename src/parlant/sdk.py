@@ -77,6 +77,7 @@ from parlant.app_modules.sessions import SessionModule
 from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.tags import TagModule
 from parlant.app_modules.customers import CustomerModule
+from parlant.app_modules.context_variables import ContextVariableModule
 
 from parlant.core import async_utils
 from parlant.core.agents import (
@@ -2933,6 +2934,7 @@ class Server:
             c()[TagModule] = lambda rc: TagModule(rc)
             c()[CustomerModule] = lambda rc: CustomerModule(rc)
             c()[GuidelineModule] = lambda rc: GuidelineModule(rc)
+            c()[ContextVariableModule] = lambda rc: ContextVariableModule(rc)
 
             c()[Application] = Application(
                 agent_module=c()[AgentModule],
@@ -2941,6 +2943,7 @@ class Server:
                 tag_module=c()[TagModule],
                 customer_module=c()[CustomerModule],
                 guideline_module=c()[GuidelineModule],
+                context_variable_module=c()[ContextVariableModule],
             )
 
         async def configure(c: Container) -> Container:

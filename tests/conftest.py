@@ -35,6 +35,7 @@ from parlant.app_modules.services import ServiceModule
 from parlant.app_modules.tags import TagModule
 from parlant.app_modules.customers import CustomerModule
 from parlant.app_modules.guidelines import GuidelineModule
+from parlant.app_modules.context_variables import ContextVariableModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -564,6 +565,7 @@ async def container(
         container[TagModule] = TagModule(container)
         container[CustomerModule] = CustomerModule(container)
         container[GuidelineModule] = GuidelineModule(container)
+        container[ContextVariableModule] = ContextVariableModule(container)
 
         container[Application] = Singleton(Application)
 

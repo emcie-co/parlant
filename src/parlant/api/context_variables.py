@@ -16,7 +16,7 @@ from pydantic import Field, field_validator
 from datetime import datetime
 from croniter import croniter
 from fastapi import HTTPException, Path, Query, Request, status
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias, cast
 
 from fastapi import APIRouter
 from parlant.api import common
@@ -27,16 +27,18 @@ from parlant.api.common import (
     apigen_config,
     ExampleJson,
 )
-from parlant.core.agents import AgentId, AgentStore
+from parlant.app_modules.context_variables import (
+    ContextVariableTagsUpdateParamsModule,
+    ContextVariableUpdateParamsModule,
+)
+from parlant.core.agents import AgentId
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.context_variables import (
     ContextVariableId,
-    ContextVariableStore,
-    ContextVariableUpdateParams,
     ContextVariableValueId,
 )
-from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import TagId, TagStore, Tag
+from parlant.core.tags import TagId
 from parlant.core.tools import ToolId
 
 API_GROUP = "context-variables"
@@ -218,10 +220,10 @@ class ContextVariableDTO(
 
     id: ContextVariableIdPath
     name: ContextVariableNameField
-    description: Optional[ContextVariableDescriptionField] = None
-    tool_id: Optional[ToolIdDTO] = None
-    freshness_rules: Optional[FreshnessRulesField] = None
-    tags: Optional[ContextVariableTagsField] = None
+    description: ContextVariableDescriptionField | None = None
+    tool_id: ToolIdDTO | None = None
+    freshness_rules: FreshnessRulesField | None = None
+    tags: ContextVariableTagsField | None = None
 
 
 context_variable_tags_update_params_example: ExampleJson = {
@@ -261,8 +263,8 @@ class ContextVariableTagsUpdateParamsDTO(
     Parameters for updating the tags of an existing context variable.
     """
 
-    add: Optional[ContextVariableTagsUpdateAddField] = None
-    remove: Optional[ContextVariableTagsUpdateRemoveField] = None
+    add: ContextVariableTagsUpdateAddField | None = None
+    remove: ContextVariableTagsUpdateRemoveField | None = None
 
 
 context_variable_update_params_example: ExampleJson = {
@@ -283,15 +285,15 @@ class ContextVariableUpdateParamsDTO(
 ):
     """Parameters for updating an existing context variable."""
 
-    name: Optional[ContextVariableNameField] = None
-    description: Optional[ContextVariableDescriptionField] = None
-    tool_id: Optional[ToolIdDTO] = None
-    freshness_rules: Optional[FreshnessRulesField] = None
-    tags: Optional[ContextVariableTagsUpdateParamsDTO] = None
+    name: ContextVariableNameField | None = None
+    description: ContextVariableDescriptionField | None = None
+    tool_id: ToolIdDTO | None = None
+    freshness_rules: FreshnessRulesField | None = None
+    tags: ContextVariableTagsUpdateParamsDTO | None = None
 
     @field_validator("freshness_rules")
     @classmethod
-    def validate_freshness_rules(cls, value: Optional[str]) -> Optional[str]:
+    def validate_freshness_rules(cls, value: str | None) -> str | None:
         if value is not None:
             try:
                 croniter(value)
@@ -304,7 +306,7 @@ class ContextVariableUpdateParamsDTO(
 
 
 TagIdQuery: TypeAlias = Annotated[
-    Optional[TagId],
+    TagId | None,
     Query(
         description="The tag ID to filter context variables by",
         examples=["tag:123"],
@@ -319,7 +321,7 @@ class ContextVariableReadResult(
     """Complete context variable data including its values."""
 
     context_variable: ContextVariableDTO
-    key_value_pairs: Optional[KeyValuePairsField] = None
+    key_value_pairs: KeyValuePairsField | None = None
 
 
 class ContextVariableCreationParamsDTO(
@@ -329,14 +331,14 @@ class ContextVariableCreationParamsDTO(
     """Parameters for creating a new context variable."""
 
     name: ContextVariableNameField
-    description: Optional[ContextVariableDescriptionField] = None
-    tool_id: Optional[ToolIdDTO] = None
-    freshness_rules: Optional[FreshnessRulesField] = None
-    tags: Optional[ContextVariableTagsField] = None
+    description: ContextVariableDescriptionField | None = None
+    tool_id: ToolIdDTO | None = None
+    freshness_rules: FreshnessRulesField | None = None
+    tags: ContextVariableTagsField | None = None
 
     @field_validator("freshness_rules")
     @classmethod
-    def validate_freshness_rules(cls, value: Optional[str]) -> Optional[str]:
+    def validate_freshness_rules(cls, value: str | None) -> str | None:
         if value is not None:
             try:
                 croniter(value)
@@ -350,10 +352,7 @@ class ContextVariableCreationParamsDTO(
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    context_variable_store: ContextVariableStore,
-    service_registry: ServiceRegistry,
-    agent_store: AgentStore,
-    tag_store: TagStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -391,29 +390,14 @@ def create_router(
             operation=Operation.CREATE_CONTEXT_VARIABLE,
         )
 
-        if params.tool_id:
-            service = await service_registry.read_tool_service(params.tool_id.service_name)
-            _ = await service.read_tool(params.tool_id.tool_name)
-
-        tags = []
-
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        variable = await context_variable_store.create_variable(
+        variable = await app.variables.create(
             name=params.name,
             description=params.description,
             tool_id=ToolId(params.tool_id.service_name, params.tool_id.tool_name)
             if params.tool_id
             else None,
             freshness_rules=params.freshness_rules,
-            tags=tags or None,
+            tags=params.tags,
         )
 
         return ContextVariableDTO(
@@ -460,41 +444,22 @@ def create_router(
             operation=Operation.UPDATE_CONTEXT_VARIABLE,
         )
 
-        def from_dto(dto: ContextVariableUpdateParamsDTO) -> ContextVariableUpdateParams:
-            params: ContextVariableUpdateParams = {}
-
-            if dto.name:
-                params["name"] = dto.name
-
-            if dto.description:
-                params["description"] = dto.description
-
-            if dto.tool_id:
-                params["tool_id"] = ToolId(
-                    service_name=dto.tool_id.service_name, tool_name=dto.tool_id.tool_name
+        updated_variable = await app.variables.update(
+            variable_id=variable_id,
+            params=ContextVariableUpdateParamsModule(
+                name=params.name,
+                description=params.description,
+                tool_id=ToolId(params.tool_id.service_name, params.tool_id.tool_name)
+                if params.tool_id
+                else None,
+                freshness_rules=params.freshness_rules,
+                tags=ContextVariableTagsUpdateParamsModule(
+                    add=params.tags.add,
+                    remove=params.tags.remove,
                 )
-
-            if dto.freshness_rules:
-                params["freshness_rules"] = dto.freshness_rules
-
-            return params
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-                    await context_variable_store.add_variable_tag(variable_id, tag_id)
-
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await context_variable_store.remove_variable_tag(variable_id, tag_id)
-
-        updated_variable = await context_variable_store.update_variable(
-            id=variable_id,
-            params=from_dto(params),
+                if params.tags
+                else None,
+            ),
         )
 
         return ContextVariableDTO(
@@ -531,12 +496,7 @@ def create_router(
         """Lists all context variables set for the provided tag or all context variables if no tag is provided"""
         await authorization_policy.authorize(request, Operation.LIST_CONTEXT_VARIABLES)
 
-        if tag_id:
-            variables = await context_variable_store.list_variables(
-                tags=[tag_id],
-            )
-        else:
-            variables = await context_variable_store.list_variables()
+        variables = await app.variables.find(tag_id=tag_id)
 
         return [
             ContextVariableDTO(
@@ -582,7 +542,7 @@ def create_router(
             operation=Operation.READ_CONTEXT_VARIABLE,
         )
 
-        variable = await context_variable_store.read_variable(id=variable_id)
+        variable = await app.variables.read(variable_id=variable_id)
 
         variable_dto = ContextVariableDTO(
             id=variable.id,
@@ -603,7 +563,7 @@ def create_router(
                 key_value_pairs=None,
             )
 
-        key_value_pairs = await context_variable_store.list_values(variable_id=variable_id)
+        key_value_pairs = await app.variables.find_values(variable_id=variable_id)
 
         return ContextVariableReadResult(
             context_variable=variable_dto,
@@ -637,22 +597,7 @@ def create_router(
             operation=Operation.DELETE_CONTEXT_VARIABLES,
         )
 
-        if tag_id:
-            variables = await context_variable_store.list_variables(
-                tags=[tag_id],
-            )
-            for v in variables:
-                updated_variable = await context_variable_store.remove_variable_tag(
-                    variable_id=v.id,
-                    tag_id=tag_id,
-                )
-                if not updated_variable.tags:
-                    await context_variable_store.delete_variable(id=v.id)
-
-        else:
-            variables = await context_variable_store.list_variables()
-            for v in variables:
-                await context_variable_store.delete_variable(id=v.id)
+        await app.variables.delete_many(tag_id)
 
     @router.delete(
         "/{variable_id}",
@@ -674,7 +619,7 @@ def create_router(
             operation=Operation.DELETE_CONTEXT_VARIABLE,
         )
 
-        await context_variable_store.delete_variable(id=variable_id)
+        await app.variables.delete(variable_id=variable_id)
 
     @router.get(
         "/{variable_id}/{key}",
@@ -700,9 +645,7 @@ def create_router(
             operation=Operation.READ_CONTEXT_VARIABLE_VALUE,
         )
 
-        _ = await context_variable_store.read_variable(id=variable_id)
-
-        value = await context_variable_store.read_value(variable_id=variable_id, key=key)
+        value = await app.variables.read_value(variable_id=variable_id, key=key)
 
         if value:
             return ContextVariableValueDTO(
@@ -741,9 +684,7 @@ def create_router(
             operation=Operation.UPDATE_CONTEXT_VARIABLE_VALUE,
         )
 
-        _ = await context_variable_store.read_variable(id=variable_id)
-
-        value = await context_variable_store.update_value(
+        value = await app.variables.update_value(
             variable_id=variable_id,
             key=key,
             data=params.data,
@@ -777,14 +718,13 @@ def create_router(
             request=request,
             operation=Operation.DELETE_CONTEXT_VARIABLE_VALUE,
         )
-        _ = await context_variable_store.read_variable(id=variable_id)
 
-        if not context_variable_store.read_value(variable_id=variable_id, key=key):
+        if not await app.variables.read_value(variable_id=variable_id, key=key):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Value not found for variable '{variable_id}' and key '{key}'",
             )
 
-        await context_variable_store.delete_value(variable_id=variable_id, key=key)
+        await app.variables.delete_value(variable_id=variable_id, key=key)
 
     return router

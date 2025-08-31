@@ -609,7 +609,7 @@ async def test_context_variable_deletion(
             assert len(values) == 3
 
             await context_variable_store.delete_variable(
-                id=variable.id,
+                variable_id=variable.id,
             )
 
             variables = await context_variable_store.list_variables(

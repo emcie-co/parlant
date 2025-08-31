@@ -15,7 +15,7 @@
 from datetime import datetime
 from enum import Enum
 from pydantic import Field
-from typing import Annotated, Any, Mapping, Optional, Sequence, TypeAlias
+from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
@@ -100,7 +100,7 @@ class GuidelineContentDTO(
     """
 
     condition: GuidelineConditionField
-    action: Optional[GuidelineActionField] = None
+    action: GuidelineActionField | None = None
 
 
 class GuidelinePayloadOperationDTO(Enum):
@@ -216,7 +216,7 @@ class GuidelineDTO(
 
     id: GuidelineIdField
     condition: GuidelineConditionField
-    action: Optional[GuidelineActionField] = None
+    action: GuidelineActionField | None = None
     enabled: GuidelineEnabledField
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
@@ -274,8 +274,8 @@ class ToolParameterDTO(
     """
 
     type: ToolParameterTypeDTO
-    description: Optional[ToolParameterDescriptionField] = None
-    enum: Optional[ToolParameterEnumField] = None
+    description: ToolParameterDescriptionField | None = None
+    enum: ToolParameterEnumField | None = None
 
 
 ToolCreationUTCField: TypeAlias = Annotated[
@@ -473,10 +473,10 @@ class RelationshipDTO(
     """
 
     id: RelationshipIdField
-    source_guideline: Optional[GuidelineDTO] = None
-    source_tag: Optional[TagDTO] = None
-    target_guideline: Optional[GuidelineDTO] = None
-    target_tag: Optional[TagDTO] = None
-    source_tool: Optional[ToolDTO] = None
-    target_tool: Optional[ToolDTO] = None
+    source_guideline: GuidelineDTO | None = None
+    source_tag: TagDTO | None = None
+    target_guideline: GuidelineDTO | None = None
+    target_tag: TagDTO | None = None
+    source_tool: ToolDTO | None = None
+    target_tool: ToolDTO | None = None
     kind: RelationshipKindDTO

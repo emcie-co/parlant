@@ -12,7 +12,6 @@ cache/
 .DS_STORE
 .vscode
 .venv
-.venv_snowflake
 .cursor
 logs
 runtime-data

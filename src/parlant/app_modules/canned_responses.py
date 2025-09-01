@@ -92,7 +92,7 @@ class CannedResponseModule:
         if tags:
             if tags.add:
                 for tag_id in tags.add:
-                    _ = await self._tag_store.read_tag(tag_id=tag_id)
+                    await self._ensure_tag(tag_id=tag_id)
                     await self._canrep_store.upsert_tag(canned_response_id, tag_id)
             if tags.remove:
                 for tag_id in tags.remove:

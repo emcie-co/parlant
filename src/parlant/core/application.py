@@ -14,6 +14,7 @@
 
 from parlant.app_modules.agents import AgentModule
 from parlant.app_modules.capabilities import CapabilityModule
+from parlant.app_modules.canned_responses import CannedResponseModule
 from parlant.app_modules.context_variables import ContextVariableModule
 from parlant.app_modules.evaluations import EvaluationModule
 from parlant.app_modules.journeys import JourneyModule
@@ -41,6 +42,7 @@ class Application:
         glossary_module: GlossaryModule,
         evaluation_module: EvaluationModule,
         capability_module: CapabilityModule,
+        canned_response_module: CannedResponseModule,
     ) -> None:
         self.agents = agent_module
         self.sessions = session_module
@@ -54,3 +56,4 @@ class Application:
         self.journeys = journey_module
         self.glossary = glossary_module
         self.evaluations = evaluation_module
+        self.canned_responses = canned_response_module

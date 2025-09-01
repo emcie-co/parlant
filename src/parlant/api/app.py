@@ -45,11 +45,8 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
-from parlant.core.capabilities import CapabilityStore
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
-from parlant.core.journeys import JourneyStore
 from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
@@ -86,11 +83,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
     websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
     authorization_policy = container[AuthorizationPolicy]
-    agent_store = container[AgentStore]
     tag_store = container[TagStore]
     canned_response_store = container[CannedResponseStore]
-    journey_store = container[JourneyStore]
-    capability_store = container[CapabilityStore]
     application = container[Application]
 
     api_app = FastAPI()
@@ -303,10 +297,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/capabilities",
         router=capabilities.create_router(
             authorization_policy=authorization_policy,
-            capability_store=capability_store,
-            tag_store=tag_store,
-            agent_store=agent_store,
-            journey_store=journey_store,
+            app=application,
         ),
     )
 

@@ -75,7 +75,8 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
     _provider_params = ["temperature", "top_p", "top_k", "max_tokens", "stop"]
     supported_hints = _provider_params + ["strict"]
 
-    def __init__(self, *, logger: Logger) -> None:
+    def __init__(self, *, schema: type[T], logger: Logger) -> None:
+        self.schema = schema
         self._logger = logger
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
@@ -412,7 +413,7 @@ class SnowflakeCortexService(NLPService):
         Returns:
             A ready-to-use ``CortexSchematicGenerator[t]`` instance.
         """
-        return CortexSchematicGenerator[t](logger=self._logger)
+        return CortexSchematicGenerator[t](schema=t, logger=self._logger)  # type: ignore[valid-type,misc]
 
     @override
     async def get_embedder(self) -> Embedder:

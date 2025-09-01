@@ -14,19 +14,15 @@
 
 from fastapi import APIRouter, Path, Query, Request, status
 from pydantic import Field
-from typing import Annotated, Optional, Sequence, TypeAlias
+from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.core.agents import AgentId, AgentStore
+from parlant.app_modules.capabilities import CapabilityTagUpdateParamsModel
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.core.capabilities import (
-    CapabilityId,
-    CapabilityStore,
-    CapabilityUpdateParams,
-)
-from parlant.core.journeys import JourneyId, JourneyStore
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.capabilities import CapabilityId
+from parlant.core.tags import TagId
 
 API_GROUP = "capabilities"
 
@@ -109,7 +105,7 @@ class CapabilityCreationParamsDTO(
     title: CapabilityTitleField
     description: CapabilityDescriptionField
     signals: CapabilitySignalsField
-    tags: Optional[CapabilityTagsField] = None
+    tags: CapabilityTagsField | None = None
 
 
 CapabilityTagUpdateAddField: TypeAlias = Annotated[
@@ -144,8 +140,8 @@ class CapabilityTagUpdateParamsDTO(
     Parameters for updating an existing capability's tags.
     """
 
-    add: Optional[CapabilityTagUpdateAddField] = None
-    remove: Optional[CapabilityTagUpdateRemoveField] = None
+    add: CapabilityTagUpdateAddField | None = None
+    remove: CapabilityTagUpdateRemoveField | None = None
 
 
 class CapabilityUpdateParamsDTO(
@@ -157,14 +153,14 @@ class CapabilityUpdateParamsDTO(
     All fields are optional. Only provided fields will be updated.
     """
 
-    title: Optional[CapabilityTitleField] = None
-    description: Optional[CapabilityDescriptionField] = None
-    signals: Optional[CapabilitySignalsField] = None
-    tags: Optional[CapabilityTagUpdateParamsDTO] = None
+    title: CapabilityTitleField | None = None
+    description: CapabilityDescriptionField | None = None
+    signals: CapabilitySignalsField | None = None
+    tags: CapabilityTagUpdateParamsDTO | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
-    Optional[TagId],
+    TagId | None,
     Query(
         description="The tag ID to filter capabilities by",
         examples=["tag:123"],
@@ -174,10 +170,7 @@ TagIdQuery: TypeAlias = Annotated[
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    capability_store: CapabilityStore,
-    tag_store: TagStore,
-    agent_store: AgentStore,
-    journey_store: JourneyStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -212,20 +205,8 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.CREATE_CAPABILITY)
 
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                elif journey_id := Tag.extract_journey_id(tag_id):
-                    _ = await journey_store.read_journey(journey_id=JourneyId(journey_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-        capability = await capability_store.create_capability(
-            title=params.title,
-            description=params.description,
-            signals=params.signals,
-            tags=params.tags if params.tags else None,
+        capability = await app.capabilities.create(
+            params.title, params.description, params.signals, params.tags
         )
 
         return CapabilityDTO(
@@ -260,12 +241,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.LIST_CAPABILITIES)
 
-        if tag_id:
-            capabilities = await capability_store.list_capabilities(
-                tags=[tag_id],
-            )
-        else:
-            capabilities = await capability_store.list_capabilities()
+        capabilities = await app.capabilities.find(tag_id)
 
         return [
             CapabilityDTO(
@@ -304,7 +280,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.READ_CAPABILITY)
 
-        capability = await capability_store.read_capability(capability_id=capability_id)
+        capability = await app.capabilities.read(capability_id=capability_id)
 
         return CapabilityDTO(
             id=capability.id,
@@ -345,40 +321,19 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.UPDATE_CAPABILITY)
 
-        update_params: CapabilityUpdateParams = {}
-        if params.title:
-            update_params["title"] = params.title
-        if params.description:
-            update_params["description"] = params.description
-        if params.signals:
-            update_params["signals"] = params.signals
-
-        if update_params:
-            capability = await capability_store.update_capability(
-                capability_id=capability_id,
-                params=update_params,
+        capability = await app.capabilities.update(
+            capability_id,
+            title=params.title,
+            description=params.description,
+            signals=params.signals,
+            tags=CapabilityTagUpdateParamsModel(
+                add=params.tags.add,
+                remove=params.tags.remove,
             )
+            if params.tags
+            else None,
+        )
 
-        else:
-            capability = await capability_store.read_capability(capability_id=capability_id)
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    elif journey_id := Tag.extract_journey_id(tag_id):
-                        _ = await journey_store.read_journey(journey_id=JourneyId(journey_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-
-                    await capability_store.upsert_tag(capability_id=capability_id, tag_id=tag_id)
-
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await capability_store.remove_tag(capability_id=capability_id, tag_id=tag_id)
-
-        capability = await capability_store.read_capability(capability_id=capability_id)
         return CapabilityDTO(
             id=capability.id,
             title=capability.title,
@@ -413,6 +368,6 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.DELETE_CAPABILITY)
 
-        await capability_store.delete_capability(capability_id=capability_id)
+        await app.capabilities.delete(capability_id=capability_id)
 
     return router

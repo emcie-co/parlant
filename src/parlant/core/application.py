@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from parlant.app_modules.agents import AgentModule
+from parlant.app_modules.capabilities import CapabilityModule
 from parlant.app_modules.context_variables import ContextVariableModule
 from parlant.app_modules.evaluations import EvaluationModule
 from parlant.app_modules.journeys import JourneyModule
@@ -39,11 +40,13 @@ class Application:
         journey_module: JourneyModule,
         glossary_module: GlossaryModule,
         evaluation_module: EvaluationModule,
+        capability_module: CapabilityModule,
     ) -> None:
         self.agents = agent_module
         self.sessions = session_module
         self.services = service_module
         self.tags = tag_module
+        self.capabilities = capability_module
         self.variables = context_variable_module
         self.customers = customer_module
         self.guidelines = guideline_module

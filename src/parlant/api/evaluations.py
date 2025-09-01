@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from datetime import datetime
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias, cast
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from pydantic import Field
 
@@ -31,14 +31,13 @@ from parlant.api.common import (
     apigen_config,
     operation_dto_to_operation,
 )
+from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import (
     Evaluation,
     EvaluationId,
-    EvaluationListener,
     EvaluationStatus,
-    EvaluationStore,
     GuidelinePayload,
     InvoiceGuidelineData,
     PayloadOperation,
@@ -49,7 +48,6 @@ from parlant.core.evaluations import (
 )
 from parlant.core.guidelines import GuidelineContent
 from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
     EvaluationValidationError,
 )
 from parlant.core.tools import ToolId
@@ -117,7 +115,7 @@ class GuidelinePayloadDTO(
     content: GuidelineContentDTO
     tool_ids: Sequence[ToolIdDTO]
     operation: GuidelinePayloadOperationDTO
-    updated_id: Optional[GuidelineIdField] = None
+    updated_id: GuidelineIdField | None = None
     action_proposition: GuidelinePayloadActionPropositionField = False
     properties_proposition: GuidelinePayloadPropertiesPropositionField = False
     journey_node_proposition: GuidelinePayloadJourneyNodePropositionField = False
@@ -143,7 +141,7 @@ class PayloadDTO(
     json_schema_extra={"example": payload_example},
 ):
     kind: PayloadKindDTO
-    guideline: Optional[GuidelinePayloadDTO] = None
+    guideline: GuidelinePayloadDTO | None = None
 
 
 properties_proposition_example: ExampleJson = {
@@ -187,7 +185,7 @@ ActionPropositionField: TypeAlias = Annotated[
 ]
 
 PropertiesPropositionField: TypeAlias = Annotated[
-    Optional[dict[str, JSONSerializableDTO]],
+    dict[str, JSONSerializableDTO] | None,
     Field(
         description="Properties proposition",
         examples=[{"continuous": True}],
@@ -237,8 +235,8 @@ class GuidelineInvoiceDataDTO(
 ):
     """Evaluation results for a Guideline, including action propositions"""
 
-    action_proposition: Optional[ActionPropositionField] = None
-    properties_proposition: Optional[PropertiesPropositionField] = None
+    action_proposition: ActionPropositionField | None = None
+    properties_proposition: PropertiesPropositionField | None = None
 
 
 invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
@@ -254,7 +252,7 @@ class InvoiceDataDTO(
     At this point only `guideline` is supported.
     """
 
-    guideline: Optional[GuidelineInvoiceDataDTO] = None
+    guideline: GuidelineInvoiceDataDTO | None = None
 
 
 class InvoiceDTO(
@@ -269,8 +267,8 @@ class InvoiceDTO(
     payload: PayloadDTO
     checksum: ChecksumField
     approved: ApprovedField
-    data: Optional[InvoiceDataDTO] = None
-    error: Optional[ErrorField] = None
+    data: InvoiceDataDTO | None = None
+    error: ErrorField | None = None
 
 
 def _payload_from_dto(dto: PayloadDTO) -> Payload:
@@ -477,7 +475,7 @@ class EvaluationDTO(
     status: EvaluationStatusDTO
     progress: EvaluationProgressField
     creation_utc: CreationUtcField
-    error: Optional[ErrorField] = None
+    error: ErrorField | None = None
     invoices: Sequence[InvoiceDTO]
 
 
@@ -490,11 +488,31 @@ WaitForCompletionQuery: TypeAlias = Annotated[
 ]
 
 
+def _evaluation_to_dto(evaluation: Evaluation) -> EvaluationDTO:
+    return EvaluationDTO(
+        id=evaluation.id,
+        status=_evaluation_status_to_dto(evaluation.status),
+        progress=evaluation.progress,
+        creation_utc=evaluation.creation_utc,
+        invoices=[
+            InvoiceDTO(
+                payload=_payload_descriptor_to_dto(
+                    PayloadDescriptor(kind=invoice.kind, payload=invoice.payload)
+                ),
+                checksum=invoice.checksum,
+                approved=invoice.approved,
+                data=_invoice_data_to_dto(invoice.kind, invoice.data) if invoice.data else None,
+                error=invoice.error,
+            )
+            for invoice in evaluation.invoices
+        ],
+        error=evaluation.error,
+    )
+
+
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    evaluation_service: BehavioralChangeEvaluator,
-    evaluation_store: EvaluationStore,
-    evaluation_listener: EvaluationListener,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -529,19 +547,16 @@ def create_router(
         )
 
         try:
-            evaluation_id = await evaluation_service.create_evaluation_task(
-                payload_descriptors=[
-                    PayloadDescriptor(PayloadKind.GUIDELINE, p)
-                    for p in [_payload_from_dto(p) for p in params.payloads]
-                ],
+            evaluation = await app.evaluations.create(
+                payloads=[_payload_from_dto(p) for p in params.payloads]
             )
+
         except EvaluationValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(exc),
             )
 
-        evaluation = await evaluation_store.read_evaluation(evaluation_id)
         return _evaluation_to_dto(evaluation)
 
     @router.get(
@@ -584,7 +599,7 @@ def create_router(
         )
 
         if wait_for_completion > 0:
-            if not await evaluation_listener.wait_for_completion(
+            if not await app.evaluations.wait_for_completion(
                 evaluation_id=evaluation_id,
                 timeout=Timeout(wait_for_completion),
             ):
@@ -593,28 +608,7 @@ def create_router(
                     detail="Request timed out",
                 )
 
-        evaluation = await evaluation_store.read_evaluation(evaluation_id=evaluation_id)
+        evaluation = await app.evaluations.read(evaluation_id=evaluation_id)
         return _evaluation_to_dto(evaluation)
-
-    def _evaluation_to_dto(evaluation: Evaluation) -> EvaluationDTO:
-        return EvaluationDTO(
-            id=evaluation.id,
-            status=_evaluation_status_to_dto(evaluation.status),
-            progress=evaluation.progress,
-            creation_utc=evaluation.creation_utc,
-            invoices=[
-                InvoiceDTO(
-                    payload=_payload_descriptor_to_dto(
-                        PayloadDescriptor(kind=invoice.kind, payload=invoice.payload)
-                    ),
-                    checksum=invoice.checksum,
-                    approved=invoice.approved,
-                    data=_invoice_data_to_dto(invoice.kind, invoice.data) if invoice.data else None,
-                    error=invoice.error,
-                )
-                for invoice in evaluation.invoices
-            ],
-            error=evaluation.error,
-        )
 
     return router

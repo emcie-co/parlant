@@ -80,6 +80,9 @@ from parlant.app_modules.customers import CustomerModule
 from parlant.app_modules.context_variables import ContextVariableModule
 from parlant.app_modules.relationships import RelationshipModule
 from parlant.app_modules.journeys import JourneyModule
+from parlant.app_modules.glossary import GlossaryModule
+from parlant.app_modules.evaluations import EvaluationModule
+
 
 from parlant.core import async_utils
 from parlant.core.agents import (
@@ -2939,6 +2942,8 @@ class Server:
             c()[ContextVariableModule] = lambda rc: ContextVariableModule(rc)
             c()[RelationshipModule] = lambda rc: RelationshipModule(rc)
             c()[JourneyModule] = lambda rc: JourneyModule(rc)
+            c()[GlossaryModule] = lambda rc: GlossaryModule(rc)
+            c()[EvaluationModule] = lambda rc: EvaluationModule(rc)
 
             c()[Application] = Application(
                 agent_module=c()[AgentModule],
@@ -2950,6 +2955,8 @@ class Server:
                 context_variable_module=c()[ContextVariableModule],
                 relationship_module=c()[RelationshipModule],
                 journey_module=c()[JourneyModule],
+                glossary_module=c()[GlossaryModule],
+                evaluation_module=c()[EvaluationModule],
             )
 
         async def configure(c: Container) -> Container:

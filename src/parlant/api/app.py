@@ -49,13 +49,8 @@ from parlant.core.capabilities import CapabilityStore
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
-from parlant.core.evaluations import EvaluationStore, EvaluationListener
 from parlant.core.journeys import JourneyStore
 from parlant.core.canned_responses import CannedResponseStore
-from parlant.core.glossary import GlossaryStore
-from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
-)
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.tags import TagStore
@@ -93,10 +88,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     authorization_policy = container[AuthorizationPolicy]
     agent_store = container[AgentStore]
     tag_store = container[TagStore]
-    evaluation_store = container[EvaluationStore]
-    evaluation_listener = container[EvaluationListener]
-    evaluation_service = container[BehavioralChangeEvaluator]
-    glossary_store = container[GlossaryStore]
     canned_response_store = container[CannedResponseStore]
     journey_store = container[JourneyStore]
     capability_store = container[CapabilityStore]
@@ -247,9 +238,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/terms",
         router=glossary.create_router(
             authorization_policy=authorization_policy,
-            glossary_store=glossary_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 
@@ -306,9 +295,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/evaluations",
         router=evaluations.create_router(
             authorization_policy=authorization_policy,
-            evaluation_service=evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
+            app=application,
         ),
     )
 

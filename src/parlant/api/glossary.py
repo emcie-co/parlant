@@ -13,16 +13,18 @@
 # limitations under the License.
 
 from fastapi import APIRouter, Path, Query, Request, status
-from typing import Annotated, Optional, Sequence, TypeAlias
+from typing import Annotated, Sequence, TypeAlias
 from pydantic import Field
 
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import apigen_config, ExampleJson
-from parlant.core.agents import AgentId, AgentStore
+from parlant.app_modules.glossary import TermTagsUpdateParamsModel
+from parlant.core.agents import AgentId
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.glossary import TermUpdateParams, GlossaryStore, TermId
-from parlant.core.tags import TagId, TagStore, Tag
+from parlant.core.glossary import TermId
+from parlant.core.tags import TagId
 
 API_GROUP = "glossary"
 
@@ -101,7 +103,7 @@ class TermCreationParamsDTO(
     name: TermNameField
     description: TermDescriptionField
     synonyms: TermSynonymsField
-    tags: Optional[TermTagsField] = None
+    tags: TermTagsField | None = None
 
 
 term_example: ExampleJson = {
@@ -176,8 +178,8 @@ class TermTagsUpdateParamsDTO(
     Parameters for updating the tags of an existing glossary term.
     """
 
-    add: Optional[TermTagsUpdateAddField] = None
-    remove: Optional[TermTagsUpdateRemoveField] = None
+    add: TermTagsUpdateAddField | None = None
+    remove: TermTagsUpdateRemoveField | None = None
 
 
 class TermUpdateParamsDTO(
@@ -190,14 +192,14 @@ class TermUpdateParamsDTO(
     All fields are optional. Only the provided fields will be updated.
     """
 
-    name: Optional[TermNameField] = None
-    description: Optional[TermDescriptionField] = None
-    synonyms: Optional[TermSynonymsField] = None
-    tags: Optional[TermTagsUpdateParamsDTO] = None
+    name: TermNameField | None = None
+    description: TermDescriptionField | None = None
+    synonyms: TermSynonymsField | None = None
+    tags: TermTagsUpdateParamsDTO | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
-    Optional[TagId],
+    TagId | None,
     Query(
         description="Filter terms by tag ID",
         examples=["tag1", "tag2"],
@@ -207,9 +209,7 @@ TagIdQuery: TypeAlias = Annotated[
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    glossary_store: GlossaryStore,
-    agent_store: AgentStore,
-    tag_store: TagStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -244,21 +244,11 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.CREATE_TERM)
 
-        tags = []
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        term = await glossary_store.create_term(
+        term = await app.glossary.create(
             name=params.name,
             description=params.description,
             synonyms=params.synonyms,
-            tags=tags or None,
+            tags=params.tags,
         )
 
         return TermDTO(
@@ -293,7 +283,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.READ_TERM)
 
-        term = await glossary_store.read_term(term_id=term_id)
+        term = await app.glossary.read(term_id=term_id)
 
         return TermDTO(
             id=term.id,
@@ -327,10 +317,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.LIST_TERMS)
 
-        if tag_id:
-            terms = await glossary_store.list_terms(tags=[tag_id])
-        else:
-            terms = await glossary_store.list_terms()
+        terms = await app.glossary.find(tag_id)
 
         return [
             TermDTO(
@@ -374,41 +361,17 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.UPDATE_TERM)
 
-        def from_dto(dto: TermUpdateParamsDTO) -> TermUpdateParams:
-            params: TermUpdateParams = {}
-
-            if dto.name:
-                params["name"] = dto.name
-            if dto.description:
-                params["description"] = dto.description
-            if dto.synonyms:
-                params["synonyms"] = dto.synonyms
-
-            return params
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-
-                    await glossary_store.upsert_tag(
-                        term_id=term_id,
-                        tag_id=tag_id,
-                    )
-
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await glossary_store.remove_tag(
-                        term_id=term_id,
-                        tag_id=tag_id,
-                    )
-
-        term = await glossary_store.update_term(
+        term = await app.glossary.update(
             term_id=term_id,
-            params=from_dto(params),
+            name=params.name,
+            description=params.description,
+            synonyms=params.synonyms,
+            tags=TermTagsUpdateParamsModel(
+                add=params.tags.add,
+                remove=params.tags.remove,
+            )
+            if params.tags
+            else None,
         )
 
         return TermDTO(
@@ -445,6 +408,6 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.DELETE_TERM)
 
-        await glossary_store.delete_term(term_id=term_id)
+        await app.glossary.delete(term_id=term_id)
 
     return router

@@ -42,6 +42,7 @@ from parlant.app_modules.journeys import JourneyModule
 from parlant.app_modules.glossary import GlossaryModule
 from parlant.app_modules.evaluations import EvaluationModule
 from parlant.app_modules.capabilities import CapabilityModule
+from parlant.app_modules.canned_responses import CannedResponseModule
 
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
@@ -578,6 +579,7 @@ async def container(
         container[GlossaryModule] = GlossaryModule(container)
         container[EvaluationModule] = EvaluationModule(container)
         container[CapabilityModule] = CapabilityModule(container)
+        container[CannedResponseModule] = CannedResponseModule(container)
 
         container[Application] = Singleton(Application)
 

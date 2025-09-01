@@ -59,6 +59,7 @@ from parlant.app_modules.journeys import JourneyModule
 from parlant.app_modules.glossary import GlossaryModule
 from parlant.app_modules.evaluations import EvaluationModule
 from parlant.app_modules.capabilities import CapabilityModule
+from parlant.app_modules.canned_responses import CannedResponseModule
 
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -562,6 +563,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[GlossaryModule] = Singleton(GlossaryModule)
     c[EvaluationModule] = Singleton(EvaluationListener)
     c[CapabilityModule] = Singleton(CapabilityModule)
+    c[CannedResponseModule] = Singleton(CannedResponseModule)
 
     c[Application] = Singleton(Application)
 

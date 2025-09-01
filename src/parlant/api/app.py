@@ -47,10 +47,8 @@ from parlant.api.authorization import (
 )
 from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.common import ItemNotFoundError, generate_id
-from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
-from parlant.core.tags import TagStore
 
 ASGIApplication: TypeAlias = Callable[
     [
@@ -83,8 +81,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
     authorization_policy = container[AuthorizationPolicy]
-    tag_store = container[TagStore]
-    canned_response_store = container[CannedResponseStore]
     application = container[Application]
 
     api_app = FastAPI()
@@ -248,8 +244,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/canned_responses",
         router=canned_responses.create_router(
             authorization_policy=authorization_policy,
-            canned_response_store=canned_response_store,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 

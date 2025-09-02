@@ -41,11 +41,6 @@ HTTPX_TIMEOUT = httpx.Timeout(timeout=60.0, connect=5.0, read=60.0, write=60.0)
 
 
 class CortexEstimatingTokenizer(EstimatingTokenizer):
-    """
-    Token estimator. Cortex doesn't expose a tokenizer; use tiktoken heuristics.
-    Default to cl100k_base if the specific model encoding is unknown.
-    """
-
     def __init__(self, model_name: Optional[str] = None) -> None:
         self.model_name = model_name or "cl100k_base"
         try:
@@ -55,14 +50,6 @@ class CortexEstimatingTokenizer(EstimatingTokenizer):
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:
-        """Estimate token count for a prompt.
-
-        Args:
-            prompt: The text to estimate.
-
-        Returns:
-            Estimated token count as an integer.
-        """
         return int(len(self.encoding.encode(prompt)) * 1.05)
 
 
@@ -128,17 +115,6 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        """Generate structured content.
-
-        Args:
-            prompt: The prompt string or PromptBuilder for the model.
-            hints: Generation hints. Supports provider params
-                (temperature, top_p, top_k, max_tokens, stop) and
-                a local hint ``strict`` (bool) to request provider-side schema enforcement.
-
-        Returns:
-            SchematicGenerationResult[T]: Parsed/validated content and usage info.
-        """
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
@@ -160,9 +136,7 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
             try:
                 payload["response_format"] = {
                     "type": "json",
-                    "schema": schema.model_json_schema(
-                        by_alias=True, ref_template="#/$defs/{model}"
-                    ),
+                    "schema": schema.model_json_schema(),
                 }
             except Exception as e:
                 # If schema export fails, fall back to local validation
@@ -267,14 +241,6 @@ class CortexEmbedder(Embedder):
 
     @staticmethod
     def _infer_dims(model_name: str) -> int:
-        """Infer embedding vector dimensionality from model name.
-
-        Args:
-            model_name: The embedding model identifier.
-
-        Returns:
-            The embedding vector size.
-        """
         n = model_name.lower()
         if "e5-base" in n:
             return 768
@@ -311,15 +277,6 @@ class CortexEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        """Create vector embeddings for a batch of texts.
-
-        Args:
-            texts: List of input strings to embed.
-            hints: Optional embed-time arguments, e.g., 'dimensions'.
-
-        Returns:
-            EmbeddingResult: Batch embeddings aligned with input order.
-        """
         payload: dict[str, Any] = {"model": self._model, "text": texts}
         if "dimensions" in hints:
             payload["dimensions"] = hints["dimensions"]
@@ -346,11 +303,6 @@ class CortexEmbedder(Embedder):
     @property
     @override
     def max_tokens(self) -> int:
-        """Heuristic upper bound of tokens per embedding request.
-
-        Returns:
-            Maximum supported tokens.
-        """
         return 8192
 
 
@@ -367,11 +319,6 @@ class SnowflakeCortexService(NLPService):
 
     @staticmethod
     def verify_environment() -> str | None:
-        """Validate required environment configuration.
-
-        Returns:
-            A user-friendly error message if configuration is incomplete; otherwise None.
-        """
         missing = []
         if not os.environ.get("SNOWFLAKE_CORTEX_BASE_URL"):
             missing.append(
@@ -388,11 +335,6 @@ class SnowflakeCortexService(NLPService):
         return None
 
     def __init__(self, logger: Logger) -> None:
-        """Initialize the Snowflake Cortex NLP service.
-
-        Args:
-            logger: Parlant logger.
-        """
         self._logger = logger
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
@@ -405,30 +347,12 @@ class SnowflakeCortexService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> SchematicGenerator[T]:
-        """Return a generator instance specialized to schema ``t``.
-
-        Args:
-            t: The Pydantic model type used to validate structured outputs.
-
-        Returns:
-            A ready-to-use ``CortexSchematicGenerator[t]`` instance.
-        """
         return CortexSchematicGenerator[t](schema=t, logger=self._logger)  # type: ignore[valid-type,misc]
 
     @override
     async def get_embedder(self) -> Embedder:
-        """Return the embedding client.
-
-        Returns:
-            Embedder: A Cortex embedder instance.
-        """
         return CortexEmbedder(logger=self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:
-        """Return the moderation service.
-
-        Returns:
-            A moderation implementation. Snowflake: no-op (NoModeration).
-        """
         return NoModeration()

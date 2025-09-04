@@ -28,7 +28,6 @@ from lagom import Container
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.api import agents, capabilities
 from parlant.api import evaluations
-from parlant.api import index
 from parlant.api import journeys
 from parlant.api import relationships
 from parlant.api import sessions
@@ -46,29 +45,10 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
-from parlant.core.capabilities import CapabilityStore
-from parlant.core.context_variables import ContextVariableStore
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError, generate_id
-from parlant.core.customers import CustomerStore
-from parlant.core.evaluations import EvaluationStore, EvaluationListener
-from parlant.core.journeys import JourneyStore
-from parlant.core.canned_responses import CannedResponseStore
-from parlant.core.relationships import RelationshipStore
-from parlant.core.guidelines import GuidelineStore
-from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.nlp.service import NLPService
-from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import SessionListener, SessionStore
-from parlant.core.glossary import GlossaryStore
-from parlant.core.services.indexing.behavioral_change_evaluation import (
-    BehavioralChangeEvaluator,
-    LegacyBehavioralChangeEvaluator,
-)
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
-from parlant.core.tags import TagStore
 
 ASGIApplication: TypeAlias = Callable[
     [
@@ -101,25 +81,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
     websocket_logger = container[WebSocketLogger]
     correlator = container[ContextualCorrelator]
     authorization_policy = container[AuthorizationPolicy]
-    agent_store = container[AgentStore]
-    customer_store = container[CustomerStore]
-    tag_store = container[TagStore]
-    session_store = container[SessionStore]
-    session_listener = container[SessionListener]
-    evaluation_store = container[EvaluationStore]
-    evaluation_listener = container[EvaluationListener]
-    legacy_evaluation_service = container[LegacyBehavioralChangeEvaluator]
-    evaluation_service = container[BehavioralChangeEvaluator]
-    glossary_store = container[GlossaryStore]
-    guideline_store = container[GuidelineStore]
-    relationship_store = container[RelationshipStore]
-    guideline_tool_association_store = container[GuidelineToolAssociationStore]
-    context_variable_store = container[ContextVariableStore]
-    canned_response_store = container[CannedResponseStore]
-    journey_store = container[JourneyStore]
-    capability_store = container[CapabilityStore]
-    service_registry = container[ServiceRegistry]
-    nlp_service = container[NLPService]
     application = container[Application]
 
     api_app = FastAPI()
@@ -227,33 +188,10 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
     agent_router = APIRouter(prefix="/agents")
 
-    agent_router.include_router(
-        guidelines.create_legacy_router(
-            application=application,
-            guideline_store=guideline_store,
-            tag_store=tag_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
-        ),
-    )
-    agent_router.include_router(
-        glossary.create_legacy_router(
-            glossary_store=glossary_store,
-        ),
-    )
-    agent_router.include_router(
-        variables.create_legacy_router(
-            context_variable_store=context_variable_store,
-            service_registry=service_registry,
-        ),
-    )
-
     api_app.include_router(
         router=agents.create_router(
             policy=authorization_policy,
-            agent_store=agent_store,
-            tag_store=tag_store,
+            app=application,
         ),
         prefix="/agents",
     )
@@ -266,23 +204,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/sessions",
         router=sessions.create_router(
             authorization_policy=authorization_policy,
-            logger=logger,
-            application=application,
-            agent_store=agent_store,
-            customer_store=customer_store,
-            session_store=session_store,
-            session_listener=session_listener,
-            nlp_service=nlp_service,
-        ),
-    )
-
-    api_app.include_router(
-        prefix="/index",
-        router=index.legacy_create_router(
-            evaluation_service=legacy_evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
-            agent_store=agent_store,
+            app=application,
         ),
     )
 
@@ -290,7 +212,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/services",
         router=services.create_router(
             authorization_policy=authorization_policy,
-            service_registry=service_registry,
+            app=application,
         ),
     )
 
@@ -298,7 +220,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/tags",
         router=tags.create_router(
             authorization_policy=authorization_policy,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 
@@ -306,9 +228,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/terms",
         router=glossary.create_router(
             authorization_policy=authorization_policy,
-            glossary_store=glossary_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 
@@ -316,9 +236,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/customers",
         router=customers.create_router(
             authorization_policy=authorization_policy,
-            customer_store=customer_store,
-            tag_store=tag_store,
-            agent_store=agent_store,
+            app=application,
         ),
     )
 
@@ -326,8 +244,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/canned_responses",
         router=canned_responses.create_router(
             authorization_policy=authorization_policy,
-            canned_response_store=canned_response_store,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 
@@ -335,10 +252,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/context-variables",
         router=variables.create_router(
             authorization_policy=authorization_policy,
-            context_variable_store=context_variable_store,
-            service_registry=service_registry,
-            agent_store=agent_store,
-            tag_store=tag_store,
+            app=application,
         ),
     )
 
@@ -346,13 +260,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/guidelines",
         router=guidelines.create_router(
             authorization_policy=authorization_policy,
-            guideline_store=guideline_store,
-            relationship_store=relationship_store,
-            service_registry=service_registry,
-            guideline_tool_association_store=guideline_tool_association_store,
-            agent_store=agent_store,
-            tag_store=tag_store,
-            journey_store=journey_store,
+            app=application,
         ),
     )
 
@@ -360,12 +268,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/relationships",
         router=relationships.create_router(
             authorization_policy=authorization_policy,
-            relationship_store=relationship_store,
-            tag_store=tag_store,
-            guideline_store=guideline_store,
-            agent_store=agent_store,
-            journey_store=journey_store,
-            service_registry=service_registry,
+            app=application,
         ),
     )
 
@@ -373,8 +276,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/journeys",
         router=journeys.create_router(
             authorization_policy=authorization_policy,
-            journey_store=journey_store,
-            guideline_store=guideline_store,
+            app=application,
         ),
     )
 
@@ -382,9 +284,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/evaluations",
         router=evaluations.create_router(
             authorization_policy=authorization_policy,
-            evaluation_service=evaluation_service,
-            evaluation_store=evaluation_store,
-            evaluation_listener=evaluation_listener,
+            app=application,
         ),
     )
 
@@ -392,10 +292,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
         prefix="/capabilities",
         router=capabilities.create_router(
             authorization_policy=authorization_policy,
-            capability_store=capability_store,
-            tag_store=tag_store,
-            agent_store=agent_store,
-            journey_store=journey_store,
+            app=application,
         ),
     )
 

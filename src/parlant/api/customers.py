@@ -16,14 +16,18 @@ from datetime import datetime
 import dateutil.parser
 from fastapi import APIRouter, Path, Request, status
 from pydantic import Field
-from typing import Annotated, Mapping, Optional, Sequence, TypeAlias
+from typing import Annotated, Mapping, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import apigen_config, ExampleJson, example_json_content
-from parlant.core.agents import AgentStore, AgentId
+from parlant.app_modules.customers import (
+    CustomerMetadataUpdateParams,
+    CustomerTagUpdateParams,
+)
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.customers import CustomerId
+from parlant.core.tags import TagId
 
 API_GROUP = "customers"
 
@@ -126,8 +130,8 @@ class CustomerCreationParamsDTO(
     """Parameters for creating a new customer."""
 
     name: CustomerNameField
-    metadata: Optional[CustomerMetadataField] = None
-    tags: Optional[TagIdSequenceField] = None
+    metadata: CustomerMetadataField | None = None
+    tags: TagIdSequenceField | None = None
 
 
 CustomerMetadataUnsetField: TypeAlias = Annotated[
@@ -153,8 +157,8 @@ class CustomerMetadataUpdateParamsDTO(
 ):
     """Parameters for updating a customer's extra metadata."""
 
-    set: Optional[CustomerMetadataField] = None
-    unset: Optional[CustomerMetadataUnsetField] = None
+    set: CustomerMetadataField | None = None
+    unset: CustomerMetadataUnsetField | None = None
 
 
 CustomerTagUpdateAddField: TypeAlias = Annotated[
@@ -194,8 +198,8 @@ class CustomerTagUpdateParamsDTO(
     Both operations can be performed in a single request.
     """
 
-    add: Optional[CustomerTagUpdateAddField] = None
-    remove: Optional[CustomerTagUpdateRemoveField] = None
+    add: CustomerTagUpdateAddField | None = None
+    remove: CustomerTagUpdateRemoveField | None = None
 
 
 customer_update_params_example: ExampleJson = {
@@ -211,16 +215,14 @@ class CustomerUpdateParamsDTO(
 ):
     """Parameters for updating a customer's attributes."""
 
-    name: Optional[CustomerNameField] = None
-    metadata: Optional[CustomerMetadataUpdateParamsDTO] = None
-    tags: Optional[CustomerTagUpdateParamsDTO] = None
+    name: CustomerNameField | None = None
+    metadata: CustomerMetadataUpdateParamsDTO | None = None
+    tags: CustomerTagUpdateParamsDTO | None = None
 
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    customer_store: CustomerStore,
-    tag_store: TagStore,
-    agent_store: AgentStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -255,21 +257,10 @@ def create_router(
             operation=Operation.CREATE_CUSTOMER,
         )
 
-        tags = []
-
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        customer = await customer_store.create_customer(
+        customer = await app.customers.create(
             name=params.name,
             extra=params.metadata if params.metadata else {},
-            tags=tags or None,
+            tags=params.tags,
         )
 
         return CustomerDTO(
@@ -310,7 +301,7 @@ def create_router(
             operation=Operation.READ_CUSTOMER,
         )
 
-        customer = await customer_store.read_customer(customer_id=customer_id)
+        customer = await app.customers.read(customer_id=customer_id)
 
         return CustomerDTO(
             id=customer.id,
@@ -344,7 +335,7 @@ def create_router(
             operation=Operation.LIST_CUSTOMERS,
         )
 
-        customers = await customer_store.list_customers()
+        customers = await app.customers.find()
 
         return [
             CustomerDTO(
@@ -392,31 +383,22 @@ def create_router(
             operation=Operation.UPDATE_CUSTOMER,
         )
 
-        if params.name:
-            _ = await customer_store.update_customer(
-                customer_id=customer_id,
-                params={"name": params.name},
+        customer = await app.customers.update(
+            customer_id=customer_id,
+            name=params.name,
+            metadata=CustomerMetadataUpdateParams(
+                set=params.metadata.set,
+                unset=params.metadata.unset,
             )
-
-        if params.metadata:
-            if params.metadata.set:
-                await customer_store.add_extra(customer_id, params.metadata.set)
-            if params.metadata.unset:
-                await customer_store.remove_extra(customer_id, params.metadata.unset)
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-                    await customer_store.upsert_tag(customer_id, tag_id)
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await customer_store.remove_tag(customer_id, tag_id)
-
-        customer = await customer_store.read_customer(customer_id=customer_id)
+            if params.metadata
+            else None,
+            tags=CustomerTagUpdateParams(
+                add=params.tags.add,
+                remove=params.tags.remove,
+            )
+            if params.tags
+            else None,
+        )
 
         return CustomerDTO(
             id=customer.id,
@@ -455,6 +437,6 @@ def create_router(
             operation=Operation.DELETE_CUSTOMER,
         )
 
-        await customer_store.delete_customer(customer_id=customer_id)
+        await app.customers.delete(customer_id=customer_id)
 
     return router

@@ -172,8 +172,6 @@ def create_guideline(
                         ),
                         tool_ids=[],
                         operation=PayloadOperation.ADD,
-                        coherence_check=False,
-                        connection_proposition=False,
                         action_proposition=True,
                         properties_proposition=True,
                         journey_node_proposition=False,

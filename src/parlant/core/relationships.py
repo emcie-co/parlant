@@ -115,13 +115,13 @@ class RelationshipStore(ABC):
     @abstractmethod
     async def read_relationship(
         self,
-        id: RelationshipId,
+        relationship_id: RelationshipId,
     ) -> Relationship: ...
 
     @abstractmethod
     async def delete_relationship(
         self,
-        id: RelationshipId,
+        relationship_id: RelationshipId,
     ) -> None: ...
 
     @abstractmethod
@@ -356,26 +356,30 @@ class RelationshipDocumentStore(RelationshipStore):
     @override
     async def read_relationship(
         self,
-        id: RelationshipId,
+        relationship_id: RelationshipId,
     ) -> Relationship:
         async with self._lock.reader_lock:
-            relationship_document = await self._collection.find_one(filters={"id": {"$eq": id}})
+            relationship_document = await self._collection.find_one(
+                filters={"id": {"$eq": relationship_id}}
+            )
 
             if not relationship_document:
-                raise ItemNotFoundError(item_id=UniqueId(id))
+                raise ItemNotFoundError(item_id=UniqueId(relationship_id))
 
         return self._deserialize(relationship_document)
 
     @override
     async def delete_relationship(
         self,
-        id: RelationshipId,
+        relationship_id: RelationshipId,
     ) -> None:
         async with self._lock.writer_lock:
-            relationship_document = await self._collection.find_one(filters={"id": {"$eq": id}})
+            relationship_document = await self._collection.find_one(
+                filters={"id": {"$eq": relationship_id}}
+            )
 
             if not relationship_document:
-                raise ItemNotFoundError(item_id=UniqueId(id))
+                raise ItemNotFoundError(item_id=UniqueId(relationship_id))
 
             relationship = self._deserialize(relationship_document)
 
@@ -383,7 +387,7 @@ class RelationshipDocumentStore(RelationshipStore):
 
             graph.remove_edge(relationship.source.id, relationship.target.id)
 
-            await self._collection.delete_one(filters={"id": {"$eq": id}})
+            await self._collection.delete_one(filters={"id": {"$eq": relationship_id}})
 
     @override
     async def list_relationships(

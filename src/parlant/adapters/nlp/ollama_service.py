@@ -104,7 +104,7 @@ The following required models are not available in Ollama:
 
 Please pull the missing models using the commands above.
 
-Available models: {', '.join(model_names) if model_names else 'None'}
+Available models: {", ".join(model_names) if model_names else "None"}
 """
             return None
 
@@ -456,6 +456,7 @@ class OllamaEmbedder(Embedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
+
         try:
             response = await self._client.embed(
                 model=self.model_name, input=texts, **filtered_hints
@@ -593,6 +594,7 @@ Please set these environment variables before running Parlant.
         self.default_timeout = int(
             os.environ.get("OLLAMA_API_TIMEOUT", 300)
         )  # always convert to int
+
         self._logger = logger
         self._logger.info(f"Initialized OllamaService with {self.model_name} at {self.base_url}")
 

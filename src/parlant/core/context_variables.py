@@ -89,14 +89,14 @@ class ContextVariableStore(ABC):
     @abstractmethod
     async def update_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
         params: ContextVariableUpdateParams,
     ) -> ContextVariable: ...
 
     @abstractmethod
     async def delete_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
     ) -> None: ...
 
     @abstractmethod
@@ -108,7 +108,7 @@ class ContextVariableStore(ABC):
     @abstractmethod
     async def read_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
     ) -> ContextVariable: ...
 
     @abstractmethod
@@ -413,19 +413,19 @@ class ContextVariableDocumentStore(ContextVariableStore):
     @override
     async def update_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
         params: ContextVariableUpdateParams,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
             variable_document = await self._variable_collection.find_one(
                 filters={
-                    "id": {"$eq": id},
+                    "id": {"$eq": variable_id},
                 }
             )
 
             if not variable_document:
                 raise ItemNotFoundError(
-                    item_id=UniqueId(id),
+                    item_id=UniqueId(variable_id),
                 )
 
             update_params = {
@@ -447,7 +447,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             result = await self._variable_collection.update_one(
                 filters={
-                    "id": {"$eq": id},
+                    "id": {"$eq": variable_id},
                 },
                 params=cast(_ContextVariableDocument, update_params),
             )
@@ -461,22 +461,22 @@ class ContextVariableDocumentStore(ContextVariableStore):
     @override
     async def delete_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
     ) -> None:
         async with self._lock.writer_lock:
             variable_deletion_result = await self._variable_collection.delete_one(
                 {
-                    "id": {"$eq": id},
+                    "id": {"$eq": variable_id},
                 }
             )
             if variable_deletion_result.deleted_count == 0:
                 raise ItemNotFoundError(
-                    item_id=UniqueId(id),
+                    item_id=UniqueId(variable_id),
                 )
 
             for doc in await self._variable_tag_association_collection.find(
                 {
-                    "variable_id": {"$eq": id},
+                    "variable_id": {"$eq": variable_id},
                 }
             ):
                 await self._variable_tag_association_collection.delete_one(
@@ -485,8 +485,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
                     }
                 )
 
-            for k, _ in await self.list_values(variable_id=id):
-                await self.delete_value(variable_id=id, key=k)
+            for k, _ in await self.list_values(variable_id=variable_id):
+                await self.delete_value(variable_id=variable_id, key=k)
 
     @override
     async def list_variables(
@@ -527,18 +527,18 @@ class ContextVariableDocumentStore(ContextVariableStore):
     @override
     async def read_variable(
         self,
-        id: ContextVariableId,
+        variable_id: ContextVariableId,
     ) -> ContextVariable:
         async with self._lock.reader_lock:
             variable_document = await self._variable_collection.find_one(
                 {
-                    "id": {"$eq": id},
+                    "id": {"$eq": variable_id},
                 }
             )
 
         if not variable_document:
             raise ItemNotFoundError(
-                item_id=UniqueId(id),
+                item_id=UniqueId(variable_id),
             )
 
         return await self._deserialize_context_variable(context_variable_document=variable_document)
@@ -634,7 +634,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         creation_utc: Optional[datetime] = None,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
-            variable = await self.read_variable(id=variable_id)
+            variable = await self.read_variable(variable_id=variable_id)
 
             if tag_id in variable.tags:
                 return variable

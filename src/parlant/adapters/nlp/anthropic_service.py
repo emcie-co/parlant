@@ -29,7 +29,9 @@ import os
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
-from parlant.core.engines.alpha.canned_response_generator import CannedResponseSelectionSchema
+from parlant.core.engines.alpha.canned_response_generator import (
+    CannedResponseSelectionSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
@@ -63,7 +65,7 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
             messages=[{"role": "assistant", "content": prompt}],
         )
 
-        return result.input_tokens
+        return result.input_tokens  # type: ignore[no-any-return]
 
 
 class AnthropicAISchematicGenerator(SchematicGenerator[T]):

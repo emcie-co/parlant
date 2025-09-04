@@ -335,6 +335,16 @@ class NLPServices:
             raise SDKError(error)
 
         return GLMService(container[Logger])
+    
+    @staticmethod
+    def qwen(container: Container) -> NLPService:
+        """Creates a Qwen NLPService instance using the provided container."""
+        from parlant.adapters.nlp.qwen_service import QwenService
+
+        if error := QwenService.verify_environment():
+            raise SDKError(error)
+
+        return QwenService(container[Logger])
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):

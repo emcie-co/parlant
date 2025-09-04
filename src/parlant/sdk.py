@@ -2768,7 +2768,7 @@ class Server:
                 if importlib.util.find_spec("pymongo") is None:
                     raise SDKError(
                         "MongoDB requires an additional package to be installed. "
-                        "Please install parlant[mongo] to use MongoDB."
+                        "Please install pymongo to use MongoDB."
                     )
 
                 from pymongo import AsyncMongoClient

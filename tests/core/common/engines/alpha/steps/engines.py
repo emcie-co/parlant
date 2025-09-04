@@ -18,6 +18,7 @@ from typing import cast
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
+from parlant.core import cancellations
 from parlant.core.agents import AgentId, AgentStore, CompositionMode
 from parlant.core.context_variables import (
     ContextVariable,
@@ -104,6 +105,8 @@ def when_processing_is_triggered(
     session_id: SessionId,
     agent_id: AgentId,
 ) -> list[EmittedEvent]:
+    cancellations.initialize_contextual_suppression_latch(f"process-session({session_id})")
+
     buffer = EventBuffer(
         context.sync_await(
             context.container[AgentStore].read_agent(agent_id),
@@ -202,6 +205,8 @@ def when_detection_and_processing_are_triggered(
     agent_id: AgentId,
     customer_id: CustomerId,
 ) -> list[EmittedEvent]:
+    cancellations.initialize_contextual_suppression_latch(f"process-session({session_id})")
+
     agent = context.sync_await(
         context.container[AgentStore].read_agent(agent_id),
     )
@@ -298,6 +303,8 @@ def when_processing_is_triggered_and_cancelled_in_the_middle(
     session_id: SessionId,
     no_cache: None,
 ) -> list[EmittedEvent]:
+    cancellations.initialize_contextual_suppression_latch(f"process-session({session_id})")
+
     event_buffer = EventBuffer(
         context.sync_await(
             context.container[AgentStore].read_agent(agent_id),

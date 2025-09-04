@@ -3388,21 +3388,6 @@ signals = ["blinker (>=1.4.0)"]
 signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
 
 [[package]]
-name = "ollama"
-version = "0.5.3"
-description = "The official Python client for Ollama."
-optional = true
-python-versions = ">=3.8"
-files = [
-    {file = "ollama-0.5.3-py3-none-any.whl", hash = "sha256:a8303b413d99a9043dbf77ebf11ced672396b59bec27e6d5db67c88f01b279d2"},
-    {file = "ollama-0.5.3.tar.gz", hash = "sha256:40b6dff729df3b24e56d4042fd9d37e231cee8e528677e0d085413a1d6692394"},
-]
-
-[package.dependencies]
-httpx = ">=0.27"
-pydantic = ">=2.9"
-
-[[package]]
 name = "onnxruntime"
 version = "1.22.1"
 description = "ONNX Runtime is a runtime accelerator for Machine Learning models"
@@ -7056,9 +7041,7 @@ deepseek = ["torch", "transformers"]
 gemini = ["google-api-core", "google-genai", "torch"]
 litellm = ["litellm", "torch", "transformers"]
 mongo = ["pymongo"]
-ollama = ["ollama"]
 together = ["together", "torch", "transformers"]
-vertex = ["anthropic", "google-api-core", "google-auth", "google-genai", "torch", "transformers"]
 
 [metadata]
 lock-version = "2.0"

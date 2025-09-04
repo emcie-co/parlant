@@ -16,7 +16,7 @@ import asyncio
 
 from pytest import raises
 
-from parlant.core.common import CancellationSuppressionLatch
+from parlant.core.cancellations import CancellationSuppressionLatch
 
 
 async def test_that_function_returns_value_when_cancelled_error_is_raised_latch_enabled() -> None:

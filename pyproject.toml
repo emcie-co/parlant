@@ -72,6 +72,7 @@ litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
 
 
+
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"
 mypy = "^1.16.0"

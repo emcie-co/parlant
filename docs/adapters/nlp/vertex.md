@@ -303,6 +303,41 @@ Permission denied accessing Vertex AI. Ensure:
 3. The {model_name} model is enabled in Vertex AI Model Garden
 ```
 
+
+## Model-Specific Features
+
+### Claude Models
+
+- **JSON Extraction**: Uses jsonfinder for robust JSON parsing
+- **Content Normalization**: Handles various JSON formatting issues
+- **Fallback Support**: Claude Opus 4 automatically falls back to Sonnet 4
+- **Token Estimation**: Uses tiktoken with 1.15x multiplier for accuracy
+
+### Gemini Models
+
+- **Native JSON Schema**: Direct schema validation support
+- **Response Configuration**: MIME type and schema specification
+- **Quote Handling**: Fixes Unicode quote issues in responses
+- **Thinking Budget**: Gemini 2.5 Flash uses zero thinking budget by default
+- **Cached Tokens**: Tracks cached content tokens in usage metadata
+
+### OpenRouter Integration
+
+For a unified multi-provider approach, consider using OpenRouter as an alternative:
+
+- **Single API Key**: Access models from OpenAI, Anthropic, Google, Meta, and more
+- **Unified Billing**: Consolidated invoicing and usage tracking across all providers
+- **Model Mixing**: Use different models for different tasks within Parlant:
+  ```bash
+  export OPENROUTER_SINGLE_TOOL_MODEL="openai/gpt-4o"
+  export OPENROUTER_JOURNEY_NODE_MODEL="anthropic/claude-3.5-sonnet"
+  export OPENROUTER_CANNED_RESPONSE_DRAFT_MODEL="google/gemini-pro"
+  ```
+- **No Vendor Lock-in**: Switch models via environment variables without code changes
+
+See the [OpenRouter documentation](openrouter.md) for detailed configuration and usage.
+
+
 ## Performance Considerations
 
 ### Token Limits

@@ -269,6 +269,7 @@ NLPServiceName = Literal[
     "deepseek",
     "gemini",
     "openai",
+    "openrouter",
     "together",
     "litellm",
 ]
@@ -338,6 +339,12 @@ def load_openai() -> NLPService:
     return OpenAIService(LOGGER)
 
 
+def load_openrouter() -> NLPService:
+    return load_nlp_service(
+        "OpenRouter", "openrouter", "OpenRouterService", "parlant.adapters.nlp.openrouter_service"
+    )
+
+
 def load_together() -> NLPService:
     return load_nlp_service(
         "Together.ai", "together", "TogetherService", "parlant.adapters.nlp.together_service"
@@ -358,6 +365,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
     "deepseek": load_deepseek,
     "gemini": load_gemini,
     "openai": load_openai,
+    "openrouter": load_openrouter,
     "together": load_together,
     "litellm": load_litellm,
 }
@@ -1087,6 +1095,12 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--openrouter",
+        is_flag=True,
+        help="Run with OpenRouter. The environment variable OPENROUTER_API_KEY must be set.",
+        default=False,
+    )
+    @click.option(
         "--log-level",
         type=click.Choice(["debug", "info", "warning", "error", "critical"]),
         default="info",
@@ -1129,6 +1143,7 @@ def main() -> None:
         cerebras: bool,
         together: bool,
         litellm: bool,
+        openrouter: bool,
         log_level: str,
         module: tuple[str],
         version: bool,
@@ -1138,12 +1153,12 @@ def main() -> None:
             print(f"Parlant v{VERSION}")
             sys.exit(0)
 
-        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm]) > 2:
+        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, openrouter]) > 2:
             print("error: only one NLP service profile can be selected")
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, openrouter)
         )
 
         if not non_default_service_selected:
@@ -1173,6 +1188,9 @@ def main() -> None:
         elif litellm:
             nlp_service = "litellm"
             require_env_keys(["LITELLM_PROVIDER_MODEL_NAME", "LITELLM_PROVIDER_API_KEY"])
+        elif openrouter:
+            nlp_service = "openrouter"
+            require_env_keys(["OPENROUTER_API_KEY"])
         else:
             assert False, "Should never get here"
 

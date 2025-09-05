@@ -33,13 +33,12 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
-from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
@@ -49,6 +48,18 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
+)
+
+RATE_LIMIT_ERROR_MESSAGE = (
+    "GLM API rate limit exceeded. Possible reasons:\n"
+    "1. Your account may have insufficient API credits.\n"
+    "2. You may be using a free-tier account with limited request capacity.\n"
+    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
+    "Recommended actions:\n"
+    "- Check your GLM account balance and billing status.\n"
+    "- Review your API usage limits in GLM's dashboard.\n"
+    "- For more details on rate limits and usage tiers, visit:\n"
+    "  https://docs.bigmodel.cn/cn/faq/api-code\n",
 )
 
 
@@ -61,6 +72,79 @@ class GLMEstimatingTokenizer(EstimatingTokenizer):
     async def estimate_token_count(self, prompt: str) -> int:
         tokens = self.encoding.encode(prompt)
         return len(tokens)
+
+
+class GLMEmbedder(Embedder):
+    supported_arguments = ["dimensions"]
+
+    def __init__(self, model_name: str, logger: Logger) -> None:
+        self.model_name = model_name
+
+        self._logger = logger
+        self._client = AsyncClient(
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=os.environ["GLM_API_KEY"]
+        )
+        self._tokenizer = GLMEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"glm/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> GLMEstimatingTokenizer:
+        return self._tokenizer
+
+    @policy(
+        [
+            retry(
+                exceptions=(
+                    APIConnectionError,
+                    APITimeoutError,
+                    ConflictError,
+                    RateLimitError,
+                    APIResponseValidationError,
+                ),
+            ),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
+        ]
+    )
+    @override
+    async def embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult:
+        filtered_hints = {k: v for k,
+                          v in hints.items() if k in self.supported_arguments}
+        try:
+            response = await self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+                **filtered_hints,
+            )
+        except RateLimitError:
+            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
+
+        vectors = [data_point.embedding for data_point in response.data]
+        return EmbeddingResult(vectors=vectors)
+
+
+class GMLTextEmbedding_3(GLMEmbedder):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(model_name="embedding-3", logger=logger)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8000
+
+    @property
+    def dimensions(self) -> int:
+        return 2048
 
 
 class GLMSchematicGenerator(SchematicGenerator[T]):
@@ -143,9 +227,11 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self._logger.warning(
+                f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self._logger.warning(
+                "Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
@@ -214,7 +300,7 @@ Please set GLM_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return GMLTextEmbedding_3(logger=self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

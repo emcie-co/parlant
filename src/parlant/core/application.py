@@ -22,9 +22,9 @@ from lagom import Container
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.agents import AgentId
+from parlant.core.agents import AgentId, AgentStore
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.customers import CustomerId
+from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.evaluations import (
     EntailmentRelationshipProposition,
     EntailmentRelationshipPropositionKind,
@@ -53,6 +53,9 @@ from parlant.core.sessions import (
 )
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.loggers import Logger
+from parlant.core.nlp.service import NLPService
+
+from parlant.app_modules.sessions import SessionModule
 
 TaskQueue: TypeAlias = list[asyncio.Task[None]]
 
@@ -72,6 +75,16 @@ class Application:
         self._background_task_service = container[BackgroundTaskService]
 
         self._lock = asyncio.Lock()
+        
+        self.sessions = SessionModule(
+            session_store=container[SessionStore],
+            session_listener=container[SessionListener],
+            agent_store=container[AgentStore],
+            customer_store=container[CustomerStore],
+            nlp_service=container[NLPService],
+            logger=container[Logger],
+            application=self,
+        )
 
     async def wait_for_update(
         self,
@@ -96,11 +109,11 @@ class Application:
         title: Optional[str] = None,
         allow_greeting: bool = False,
     ) -> Session:
-        session = await self._session_store.create_session(
-            creation_utc=datetime.now(timezone.utc),
+        session = await self.sessions.create_session(
             customer_id=customer_id,
             agent_id=agent_id,
             title=title,
+            allow_greeting=allow_greeting,
         )
 
         if allow_greeting:

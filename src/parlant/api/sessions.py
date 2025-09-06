@@ -33,6 +33,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
+from parlant.app_modules.sessions import SessionModule
 from parlant.core.sessions import (
     Event,
     EventId,
@@ -1223,14 +1224,14 @@ def _event_source_to_event_source_dto(source: EventSource) -> EventSourceDTO:
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    logger: Logger,
-    application: Application,
-    agent_store: AgentStore,
-    customer_store: CustomerStore,
-    session_store: SessionStore,
-    session_listener: SessionListener,
-    nlp_service: NLPService,
+    application: Application
 ) -> APIRouter:
+    #REFACTORED VERSION: Notice how this router now only takes:
+    # app module to create session and we do not care about authorization_policy anymore
+    # since we delegate that to the app module.
+    # No more direct core dependencies
+    # - authorization_policy (for HTTP-level concerns)
+    # - application (single entry point to business logic)
     router = APIRouter()
 
     @router.post(
@@ -1254,36 +1255,32 @@ def create_router(
         params: SessionCreationParamsDTO,
         allow_greeting: AllowGreetingQuery = False,
     ) -> SessionDTO:
-        """Creates a new session between an agent and customer.
-
-        The session will be initialized with the specified agent and optional customer.
-        If no customer_id is provided, a guest customer will be created.
-        """
-        _ = await agent_store.read_agent(agent_id=params.agent_id)
-
+       
         if params.customer_id:
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_CUSTOMER_SESSION
             )
-
         else:
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_GUEST_SESSION
             )
 
-        session = await application.create_customer_session(
-            customer_id=params.customer_id or CustomerStore.GUEST_ID,
+        session = await application.sessions.create_session(
             agent_id=params.agent_id,
+            customer_id=params.customer_id,
             title=params.title,
             allow_greeting=allow_greeting,
         )
 
+        # DTO conversion (API-level concern)
         return SessionDTO(
             id=session.id,
             agent_id=session.agent_id,
             customer_id=session.customer_id,
             creation_utc=session.creation_utc,
-            consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
+            consumption_offsets=ConsumptionOffsetsDTO(
+                client=session.consumption_offsets["client"]
+            ),
             title=session.title,
             mode=SessionModeDTO(session.mode),
         )
@@ -1308,7 +1305,7 @@ def create_router(
         """Retrieves details of a specific session by ID."""
         await authorization_policy.authorize(request=request, operation=Operation.READ_SESSION)
 
-        session = await session_store.read_session(session_id=session_id)
+        session = await application.sessions.read_session(session_id=session_id)
 
         return SessionDTO(
             id=session.id,
@@ -1348,7 +1345,7 @@ def create_router(
         filters are provided."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
-        sessions = await session_store.list_sessions(
+        sessions = await application.sessions.list_sessions(
             agent_id=agent_id,
             customer_id=customer_id,
         )

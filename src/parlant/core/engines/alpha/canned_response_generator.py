@@ -2030,6 +2030,8 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
+        with open("follow up prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     # FIXME: handle cases where the customer sends a message before the follow-up generation is finished
@@ -2260,29 +2262,27 @@ follow_up_generation_example_3_shot = FollowUpCannedResponseSelectionShot(
 )
 
 follow_up_generation_example_4_expected = FollowUpCannedResponseSelectionSchema(
-    remaining_message_draft="Thank you for your purchase!",
+    remaining_message_draft="",
     unsatisfied_guidelines="",
-    tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
-    additional_response_required=True,
-    additional_template_id="1",
-    match_quality="partial",
+    tldr="The last outputted message already captures the draft. No further response necessary.",
+    additional_response_required=False,
 )
 follow_up_generation_example_4_shot = FollowUpCannedResponseSelectionShot(
-    description="An example where one response is prioritized for its importance",
-    draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
+    description="An example where the draft was already captured by the last response. Assume there's an active guideline instructing the agent to inform the customer about our returns policy.",
+    draft="Unopened items can be returned for up to 30 days from the date of purchase",
     canned_responses={
-        "1": "Please note that all dishes may contain peanuts",
-        "2": "Please inform us of any allergies you or your party have",
-        "3": "Thank you for coming in!",
-        "4": "Our souvenir shop is available for all diners after their meal",
-        "5": "Would you like to book another table?",
+        "1": "Any item can be returned for up to 30 days from the date of purchase, given that it has not been opened.",
+        "2": "Please check our website for more information about our returns policy.",
+        "3": "Your items will be returned to us within 30 days.",
+        "4": "Sorry, I didn't catch that",
     },
-    last_agent_message="Your table has been booked!",
-    expected_result=follow_up_generation_example_3_expected,
+    last_agent_message="Of course! You may return your items for up to a month if they have not been opened.",
+    expected_result=follow_up_generation_example_4_expected,
 )
 
 follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
     follow_up_generation_example_1_shot,
     follow_up_generation_example_2_shot,
     follow_up_generation_example_3_shot,
+    follow_up_generation_example_4_shot,
 ]

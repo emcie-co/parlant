@@ -309,7 +309,7 @@ Feature: Strict Canned Response
         And the message contains a suggestion to travel with bus or train but not with a flight
         And the message contains the text "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
- Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response) 
+     Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response) 
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
         Given the journey called "Book Taxi Ride"
@@ -430,3 +430,20 @@ Feature: Strict Canned Response
         Then a total of 2 message events are emitted
         And at least one message contains the text "Your claim has been successfully filed. Your reference number is CLM-2024-789456"
         And at least one message contains the text "The estimated processing time is 5-7 business days"
+
+    Scenario: The agent doesn't send two highly similar canned responses instead of one (strict canned response) 
+        Given the journey called "Book Hotel Journey"
+        And that the agent uses the canned_strict message composition mode
+        And a customer message, "I need to book a hotel."
+        And an agent message, "Alright, tell me the hotel name so I can check it out for you."
+        And a customer message, "The Marriott Downtown"
+        And an agent message, "Perfect, now when are you looking to stay—check-in and check-out dates?"
+        And a customer message, "From September 10th to 25th"
+        And an agent message, "And how many people will be staying with you?"
+        And a customer message, "Just me and my wife"
+        And a canned response, "Do you have a preference—single, double, or maybe a suite?"
+        And a canned response, "What kind of room are you looking for? Single, double, or something fancier?"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
+

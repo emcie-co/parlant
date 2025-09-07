@@ -1944,7 +1944,7 @@ Your task is to evaluate whether an additional template should be transmitted to
 You are provided with a number of pre-approved templates to choose from. These templates have been vetted by business stakeholders for producing fluent customer-facing AI conversations.
 Perform your task as follows:
 1. Identify Unsatisfied Guidelines: Document which behavioral guidelines (instructions in the form of "when <X> then do <Y>" which you must follow) aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
-2. Analyze Coverage Gap: Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under the key "remaining_message_draft".
+2. Analyze Coverage Gap: Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under the key "remaining_message_draft". If the outputted message already includes all the information from the draft, then output an empty string under the key "remaining_message_draft".
 3. Evaluate Need for Additional Response: Examine whether an additional response is required, and if so, which template best captures the remaining message draft. Document your thought process under the key "tldr". Prefer brevity, use fewer words when possible.
  - Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available templates
  - If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft
@@ -1956,7 +1956,8 @@ Perform your task as follows:
     c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
 
 Some nuances regarding choosing the correct template:
- - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the draft
+ - Pay special attention to whether the last outputted message already captures the draft. If it does, no further response is necessary, even if another candidate canned response matches the draft.
+ - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the remaining draft
  - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
  - If the missing part of the draft includes multiple unrelated components that would each require different templates, prioritize the template that addresses the most critical information for customer understanding and conversation progression. Choose the component that is essential for the customer to take their next action or properly understand the agent's response.
  - If there is any noticeable semantic deviation between the draft message and a template (e.g., the draft says "Do X" and the template says "Do Y"), do not choose that template, even if it captures other parts of the remaining message draft
@@ -2029,7 +2030,6 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
-
         return builder
 
     # FIXME: handle cases where the customer sends a message before the follow-up generation is finished
@@ -2246,6 +2246,28 @@ follow_up_generation_example_3_expected = FollowUpCannedResponseSelectionSchema(
     match_quality="partial",
 )
 follow_up_generation_example_3_shot = FollowUpCannedResponseSelectionShot(
+    description="An example where one response is prioritized for its importance",
+    draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
+    canned_responses={
+        "1": "Please note that all dishes may contain peanuts",
+        "2": "Please inform us of any allergies you or your party have",
+        "3": "Thank you for coming in!",
+        "4": "Our souvenir shop is available for all diners after their meal",
+        "5": "Would you like to book another table?",
+    },
+    last_agent_message="Your table has been booked!",
+    expected_result=follow_up_generation_example_3_expected,
+)
+
+follow_up_generation_example_4_expected = FollowUpCannedResponseSelectionSchema(
+    remaining_message_draft="Thank you for your purchase!",
+    unsatisfied_guidelines="",
+    tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
+    additional_response_required=True,
+    additional_template_id="1",
+    match_quality="partial",
+)
+follow_up_generation_example_4_shot = FollowUpCannedResponseSelectionShot(
     description="An example where one response is prioritized for its importance",
     draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
     canned_responses={

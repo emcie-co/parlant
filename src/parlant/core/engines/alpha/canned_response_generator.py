@@ -1333,6 +1333,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
+        with open("draft prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_draft_output_format(
@@ -1524,6 +1526,9 @@ Output a JSON object with three properties:
             prompt=draft_prompt,
             hints={"temperature": temperature},
         )
+
+        with open("draft prompt response.txt", "w") as f:
+            f.write(draft_response.content.model_dump_json(indent=2))
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"

@@ -1798,15 +1798,10 @@ async def load_fresh_context_variable_value(
     # So we do have a tool attached.
     # Do we already have a value, and is it sufficiently fresh?
     if value and variable.freshness_rules:
-        try:
-            cron_iterator = croniter(variable.freshness_rules, value.last_modified)
+        cron_iterator = croniter(variable.freshness_rules, value.last_modified)
 
-            if cron_iterator.get_next(datetime) > current_time:
-                # We already have a fresh value in store. Return it.
-                return value
-        except Exception:
-            # We have an invalid cron expression, so we can't check for freshness.
-            # We'll just return the value we have.
+        if cron_iterator.get_next(datetime) > current_time:
+            # We already have a fresh value in store. Return it.
             return value
 
     # We don't have a sufficiently fresh value.

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import os
 import traceback
 from typing import Optional, Sequence
 from typing_extensions import override
@@ -52,7 +53,9 @@ class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
     condition_met_again: bool
     action_wasnt_taken: Optional[bool] = None
     should_reapply: bool
-
+    is_missing_part_functional_or_behavioral_rational: Optional[str] = None
+    is_missing_part_functional_or_behavioral: Optional[str] = None
+    contra_arguments: Optional[str] = None
 
 class GenericPreviouslyAppliedActionableGuidelineMatchesSchema(DefaultBaseModel):
     checks: Sequence[GenericPreviouslyAppliedActionableBatch]
@@ -110,8 +113,13 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
-                    with open("guideline_previously_applied_actionable_batch_output.txt", "w") as f:
-                            f.write(inference.content.model_dump_json(indent=2))
+                    logs_dir = "logs"
+                    os.makedirs(logs_dir, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    filename = f"guideline_previously_applied_actionable_batch_output_{timestamp}.txt"
+                    filepath = os.path.join(logs_dir, filename)
+                    with open(filepath, "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
 
                 matches = []
 
@@ -247,15 +255,19 @@ For instance, if the customer previously complained about an issue and you alrea
  issue or clearly indicates a different concern, it may warrant reapplying the guideline.
 
 -- Focusing on the most recent context --
-When evaluating whether a guideline should be reapplied, the most recent part of the conversation, specifically the last user message, is what matters. A guideline should only be reapplied if its condition is clearly met again in that latest message.
-Always base your decision on the current context to avoid unnecessary repetition and to keep the response aligned with the user’s present needs.
+When evaluating whether a guideline should be reapplied, consider the most recent part of the conversation, specifically the last two user messages. 
+
 Context May Shift:
     Sometimes, the user may briefly raise an issue that would normally trigger a guideline, but then shift the topic within the same message or shortly after. In such cases, the condition should NOT be considered active, and the guideline should
     not be reapplied.
 Conditions Can Arise and Resolve Multiple Times:
     A condition may be met more than once over the course of a conversation and may also be resolved multiple times (the action was taken). If the most recent instance of the condition has already been addressed and resolved, there is no need to
-    reapply the guideline. However, if the user is still clearly engaging with the same unresolved issue, or if a new instance of the condition arises, reapplying the guideline may be appropriate.
+    reapply the guideline. 
+Agent Scope Limitation: T
+    he agent operates within a pre-defined set of actions and offerings, such as a menu of flight options, products, or services. These are the only things the agent can provide or act upon.
 
+Handling Out-of-Scope Requests: 
+    If a user's request falls outside this explicit scope (e.g., asking for a nonexistent flight option, a product not in the catalog, or an unrelated service), the agent's guideline should not be reapplied. The agent cannot act on information that it has not been explicitly provided with or does not have access to. The agent should only proceed with actions that are part of its defined capabilities.
 
 The conversation and guidelines will follow. Instructions on how to format your response will be provided after that.
 
@@ -326,7 +338,9 @@ OUTPUT FORMAT
                 "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
                 "should_reapply": "<BOOL>",
-            }
+                "is_missing_part_functional_or_behavioral_rational": "<str. A short explanation of whether the missing part is functional or behavioral, referencing the last user message>",
+                "is_missing_part_functional_or_behavioral": "<str. The classification: 'functional' or 'behavioral'>",            
+                "contra_arguments": "<str. Any contra-arguments that support an opposite decision regarding the guideline, referencing the last user message and based on instructions>",}
             for i, g in self._guidelines.items()
         ]
         result = {"checks": result_structure}
@@ -645,16 +659,22 @@ example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
 
 example_5_events = [
     _make_event("11", EventSource.CUSTOMER, "Hi there, can you cancel my food order?"),
-    _make_event("23", EventSource.AI_AGENT, "Sure please provide me your order number. Are you sure you want to cancel? it can't be undone."),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "Sure please provide me your order number. Are you sure you want to cancel? it can't be undone.",
+    ),
     _make_event(
         "34",
         EventSource.CUSTOMER,
         "Food prices are so high these days.",
     ),
-    _make_event("56", EventSource.AI_AGENT, "Would you like me to cancel your order now? please provide the order number and confirm."),
     _make_event(
-        "78", EventSource.CUSTOMER, "Yes, it's 12345 and please cancel it."
+        "56",
+        EventSource.AI_AGENT,
+        "Would you like me to cancel your order now? please provide the order number and confirm.",
     ),
+    _make_event("78", EventSource.CUSTOMER, "Yes, it's 12345 and please cancel it."),
     _make_event("99", EventSource.AI_AGENT, "Your order 12345 has been successfully cancelled."),
     _make_event("111", EventSource.CUSTOMER, "Cool thanks"),
 ]
@@ -691,6 +711,66 @@ example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
     ]
 )
 
+example_5_events = [
+    _make_event("11", EventSource.CUSTOMER, "Can I purchase a subscription to your software?"),
+    _make_event("23", EventSource.AI_AGENT, "Absolutely. Would you like me to subscribe you now?"),
+    _make_event(
+        "34", EventSource.CUSTOMER, "No, actually make my son subscribed instead."
+    ),
+    _make_event(
+        "56",
+        EventSource.AI_AGENT,
+        "I'm sorry, I can only process subscriptions for the account holder making the request. "
+        "If your son wants a subscription, he will need to initiate it himself with his own account.",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "Ah, okay. Then go ahead and subscribe me instead."
+    ),
+    _make_event(
+        "88",
+        EventSource.AI_AGENT,
+        "Your subscription has been successfully activated for your account. "
+        "Is there anything else I can help you with?"
+    ),
+]
+
+example_5_guidelines = [
+    GuidelineContent(
+        condition="the customer initiates a purchase for themselves.",
+        action="Open a new cart and process the subscription.",
+    ),
+    GuidelineContent(
+        condition="the customer asks to subscribe a third party (e.g., their son).",
+        action="Inform the user that only the account holder themselves can subscribe, "
+               "and that third parties must initiate their own subscription.",
+    ),
+]
+
+example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
+    checks=[
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer initiates a purchase for themselves.",
+            action="Open a new cart and process the subscription.",
+            condition_met_again=True,   # once the customer switches back to "subscribe me"
+            action_wasnt_taken=True,
+            should_reapply=True,
+        ),
+        GenericPreviouslyAppliedActionableBatch(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="the customer asks to subscribe a third party (e.g., their son).",
+            action="Inform the user that only the account holder themselves can subscribe, "
+                   "and that third parties must initiate their own subscription.",
+            condition_met_again=True,
+            action_wasnt_taken=False,
+            should_reapply=False,
+        ),
+    ]
+)
+
+
 _baseline_shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot] = [
     GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
         description="",
@@ -715,6 +795,12 @@ _baseline_shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMa
         interaction_events=example_4_events,
         guidelines=example_4_guidelines,
         expected_result=example_4_expected,
+    ),
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(       
+        description="",
+        interaction_events=example_5_events,
+        guidelines=example_5_guidelines,
+        expected_result=example_5_expected,
     ),
 ]
 

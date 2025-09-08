@@ -274,6 +274,16 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_m
     new_session: Session,
     customer: Customer,
 ) -> None:
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Reset Password",
+            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
+            signals=["reset password", "password"],
+            tags=[],
+        )
+    ]
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
@@ -285,7 +295,7 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_m
         ),
         (
             EventSource.CUSTOMER,
-            "Ah look! a squirrel! I forgot what I was going to say, can you continue from the same point?",
+            "I forgot what I was going to say, can you continue from the same point?",
         ),
     ]
 
@@ -299,6 +309,7 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_m
         conversation_context,
         guidelines_target_names=guidelines,
         guidelines_names=guidelines,
+        capabilities=capabilities,
     )
 
 
@@ -531,7 +542,7 @@ async def test_that_guideline_that_previously_applied_is_not_applied_if_subtopic
         new_session.id,
         customer,
         conversation_context,
-        guidelines_target_names=[],
+        guidelines_target_names=["unsupported_capability"],
         guidelines_names=guidelines,
     )
 
@@ -619,6 +630,7 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         capabilities=capabilities,
     )
 
+
 async def test_that_previously_applied_guidelines_are_matched_based_on_capabilities_emotional_reasoning(
     context: ContextOfTest,
     agent: Agent,
@@ -660,6 +672,7 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         capabilities=capabilities,
     )
 
+
 async def test_that_previously_applied_guidelines_are_matched_based_on_capabilities_with_context_change(
     context: ContextOfTest,
     agent: Agent,
@@ -696,7 +709,7 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         (
             EventSource.CUSTOMER,
             "My email is none of your business. Set my password to 1234",
-        )
+        ),
     ]
     await base_test_that_correct_guidelines_are_matched(
         context,
@@ -708,6 +721,7 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         guidelines_names=["unsupported_capability"],
         capabilities=capabilities,
     )
+
 
 async def test_that_previously_applied_guidelines_are_not_matched_based_on_irrelevant_capabilities(
     context: ContextOfTest,

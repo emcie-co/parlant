@@ -57,6 +57,7 @@ class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
     is_missing_part_functional_or_behavioral: Optional[str] = None
     contra_arguments: Optional[str] = None
 
+
 class GenericPreviouslyAppliedActionableGuidelineMatchesSchema(DefaultBaseModel):
     checks: Sequence[GenericPreviouslyAppliedActionableBatch]
 
@@ -116,7 +117,9 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                     logs_dir = "logs"
                     os.makedirs(logs_dir, exist_ok=True)
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    filename = f"guideline_previously_applied_actionable_batch_output_{timestamp}.txt"
+                    filename = (
+                        f"guideline_previously_applied_actionable_batch_output_{timestamp}.txt"
+                    )
                     filepath = os.path.join(logs_dir, filename)
                     with open(filepath, "w") as f:
                         f.write(inference.content.model_dump_json(indent=2))
@@ -339,8 +342,9 @@ OUTPUT FORMAT
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
                 "should_reapply": "<BOOL>",
                 "is_missing_part_functional_or_behavioral_rational": "<str. A short explanation of whether the missing part is functional or behavioral, referencing the last user message>",
-                "is_missing_part_functional_or_behavioral": "<str. The classification: 'functional' or 'behavioral'>",            
-                "contra_arguments": "<str. Any contra-arguments that support an opposite decision regarding the guideline, referencing the last user message and based on instructions>",}
+                "is_missing_part_functional_or_behavioral": "<str. The classification: 'functional' or 'behavioral'>",
+                "contra_arguments": "<str. Any contra-arguments that support an opposite decision regarding the guideline, referencing the last user message and based on instructions>",
+            }
             for i, g in self._guidelines.items()
         ]
         result = {"checks": result_structure}
@@ -714,25 +718,19 @@ example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
 example_5_events = [
     _make_event("11", EventSource.CUSTOMER, "Can I purchase a subscription to your software?"),
     _make_event("23", EventSource.AI_AGENT, "Absolutely. Would you like me to subscribe you now?"),
-    _make_event(
-        "34", EventSource.CUSTOMER, "No, actually make my son subscribed instead."
-    ),
+    _make_event("34", EventSource.CUSTOMER, "No, actually make my son subscribed instead."),
     _make_event(
         "56",
         EventSource.AI_AGENT,
         "I'm sorry, I can only process subscriptions for the account holder making the request. "
         "If your son wants a subscription, he will need to initiate it himself with his own account.",
     ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "Ah, okay. Then go ahead and subscribe me instead."
-    ),
+    _make_event("78", EventSource.CUSTOMER, "Ah, okay. Then go ahead and subscribe me instead."),
     _make_event(
         "88",
         EventSource.AI_AGENT,
         "Your subscription has been successfully activated for your account. "
-        "Is there anything else I can help you with?"
+        "Is there anything else I can help you with?",
     ),
 ]
 
@@ -744,7 +742,7 @@ example_5_guidelines = [
     GuidelineContent(
         condition="the customer asks to subscribe a third party (e.g., their son).",
         action="Inform the user that only the account holder themselves can subscribe, "
-               "and that third parties must initiate their own subscription.",
+        "and that third parties must initiate their own subscription.",
     ),
 ]
 
@@ -754,7 +752,7 @@ example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer initiates a purchase for themselves.",
             action="Open a new cart and process the subscription.",
-            condition_met_again=True,   # once the customer switches back to "subscribe me"
+            condition_met_again=True,  # once the customer switches back to "subscribe me"
             action_wasnt_taken=True,
             should_reapply=True,
         ),
@@ -762,7 +760,7 @@ example_5_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks to subscribe a third party (e.g., their son).",
             action="Inform the user that only the account holder themselves can subscribe, "
-                   "and that third parties must initiate their own subscription.",
+            "and that third parties must initiate their own subscription.",
             condition_met_again=True,
             action_wasnt_taken=False,
             should_reapply=False,
@@ -796,7 +794,7 @@ _baseline_shots: Sequence[GenericPreviouslyAppliedActionableGuidelineGuidelineMa
         guidelines=example_4_guidelines,
         expected_result=example_4_expected,
     ),
-    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(       
+    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot(
         description="",
         interaction_events=example_5_events,
         guidelines=example_5_guidelines,

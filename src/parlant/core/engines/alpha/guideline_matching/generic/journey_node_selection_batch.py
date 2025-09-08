@@ -82,23 +82,16 @@ class _JourneyNode:  # Refactor after node type is implemented
 
 class JourneyNodeAdvancement(DefaultBaseModel):
     id: str
-    customer_dependent_action: bool | None = None
-    requires_tool_calls: bool | None = None
-    requires_agent_action: bool | None = None
-    completed_rational: str | None = None
-    completed: bool | None = None
+    completed: StepCompletionStatus
     follow_ups: Optional[list[str]] = None
-    next_step_rational: str | None = None
 
 
 class JourneyNodeSelectionSchema(DefaultBaseModel):
     rationale: str | None = None
-    journey_applies: bool
+    journey_applies: bool | None = None
     requires_backtracking: bool | None = None
-    backtracking_rational: Optional[str] | None = None
-    backtracking_target_step: Optional[str] | None = None
-    step_advancement_after_backtracking_rational: Optional[str] | None = None
-    step_advancement: Optional[Sequence[JourneyNodeAdvancement]] = None
+    backtracking_target_step: str | None = None
+    step_advancement: Sequence[JourneyNodeAdvancement] | None = None
     next_step: str | None = None
 
 
@@ -507,6 +500,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                 .incoming_edges[0]
                                 .target_guideline
                             )
+                    # TODO how do we return the path if we're exiting the journey?
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
@@ -754,9 +748,9 @@ Check if the customer has changed a previous decision that requires returning to
 
 ## 3: Current Step Completion
 Evaluate whether the last executed step is complete:
-- For CUSTOMER_DEPENDENT steps: Customer has provided the required information (either after being asked or proactively in earlier messages. If so, set completed to true.
- If not, set completed to false and do not advance past this step.
-- For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set completed to true. If not, set completed to false.
+- For CUSTOMER_DEPENDENT steps: Customer has provided the required information (either after being asked or proactively in earlier messages. If so, set completed to 'completed'.
+ If not, set completed to 'needs_customer_input' and do not advance past this step.
+- For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set completed to 'completed'. If not, set completed to 'needs_agent_action'
 and do not advance past this step.
 - For REQUIRES_TOOL_CALLS steps: The step requires a tool call to execute for it to be completed. If you begin your advancement at this step, mark it as complete if the tool executed, and move onwards. Otherwise, always set completed to false and return it as next_step.
 - If the last step is incomplete, set next_step to the current step ID (repeat the step) and document this in the step_advancement array.
@@ -775,17 +769,6 @@ Continue advancing until you encounter:
 - A step requiring a tool call (REQUIRES_TOOL_CALLS flag)
 - A step where you lack necessary information to proceed
 - A step requiring you to communicate something new to the customer, beyond asking them for information (REQUIRES AGENT ACTION flag)
-
-For each step in the advancement path:
-- If the step can be completed based on available information, mark completed: true
-- If the step cannot be completed (missing information, requires tool calls, etc.), mark completed: false
-- Only advance to the next step if the current step is marked as completed
-
-Notice that:
-For steps requesting information from the customer (CUSTOMER_DEPENDENT flag): Mark completed: true if the customer has provided the requested information, regardless of whether they provided it after being asked or proactively in an earlier message. The key is whether the information needed by that step
-is available in the conversation.
-
-Document your advancement path in step_advancement as a list of step advancement objects, starting with the last_step and ending with the next step to execute. Each step must be a legal follow-up of the previous step, and you can only advance if the previous step was completed.
 
 **Special handling for journey exits**:
 - "None" is a valid step ID that means "exit the journey"
@@ -853,23 +836,15 @@ OUTPUT FORMAT
 
 ```json
 {{
-  "rationale": "<str, explanation of whether the journey should continue. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>",
-  "journey_applies": <bool, whether the journey should continue>,
+  "rationale": "<str, explanation for what is the next step and why it was selected>",
+  "journey_applies": <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
   "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-  "backtracking_rational" : <str, include only if requires_backtracking is true. Explanation of which step needs to be returned to and why>",
-  "backtracking_target_step": "<str, include only if requires_backtracking is true. id of the step where the customer's decision changed>",
-  "step_advancement_after_backtracking_rational" : "<str, include if requires_backtracking is true, explanation for what subsequent steps can be advanced after backtracking, and what should be visited again>",
+  "backtracking_target_step": "<str, id of the step where the customer's decision changed. Omit this field if requires_backtracking is false>",
   "step_advancement": [
     {{
         "id": "<str, id of the step. First one should be either {last_node} or backtracking_target_step if it exists>",
-        "customer_dependent_action": <bool. As provided in journey description>,
-        "requires_tool_calls": <bool. As provided in journey description>,
-        "requires_agent_action": <bool. As provided in journey description>,
-        "completed_rational" : "<str, explanation of if this step was completed, and if it should be taken again after it was>"
-        "completed": <bool, whether this step was completed>,
-        "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is false>"
-        "next_step_rational": "<str, explanation of what the next step should be>"
-
+        "completed": <str, either 'completed' or 'needs_customer_input' or 'needs_agent_action' or 'needs_tool_call'>,
+        "follow_ups": "<list[str], ids of legal follow ups for this step. Omit if completed is not 'completed'>"
     }},
     ... <additional step advancements, as necessary>
   ],
@@ -989,33 +964,40 @@ example_1_journey_nodes = {
 
 
 example_1_expected = JourneyNodeSelectionSchema(
-    rationale="The conversation still discusses planning a trip",
     journey_applies=True,
     requires_backtracking=False,
+    rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
     step_advancement=[
         JourneyNodeAdvancement(
-            id="1",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer was asked about exploring cities or scenic landscapes and answered about unrelated topic",
-            completed=True,
-            follow_ups=["2", "3", "4"],
-            next_step_rational="customer raises an issue unrelated to exploring cities or scenic landscapes which lead to step 4",
+            id="1", completed=StepCompletionStatus.COMPLETED, follow_ups=["2", "3", "4"]
         ),
-        JourneyNodeAdvancement(
-            id="4",
-            customer_dependent_action=False,
-            requires_tool_calls=False,
-            requires_agent_action=True,
-            completed_rational="The agent has not yet referred the customer to the travel information page",
-            completed=False,
-            follow_ups=["None"],
-            next_step_rational="Step was not completed so next step is current step",
-        ),
+        JourneyNodeAdvancement(id="4", completed=StepCompletionStatus.NEEDS_AGENT_ACTION),
     ],
     next_step="4",
 )
+
+example_2_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "From where would you like to request a taxi?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "I'd like to book a taxi from 20 W 34th St., NYC to JFK Airport at 5 PM, please. I'll pay by cash.",
+    ),
+]
 
 book_taxi_shot_journey_nodes = {
     "1": _JourneyNode(
@@ -1206,224 +1188,6 @@ book_taxi_shot_journey_nodes = {
     ),
 }
 
-
-example_2_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "Welcome to our taxi service! How can I help you today?",
-    ),
-    _make_event(
-        "12",
-        EventSource.CUSTOMER,
-        "I would like to book a taxi",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "From where would you like to request a taxi?",
-    ),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "I'd like to book a taxi from 20 W 34th St., NYC to JFK Airport at 5 PM, please. I'll pay by cash.",
-    ),
-]
-
-example_2_expected = JourneyNodeSelectionSchema(
-    rationale="The journey continues as the customer is still booking a taxi",
-    journey_applies=True,
-    requires_backtracking=False,
-    step_advancement=[
-        JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided pickup location '20 W 34th St., NYC' which is in NYC",
-            completed=True,
-            follow_ups=["3", "4"],
-            next_step_rational="the pick up location is in NYC, so next step should be 3",
-        ),
-        JourneyNodeAdvancement(
-            id="3",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided destination 'JFK Airport' in their message",
-            completed=True,
-            follow_ups=["5"],
-            next_step_rational="The step was completed so we can move to next follow up step, 5",
-        ),
-        JourneyNodeAdvancement(
-            id="5",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided pickup time '5 PM' in their message",
-            completed=True,
-            follow_ups=["6"],
-            next_step_rational="The step was completed so we can move to next follow up step, 6",
-        ),
-        JourneyNodeAdvancement(
-            id="6",
-            customer_dependent_action=False,
-            requires_tool_calls=True,
-            requires_agent_action=False,
-            completed_rational="The taxi booking tool has not been called yet we those details",
-            completed=False,
-            next_step_rational="Step was not completed so next step is current step",
-        ),
-    ],
-    next_step="6",
-)
-
-example_3_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "Welcome to our taxi service! How can I help you today?",
-    ),
-    _make_event(
-        "23",
-        EventSource.CUSTOMER,
-        "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
-    ),
-]
-
-example_3_expected = JourneyNodeSelectionSchema(
-    journey_applies=True,
-    rationale="The conversation still discusses booking a taxi, so journey applies",
-    requires_backtracking=False,
-    step_advancement=[
-        JourneyNodeAdvancement(
-            id="1",
-            customer_dependent_action=False,
-            requires_tool_calls=False,
-            requires_agent_action=True,
-            completed_rational="The agent already welcomed the customer",
-            completed=True,
-            follow_ups=["2"],
-            next_step_rational="The only next step is 2, so will continue to 2",
-        ),
-        JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided pickup location '20 W 34th St., NYC'",
-            completed=True,
-            follow_ups=["3", "4"],
-            next_step_rational="the pick up location is in NYC, so next step should be 3",
-        ),
-        JourneyNodeAdvancement(
-            id="3",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided destination 'JFK Airport'",
-            completed=True,
-            follow_ups=["5"],
-            next_step_rational="The step was completed so we can move to next follow up step, 5",
-        ),
-        JourneyNodeAdvancement(
-            id="5",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer has not provided the pick up time",
-            completed=False,
-            next_step_rational="Step was not completed so next step is current step",
-        ),
-    ],
-    next_step="5",
-)
-
-
-example_4_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "I need help with booking a taxi",
-    ),
-    _make_event(
-        "12",
-        EventSource.CUSTOMER,
-        "I would like to book a taxi from Newark Airport to Manhattan",
-    ),
-    _make_event(
-        "23",
-        EventSource.AI_AGENT,
-        "I'm sorry, we do not operate outside of NYC.",
-    ),
-    _make_event(
-        "34",
-        EventSource.CUSTOMER,
-        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
-    ),
-    _make_event(
-        "67",
-        EventSource.AI_AGENT,
-        "Yes! What time would you like to be picked up?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
-    ),
-]
-
-example_4_expected = JourneyNodeSelectionSchema(
-    rationale="The conversation still discusses booking a taxi",
-    journey_applies=True,
-    requires_backtracking=True,
-    backtracking_rational="The customer asked to change their pickup location, so need to backtrack to pickup location step (2)",
-    backtracking_target_step="2",
-    step_advancement_after_backtracking_rational="After backtracking to step 2, we can advance through steps since the customer already provided destination (Times Square) and pickup time (8 AM)",
-    step_advancement=[
-        JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided new pickup location 'LaGuardia Airport' which is in NYC",
-            completed=True,
-            follow_ups=["3", "4"],
-            next_step_rational="The pick up location is in NYC, so next step should be 3",
-        ),
-        JourneyNodeAdvancement(
-            id="3",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer previously provided destination 'Times Square'",
-            completed=True,
-            follow_ups=["5"],
-            next_step_rational="The step was completed so we can move to next follow up step, 5",
-        ),
-        JourneyNodeAdvancement(
-            id="5",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer previously provided pickup time '8 AM'",
-            completed=True,
-            follow_ups=["6"],
-            next_step_rational="The step was completed so we can move to next follow up step, 6",
-        ),
-        JourneyNodeAdvancement(
-            id="6",
-            customer_dependent_action=False,
-            requires_tool_calls=True,
-            requires_agent_action=False,
-            completed_rational="The taxi booking tool has not been called yet",
-            completed=False,
-            next_step_rational="Step was not completed so next step is this step",
-        ),
-    ],
-    next_step="6",
-)
-
 random_actions_journey_nodes = {
     "1": _JourneyNode(
         id="1",
@@ -1480,6 +1244,149 @@ random_actions_journey_nodes = {
     ),
 }
 
+example_2_expected = JourneyNodeSelectionSchema(
+    journey_applies=True,
+    rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
+    requires_backtracking=False,
+    step_advancement=[
+        JourneyNodeAdvancement(
+            id="2", completed=StepCompletionStatus.COMPLETED, follow_ups=["3", "4"]
+        ),
+        JourneyNodeAdvancement(id="3", completed=StepCompletionStatus.COMPLETED, follow_ups=["5"]),
+        JourneyNodeAdvancement(id="5", completed=StepCompletionStatus.COMPLETED, follow_ups=["6"]),
+        JourneyNodeAdvancement(id="6", completed=StepCompletionStatus.NEEDS_TOOL_CALL),
+    ],
+    next_step="6",
+)
+
+example_3_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "23",
+        EventSource.CUSTOMER,
+        "I'd like a taxi from 20 W 34th St., NYC to JFK Airport, please. I'll pay by cash.",
+    ),
+]
+
+example_3_expected = JourneyNodeSelectionSchema(
+    journey_applies=True,
+    rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
+    requires_backtracking=False,
+    step_advancement=[
+        JourneyNodeAdvancement(id="1", completed=StepCompletionStatus.COMPLETED, follow_ups=["3"]),
+        JourneyNodeAdvancement(
+            id="2", completed=StepCompletionStatus.COMPLETED, follow_ups=["3", "4"]
+        ),
+        JourneyNodeAdvancement(id="3", completed=StepCompletionStatus.COMPLETED, follow_ups=["5"]),
+        JourneyNodeAdvancement(id="5", completed=StepCompletionStatus.NEEDS_CUSTOMER_INPUT),
+    ],
+    next_step="5",
+)
+
+example_4_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi from Newark Airport to Manhattan",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'm sorry, we do not operate outside of NYC.",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+    ),
+    _make_event(
+        "45",
+        EventSource.AI_AGENT,
+        "Great! Where would you like to go?",
+    ),
+    _make_event(
+        "56",
+        EventSource.CUSTOMER,
+        "Times Square please",
+    ),
+    _make_event(
+        "67",
+        EventSource.AI_AGENT,
+        "Perfect! What time would you like to be picked up?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "Actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    ),
+]
+
+example_4_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "I need help with booking a taxi",
+    ),
+    _make_event(
+        "12",
+        EventSource.CUSTOMER,
+        "I would like to book a taxi from Newark Airport to Manhattan",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'm sorry, we do not operate outside of NYC.",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Oh I see. Well, can I book a taxi from JFK Airport to Times Square then?",
+    ),
+    _make_event(
+        "67",
+        EventSource.AI_AGENT,
+        "Yes! What time would you like to be picked up?",
+    ),
+    _make_event(
+        "78",
+        EventSource.CUSTOMER,
+        "8 AM. But actually, I changed my mind about the pickup location. Can you pick me up from LaGuardia Airport instead?",
+    ),
+]
+
+example_4_expected = JourneyNodeSelectionSchema(
+    journey_applies=True,
+    requires_backtracking=True,
+    rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
+    backtracking_target_step="2",
+    step_advancement=[
+        JourneyNodeAdvancement(
+            id="2", completed=StepCompletionStatus.COMPLETED, follow_ups=["3", "4"]
+        ),
+        JourneyNodeAdvancement(
+            id="3",
+            completed=StepCompletionStatus.COMPLETED,
+            follow_ups=["5"],
+        ),
+        JourneyNodeAdvancement(
+            id="5",
+            completed=StepCompletionStatus.COMPLETED,
+            follow_ups=["6"],
+        ),
+        JourneyNodeAdvancement(id="6", completed=StepCompletionStatus.NEEDS_TOOL_CALL),
+    ],
+    next_step="6",
+)
+
 example_5_events = [
     _make_event(
         "11",
@@ -1499,36 +1406,46 @@ example_5_events = [
 ]
 
 example_5_expected = JourneyNodeSelectionSchema(
-    rationale="We talked about capitals and need to advance to the following step and ask for money. Journey still applies",
     journey_applies=True,
+    rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
     step_advancement=[
-        JourneyNodeAdvancement(
-            id="1",
-            customer_dependent_action=False,
-            requires_tool_calls=False,
-            requires_agent_action=True,
-            completed_rational="We stated a capital city",
-            completed=True,
-            follow_ups=["2"],
-            next_step_rational="We completed this step and can move to the follow up step, 2",
-        ),
-        JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="The agent has not yet asked the customer for money",
-            completed=False,
-            follow_ups=["3"],
-            next_step_rational="Step was not completed so next step is this step",
-        ),
+        JourneyNodeAdvancement(id="1", completed=StepCompletionStatus.COMPLETED, follow_ups=["2"]),
+        JourneyNodeAdvancement(id="2", completed=StepCompletionStatus.NEEDS_CUSTOMER_INPUT),
     ],
     next_step="2",
 )
 
 
 # Example 6: Loan Application Journey with branching, backtracking, and completion
+
+example_6_events = [
+    _make_event("1", EventSource.CUSTOMER, "Hi, I want to apply for a loan."),
+    _make_event("2", EventSource.AI_AGENT, "Great! Can I have your full name?"),
+    _make_event("3", EventSource.CUSTOMER, "Jane Doe"),
+    _make_event(
+        "4", EventSource.AI_AGENT, "What type of loan are you interested in? Personal or Business?"
+    ),
+    _make_event("5", EventSource.CUSTOMER, "Personal"),
+    _make_event("6", EventSource.AI_AGENT, "How much would you like to borrow?"),
+    _make_event("7", EventSource.CUSTOMER, "50000"),
+    _make_event("8", EventSource.AI_AGENT, "What is your current employment status?"),
+    _make_event(
+        "9",
+        EventSource.CUSTOMER,
+        "I work as a finance manager for Very Important Business Deals LTD",
+    ),
+    _make_event(
+        "10",
+        EventSource.AI_AGENT,
+        "Please review your application: Name: Jane Doe, Type: Personal, Amount: 50000, Employment: Finance manager for Very Important Business Deals LTD. Confirm to submit?",
+    ),
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Actually, I want to take it as a business loan instead. It's for the company I work at. Use their car fleet as collateral. Same loan details otherwise",
+    ),
+]
 
 loan_journey_nodes = {
     "1": _JourneyNode(
@@ -1736,71 +1653,24 @@ loan_journey_nodes = {
     ),
 }
 
-example_6_events = [
-    _make_event("1", EventSource.CUSTOMER, "Hi, I want to apply for a loan."),
-    _make_event("2", EventSource.AI_AGENT, "Great! Can I have your full name?"),
-    _make_event("3", EventSource.CUSTOMER, "Jane Doe"),
-    _make_event(
-        "4", EventSource.AI_AGENT, "What type of loan are you interested in? Personal or Business?"
-    ),
-    _make_event("5", EventSource.CUSTOMER, "Personal"),
-    _make_event("6", EventSource.AI_AGENT, "How much would you like to borrow?"),
-    _make_event("7", EventSource.CUSTOMER, "50000"),
-    _make_event("8", EventSource.AI_AGENT, "What is your current employment status?"),
-    _make_event(
-        "9",
-        EventSource.CUSTOMER,
-        "I work as a finance manager for Very Important Business Deals LTD",
-    ),
-    _make_event(
-        "10",
-        EventSource.AI_AGENT,
-        "Please review your application: Name: Jane Doe, Type: Personal, Amount: 50000, Employment: Finance manager for Very Important Business Deals LTD. Confirm to submit?",
-    ),
-    _make_event(
-        "11",
-        EventSource.CUSTOMER,
-        "Actually, I want to take it as a business loan instead. It's for the company I work at. Use their car fleet as collateral. Same loan details otherwise",
-    ),
-]
-
 example_6_expected = JourneyNodeSelectionSchema(
-    rationale="The journey continues as the customer is still applying for a loan",
     journey_applies=True,
     requires_backtracking=True,
-    backtracking_rational="The customer changed their loan type decision from personal to business loan after providing all information for personal loan. Need to backtrack to the loan type step (2)",
+    rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
     backtracking_target_step="2",
-    step_advancement_after_backtracking_rational="After backtracking to step 2, we can advance through the business loan path using the provided loan details (amount: 50000, collateral: car fleet)",
     step_advancement=[
         JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="The customer changed their mind and said they want a business loan",
-            completed=True,
-            follow_ups=["3", "4"],
-            next_step_rational="Customer chose business loan so next step should be 4",
+            id="2", completed=StepCompletionStatus.COMPLETED, follow_ups=["3", "4"]
         ),
         JourneyNodeAdvancement(
             id="4",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer previously provided loan amount (50000)",
-            completed=True,
+            completed=StepCompletionStatus.COMPLETED,
             follow_ups=["6"],
-            next_step_rational="The customer asked for a business loan so next step should be 6",
         ),
         JourneyNodeAdvancement(
             id="6",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Car fleet provided as collateral",
-            completed=True,
+            completed=StepCompletionStatus.COMPLETED,
             follow_ups=["8", "None"],
-            next_step_rational="The collateral is physical asset so next step is None",
         ),
     ],
     next_step="None",
@@ -1857,48 +1727,20 @@ example_7_events = [
 ]
 
 example_7_expected = JourneyNodeSelectionSchema(
-    rationale="The journey continues as the customer is applying for a loan.",
     journey_applies=True,
     requires_backtracking=False,
+    rationale="The customer wants a loan for their restaurant, making it a business loan. We can proceed through steps 4 and 6, since the customer already specified their desired loan amount and the collateral for the loan. This brings us to step 8, which was not completed yet.",
     step_advancement=[
         JourneyNodeAdvancement(
-            id="2",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="The customer wants a loan for their restaurant, making it a business loan",
-            completed=True,
-            follow_ups=["3", "4"],
-            next_step_rational="since its a business loan we should continue to step 4",
+            id="2", completed=StepCompletionStatus.COMPLETED, follow_ups=["3", "4"]
         ),
+        JourneyNodeAdvancement(id="4", completed=StepCompletionStatus.COMPLETED, follow_ups=["6"]),
         JourneyNodeAdvancement(
-            id="4",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided loan amount ($10,000) in their initial message",
-            completed=True,
-            follow_ups=["6"],
-            next_step_rational="Step was completed and we can move to the next one, step 6",
-        ),
-        JourneyNodeAdvancement(
-            id="6",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Customer provided stocks as collateral in their initial message (digital asset)",
-            completed=True,
-            follow_ups=["8", "None"],
-            next_step_rational="The collateral is digital so next step is 8",
+            id="6", completed=StepCompletionStatus.COMPLETED, follow_ups=["8", "None"]
         ),
         JourneyNodeAdvancement(
             id="8",
-            customer_dependent_action=True,
-            requires_tool_calls=False,
-            requires_agent_action=False,
-            completed_rational="Have not review and confirm with the customer",
-            completed=False,
-            next_step_rational="Step has not completed so next step is 8",
+            completed=StepCompletionStatus.NEEDS_CUSTOMER_INPUT,
         ),
     ],
     next_step="8",

@@ -431,7 +431,7 @@ Feature: Strict Canned Response
         And at least one message contains the text "Your claim has been successfully filed. Your reference number is CLM-2024-789456"
         And at least one message contains the text "The estimated processing time is 5-7 business days"
 
-    Scenario: The agent doesn't send two highly similar canned responses instead of one 1 (strict canned response) 
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 1 (strict canned response) 
         Given the journey called "Book Hotel Journey"
         And that the agent uses the canned_strict message composition mode
         And a customer message, "I need to book a hotel."
@@ -448,7 +448,7 @@ Feature: Strict Canned Response
         And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
 
     # Nearly identical to the previous scenario. We previously saw cases where this fail when the previous did not
-    Scenario: The agent doesn't send two highly similar canned responses instead of one 2 (strict canned response) 
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 2 (strict canned response) 
         Given the journey called "Book Hotel Journey"
         And that the agent uses the canned_strict message composition mode
         And a customer message, "I need to book a hotel."

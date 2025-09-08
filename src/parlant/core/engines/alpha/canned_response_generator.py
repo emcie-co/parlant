@@ -2030,8 +2030,6 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
-        with open("follow up prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     # FIXME: handle cases where the customer sends a message before the follow-up generation is finished

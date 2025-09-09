@@ -4,29 +4,56 @@ import {Level, Type} from '../log-filters/log-filters';
 import {useState} from 'react';
 import {Plus} from 'lucide-react';
 
+/**
+ * Interface defining the structure of a filter definition
+ */
 interface DefInterface {
+	/** The log level for filtering */
 	level?: Level;
+	/** Array of log types to filter by */
 	types?: Type[];
+	/** Array of content strings to filter by */
 	content?: string[];
 }
 
+/**
+ * Interface representing a filter tab with its configuration
+ */
 export interface Filter {
+	/** Unique identifier for the filter */
 	id: number;
+	/** Display name of the filter */
 	name: string;
+	/** Filter definition containing the actual filter criteria */
 	def: DefInterface | null;
 }
 
+/**
+ * Props interface for the FilterTabs component
+ */
 interface FilterTabsFilterProps {
+	/** Array of filter tabs to display */
 	filterTabs: Filter[];
+	/** Function to set the currently active filter tab */
 	setCurrFilterTabs: React.Dispatch<React.SetStateAction<number | null>>;
+	/** Function to update the filter tabs array */
 	setFilterTabs: React.Dispatch<React.SetStateAction<Filter[]>>;
+	/** ID of the currently active filter tab */
 	currFilterTabs: number | null;
 }
 
+/**
+ * Component that renders a horizontal list of filter tabs with editing capabilities
+ * @param props - The component props
+ * @returns JSX element containing the filter tabs interface
+ */
 const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTabs}: FilterTabsFilterProps) => {
 	const [isEditing, setIsEditing] = useState(false);
 	const [inputVal, setInputVal] = useState('');
 
+	/**
+	 * Creates a new filter tab and adds it to the list
+	 */
 	const addFilter = () => {
 		const val: Filter = {id: Date.now(), name: 'Logs', def: {level: 'DEBUG', types: []}};
 		const allTabs = [...filterTabs, val];
@@ -34,6 +61,11 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 		setCurrFilterTabs(val.id);
 	};
 
+	/**
+	 * Handles click events on filter tab names to enable editing mode
+	 * @param e - The mouse click event
+	 * @param tab - The filter tab that was clicked
+	 */
 	const clicked = (e: React.MouseEvent<HTMLParagraphElement>, tab: Filter) => {
 		e.stopPropagation();
 		setIsEditing(true);
@@ -49,6 +81,11 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 		selectText();
 	};
 
+	/**
+	 * Handles completion of filter tab name editing
+	 * @param e - The event that triggered the edit completion
+	 * @param tab - The filter tab being edited
+	 */
 	const editFinished = (e: any, tab: Filter) => {
 		setIsEditing(false);
 		if (!e.target.textContent) e.target.textContent = inputVal || tab.name;
@@ -59,6 +96,11 @@ const FilterTabs = ({filterTabs, setCurrFilterTabs, setFilterTabs, currFilterTab
 		selection?.removeAllRanges();
 	};
 
+	/**
+	 * Handles cancellation of filter tab name editing
+	 * @param e - The event that triggered the edit cancellation
+	 * @param tab - The filter tab being edited
+	 */
 	const editCancelled = (e: any, tab: Filter) => {
 		setIsEditing(false);
 		e.target.textContent = tab.name;

@@ -67,6 +67,14 @@ from parlant.core.relationships import RelationshipKind, RelationshipStore
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
+    """
+    A guideline matching strategy that categorizes guidelines into different types
+    and creates appropriate processing batches for each category.
+    
+    This strategy handles observational guidelines, actionable guidelines,
+    previously applied guidelines, disambiguation guidelines, and journey node selection.
+    """
+    
     def __init__(
         self,
         logger: Logger,
@@ -93,6 +101,24 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journey_step_selection_schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
+        """
+        Initialize the generic guideline matching strategy.
+        
+        Args:
+            logger: Logger instance for recording events
+            optimization_policy: Policy for optimization decisions
+            guideline_store: Store for accessing guidelines
+            journey_store: Store for accessing journeys
+            relationship_store: Store for accessing relationships between entities
+            entity_queries: Queries for finding entity relationships
+            observational_guideline_schematic_generator: Generator for observational guideline schemas
+            previously_applied_actionable_guideline_schematic_generator: Generator for previously applied actionable guideline schemas
+            previously_applied_actionable_customer_dependent_guideline_schematic_generator: Generator for customer-dependent previously applied guideline schemas
+            actionable_guideline_schematic_generator: Generator for actionable guideline schemas
+            disambiguation_guidelines_schematic_generator: Generator for disambiguation guideline schemas
+            journey_step_selection_schematic_generator: Generator for journey step selection schemas
+            response_analysis_schematic_generator: Generator for response analysis schemas
+        """
         self._logger = logger
 
         self._guideline_store = guideline_store
@@ -126,6 +152,19 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        """
+        Create matching batches by categorizing guidelines into different types.
+        
+        Guidelines are categorized into observational, actionable, previously applied,
+        disambiguation, and journey node selection types, then processed into appropriate batches.
+        
+        Args:
+            guidelines: Sequence of guidelines to categorize and batch
+            context: Context containing session, agent, and interaction information
+            
+        Returns:
+            Sequence of guideline matching batches ready for processing
+        """
         observational_guidelines: list[Guideline] = []
         previously_applied_actionable_guidelines: list[Guideline] = []
         previously_applied_actionable_customer_dependent_guidelines: list[Guideline] = []
@@ -216,6 +255,16 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guideline_matches: Sequence[GuidelineMatch],
         context: ResponseAnalysisContext,
     ) -> Sequence[GenericResponseAnalysisBatch]:
+        """
+        Create response analysis batches from guideline matches.
+        
+        Args:
+            guideline_matches: Sequence of guideline matches to analyze
+            context: Context for response analysis
+            
+        Returns:
+            Sequence of response analysis batches, empty if no matches provided
+        """
         if not guideline_matches:
             return []
 
@@ -234,6 +283,18 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         self,
         matches: Sequence[GuidelineMatch],
     ) -> Sequence[GuidelineMatch]:
+        """
+        Transform guideline matches by processing disambiguation matches.
+        
+        Creates transient guidelines for disambiguation matches and filters out
+        guidelines that should be skipped due to disambiguation.
+        
+        Args:
+            matches: Sequence of guideline matches to transform
+            
+        Returns:
+            Transformed sequence of guideline matches
+        """
         result: list[GuidelineMatch] = []
         guidelines_to_skip: set[GuidelineId] = set()
 
@@ -281,6 +342,19 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        """
+        Create batches for observational guidelines.
+        
+        Splits guidelines into optimally sized batches and creates observational
+        guideline matching batches with associated journeys.
+        
+        Args:
+            guidelines: Sequence of observational guidelines to batch
+            context: Context for guideline matching
+            
+        Returns:
+            Sequence of observational guideline matching batches
+        """
         journeys = list(
             chain.from_iterable(
                 self._entity_queries.find_journeys_on_which_this_guideline_depends.get(g.id, [])
@@ -326,6 +400,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> GenericObservationalGuidelineMatchingBatch:
+        """
+        Create a single observational guideline matching batch.
+        
+        Args:
+            guidelines: Guidelines to include in the batch
+            journeys: Associated journeys for the guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Observational guideline matching batch
+        """
         return GenericObservationalGuidelineMatchingBatch(
             logger=self._logger,
             optimization_policy=self._optimization_policy,
@@ -340,6 +425,16 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        """
+        Create batches for previously applied actionable guidelines.
+        
+        Args:
+            guidelines: Sequence of previously applied actionable guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Sequence of previously applied actionable guideline matching batches
+        """
         journeys = list(
             chain.from_iterable(
                 self._entity_queries.find_journeys_on_which_this_guideline_depends.get(g.id, [])
@@ -385,6 +480,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
+        """
+        Create a single previously applied actionable guideline matching batch.
+        
+        Args:
+            guidelines: Guidelines to include in the batch
+            journeys: Associated journeys for the guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Previously applied actionable guideline matching batch
+        """
         return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
             logger=self._logger,
             optimization_policy=self._optimization_policy,
@@ -399,6 +505,16 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        """
+        Create batches for previously applied customer-dependent actionable guidelines.
+        
+        Args:
+            guidelines: Sequence of customer-dependent previously applied guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Sequence of customer-dependent previously applied guideline matching batches
+        """
         journeys = list(
             chain.from_iterable(
                 self._entity_queries.find_journeys_on_which_this_guideline_depends.get(g.id, [])
@@ -444,6 +560,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch:
+        """
+        Create a single customer-dependent previously applied actionable guideline batch.
+        
+        Args:
+            guidelines: Guidelines to include in the batch
+            journeys: Associated journeys for the guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Customer-dependent previously applied actionable guideline matching batch
+        """
         return GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
             logger=self._logger,
             optimization_policy=self._optimization_policy,
@@ -458,6 +585,16 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        """
+        Create batches for actionable guidelines.
+        
+        Args:
+            guidelines: Sequence of actionable guidelines to batch
+            context: Context for guideline matching
+            
+        Returns:
+            Sequence of actionable guideline matching batches
+        """
         journeys = list(
             chain.from_iterable(
                 self._entity_queries.find_journeys_on_which_this_guideline_depends.get(g.id, [])
@@ -503,6 +640,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journeys: Sequence[Journey],
         context: GuidelineMatchingContext,
     ) -> GenericActionableGuidelineMatchingBatch:
+        """
+        Create a single actionable guideline matching batch.
+        
+        Args:
+            guidelines: Guidelines to include in the batch
+            journeys: Associated journeys for the guidelines
+            context: Context for guideline matching
+            
+        Returns:
+            Actionable guideline matching batch
+        """
         return GenericActionableGuidelineMatchingBatch(
             logger=self._logger,
             optimization_policy=self._optimization_policy,
@@ -517,6 +665,16 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         candidate: Guideline,
         guidelines: Sequence[Guideline],
     ) -> Optional[list[Guideline]]:
+        """
+        Attempt to find disambiguation targets for a candidate guideline.
+        
+        Args:
+            candidate: Guideline to check for disambiguation relationships
+            guidelines: Available guidelines to search for targets
+            
+        Returns:
+            List of target guidelines if disambiguation group found, None otherwise
+        """
         guidelines_dict = {g.id: g for g in guidelines}
 
         if relationships := await self._relationship_store.list_relationships(
@@ -536,6 +694,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         disambiguation_targets: list[Guideline],
         context: GuidelineMatchingContext,
     ) -> GenericDisambiguationGuidelineMatchingBatch:
+        """
+        Create a disambiguation guideline matching batch.
+        
+        Args:
+            disambiguation_guideline: Source guideline for disambiguation
+            disambiguation_targets: Target guidelines for disambiguation
+            context: Context for guideline matching
+            
+        Returns:
+            Disambiguation guideline matching batch
+        """
         journeys = list(
             chain.from_iterable(
                 self._entity_queries.find_journeys_on_which_this_guideline_depends.get(g.id, [])
@@ -570,6 +739,17 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         step_guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> GenericJourneyNodeSelectionBatch:
+        """
+        Create a journey node selection batch.
+        
+        Args:
+            examined_journey: Journey being examined for node selection
+            step_guidelines: Guidelines associated with journey steps
+            context: Context for guideline matching
+            
+        Returns:
+            Journey node selection batch
+        """
         return GenericJourneyNodeSelectionBatch(
             logger=self._logger,
             guideline_store=self._guideline_store,
@@ -593,4 +773,13 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         )
 
     def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
+        """
+        Get the optimal batch size for processing guidelines.
+        
+        Args:
+            guidelines: Dictionary of guidelines to determine batch size for
+            
+        Returns:
+            Optimal batch size based on optimization policy
+        """
         return self._optimization_policy.get_guideline_matching_batch_size(len(guidelines))

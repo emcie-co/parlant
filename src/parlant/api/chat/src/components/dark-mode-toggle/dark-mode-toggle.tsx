@@ -1,6 +1,15 @@
 import { ReactNode, useEffect, useState } from 'react';
 
+/**
+ * A toggle component that allows users to switch between light and dark themes.
+ * Persists the theme preference in localStorage and applies the appropriate CSS classes.
+ * @returns {ReactNode} The rendered dark mode toggle button component
+ */
 const DarkModeToggle = (): ReactNode =>{
+    /**
+     * Retrieves the initial theme from localStorage or defaults to 'light'.
+     * @returns {string} The stored theme value or 'light' as default
+     */
     const getInitialTheme = () => localStorage.getItem('theme') || 'light';
     const [theme, setTheme] = useState(getInitialTheme);
   
@@ -16,6 +25,9 @@ const DarkModeToggle = (): ReactNode =>{
       localStorage.setItem('theme', theme);
     }, [theme]);
   
+    /**
+     * Toggles the current theme between 'light' and 'dark'.
+     */
     const toggleTheme = () => {
       setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
     };

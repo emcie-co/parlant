@@ -8,8 +8,14 @@ import {useAtom} from 'jotai';
 import {agentAtom, agentsAtom, customerAtom, customersAtom, dialogAtom, newSessionAtom, sessionAtom} from '@/store';
 import Avatar from '../avatar/avatar';
 
+/**
+ * Constant identifier used for new session creation
+ */
 export const NEW_SESSION_ID = 'NEW_SESSION';
 
+/**
+ * Default session object template for creating new conversations
+ */
 const newSessionObj: SessionInterface = {
 	customer_id: '',
 	title: 'New Conversation',
@@ -18,6 +24,13 @@ const newSessionObj: SessionInterface = {
 	id: NEW_SESSION_ID,
 };
 
+/**
+ * Component that renders a dialog for selecting agents and customers.
+ * Displays a list of available agents or customers based on current selection state.
+ * Automatically selects the first agent if only one is available.
+ * 
+ * @returns React component that renders the agent/customer selection dialog
+ */
 const AgentList = (): ReactNode => {
 	const [, setSession] = useAtom(sessionAtom);
 	const [agent, setAgent] = useAtom(agentAtom);
@@ -31,6 +44,11 @@ const AgentList = (): ReactNode => {
 		if (agents?.length && agents.length === 1) selectAgent(agents[0]);
 	}, []);
 
+	/**
+	 * Handles agent selection and automatically proceeds to customer selection if only one customer exists
+	 * 
+	 * @param agent - The selected agent object
+	 */
 	const selectAgent = (agent: AgentInterface): void => {
 		setAgent(agent);
 		if (customers.length < 2) {
@@ -38,6 +56,12 @@ const AgentList = (): ReactNode => {
 		}
 	};
 
+	/**
+	 * Handles customer selection, creates a new session, and closes the dialog
+	 * 
+	 * @param customer - The selected customer object
+	 * @param currAgent - Optional current agent to use if no agent is set in state
+	 */
 	const selectCustomer = (customer: CustomerInterface, currAgent?: AgentInterface) => {
 		setAgent(agent || currAgent || null);
 		setCustomer(customer);

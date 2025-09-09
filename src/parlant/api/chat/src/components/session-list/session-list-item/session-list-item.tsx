@@ -17,6 +17,18 @@ import {copy, exportToCsv, getIndexedItemsFromIndexedDB} from '@/lib/utils';
 import Avatar from '@/components/avatar/avatar';
 import CopyText from '@/components/ui/custom/copy-text';
 
+/**
+ * Props interface for the SessionListItem component
+ * @interface Props
+ * @property {SessionInterface} session - The session data to display
+ * @property {boolean} [disabled] - Whether the component is disabled
+ * @property {boolean} [isSelected] - Whether this session is currently selected
+ * @property {string | null} [editingTitle] - The ID of the session currently being edited
+ * @property {Dispatch<SetStateAction<string | null>>} [setEditingTitle] - Function to set the editing title state
+ * @property {() => void} [refetch] - Function to refetch session data
+ * @property {number} [tabIndex] - Tab index for keyboard navigation
+ * @property {ClassNameValue} [className] - Additional CSS classes
+ */
 interface Props {
 	session: SessionInterface;
 	disabled?: boolean;
@@ -28,6 +40,14 @@ interface Props {
 	className?: ClassNameValue;
 }
 
+/**
+ * Dialog component for confirming session deletion
+ * @param {Object} props - Component props
+ * @param {SessionInterface} props.session - The session to be deleted
+ * @param {() => void} props.closeDialog - Function to close the dialog
+ * @param {(e: React.MouseEvent) => Promise<void> | undefined} props.deleteClicked - Function to handle delete confirmation
+ * @returns {JSX.Element} The delete confirmation dialog
+ */
 export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: SessionInterface; closeDialog: () => void; deleteClicked: (e: React.MouseEvent) => Promise<void> | undefined}) => (
 	<div data-testid='deleteDialogContent'>
 		<SessionListItem session={session} disabled />
@@ -42,6 +62,11 @@ export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: Se
 	</div>
 );
 
+/**
+ * A list item component that displays session information with interactive features
+ * @param {Props} props - Component props
+ * @returns {ReactElement} The session list item component
+ */
 export default function SessionListItem({session, isSelected, refetch, editingTitle, setEditingTitle, tabIndex, disabled, className}: Props): ReactElement {
 	const sessionNameRef = useRef<HTMLInputElement>(null);
 	const [agents] = useAtom(agentsAtom);
@@ -57,6 +82,9 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 	const [isDeleting, setIsDeleting] = useState(false);
 	const contentRef = useRef<HTMLDivElement>(null);
 
+	/**
+	 * Effect to handle session selection and set related agent/customer data
+	 */
 	useEffect(() => {
 		if (!isSelected) return;
 		if (session.id === NEW_SESSION_ID && !session.agent_id) setAgent(null);
@@ -67,17 +95,32 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isSelected, setAgent, session.id, session.agent_id, session.title]);
 
+	/**
+	 * Effect to create a map of agents for quick lookup
+	 */
 	useEffect(() => {
 		if (agents) setAgentsMap(new Map(agents.map((agent) => [agent.id, agent])));
 	}, [agents]);
 
+	/**
+	 * Effect to create a map of customers for quick lookup
+	 */
 	useEffect(() => {
 		if (customers) setCustomerMap(new Map(customers.map((customer) => [customer.id, customer])));
 	}, [customers]);
 
+	/**
+	 * Handles session deletion with confirmation dialog
+	 * @param {React.MouseEvent} e - Mouse event
+	 */
 	const deleteSession = async (e: React.MouseEvent) => {
 		e.stopPropagation();
 
+		/**
+		 * Handles the actual deletion after confirmation
+		 * @param {React.MouseEvent} e - Mouse event
+		 * @returns {Promise<void> | undefined} Promise for API call or undefined for new sessions
+		 */
 		const deleteClicked = (e: React.MouseEvent) => {
 			dialog.closeDialog();
 			e.stopPropagation();
@@ -116,6 +159,10 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		);
 	};
 
+	/**
+	 * Exports session data to CSV format
+	 * @param {React.MouseEvent} e - Mouse event
+	 */
 	const exportSessionToCsv = async (e: React.MouseEvent) => {
 		const flaggedItems = await getIndexedItemsFromIndexedDB('Parlant-flags', 'message_flags', 'sessionIndex', session.id, {name: 'sessionIndex', keyPath: 'sessionId'}, true);
 
@@ -161,6 +208,11 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		}
 	};
 
+	/**
+	 * Fetches session event data from the API
+	 * @param {string} sessionId - The ID of the session to fetch
+	 * @returns {Promise<any>} Promise resolving to session events or empty messages array
+	 */
 	const fetchSessionData = async (sessionId: string) => {
 		try {
 			const response = await fetch(`${BASE_URL}/sessions/${sessionId}/events`);
@@ -172,12 +224,20 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		}
 	};
 
+	/**
+	 * Initiates title editing mode for the session
+	 * @param {React.MouseEvent} e - Mouse event
+	 */
 	const editTitle = async (e: React.MouseEvent) => {
 		e.stopPropagation();
 		setEditingTitle?.(session.id);
 		setTimeout(() => sessionNameRef?.current?.select(), 0);
 	};
 
+	/**
+	 * Saves the edited session title
+	 * @param {React.MouseEvent | React.KeyboardEvent} e - Mouse or keyboard event
+	 */
 	const saveTitleChange = (e: React.MouseEvent | React.KeyboardEvent) => {
 		e.stopPropagation();
 		const title = sessionNameRef?.current?.value?.trim();
@@ -200,11 +260,19 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 		}
 	};
 
+	/**
+	 * Cancels the title editing operation
+	 * @param {React.MouseEvent} e - Mouse event
+	 */
 	const cancel = (e: React.MouseEvent) => {
 		e.stopPropagation();
 		setEditingTitle?.(null);
 	};
 
+	/**
+	 * Handles keyboard input during title editing
+	 * @param {React.KeyboardEvent} e - Keyboard event
+	 */
 	const onInputKeyUp = (e: React.KeyboardEvent) => {
 		if (e.key === 'Enter') saveTitleChange(e);
 	};

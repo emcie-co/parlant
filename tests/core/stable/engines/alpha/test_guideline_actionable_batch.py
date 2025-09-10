@@ -1025,6 +1025,7 @@ async def test_inexplicit_then_inexplicit_banking(context, agent, new_session, c
         guidelines_names=guidelines,
     )
 
+
 # 2-002  info → complaint (frustration)  → match "frustrated_so_discount"
 async def test_info_then_complaint_triggers_frustration_discount(
     context: ContextOfTest, agent: Agent, new_session: Session, customer: Customer
@@ -1035,10 +1036,15 @@ async def test_info_then_complaint_triggers_frustration_discount(
         (EventSource.CUSTOMER, "This took forever to get an answer. I'm really annoyed."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["frustrated_so_discount"],
         guidelines_names=["frustrated_so_discount"],
     )
+
 
 # 2-004  info → inexplicit issue probing  → match "identify_problem"
 async def test_info_then_inexplicit_issue_triggers_identify_problem(
@@ -1050,7 +1056,11 @@ async def test_info_then_inexplicit_issue_triggers_identify_problem(
         (EventSource.CUSTOMER, "The app is acting weird lately..."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["identify_problem"],
         guidelines_names=["identify_problem"],
     )
@@ -1064,7 +1074,11 @@ async def test_complaint_about_order_triggers_problem_with_order(
         (EventSource.CUSTOMER, "My pizza arrived cold and the box is crushed."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["problem_with_order"],
         guidelines_names=["problem_with_order"],
     )
@@ -1080,7 +1094,11 @@ async def test_no_manager_activation_on_keyword_without_request(
     ]
     guidelines = ["transfer_to_manager", "don't_transfer_to_manager"]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=[],
         guidelines_names=guidelines,
     )
@@ -1093,14 +1111,22 @@ async def test_delivery_time_inquiry_matches_only_true_eta_questions(
     # True ETA → matches
     convo_eta = [(EventSource.CUSTOMER, "What's the estimated delivery time for my order?")]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, convo_eta,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        convo_eta,
         guidelines_target_names=["delivery_time_inquiry"],
         guidelines_names=["delivery_time_inquiry"],
     )
     # Near-miss (hours) → does NOT match
     convo_hours = [(EventSource.CUSTOMER, "Are you open at noon?")]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, convo_hours,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        convo_hours,
         guidelines_target_names=[],
         guidelines_names=["delivery_time_inquiry"],
     )
@@ -1118,7 +1144,11 @@ async def test_exactly_2_wins_over_more_than_2_when_both_present(
     ]
     guidelines = ["first_order_and_order_more_than_2", "first_order_and_order_exactly_2"]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["first_order_and_order_exactly_2"],
         guidelines_names=guidelines,
     )
@@ -1134,7 +1164,11 @@ async def test_action_then_inexplicit_triggers_identify_problem(
         (EventSource.CUSTOMER, "It just fails with some error."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["identify_problem"],
         guidelines_names=["identify_problem"],
     )
@@ -1146,23 +1180,36 @@ async def test_multiple_capabilities_triggers_clarification_when_user_requests_t
 ) -> None:
     capabilities = [
         Capability(
-            id=CapabilityId("cap_pay"), creation_utc=datetime.now(timezone.utc),
-            title="Pay Bill", description="Pay a bill", signals=["pay bill", "payment"], tags=[]
+            id=CapabilityId("cap_pay"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Pay Bill",
+            description="Pay a bill",
+            signals=["pay bill", "payment"],
+            tags=[],
         ),
         Capability(
-            id=CapabilityId("cap_balance"), creation_utc=datetime.now(timezone.utc),
-            title="Check Balance", description="Check account balance", signals=["check balance", "balance"], tags=[]
+            id=CapabilityId("cap_balance"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Check Balance",
+            description="Check account balance",
+            signals=["check balance", "balance"],
+            tags=[],
         ),
     ]
     conversation_context = [
         (EventSource.CUSTOMER, "I want to pay my bill and also see my balance.")
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["multiple_capabilities"],
         guidelines_names=["multiple_capabilities"],
         capabilities=capabilities,
     )
+
 
 # 2-013  action → complaint combo (order issue arises following an action)
 async def test_action_then_complaint_about_order_triggers_problem_with_order(
@@ -1174,8 +1221,12 @@ async def test_action_then_complaint_about_order_triggers_problem_with_order(
         (EventSource.CUSTOMER, "It arrived cold and half the toppings are missing."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
-        guidelines_target_names=["problem_with_order","frustrated_so_discount"],
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=["problem_with_order", "frustrated_so_discount"],
         guidelines_names=["problem_with_order", "frustrated_so_discount"],
     )
 
@@ -1190,7 +1241,11 @@ async def test_inexplicit_then_inexplicit_still_triggers_identify_problem(
         (EventSource.CUSTOMER, "It just does weird stuff sometimes."),
     ]
     await base_test_that_correct_guidelines_are_matched(
-        context, agent, new_session.id, customer, conversation_context,
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
         guidelines_target_names=["identify_problem"],
         guidelines_names=["identify_problem"],
     )

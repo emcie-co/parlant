@@ -463,3 +463,19 @@ Feature: Strict Canned Response
         When processing is triggered
         Then a single message event is emitted
         And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
+
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 3 (strict canned response) 
+        Given the journey called "Book Hotel Journey"
+        And that the agent uses the canned_strict message composition mode
+        And a customer message, "I need to book a hotel."
+        And an agent message, "Alright, tell me the hotel name so I can check it out for you."
+        And a customer message, "The Marriott Downtown"
+        And an agent message, "Perfect, now when are you looking to stay—check-in and check-out dates?"
+        And a customer message, "From September 10th to 25th"
+        And an agent message, "And how many people will be staying with you?"
+        And a customer message, "Just me and my bro"
+        And a canned response, "Do you have a preference—single, double, or maybe a suite?"
+        And a canned response, "What kind of room are you looking for? Single, double, or something fancier?"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"

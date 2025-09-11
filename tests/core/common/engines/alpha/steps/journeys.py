@@ -2311,7 +2311,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "The customer mentioned the number of guests are him and his wife",
+                    "customer_action": "The customer mentioned the number of guests",
                     "agent_action": "",
                 },
             )

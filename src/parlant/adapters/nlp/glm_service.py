@@ -50,17 +50,18 @@ from parlant.core.nlp.moderation import (
     NoModeration,
 )
 
-RATE_LIMIT_ERROR_MESSAGE = (
-    "GLM API rate limit exceeded. Possible reasons:\n"
-    "1. Your account may have insufficient API credits.\n"
-    "2. You may be using a free-tier account with limited request capacity.\n"
-    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
-    "Recommended actions:\n"
-    "- Check your GLM account balance and billing status.\n"
-    "- Review your API usage limits in GLM's dashboard.\n"
-    "- For more details on rate limits and usage tiers, visit:\n"
-    "  https://docs.bigmodel.cn/cn/faq/api-code\n",
-)
+RATE_LIMIT_ERROR_MESSAGE = """\
+GLM API rate limit exceeded. Possible reasons:
+1. Your account may have insufficient API credits.
+2. You may be using a free-tier account with limited request capacity.
+3. You might have exceeded the requests-per-minute limit for your account.
+
+Recommended actions:
+- Check your GLM account balance and billing status.
+- Review your API usage limits in GLM's dashboard.
+- For more details on rate limits and usage tiers, visit:
+    https://docs.bigmodel.cn/cn/faq/api-code
+"""
 
 
 class GLMEstimatingTokenizer(EstimatingTokenizer):
@@ -82,8 +83,7 @@ class GLMEmbedder(Embedder):
 
         self._logger = logger
         self._client = AsyncClient(
-            base_url="https://open.bigmodel.cn/api/paas/v4",
-            api_key=os.environ["GLM_API_KEY"]
+            base_url="https://open.bigmodel.cn/api/paas/v4", api_key=os.environ["GLM_API_KEY"]
         )
         self._tokenizer = GLMEstimatingTokenizer(model_name=self.model_name)
 
@@ -117,8 +117,7 @@ class GLMEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {k: v for k,
-                          v in hints.items() if k in self.supported_arguments}
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
             response = await self._client.embeddings.create(
                 model=self.model_name,
@@ -227,11 +226,9 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(
-                f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning(
-                "Found JSON content within model response; continuing...")
+            self._logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)

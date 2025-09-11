@@ -1448,14 +1448,28 @@ Output a JSON object with three properties:
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
 
-        if not draft_response.content.response_body:
+        draft_message = draft_response.content.response_body
+
+        if not draft_message:
             return {"draft": draft_response.info}, None
 
         if direct_draft_output_mode:
             return {
                 "draft": draft_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_response.content.response_body,
+                message=draft_message,
+                draft=None,
+                canned_responses=[],
+            )
+
+        # Check if, according to the hooks, we should consider the draft
+        # good enough to be sent as-is, without choosing a canned response.
+        if not await self._hooks.call_on_draft_generated(loaded_context, payload=draft_message):
+            # This means it's good enough to be sent as-is.
+            return {
+                "draft": draft_response.info,
+            }, _CannedResponseSelectionResult(
+                message=draft_message,
                 draft=None,
                 canned_responses=[],
             )
@@ -1477,7 +1491,7 @@ Output a JSON object with three properties:
             relevant_canreps = set(
                 r.canned_response
                 for r in await self._canned_response_store.find_relevant_canned_responses(
-                    query=draft_response.content.response_body,
+                    query=draft_message,
                     available_canned_responses=canned_responses,
                     max_count=30,
                 )
@@ -1515,7 +1529,7 @@ Output a JSON object with three properties:
             ):
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
-                    draft_message=draft_response.content.response_body,
+                    draft_message=draft_message,
                     reference_messages=[canrep[1] for canrep in rendered_canreps],
                 )
 
@@ -1524,7 +1538,7 @@ Output a JSON object with three properties:
                     "composition": recomposition_generation_info,
                 }, _CannedResponseSelectionResult(
                     message=composited_message,
-                    draft=draft_response.content.response_body,
+                    draft=draft_message,
                     canned_responses=[],
                 )
 
@@ -1535,7 +1549,7 @@ Output a JSON object with three properties:
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,
-                    draft_message=draft_response.content.response_body,
+                    draft_message=draft_message,
                     canned_responses=rendered_canreps,
                 ),
                 hints={"temperature": 0.1},
@@ -1559,7 +1573,7 @@ Output a JSON object with three properties:
                 )
 
                 no_match_canrep = await self._no_match_provider.get_response(
-                    loaded_context, draft_response.content.response_body
+                    loaded_context, draft_message
                 )
 
                 return {
@@ -1567,7 +1581,7 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
                     message=no_match_canrep.value,
-                    draft=draft_response.content.response_body,
+                    draft=draft_message,
                     canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
                 )
             else:
@@ -1576,8 +1590,8 @@ Output a JSON object with three properties:
                     "draft": draft_response.info,
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
-                    message=draft_response.content.response_body,
-                    draft=draft_response.content.response_body,
+                    message=draft_message,
+                    draft=None,
                     canned_responses=[],
                 )
 
@@ -1591,8 +1605,8 @@ Output a JSON object with three properties:
                 "draft": draft_response.info,
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_response.content.response_body,
-                draft=draft_response.content.response_body,
+                message=draft_message,
+                draft=None,
                 canned_responses=[],
             )
 
@@ -1609,7 +1623,7 @@ Output a JSON object with three properties:
             )
 
             no_match_canrep = await self._no_match_provider.get_response(
-                loaded_context, draft_response.content.response_body
+                loaded_context, draft_message
             )
 
             return {
@@ -1617,7 +1631,7 @@ Output a JSON object with three properties:
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
-                draft=draft_response.content.response_body,
+                draft=draft_message,
                 canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
@@ -1626,7 +1640,7 @@ Output a JSON object with three properties:
             "selection": selection_response.info,
         }, _CannedResponseSelectionResult(
             message=rendered_canned_response,
-            draft=draft_response.content.response_body,
+            draft=draft_message,
             canned_responses=[(selected_canrep_id, rendered_canned_response)],
         )
 

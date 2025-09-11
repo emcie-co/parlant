@@ -27,10 +27,13 @@ class EngineHookResult(Enum):
     """Returns without running the next hooks in the chain"""
 
     BAIL = auto()
-    """Returns without running the next hooks in the chain, and quietly discards the current execution.
+    """Returns without running the next hooks in the chain, and interrupting the current happy-path execution.
 
-    For most hooks, this completely bails out of the processing execution, dropping the response to the customer.
-    Specifically for preparation iterations, this immediately signals that preparation is complete.
+    For most hooks, this completely bails out of the processing execution, *dropping* the response to the customer.
+
+    Specific cases:
+    - Preparation iterations: immediately signals that preparation is complete.
+    - Draft generation: signals that the draft is good enough to be sent as-is, without choosing a canned response.
     """
 
 
@@ -72,6 +75,9 @@ class EngineHooks:
     on_generating_messages: list[EngineHook] = field(default_factory=list)
     """Called just before generating messages"""
 
+    on_draft_generated: list[EngineHook] = field(default_factory=list)
+    """Called right after the draft message was generated"""
+
     on_message_generated: list[EngineHook] = field(default_factory=list)
     """Called right after a message was generated (but not yet emitted)"""
 
@@ -110,6 +116,9 @@ class EngineHooks:
 
     async def call_on_generating_messages(self, context: LoadedContext) -> bool:
         return await self.call_hooks(self.on_generating_messages, context, None)
+
+    async def call_on_draft_generated(self, context: LoadedContext, payload: str) -> bool:
+        return await self.call_hooks(self.on_draft_generated, context, payload)
 
     async def call_on_message_generated(self, context: LoadedContext, payload: str) -> bool:
         return await self.call_hooks(self.on_message_generated, context, payload)

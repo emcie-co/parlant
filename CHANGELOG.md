@@ -4,7 +4,10 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-TBD
+- Allow bailing out of canned response selection and utilize the draft directly, using a hook
+- Add Snowflake Cortex service
+- Add GLM service
+- Support proxy URL for LiteLLM
 
 ## [3.0.2] - 2025-08-27
 

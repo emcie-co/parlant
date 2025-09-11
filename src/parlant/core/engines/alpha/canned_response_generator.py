@@ -2085,9 +2085,6 @@ Output a JSON object with three properties:
             with open("follow up response.txt", "w") as f:
                 f.write(response.content.model_dump_json(indent=2))
 
-            with open("follow up canned response completion.txt", "w") as f:
-                f.write(response.content.model_dump_json(indent=2))
-
             self._logger.trace(
                 f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
             )

@@ -68,15 +68,15 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
     supported_hints = supported_deepseek_params + ["strict"]
 
     def __init__(
-        self,
-        model_name: str,
-        logger: Logger,
+            self,
+            model_name: str,
+            logger: Logger,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
 
         self._client = AsyncClient(
-            base_url="https://api.deepseek.com",
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             api_key=os.environ["DEEPSEEK_API_KEY"],
         )
 
@@ -96,11 +96,11 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         [
             retry(
                 exceptions=(
-                    APIConnectionError,
-                    APITimeoutError,
-                    ConflictError,
-                    RateLimitError,
-                    APIResponseValidationError,
+                        APIConnectionError,
+                        APITimeoutError,
+                        ConflictError,
+                        RateLimitError,
+                        APIResponseValidationError,
                 ),
             ),
             retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
@@ -108,17 +108,17 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
     )
     @override
     async def generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
+            self,
+            prompt: str | PromptBuilder,
+            hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.operation(f"DeepSeek LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
+            self,
+            prompt: str | PromptBuilder,
+            hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
@@ -182,7 +182,7 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
 
 class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="deepseek-chat", logger=logger)
+        super().__init__(model_name=os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"), logger=logger)
 
     @property
     @override
@@ -192,8 +192,8 @@ class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
 
 class DeepSeekService(NLPService):
     def __init__(
-        self,
-        logger: Logger,
+            self,
+            logger: Logger,
     ) -> None:
         self._logger = logger
         self._logger.info("Initialized DeepSeekService")

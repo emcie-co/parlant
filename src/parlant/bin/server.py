@@ -206,7 +206,6 @@ from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
-
 from parlant.core.engines.alpha.message_generator import (
     MessageGenerator,
     MessageGeneratorShot,
@@ -230,7 +229,6 @@ from parlant.core.services.indexing.guideline_connection_proposer import (
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.version import VERSION
-
 
 DEFAULT_PORT = 8800
 SERVER_ADDRESS = "https://localhost"
@@ -350,6 +348,12 @@ def load_litellm() -> NLPService:
     )
 
 
+def load_glm() -> NLPService:
+    return load_nlp_service(
+        "GLM", "glm", "GLMService", "parlant.adapters.nlp.glm_service"
+    )
+
+
 NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
     "anthropic": load_anthropic,
     "aws": load_aws,
@@ -360,6 +364,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
     "openai": load_openai,
     "together": load_together,
     "litellm": load_litellm,
+    "glm": load_glm,
 }
 
 
@@ -383,8 +388,8 @@ async def get_module_list_from_config() -> list[str]:
 
 @asynccontextmanager
 async def load_modules(
-    container: Container,
-    modules: Iterable[str],
+        container: Container,
+        modules: Iterable[str],
 ) -> AsyncIterator[tuple[Container, Sequence[tuple[str, Callable[[Container], Awaitable[None]]]]]]:
     imported_modules = []
     initializers: list[tuple[str, Callable[[Container], Awaitable[None]]]] = []
@@ -558,10 +563,10 @@ async def setup_container() -> AsyncIterator[Container]:
 
 
 async def initialize_container(
-    c: Container,
-    nlp_service_descriptor: NLPServiceName | Callable[[Container], Awaitable[NLPService]],
-    log_level: str | LogLevel,
-    migrate: bool,
+        c: Container,
+        nlp_service_descriptor: NLPServiceName | Callable[[Container], Awaitable[NLPService]],
+        log_level: str | LogLevel,
+        migrate: bool,
 ) -> None:
     def try_define(t: type, value: object) -> None:
         if t not in c.defined_types:
@@ -571,16 +576,16 @@ async def initialize_container(
                 _define_singleton_value(c, t, value)
 
     async def try_define_func(
-        t: type,
-        value_func: Callable[[], Awaitable[object]],
+            t: type,
+            value_func: Callable[[], Awaitable[object]],
     ) -> None:
         if t not in c.defined_types:
             c[t] = await value_func()
 
     async def try_define_document_store(
-        store_interface: type,
-        store_implementation: type,
-        filename: str,
+            store_interface: type,
+            store_implementation: type,
+            filename: str,
     ) -> None:
         if store_interface not in c.defined_types:
             db = await EXIT_STACK.enter_async_context(
@@ -611,12 +616,12 @@ async def initialize_container(
             c[store_interface] = lambda _c: c[store_implementation]
 
     async def try_define_vector_store(
-        store_interface: type,
-        store_implementation: type,
-        vector_db_factory: Callable[[], Awaitable[VectorDatabase]],
-        document_db_filename: str,
-        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
-        embedder_factory: EmbedderFactory,
+            store_interface: type,
+            store_implementation: type,
+            vector_db_factory: Callable[[], Awaitable[VectorDatabase]],
+            document_db_filename: str,
+            embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
+            embedder_factory: EmbedderFactory,
     ) -> None:
         if store_interface not in c.defined_types:
             vector_db = await vector_db_factory()
@@ -674,9 +679,9 @@ async def initialize_container(
             (TagStore, TagDocumentStore, "tags.json"),
             (GuidelineStore, GuidelineDocumentStore, "guidelines.json"),
             (
-                GuidelineToolAssociationStore,
-                GuidelineToolAssociationDocumentStore,
-                "guideline_tool_associations.json",
+                    GuidelineToolAssociationStore,
+                    GuidelineToolAssociationDocumentStore,
+                    "guideline_tool_associations.json",
             ),
             (RelationshipStore, RelationshipDocumentStore, "relationships.json"),
             (SessionStore, SessionDocumentStore, "sessions.json"),
@@ -765,30 +770,30 @@ async def initialize_container(
         )
 
     for schema in (
-        GenericResponseAnalysisSchema,
-        GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
-        GenericActionableGuidelineMatchesSchema,
-        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
-        GenericObservationalGuidelineMatchesSchema,
-        MessageSchema,
-        CannedResponseDraftSchema,
-        CannedResponseSelectionSchema,
-        CannedResponsePreambleSchema,
-        CannedResponseRevisionSchema,
-        CannedResponseFieldExtractionSchema,
-        SingleToolBatchSchema,
-        ConditionsEntailmentTestsSchema,
-        ActionsContradictionTestsSchema,
-        GuidelineConnectionPropositionsSchema,
-        OverlappingToolsBatchSchema,
-        GuidelineActionPropositionSchema,
-        GuidelineContinuousPropositionSchema,
-        CustomerDependentActionSchema,
-        ToolRunningActionSchema,
-        AgentIntentionProposerSchema,
-        DisambiguationGuidelineMatchesSchema,
-        JourneyNodeSelectionSchema,
-        RelativeActionSchema,
+            GenericResponseAnalysisSchema,
+            GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
+            GenericActionableGuidelineMatchesSchema,
+            GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
+            GenericObservationalGuidelineMatchesSchema,
+            MessageSchema,
+            CannedResponseDraftSchema,
+            CannedResponseSelectionSchema,
+            CannedResponsePreambleSchema,
+            CannedResponseRevisionSchema,
+            CannedResponseFieldExtractionSchema,
+            SingleToolBatchSchema,
+            ConditionsEntailmentTestsSchema,
+            ActionsContradictionTestsSchema,
+            GuidelineConnectionPropositionsSchema,
+            OverlappingToolsBatchSchema,
+            GuidelineActionPropositionSchema,
+            GuidelineContinuousPropositionSchema,
+            CustomerDependentActionSchema,
+            ToolRunningActionSchema,
+            AgentIntentionProposerSchema,
+            DisambiguationGuidelineMatchesSchema,
+            JourneyNodeSelectionSchema,
+            RelativeActionSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 
@@ -805,8 +810,8 @@ async def initialize_container(
 
 
 async def recover_server_tasks(
-    evaluation_store: EvaluationStore,
-    evaluator: LegacyBehavioralChangeEvaluator,
+        evaluation_store: EvaluationStore,
+        evaluator: LegacyBehavioralChangeEvaluator,
 ) -> None:
     for evaluation in await evaluation_store.list_evaluations():
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
@@ -912,9 +917,9 @@ def _print_startup_banner() -> None:
 
 
 async def serve_app(
-    container: Container,
-    app: ASGIApplication,
-    port: int,
+        container: Container,
+        app: ASGIApplication,
+        port: int,
 ) -> None:
     config = uvicorn.Config(
         app,
@@ -1040,11 +1045,11 @@ def main() -> None:
         "--aws",
         is_flag=True,
         help=(
-            """
-    Run with AWS Bedrock. The following environment variables must be set: 
-    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION 
-    (optionally AWS_SESSION_TOKEN if you are using temporary credentials). 
-    Also, install the extra package parlant[aws]."""
+                """
+        Run with AWS Bedrock. The following environment variables must be set: 
+        AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION 
+        (optionally AWS_SESSION_TOKEN if you are using temporary credentials). 
+        Also, install the extra package parlant[aws]."""
         ),
         default=False,
     )
@@ -1104,9 +1109,9 @@ def main() -> None:
         default=[],
         metavar="MODULE",
         help=(
-            "Specify a module to load. To load multiple modules, pass this argument multiple times. "
-            "If parlant.toml exists in the working directory, any additional modules specified "
-            "in it will also be loaded."
+                "Specify a module to load. To load multiple modules, pass this argument multiple times. "
+                "If parlant.toml exists in the working directory, any additional modules specified "
+                "in it will also be loaded."
         ),
     )
     @click.option(
@@ -1118,27 +1123,27 @@ def main() -> None:
         "--migrate",
         is_flag=True,
         help=(
-            "Enable to migrate the database schema to the latest version. "
-            "Disable to exit if the database schema is not up-to-date."
+                "Enable to migrate the database schema to the latest version. "
+                "Disable to exit if the database schema is not up-to-date."
         ),
     )
     @click.pass_context
     def run(
-        ctx: click.Context,
-        port: int,
-        openai: bool,
-        aws: bool,
-        azure: bool,
-        gemini: bool,
-        deepseek: bool,
-        anthropic: bool,
-        cerebras: bool,
-        together: bool,
-        litellm: bool,
-        log_level: str,
-        module: tuple[str],
-        version: bool,
-        migrate: bool,
+            ctx: click.Context,
+            port: int,
+            openai: bool,
+            aws: bool,
+            azure: bool,
+            gemini: bool,
+            deepseek: bool,
+            anthropic: bool,
+            cerebras: bool,
+            together: bool,
+            litellm: bool,
+            log_level: str,
+            module: tuple[str],
+            version: bool,
+            migrate: bool,
     ) -> None:
         if version:
             print(f"Parlant v{VERSION}")

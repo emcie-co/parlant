@@ -349,12 +349,12 @@ class NLPServices:
     @staticmethod
     def deepseek(container: Container) -> NLPService:
         """Creates a SnowflakeCortexService instance using the provided container."""
-        from parlant.adapters.nlp.deepseek_service import DeepseekService
+        from adapters.nlp.deepseek_service import DeepSeekService
 
-        if error := DeepseekService.verify_environment():
+        if error := DeepSeekService.verify_environment():
             raise SDKError(error)
 
-        return DeepseekService(container[Logger])
+        return DeepSeekService(container[Logger])
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):

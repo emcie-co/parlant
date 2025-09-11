@@ -329,7 +329,7 @@ class NLPServices:
     @staticmethod
     def glm(container: Container) -> NLPService:
         """Creates a GLM NLPService instance using the provided container."""
-        from parlant.adapters.nlp.glm_service import DeepSeekService
+        from parlant.adapters.nlp.glm_service import GLMService
 
         if error := GLMService.verify_environment():
             raise SDKError(error)
@@ -349,12 +349,12 @@ class NLPServices:
     @staticmethod
     def deepseek(container: Container) -> NLPService:
         """Creates a SnowflakeCortexService instance using the provided container."""
-        from parlant.adapters.nlp.deepseek_service import SnowflakeCortexService
+        from parlant.adapters.nlp.deepseek_service import DeepseekService
 
-        if error := SnowflakeCortexService.verify_environment():
+        if error := DeepseekService.verify_environment():
             raise SDKError(error)
 
-        return SnowflakeCortexService(container[Logger])
+        return DeepseekService(container[Logger])
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):

@@ -82,8 +82,9 @@ class QwenEmbedder(Embedder):
 
         self._logger = logger
         self._client = AsyncClient(
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key=os.environ["QWEN_API_KEY"]
+            
+            base_url=os.environ.get("BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            api_key=os.environ.get("DASHSCOPE_API_KEY", "")
         )
         self._tokenizer = QwenEstimatingTokenizer(model_name=self.model_name)
 
@@ -159,8 +160,8 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         self._logger = logger
 
         self._client = AsyncClient(
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key=os.environ["QWEN_API_KEY"],
+            base_url=os.environ.get("BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            api_key=os.environ["DASHSCOPE_API_KEY"],
         )
 
         self._tokenizer = QwenEstimatingTokenizer(model_name=self.model_name)
@@ -297,10 +298,10 @@ class QwenService(NLPService):
     def verify_environment() -> str | None:
         """Returns an error message if the environment is not set up correctly."""
 
-        if not os.environ.get("QWEN_API_KEY"):
+        if not os.environ.get("DASHSCOPE_API_KEY"):
             return """\
-You're using the Qwen NLP service, but QWEN_API_KEY is not set.
-Please set QWEN_API_KEY in your environment before running Parlant.
+You're using the Qwen NLP service, but DASHSCOPE_API_KEY is not set.
+Please set DASHSCOPE_API_KEY in your environment before running Parlant.
 """
 
         return None

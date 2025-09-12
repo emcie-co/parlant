@@ -8,6 +8,7 @@ All notable changes to Parlant will be documented here.
 - Add Snowflake Cortex service
 - Add GLM service
 - Support proxy URL for LiteLLM
+- Allow controlling max tool result payload via environment variable
 
 ## [3.0.2] - 2025-08-27
 

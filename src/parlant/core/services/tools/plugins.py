@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 import enum
 import inspect
 import json
+import os
 import traceback
 import dateutil.parser
 from types import TracebackType
@@ -69,6 +70,7 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
+TOOL_RESULT_MAX_PAYLOAD_KB = int(os.environ.get("PARLANT_TOOL_RESULT_MAX_PAYLOAD_KB", 16))
 
 ToolFunction = Union[
     Callable[
@@ -901,10 +903,10 @@ class PluginClient(ToolService):
                 )
 
                 async for chunk in response.aiter_text():
-                    if len(chunk) > (16 * 1024):
+                    if len(chunk) > (TOOL_RESULT_MAX_PAYLOAD_KB * 1024):
                         raise ToolResultError(
                             tool_name=name,
-                            message=f"url='{self.url}', arguments='{arguments}', Response exceeds 16KB limit",
+                            message=f"url='{self.url}', arguments='{arguments}', Response exceeds {TOOL_RESULT_MAX_PAYLOAD_KB}KB limit",
                         )
 
                     chunk_dict = json.loads(chunk)

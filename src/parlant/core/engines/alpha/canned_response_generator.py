@@ -344,7 +344,7 @@ The guidelines are not necessarily intended to aid your current task of field ge
                 )
             },
         )
-        builder.add_interaction_history_in_message_generation(
+        builder.add_interaction_history_for_message_generation(
             context.interaction_history,
             context.staged_message_events,
         )
@@ -617,7 +617,7 @@ You will now be given the current state of the interaction to which you must gen
             },
         )
 
-        prompt_builder.add_interaction_history_in_message_generation(
+        prompt_builder.add_interaction_history_for_message_generation(
             canrep_context.interaction_history,
             context.state.message_events,
         )
@@ -1151,7 +1151,7 @@ EXAMPLES
             tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_interaction_history_in_message_generation(
+        builder.add_interaction_history_for_message_generation(
             interaction_history,
             staged_events=staged_message_events,
         )
@@ -1340,7 +1340,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         )
 
         builder.add_glossary(context.terms)
-        builder.add_interaction_history_in_message_generation(
+        builder.add_interaction_history_for_message_generation(
             context.interaction_history,
             staged_events=context.staged_message_events,
         )

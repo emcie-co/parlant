@@ -488,7 +488,7 @@ INTERACTION CONTEXT
             tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_interaction_history_in_message_generation(
+        builder.add_interaction_history_for_message_generation(
             interaction_history, staged_message_events
         )
         builder.add_staged_tool_events(staged_tool_events)

@@ -290,7 +290,7 @@ Proceed with your task accordingly.
 
         return self
 
-    def add_interaction_history_in_message_generation(
+    def add_interaction_history_for_message_generation(
         self,
         events: Sequence[Event],
         staged_events: Sequence[EmittedEvent] = [],

@@ -1,6 +1,5 @@
 # healthcare.py
 
-from typing import Any, Optional
 import parlant.sdk as p
 import asyncio
 from datetime import datetime
@@ -163,23 +162,11 @@ async def create_lab_results_journey(server: p.Server, agent: p.Agent) -> p.Jour
     return journey
 
 
-async def configure_hooks(hooks: p.EngineHooks) -> p.EngineHooks:
-    async def on_draft_generated(
-        context: p.LoadedContext, payload: Any, exc: Optional[Exception]
-    ) -> p.EngineHookResult:
-        return p.EngineHookResult.BAIL
-
-    hooks.on_draft_generated.append(on_draft_generated)
-
-    return hooks
-
-
 async def main() -> None:
-    async with p.Server(configure_hooks=configure_hooks) as server:
+    async with p.Server() as server:
         agent = await server.create_agent(
             name="Healthcare Agent",
             description="Is empathetic and calming to the patient.",
-            composition_mode=p.CompositionMode.STRICT,
         )
 
         await agent.create_canned_response("How can I help you today?")

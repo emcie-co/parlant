@@ -69,7 +69,7 @@ def given_an_agent_message(
             session_id=session.id,
             source=EventSource.AI_AGENT,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -109,7 +109,7 @@ def given_a_human_message_on_behalf_of_the_agent(
             session_id=session.id,
             source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -144,7 +144,7 @@ def given_a_customer_message(
             session_id=session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -186,7 +186,7 @@ def given_a_flagged_customer_message(
             session_id=session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data=cast(JSONSerializable, message_data),
         )
     )
@@ -528,8 +528,8 @@ def then_the_tool_calls_event_contains_expected_content(
     ), pformat(tool_calls, indent=2)
 
 
-@step(then, "the tool calls event is correlated with the message event")
-def then_the_tool_calls_event_is_correlated_with_the_message_event(
+@step(then, "the tool calls event is traced with the message event")
+def then_the_tool_calls_event_is_traced_with_the_message_event(
     emitted_events: list[EmittedEvent],
 ) -> None:
     tool_events = [e for e in emitted_events if e.kind == EventKind.TOOL]
@@ -541,7 +541,7 @@ def then_the_tool_calls_event_is_correlated_with_the_message_event(
     tool_event = tool_events[0]
     message_event = message_events[0]
 
-    assert tool_event.correlation_id == message_event.correlation_id
+    assert tool_event.trace_id == message_event.trace_id
 
 
 @step(then, parsers.parse('the tool calls event contains a call to "{tool_name}"'))
@@ -566,7 +566,7 @@ def then_the_number_of_missing_is_exactly(
     number_of_missing: int,
 ) -> None:
     latest_context = next(
-        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+        iter(context.container[JournalingEngineHooks].latest_context_per_trace_id.values())
     )
     missing_data = latest_context.state.tool_insights.missing_data
 
@@ -581,7 +581,7 @@ def then_the_number_of_invalid_is_exactly(
     number_of_invalid: int,
 ) -> None:
     latest_context = next(
-        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+        iter(context.container[JournalingEngineHooks].latest_context_per_trace_id.values())
     )
     invalid_data = latest_context.state.tool_insights.invalid_data
 
@@ -592,7 +592,7 @@ def then_the_number_of_invalid_is_exactly(
 
 def _get_staged_events(context: ContextOfTest) -> list[EmittedEvent]:
     return next(
-        iter(context.container[JournalingEngineHooks].latest_context_per_correlation_id.values())
+        iter(context.container[JournalingEngineHooks].latest_context_per_trace_id.values())
     ).state.tool_events
 
 
@@ -630,78 +630,3 @@ def then_the_tool_calls_staged_event_contains_expected_content(
             condition=f"The calls contain {expected_content}",
         )
     ), pformat(tool_calls, indent=2)
-
-
-@step(
-    then,
-    parsers.parse("the session inspection contains {count:d} preparation iterations"),
-)
-def then_the_session_inspection_contains_preparation_iterations(
-    context: ContextOfTest,
-    session_id: SessionId,
-    count: int,
-) -> None:
-    session_store = context.container[SessionStore]
-    inspection = context.sync_await(
-        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
-    )
-
-    assert len(inspection.preparation_iterations) >= count, (
-        f"Expected at least {count} preparation iterations, but found {len(inspection.preparation_iterations)}"
-    )
-
-
-@step(
-    then,
-    parsers.parse(
-        'the guideline "{guideline_name}" is matched in preparation iteration {iteration:d}'
-    ),
-)
-def then_the_guideline_is_in_the_specified_preparation_iteration(
-    context: ContextOfTest,
-    session_id: SessionId,
-    guideline_name: str,
-    iteration: int,
-) -> None:
-    session_store = context.container[SessionStore]
-    inspection = context.sync_await(
-        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
-    )
-
-    guideline_id = context.guidelines[guideline_name].id
-
-    preparation_iteration = inspection.preparation_iterations[iteration - 1]
-
-    assert any(
-        m["guideline_id"] == guideline_id for m in preparation_iteration.guideline_matches
-    ), (
-        f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
-    )
-
-
-@step(
-    then,
-    parsers.parse(
-        'the guideline "{guideline_name}" is not matched in preparation iteration {iteration:d}'
-    ),
-)
-def then_the_guideline_is_not_in_the_specified_preparation_iteration(
-    context: ContextOfTest,
-    session_id: SessionId,
-    guideline_name: str,
-    iteration: int,
-) -> None:
-    session_store = context.container[SessionStore]
-    inspection = context.sync_await(
-        session_store.read_inspection(session_id=session_id, correlation_id="<main>")
-    )
-
-    guideline_id = context.guidelines[guideline_name].id
-
-    preparation_iteration = inspection.preparation_iterations[iteration - 1]
-
-    assert all(
-        m["guideline_id"] != guideline_id for m in preparation_iteration.guideline_matches
-    ), (
-        f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
-    )

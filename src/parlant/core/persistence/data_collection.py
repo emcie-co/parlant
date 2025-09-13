@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.common import generate_id
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import T, SchematicGenerationResult, SchematicGenerator
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -20,10 +20,10 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
     def __init__(
         self,
         wrapped_generator: SchematicGenerator[T],
-        correlator: Tracer,
+        tracer: Tracer,
     ) -> None:
         self._wrapped_generator = wrapped_generator
-        self._correlator = correlator
+        self._tracer = tracer
 
         if path := os.environ.get("PARLANT_DATA_COLLECTION_PATH"):
             self._base_path = Path(path)
@@ -40,17 +40,17 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
 
         path = self._base_path
 
-        if scope := self._correlator.get("scope"):
+        if scope := self._tracer.get("scope"):
             path = path / scope
 
-        if self._correlator.get("session"):
-            session = cast(Session, self._correlator.get("session"))
+        if self._tracer.get("session"):
+            session = cast(Session, self._tracer.get("session"))
             path = path / f"Session_{session.id}"
 
-        if request_id := self._correlator.get("request_id"):
+        if request_id := self._tracer.get("request_id"):
             path = path / f"R{request_id}"
 
-        if iteration := self._correlator.get("engine_iteration"):
+        if iteration := self._tracer.get("engine_iteration"):
             path = path / f"Iteration_{iteration}"
 
         path.mkdir(parents=True, exist_ok=True)

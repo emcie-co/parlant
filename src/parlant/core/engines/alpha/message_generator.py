@@ -19,7 +19,7 @@ import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 from parlant.core.capabilities import Capability
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -125,12 +125,12 @@ class MessageGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
-        correlator: Tracer,
+        tracer: Tracer,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[MessageSchema],
     ) -> None:
         self._logger = logger
-        self._correlator = correlator
+        self._tracer = tracer
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
 
@@ -227,7 +227,7 @@ class MessageGenerator(MessageEventComposer):
         )
 
         await event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "typing",
                 "data": {},
@@ -253,7 +253,7 @@ class MessageGenerator(MessageEventComposer):
 
                 if response_message is not None:
                     event = await event_emitter.emit_message_event(
-                        correlation_id=self._correlator.trace_id,
+                        trace_id=self._tracer.trace_id,
                         data=response_message,
                     )
 

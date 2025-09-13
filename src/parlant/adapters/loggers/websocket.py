@@ -20,8 +20,8 @@ from fastapi import WebSocket
 from typing_extensions import override
 
 from parlant.core.common import UniqueId, generate_id
-from parlant.core.contextual_correlator import Tracer
-from parlant.core.loggers import CorrelationalLogger, LogLevel
+from parlant.core.tracer import Tracer
+from parlant.core.loggers import TracingLogger, LogLevel
 
 
 @dataclass(frozen=True)
@@ -30,14 +30,14 @@ class WebSocketSubscription:
     expiration: asyncio.Event
 
 
-class WebSocketLogger(CorrelationalLogger):
+class WebSocketLogger(TracingLogger):
     def __init__(
         self,
-        correlator: Tracer,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
 
         self._message_queue = deque[Any]()
         self._messages_in_queue = asyncio.Semaphore(0)
@@ -47,7 +47,7 @@ class WebSocketLogger(CorrelationalLogger):
     def _enqueue_message(self, level: str, message: str) -> None:
         payload = {
             "level": level,
-            "correlation_id": self._correlator.trace_id,
+            "trace_id": self._tracer.trace_id,
             "message": message,
         }
 

@@ -127,7 +127,7 @@ def given_a_previously_applied_guideline(
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id="<main>",
+                        trace_id="<main>",
                         applied_guideline_ids=applied_guideline_ids,
                         journey_paths={},
                     )

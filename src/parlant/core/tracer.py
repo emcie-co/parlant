@@ -29,14 +29,14 @@ class Tracer(ABC):
     def scope(
         self,
         scope_id: str,
-        properties: Mapping[str, Any] = {},
+        attributes: Mapping[str, Any] = {},
     ) -> Iterator[None]: ...
 
     @contextmanager
     @abstractmethod
-    def properties(
+    def attributes(
         self,
-        properties: Mapping[str, Any],
+        attributes: Mapping[str, Any],
     ) -> Iterator[None]: ...
 
     @property
@@ -55,7 +55,7 @@ class LocalTracer(Tracer):
             default="",
         )
 
-        self._properties = contextvars.ContextVar[Mapping[str, Any]](
+        self._attributes = contextvars.ContextVar[Mapping[str, Any]](
             f"tracer_{self._instance_id}_properties",
             default={},
         )
@@ -65,7 +65,7 @@ class LocalTracer(Tracer):
     def scope(
         self,
         scope_id: str,
-        properties: Mapping[str, Any] = {},
+        attributes: Mapping[str, Any] = {},
     ) -> Iterator[None]:
         current_scopes = self._scopes.get()
 
@@ -74,31 +74,31 @@ class LocalTracer(Tracer):
         else:
             new_scopes = scope_id
 
-        current_properties = self._properties.get()
-        new_properties = {**current_properties, **properties}
+        current_properties = self._attributes.get()
+        new_attributes = {**current_properties, **attributes}
 
         scopes_reset_token = self._scopes.set(new_scopes)
-        properties_reset_token = self._properties.set(new_properties)
+        attributes_reset_token = self._attributes.set(new_attributes)
 
         yield
 
         self._scopes.reset(scopes_reset_token)
-        self._properties.reset(properties_reset_token)
+        self._attributes.reset(attributes_reset_token)
 
     @contextmanager
     @override
-    def properties(
+    def attributes(
         self,
-        properties: Mapping[str, Any],
+        attributes: Mapping[str, Any],
     ) -> Iterator[None]:
-        current_properties = self._properties.get()
-        new_properties = {**current_properties, **properties}
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, **attributes}
 
-        properties_reset_token = self._properties.set(new_properties)
+        attributes_reset_token = self._attributes.set(new_attributes)
 
         yield
 
-        self._properties.reset(properties_reset_token)
+        self._attributes.reset(attributes_reset_token)
 
     @property
     @override
@@ -109,6 +109,6 @@ class LocalTracer(Tracer):
         return "<main>"
 
     @override
-    def get(self, property_name: str) -> Any | None:
-        properties = self._properties.get()
-        return properties.get(property_name, None)
+    def get(self, attribute_name: str) -> Any | None:
+        attributes = self._attributes.get()
+        return attributes.get(attribute_name, None)

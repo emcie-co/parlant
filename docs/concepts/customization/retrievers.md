@@ -90,7 +90,7 @@ Using the retriever context, you can access a number of useful properties that c
 - `server`: The server that is currently processing the retriever request, which can be useful for accessing server-specific resources or configurations.
 - `container`: The dependency-injection container that is currently being used, which allows you to access services and resources registered in the container.
 - `logger`: The logger that is currently being used, which can be useful for logging debug information or errors during the retriever's execution.
-- `correlation_id`: A unique identifier for the agent's current response, which can be used for tracking and debugging purposes.
+- `trace_id`: A unique identifier for the agent's current response, which can be used for tracking and debugging purposes.
 - `interaction`: The current interaction, which contains the conversation history and other relevant information.
 - `agent`: The agent that is currently processing the interaction.
 - `customer`: The customer that is currently interacting with the agent.

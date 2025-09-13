@@ -90,7 +90,7 @@ from parlant.core.engines.alpha.tool_event_generator import (
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceRationale, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
@@ -125,7 +125,7 @@ class AlphaEngine(Engine):
     def __init__(
         self,
         logger: Logger,
-        correlator: Tracer,
+        tracer: Tracer,
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
         guideline_matcher: GuidelineMatcher,
@@ -137,7 +137,7 @@ class AlphaEngine(Engine):
         hooks: EngineHooks,
     ) -> None:
         self._logger = logger
-        self._correlator = correlator
+        self._tracer = tracer
 
         self._entity_queries = entity_queries
         self._entity_commands = entity_commands
@@ -303,18 +303,10 @@ class AlphaEngine(Engine):
             with CancellationSuppressionLatch() as latch:
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
-                message_generation_inspections = await self._generate_messages(context, latch)
+                _ = await self._generate_messages(context, latch)
 
                 # Mark that the agent is ready to receive and respond to new events.
                 await self._emit_ready_event(context)
-
-                # Save results for later inspection.
-                await self._entity_commands.create_inspection(
-                    session_id=context.session.id,
-                    correlation_id=self._correlator.trace_id,
-                    preparation_iterations=preparation_iteration_inspections,
-                    message_generations=message_generation_inspections,
-                )
 
                 await self._add_agent_state(
                     context=context,
@@ -361,15 +353,7 @@ class AlphaEngine(Engine):
             # Money time: communicate with the customer given the
             # specified utterance requests.
             with CancellationSuppressionLatch() as latch:
-                message_generation_inspections = await self._generate_messages(context, latch)
-
-            # Save results for later inspection.
-            await self._entity_commands.create_inspection(
-                session_id=context.session.id,
-                correlation_id=self._correlator.trace_id,
-                preparation_iterations=[],
-                message_generations=message_generation_inspections,
-            )
+                _ = await self._generate_messages(context, latch)
 
         except asyncio.CancelledError:
             self._logger.warning("Uttering cancelled")
@@ -401,7 +385,7 @@ class AlphaEngine(Engine):
         return LoadedContext(
             info=context,
             logger=self._logger,
-            correlator=self._correlator,
+            tracer=self._tracer,
             agent=agent,
             customer=customer,
             session=session,
@@ -450,7 +434,7 @@ class AlphaEngine(Engine):
         context: LoadedContext,
         preamble_task: asyncio.Task[bool],
     ) -> _PreparationIterationResult:
-        with self._correlator.properties({"engine_iteration": len(context.state.iterations) + 1}):
+        with self._tracer.attributes({"engine_iteration": len(context.state.iterations) + 1}):
             if len(context.state.iterations) == 0:
                 # This is the first iteration, so we need to run the initial preparation iteration.
                 result = await self._run_initial_preparation_iteration(context, preamble_task)
@@ -899,7 +883,7 @@ class AlphaEngine(Engine):
 
     async def _emit_error_event(self, context: LoadedContext, exception_details: str) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "error",
                 "data": {"exception": exception_details},
@@ -908,7 +892,7 @@ class AlphaEngine(Engine):
 
     async def _emit_acknowledgement_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "acknowledged",
                 "data": {},
@@ -917,7 +901,7 @@ class AlphaEngine(Engine):
 
     async def _emit_processing_event(self, context: LoadedContext, stage: str) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "processing",
                 "data": {"stage": stage},
@@ -926,7 +910,7 @@ class AlphaEngine(Engine):
 
     async def _emit_cancellation_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "cancelled",
                 "data": {},
@@ -935,7 +919,7 @@ class AlphaEngine(Engine):
 
     async def _emit_ready_event(self, context: LoadedContext) -> None:
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "ready",
                 "data": {},
@@ -1737,7 +1721,7 @@ class AlphaEngine(Engine):
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id=self._correlator.trace_id,
+                        trace_id=self._tracer.trace_id,
                         applied_guideline_ids=applied_guideline_ids,
                         journey_paths=context.state.journey_paths,
                     )

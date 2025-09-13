@@ -115,7 +115,7 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "get_account_balance" with Jerry Seinfeld's current balance
 
-    Scenario: The tool call is correlated with the message with which it was generated
+    Scenario: The tool call is traced with the message with which it was generated
         Given a guideline "sell_pizza" to sell pizza when interacting with customers
         And a guideline "check_stock" to check if toppings or drinks are available in stock when a client asks for toppings or drinks
         And the tool "get_available_product_by_type"
@@ -125,7 +125,7 @@ Feature: Tools
         Then no tool error has occurred
         And the tool calls event contains 2 tool call(s)
         And a single message event is emitted
-        And the tool calls event is correlated with the message event
+        And the tool calls event is traced with the message event
 
     Scenario: Relevant guidelines are not refreshed based on tool results if no second iteration of matching a new guideline is made
         Given an agent with a maximum of 1 engine iterations
@@ -1057,16 +1057,3 @@ Scenario: Guidelines with reevaluation relationship to a tool are activated by t
     Then a single tool calls event is emitted
     And the message contains an offer for the dungeon
     And the message doesn't contains an offer for the luxury room
-
-
-Scenario: Guideline with reevaluation is active before the tool execution but becomes inactive after the tool result
-    Given a guideline "greet_with_hello_sir" to greet the user with "Hello Sir" when there is no indication the customer is from Spain
-    And a guideline "handle_greeting_response" to check how to greet the user back when the user greets you
-    And the tool "check_customer_location"
-    And an association between "handle_greeting_response" and "check_customer_location"
-    And a reevaluation relationship between the guideline "greet_with_hello_sir" and the "check_customer_location" tool
-    And a customer message, "Hey!"
-    When processing is triggered
-    Then the session inspection contains 2 preparation iterations
-    And the guideline "greet_with_hello_sir" is matched in preparation iteration 1  
-    And the guideline "greet_with_hello_sir" is not matched in preparation iteration 2

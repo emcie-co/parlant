@@ -85,13 +85,13 @@ def make_event_params(
     source: EventSource,
     data: dict[str, Any] = {},
     kind: EventKind = EventKind.CUSTOM,
-    correlation_id: str | None = None,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "source": source,
         "kind": kind,
         "creation_utc": str(datetime.now(timezone.utc)),
-        "correlation_id": correlation_id or generate_id(),
+        "trace_id": trace_id or generate_id(),
         "data": data,
         "deleted": False,
     }
@@ -109,7 +109,7 @@ async def populate_session_id(
             session_id=session_id,
             source=e["source"],
             kind=e["kind"],
-            correlation_id=e["correlation_id"],
+            trace_id=e["trace_id"],
             data=e["data"],
         )
 
@@ -732,7 +732,7 @@ async def test_that_not_waiting_for_a_response_does_in_fact_return_immediately(
     assert (t_end - t_start) < 1
 
 
-async def test_that_tool_events_are_correlated_with_message_events(
+async def test_that_tool_events_are_traced_with_message_events(
     async_client: httpx.AsyncClient,
     container: Container,
     agent_id: AgentId,
@@ -769,7 +769,7 @@ async def test_that_tool_events_are_correlated_with_message_events(
 
     message_event = next(e for e in events_in_session if e["kind"] == "message")
     tool_call_event = next(e for e in events_in_session if e["kind"] == "tool")
-    assert message_event["correlation_id"] == tool_call_event["correlation_id"]
+    assert message_event["trace_id"] == tool_call_event["trace_id"]
 
 
 async def test_that_deleted_events_no_longer_show_up_in_the_listing(
@@ -808,22 +808,22 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     assert all(e["offset"] > event_to_delete["offset"] for e in remaining_events) is False
 
 
-async def test_that_delete_events_raises_if_not_first_of_correlation_id(
+async def test_that_delete_events_raises_if_not_first_of_trace_id(
     async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
-    correlation_id = generate_id()
+    trace_id = generate_id()
     session_events = [
         make_event_params(
             EventSource.CUSTOMER,
             data={"content": "first"},
-            correlation_id=correlation_id,
+            trace_id=trace_id,
         ),
         make_event_params(
             EventSource.CUSTOMER,
             data={"content": "second"},
-            correlation_id=correlation_id,
+            trace_id=trace_id,
         ),
     ]
     await populate_session_id(container, session_id, session_events)
@@ -832,8 +832,8 @@ async def test_that_delete_events_raises_if_not_first_of_correlation_id(
     assert len(events) == 2
     first_event = events[0]
     second_event = events[1]
-    assert first_event["correlation_id"] == correlation_id
-    assert second_event["correlation_id"] == correlation_id
+    assert first_event["trace_id"] == trace_id
+    assert second_event["trace_id"] == trace_id
 
     response = await async_client.delete(
         f"/sessions/{session_id}/events?min_offset={second_event['offset']}"
@@ -841,7 +841,7 @@ async def test_that_delete_events_raises_if_not_first_of_correlation_id(
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     assert (
         response.json()["detail"]
-        == "Cannot delete events with offset < min_offset unless they are the first event of their correlation ID"
+        == "Cannot delete events with offset < min_offset unless they are the first event of their trace ID"
     )
 
 
@@ -892,7 +892,7 @@ async def test_that_an_agent_message_can_be_regenerated(
     await container[SessionListener].wait_for_events(
         session_id=session_id,
         kinds=[EventKind.MESSAGE],
-        correlation_id=event["correlation_id"],
+        trace_id=event["trace_id"],
     )
 
     events = (
@@ -901,7 +901,7 @@ async def test_that_an_agent_message_can_be_regenerated(
                 f"/sessions/{session_id}/events",
                 params={
                     "kinds": "message",
-                    "correlation_id": event["correlation_id"],
+                    "trace_id": event["trace_id"],
                 },
             )
         )
@@ -943,7 +943,7 @@ async def test_that_an_agent_message_can_be_generated_on_demand(
                 f"/sessions/{session_id}/events",
                 params={
                     "kinds": "message",
-                    "correlation_id": event["correlation_id"],
+                    "trace_id": event["trace_id"],
                 },
             )
         )
@@ -1013,40 +1013,40 @@ async def test_that_agent_state_is_deleted_when_deleting_events(
 ) -> None:
     session_store = container[SessionStore]
 
-    first_event_correlation_id = generate_id()
-    second_event_correlation_id = generate_id()
-    third_event_correlation_id = generate_id()
+    first_event_trace_id = generate_id()
+    second_event_trace_id = generate_id()
+    third_event_trace_id = generate_id()
 
     session_events = [
         make_event_params(
             EventSource.CUSTOMER,
             data={"content": "Hello"},
-            correlation_id=first_event_correlation_id,
+            trace_id=first_event_trace_id,
         ),
         make_event_params(
             EventSource.AI_AGENT,
             data={"content": "Hi, how can I assist you?"},
-            correlation_id=first_event_correlation_id,
+            trace_id=first_event_trace_id,
         ),
         make_event_params(
             EventSource.CUSTOMER,
             data={"content": "What's the weather today?"},
-            correlation_id=second_event_correlation_id,
+            trace_id=second_event_trace_id,
         ),
         make_event_params(
             EventSource.AI_AGENT,
             data={"content": "It's sunny and warm."},
-            correlation_id=second_event_correlation_id,
+            trace_id=second_event_trace_id,
         ),
         make_event_params(
             EventSource.CUSTOMER,
             data={"content": "Thank you!"},
-            correlation_id=third_event_correlation_id,
+            trace_id=third_event_trace_id,
         ),
         make_event_params(
             EventSource.AI_AGENT,
             data={"content": "You're welcome!"},
-            correlation_id=third_event_correlation_id,
+            trace_id=third_event_trace_id,
         ),
     ]
 
@@ -1056,17 +1056,17 @@ async def test_that_agent_state_is_deleted_when_deleting_events(
         params={
             "agent_states": [
                 AgentState(
-                    correlation_id=first_event_correlation_id,
+                    trace_id=first_event_trace_id,
                     journey_paths={},
                     applied_guideline_ids=[],
                 ),
                 AgentState(
-                    correlation_id=second_event_correlation_id,
+                    trace_id=second_event_trace_id,
                     journey_paths={},
                     applied_guideline_ids=[],
                 ),
                 AgentState(
-                    correlation_id=third_event_correlation_id,
+                    trace_id=third_event_trace_id,
                     journey_paths={},
                     applied_guideline_ids=[],
                 ),

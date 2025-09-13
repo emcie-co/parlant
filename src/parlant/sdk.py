@@ -96,7 +96,7 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.customers import (
     Customer as _Customer,
     CustomerDocumentStore,
@@ -1688,7 +1688,7 @@ class RetrieverContext:
     server: Server
     container: Container
     logger: Logger
-    correlator: Tracer
+    tracer: Tracer
     session: Session
     agent: Agent
     customer: Customer
@@ -2261,7 +2261,7 @@ class Server:
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
 
-        with self._container[Tracer].properties({"scope": "Evaluations"}):
+        with self._container[Tracer].attributes({"scope": "Evaluations"}):
             await self._process_evaluations()
 
         await self._setup_retrievers()
@@ -2520,16 +2520,16 @@ class Server:
                 # First do some garbage collection if needed.
                 # This might be needed if tasks were not awaited
                 # because of exceptions during engine processing.
-                for correlation_id in list(tasks_for_this_retriever.keys()):
-                    if tasks_for_this_retriever[correlation_id][0].expired():
+                for trace_id in list(tasks_for_this_retriever.keys()):
+                    if tasks_for_this_retriever[trace_id][0].expired():
                         # Very, very little change that this task is still meant to be running,
                         # or that anyone is still waiting for it. It's 99.999% garbage.
                         try:
-                            tasks_for_this_retriever[correlation_id][1].add_done_callback(
+                            tasks_for_this_retriever[trace_id][1].add_done_callback(
                                 default_done_callback()
                             )
-                            tasks_for_this_retriever[correlation_id][1].cancel()
-                            del tasks_for_this_retriever[correlation_id]
+                            tasks_for_this_retriever[trace_id][1].cancel()
+                            del tasks_for_this_retriever[trace_id]
                         except BaseException:
                             # If anything went unexpectedly here, whatever. Carry on.
                             pass
@@ -2542,7 +2542,7 @@ class Server:
                         server=self,
                         container=self._container,
                         logger=self._container[Logger],
-                        correlator=self._container[Tracer],
+                        tracer=self._container[Tracer],
                         session=ctx.session,
                         agent=agent,
                         customer=customer,
@@ -2555,10 +2555,10 @@ class Server:
                 )
 
                 c[Logger].trace(
-                    f"Starting retriever {retriever_id} for agent {agent_id} with correlation {ctx.correlator.trace_id}"
+                    f"Starting retriever {retriever_id} for agent {agent_id} with trace {ctx.tracer.trace_id}"
                 )
 
-                tasks_for_this_retriever[ctx.correlator.trace_id] = (
+                tasks_for_this_retriever[ctx.tracer.trace_id] = (
                     Timeout(600),  # Expiration timeout for garbage collection purposes
                     asyncio.create_task(
                         cast(Coroutine[Any, Any, JSONSerializable | RetrieverResult], coroutine),
@@ -2573,7 +2573,7 @@ class Server:
                 payload: Any,
                 exc: Optional[Exception],
             ) -> EngineHookResult:
-                if timeout_and_task := tasks_for_this_retriever.pop(ctx.correlator.trace_id, None):
+                if timeout_and_task := tasks_for_this_retriever.pop(ctx.tracer.trace_id, None):
                     _, task = timeout_and_task
                     task_result = await task
 
@@ -2598,7 +2598,7 @@ class Server:
 
                     ctx.state.tool_events.append(
                         await ctx.response_event_emitter.emit_tool_event(
-                            ctx.correlator.trace_id,
+                            ctx.tracer.trace_id,
                             ToolEventData(
                                 tool_calls=[
                                     _SessionToolCall(
@@ -3074,7 +3074,7 @@ class Server:
                     database=TransientDocumentDatabase(),
                     event_emitter_factory=c()[EventEmitterFactory],
                     logger=c()[Logger],
-                    correlator=c()[Tracer],
+                    tracer=c()[Tracer],
                     nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
                     allow_migration=False,
                 )

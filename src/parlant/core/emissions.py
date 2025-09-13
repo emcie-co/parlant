@@ -33,7 +33,7 @@ class EmittedEvent:
 
     source: EventSource
     kind: EventKind
-    correlation_id: str
+    trace_id: str
     data: JSONSerializable
 
 
@@ -43,37 +43,37 @@ class EventEmitter(ABC):
     @abstractmethod
     async def emit_status_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: StatusEventData,
     ) -> EmittedEvent:
-        """Emit a status event with the given correlation ID and data."""
+        """Emit a status event with the given trace ID and data."""
         ...
 
     @abstractmethod
     async def emit_message_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: str | MessageEventData,
     ) -> EmittedEvent:
-        """Emit a message event with the given correlation ID and data."""
+        """Emit a message event with the given trace ID and data."""
         ...
 
     @abstractmethod
     async def emit_tool_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: ToolEventData,
     ) -> EmittedEvent:
-        """Emit a tool event with the given correlation ID and data."""
+        """Emit a tool event with the given trace ID and data."""
         ...
 
     @abstractmethod
     async def emit_custom_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: JSONSerializable,
     ) -> EmittedEvent:
-        """Emit a custom event with the given correlation ID and data."""
+        """Emit a custom event with the given trace ID and data."""
         ...
 
 

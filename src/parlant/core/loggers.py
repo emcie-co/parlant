@@ -27,7 +27,7 @@ from typing import Any, Iterator, Sequence
 from typing_extensions import override
 
 from parlant.core.common import generate_id
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 
 
 class LogLevel(Enum):
@@ -158,16 +158,16 @@ class Logger(ABC):
         ...
 
 
-class CorrelationalLogger(Logger):
-    """A logger that supports correlation IDs for structured logging."""
+class TracingLogger(Logger):
+    """A logger that supports trace IDs for structured logging."""
 
     def __init__(
         self,
-        correlator: Tracer,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        self._correlator = correlator
+        self._tracer = tracer
         self.raw_logger = logging.getLogger(logger_id or "parlant")
         self.raw_logger.setLevel(log_level.to_logging_level())
         self.log_level = log_level
@@ -206,28 +206,28 @@ class CorrelationalLogger(Logger):
             return
 
         self._logger.debug(
-            f"TRACE {self._add_correlation_id_and_scopes(message)}",
+            f"TRACE {self._add_trace_id_and_scopes(message)}",
         )
 
     @override
     def debug(self, message: str) -> None:
-        self._logger.debug(self._add_correlation_id_and_scopes(message))
+        self._logger.debug(self._add_trace_id_and_scopes(message))
 
     @override
     def info(self, message: str) -> None:
-        self._logger.info(self._add_correlation_id_and_scopes(message))
+        self._logger.info(self._add_trace_id_and_scopes(message))
 
     @override
     def warning(self, message: str) -> None:
-        self._logger.warning(self._add_correlation_id_and_scopes(message))
+        self._logger.warning(self._add_trace_id_and_scopes(message))
 
     @override
     def error(self, message: str) -> None:
-        self._logger.error(self._add_correlation_id_and_scopes(message))
+        self._logger.error(self._add_trace_id_and_scopes(message))
 
     @override
     def critical(self, message: str) -> None:
-        self._logger.critical(self._add_correlation_id_and_scopes(message))
+        self._logger.critical(self._add_trace_id_and_scopes(message))
 
     @override
     @contextmanager
@@ -298,8 +298,8 @@ class CorrelationalLogger(Logger):
     def current_scope(self) -> str:
         return self._get_scopes()
 
-    def _add_correlation_id_and_scopes(self, message: str) -> str:
-        return f"[{self._correlator.trace_id}]{self.current_scope} {message}"
+    def _add_trace_id_and_scopes(self, message: str) -> str:
+        return f"[{self._tracer.trace_id}]{self.current_scope} {message}"
 
     def _get_scopes(self) -> str:
         if scopes := self._scopes.get():
@@ -307,30 +307,30 @@ class CorrelationalLogger(Logger):
         return ""
 
 
-class StdoutLogger(CorrelationalLogger):
+class StdoutLogger(TracingLogger):
     """A logger that outputs to standard output."""
 
     def __init__(
         self,
-        correlator: Tracer,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
         self.raw_logger.addHandler(logging.StreamHandler())
 
 
-class FileLogger(CorrelationalLogger):
+class FileLogger(TracingLogger):
     """A logger that outputs to a file."""
 
     def __init__(
         self,
         log_file_path: Path,
-        correlator: Tracer,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
 
         handlers: list[logging.Handler] = [
             logging.FileHandler(log_file_path),

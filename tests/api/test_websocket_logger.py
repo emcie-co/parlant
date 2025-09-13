@@ -19,7 +19,7 @@ from lagom import Container
 import pytest
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ async def test_that_websocket_logger_sends_messages(
     test_client: TestClient,
 ) -> None:
     ws_logger = container[WebSocketLogger]
-    correlator = container[Tracer]
+    tracer = container[Tracer]
 
     with test_client.websocket_connect("/logs") as ws:
         ws_logger.info("Hello from test!")
@@ -42,7 +42,7 @@ async def test_that_websocket_logger_sends_messages(
 
         assert "Hello from test!" in data["message"]
         assert data["level"] == "INFO"
-        assert data["correlation_id"] == correlator.trace_id
+        assert data["trace_id"] == tracer.trace_id
 
 
 async def test_that_websocket_reconnects_and_receives_messages(
@@ -50,7 +50,7 @@ async def test_that_websocket_reconnects_and_receives_messages(
     test_client: TestClient,
 ) -> None:
     ws_logger = container[WebSocketLogger]
-    correlator = container[Tracer]
+    tracer = container[Tracer]
 
     with test_client.websocket_connect("/logs") as ws1:
         ws_logger.info("First connection test")
@@ -59,7 +59,7 @@ async def test_that_websocket_reconnects_and_receives_messages(
         data1 = ws1.receive_json()
         assert "First connection test" in data1["message"]
         assert data1["level"] == "INFO"
-        assert data1["correlation_id"] == correlator.trace_id
+        assert data1["trace_id"] == tracer.trace_id
 
     with test_client.websocket_connect("/logs") as ws2:
         ws_logger.info("Second connection test")
@@ -68,4 +68,4 @@ async def test_that_websocket_reconnects_and_receives_messages(
         data2 = ws2.receive_json()
         assert "Second connection test" in data2["message"]
         assert data2["level"] == "INFO"
-        assert data2["correlation_id"] == correlator.trace_id
+        assert data2["trace_id"] == tracer.trace_id

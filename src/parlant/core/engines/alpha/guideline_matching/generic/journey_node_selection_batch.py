@@ -875,7 +875,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
         offset=0,
-        correlation_id="",
+        trace_id="",
         data={"message": message},
         deleted=False,
     )

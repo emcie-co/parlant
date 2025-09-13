@@ -18,7 +18,7 @@ from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.tools import ToolContext
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.loggers import Logger
 from parlant.core.agents import Agent
@@ -62,11 +62,11 @@ class ToolEventGenerator:
         self,
         logger: Logger,
         tool_caller: ToolCaller,
-        correlator: Tracer,
+        tracer: Tracer,
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
-        self._correlator = correlator
+        self._tracer = tracer
         self._service_registry = service_registry
         self._tool_caller = tool_caller
 
@@ -108,7 +108,7 @@ class ToolEventGenerator:
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.trace_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "processing",
                 "data": {"stage": "Fetching data"},
@@ -173,14 +173,14 @@ class ToolEventGenerator:
             if r.result["control"].get("lifespan", "session") == "session":
                 events.append(
                     await context.session_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.trace_id,
+                        trace_id=self._tracer.trace_id,
                         data=event_data,
                     )
                 )
             else:
                 events.append(
                     await context.response_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.trace_id,
+                        trace_id=self._tracer.trace_id,
                         data=event_data,
                     )
                 )

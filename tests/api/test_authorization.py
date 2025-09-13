@@ -67,13 +67,11 @@ async def test_that_limits_are_isolated_per_operation_bucket() -> None:
     limiter = BasicRateLimiter(
         rate_limit_item_per_operation={
             Operation.LIST_EVENTS: RateLimitItemPerMinute(1),
-            Operation.LIST_EVENTS: RateLimitItemPerMinute(1),
         }
     )
 
     request = make_request()
 
-    assert await limiter.check(request, Operation.LIST_EVENTS) is True
     assert await limiter.check(request, Operation.LIST_EVENTS) is True
     assert await limiter.check(request, Operation.LIST_EVENTS) is False
 

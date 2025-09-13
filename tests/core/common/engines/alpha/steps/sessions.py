@@ -89,7 +89,7 @@ def given_a_session_with_a_single_customer_message(
             session_id=new_session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data={
                 "message": "Hey there",
                 "participant": {
@@ -116,7 +116,7 @@ def given_a_session_with_a_thirsty_customer(
             session_id=new_session.id,
             source=EventSource.CUSTOMER,
             kind=EventKind.MESSAGE,
-            correlation_id="<main>",
+            trace_id="<main>",
             data={
                 "message": "I'm thirsty",
                 "participant": {
@@ -162,7 +162,7 @@ def given_a_session_with_a_few_messages(
                 and EventSource.AI_AGENT
                 or EventSource.CUSTOMER,
                 kind=EventKind.MESSAGE,
-                correlation_id="<main>",
+                trace_id="<main>",
                 data={
                     "message": cast(str, m["message"]),
                     "participant": {
@@ -200,7 +200,7 @@ def given_a_session_with_tool_event(
             session_id=session.id,
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="<main>",
+            trace_id="<main>",
             data=json.loads(tool_event_data),
         )
     )

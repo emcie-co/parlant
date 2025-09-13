@@ -116,7 +116,7 @@ class SyncAwaiter:
 
 @dataclass(frozen=False)
 class JournalingEngineHooks(EngineHooks):
-    latest_context_per_correlation_id: dict[str, LoadedContext] = field(default_factory=dict)
+    latest_context_per_trace_id: dict[str, LoadedContext] = field(default_factory=dict)
 
     @override
     async def call_hooks(
@@ -126,7 +126,7 @@ class JournalingEngineHooks(EngineHooks):
         payload: Any,
         exc: Optional[Exception] = None,
     ) -> bool:
-        self.latest_context_per_correlation_id[context.correlator.trace_id] = context
+        self.latest_context_per_trace_id[context.tracer.trace_id] = context
         return await super().call_hooks(hooks, context, payload, exc)
 
 

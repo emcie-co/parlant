@@ -276,7 +276,7 @@ All notable changes to Parlant will be documented here.
 
 ### Changed
 
-- Return event ID instead of correlation ID from utterance API
+- Return event ID instead of trace ID from utterance API
 - Improve and normalize entity update messages in client CLI
 
 ## [1.3.0] - 2024-12-26

@@ -86,7 +86,7 @@ class AppWrapper:
 async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
-    correlator = container[Tracer]
+    tracer = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
 
@@ -111,7 +111,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     )
 
     @api_app.middleware("http")
-    async def add_correlation_id(
+    async def add_trace_id(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
@@ -135,7 +135,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
             return await call_next(request)
 
         request_id = generate_id()
-        with correlator.scope(f"R{request_id}", {"request_id": request_id}):
+        with tracer.scope(f"R{request_id}", {"request_id": request_id}):
             with logger.operation(
                 f"HTTP Request: {request.method} {request.url.path}",
                 level=LogLevel.TRACE,

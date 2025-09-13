@@ -119,7 +119,7 @@ graph LR
 
 Every event in this sequence carries important information: what type of event it is (like a message or a status update), what actually happened (the data), and when it occurred. This creates a complete record of the conversation that helps us understand exactly how things unfolded, making it easy to track and review the conversation's state when needed.
 
-Each event is also associated with a **correlation ID**. This ID primarily helps to correlate between AI-generated messages and the engine triggers that produced them, including any generated tool events that may have informed them. This lets us easily fetch and understand the data that went into each generated message. For example, by having your frontend client inspect a message's correlated tool events, you can show relevant information in "footnotes" under the message.
+Each event is also associated with a **trace ID**. This ID primarily helps to trace between AI-generated messages and the engine triggers that produced them, including any generated tool events that may have informed them. This lets us easily fetch and understand the data that went into each generated message. For example, by having your frontend client inspect a message's traced tool events, you can show relevant information in "footnotes" under the message.
 
 ## Interacting with an Agent
 
@@ -268,10 +268,10 @@ As said above, events are ordered by their offset, which is a number that indica
 
 This is useful because, when you list events, you can specify a minimum offset to only receive events that occurred after a certain point in time. This allows you to poll new events without having to re-fetch all previous ones.
 
-#### Event Correlation ID
-Each event has a correlation ID, which is a unique identifier that helps you track related events and their logs.
+#### Event Trace ID
+Each event has a trace ID, which is a unique identifier that helps you track related events and their logs.
 
-As one example, when an AI agent generates a message, it may also generate tool events that provide additional context or data used in that message. The correlation ID allows you to link these events together, making it easier to understand the flow of information as well as your agent's processing in the session.
+As one example, when an AI agent generates a message, it may also generate tool events that provide additional context or data used in that message. The trace ID allows you to link these events together, making it easier to understand the flow of information as well as your agent's processing in the session.
 
 #### Event Sources
 Events in Parlant can originate from different sources. Here's a quick overview of the possible sources:
@@ -292,7 +292,7 @@ A message event, as its name suggests, represents a message written by someone.
     kind: "message",
     source: EVENT_SOURCE,
     offset: N,
-    correlation_id: CORRELATION_ID,
+    trace_id: TRACE_ID,
     data: {
         message: MESSAGE,
         participant={
@@ -322,7 +322,7 @@ Status events are great for displaying conversational updates during a chat with
     kind: "status",
     source: "ai_agent",
     offset: N,
-    correlation_id: CORRELATION_ID,
+    trace_id: TRACE_ID,
     data: {
         status: STATUS_KIND,
         data: OPTIONAL_DATA
@@ -341,7 +341,7 @@ The `result` object for each call comes directly from the [ToolResult](https://p
     kind: "tool",
     source: "system",
     offset: N,
-    correlation_id: CORRELATION_ID,
+    trace_id: TRACE_ID,
     data: {
         tool_calls: [
             {

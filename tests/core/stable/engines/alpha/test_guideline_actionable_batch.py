@@ -196,7 +196,7 @@ async def base_test_that_correct_guidelines_are_matched(
             session_id=session_id,
             source=e.source,
             kind=e.kind,
-            correlation_id=e.correlation_id,
+            trace_id=e.trace_id,
             data=e.data,
         )
 

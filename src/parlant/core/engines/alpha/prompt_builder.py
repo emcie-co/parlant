@@ -86,8 +86,15 @@ class PromptBuilder:
         self._cached_results.add(prompt)
 
     def build(self) -> str:
-        section_contents = [s.template.format(**s.props) for s in self.sections.values()]
-        prompt = "\n\n".join(section_contents)
+        prompt = ""
+
+        for section_name, section in self.sections.items():
+            try:
+                prompt += section.template.format(**section.props) + "\n\n"
+            except Exception as e:
+                raise ValueError(
+                    f"Error formatting section {section_name} with template: {section.template} and props: {section.props}"
+                ) from e
 
         self._call_on_build(prompt)
 

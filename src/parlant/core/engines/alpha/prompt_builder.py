@@ -15,6 +15,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
+from io import StringIO
 from itertools import chain
 import json
 from typing import Any, Callable, Mapping, Optional, Sequence, cast
@@ -86,15 +87,18 @@ class PromptBuilder:
         self._cached_results.add(prompt)
 
     def build(self) -> str:
-        prompt = ""
+        buffer = StringIO()
 
         for section_name, section in self.sections.items():
             try:
-                prompt += section.template.format(**section.props) + "\n\n"
+                buffer.write(section.template.format(**section.props))
+                buffer.write("\n\n")
             except Exception as e:
                 raise ValueError(
                     f"Error formatting section {section_name} with template: {section.template} and props: {section.props}"
                 ) from e
+
+        prompt = buffer.getvalue().strip()
 
         self._call_on_build(prompt)
 

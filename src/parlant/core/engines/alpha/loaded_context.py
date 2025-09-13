@@ -76,6 +76,9 @@ class InteractionMessage:
         """Returns a string representation of the message"""
         return f"{self.participant['display_name']} ({self.source}): {self.content}"
 
+    def __repr__(self) -> str:
+        return str(self)
+
 
 @dataclass(frozen=True)
 class Interaction:

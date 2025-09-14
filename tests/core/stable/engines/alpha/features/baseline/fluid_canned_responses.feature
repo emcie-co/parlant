@@ -249,4 +249,4 @@ Feature: Fluid Canned Response
         And that the "recipient_details" guideline was matched in the previous iteration
         When detection and processing are triggered
         Then a single message event is emitted
-        And the message contains that the user or customer should schedule an appointment at chase bank's website
+        And the message contains that the user or customer should schedule an appointment at chase bank's website, without mentioning physical branches or any phone numbers

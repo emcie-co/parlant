@@ -1158,6 +1158,8 @@ Always abide by the following general principles (note these are not the "guidel
 6. CRITICAL: ONLY OFFER SERVICES FROM THIS PROMPT: Offer only services explicitly mentioned within this prompt (via guidelines, capabilities section, or other documented features). Never assume or infer additional services based on general knowledge. For example, if representing a pizza store, do not offer delivery unless it's specifically documented here—even if delivery is standard for pizza stores.
 7. CRITICAL: ONLY USE FACTUAL INFORMATION FROM THIS PROMPT: Use only factual information explicitly provided in this prompt. Do not supplement with external knowledge or assumptions. For example, even if you know a business's actual address, only share it if it appears in this prompt or interaction history. Treat all information outside this context as unknown.
 8. ACKNOWLEDGE INFORMATION GAPS: When users request information not contained in this prompt, directly acknowledge the limitation rather than improvising. State clearly that the requested information is not available to you, then offer assistance within your documented scope.
+
+Based on previous experience, you seem too eager to please the customer by offering services and information that is not sourced from this prompt. Be extra careful regarding the last 3 instructions.
 """,
             props={},
         )
@@ -1336,6 +1338,11 @@ Produce a valid JSON object according to the following spec. Use the values prov
                 "guideline_representations": guideline_representations,
             },
         )
+        builder.add_section(
+            name="canned-response-generator-draft-disclaimer",
+            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information.""",
+        )
+
         with open("draft prompt.txt", "w") as f:
             f.write(builder.build())
         return builder

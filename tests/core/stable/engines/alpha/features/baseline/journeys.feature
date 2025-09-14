@@ -50,7 +50,7 @@ Feature: Journeys
         And a single message event is emitted
         And the message contains an answer indicating that the password cannot be reset at this time, or has otherwise failed to reset
     
-    Scenario: Two journeys are used in unison
+    Scenario: Guideline and journey are used in unison
         Given an agent
         And the journey called "Book Flight"
         And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey

@@ -352,25 +352,6 @@ Feature: Strict Canned Response
         Then a single message event is emitted
         And the message contains asking asking what green base the customer wants for their salad 
 
-    Scenario: Two journeys are used in unison (strict canned response) 
-        Given the journey called "Book Flight"
-        And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey
-        And a dependency relationship between the guideline "skip steps" and the "Book Flight" journey
-        And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
-        And a canned response, "Great. Are you interested in economy or business class?"
-        And a canned response, "Great. Only economy class is available for this booking. What is the name of the traveler?"
-        And a canned response, "Great. What is the name of the traveler?"
-        And a canned response, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
-        And an agent message, "Great! From and to where would are you looking to fly?"
-        And a customer message, "From LAX to JFK"
-        And an agent message, "Got it. And when are you looking to travel?"
-        And a customer message, "Next Monday until Friday"
-        And a journey path "[2, 3]" for the journey "Book Flight"
-        When processing is triggered
-        Then a single message event is emitted
-        And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
-
 
     Scenario: Follow up canned response is selected when relevant (strict canned response)
         Given an agent whose job is to schedule automatic vaccum cleaning services using robots

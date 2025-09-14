@@ -114,7 +114,6 @@ class FollowUpCannedResponseSelectionSchema(DefaultBaseModel):
     tldr: Optional[str] = None
     additional_response_required: Optional[bool] = False
     additional_template_id: Optional[str] = None
-    template_adds_information: Optional[bool] = False
     match_quality: Optional[str] = None
 
 
@@ -1958,8 +1957,7 @@ Perform your task as follows:
  - If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft
 4. Make Decision: Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
 5. Select Template (if needed): If "additional_response_required" is True, then choose the template that best captures the "remaining_message_draft". Output the ID of your chosen template under the key "additional_template_id".
-6. Asses Information added (if a template was selected): Evaluate if the chosen template adds significant new information that both (a) appeared in the draft message, and (b) is not included in the last outputted message. Output your evaluation under the key "template_adds_information".
-7. Assess Match Quality (if a template was selected): Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
+6. Assess Match Quality (if a template was selected): Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
     a. "low": You couldn't find a template that even comes close, or any such template also adds new information that is not in the draft.
     b. "partial": You found a template that conveys at least some of the draft message's content, without adding information that is not in the draft or the active guidelines.
     c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
@@ -2031,7 +2029,6 @@ Output a JSON object with three properties:
     "tldr": "<str, brief explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
     "additional_response_required": <bool, if False, all remaining keys should be omitted>,
     "additional_template_id": "<str, ID of the chosen template>",
-    "template_adds_information": <bool, True iff the chosen template adds new information compared to the last outputted message>,
     "match_quality": "<str, either "high", "partial" or "low" depending on how similar the chosen template is to the remaining message draft>",
 }}
 """,
@@ -2092,7 +2089,6 @@ Output a JSON object with three properties:
             if (
                 response.content.additional_response_required
                 and response.content.additional_template_id
-                and response.content.template_adds_information
             ):
                 chosen_canrep = chronological_id_rendered_canreps.get(
                     response.content.additional_template_id, None
@@ -2206,7 +2202,6 @@ follow_up_generation_example_1_expected = FollowUpCannedResponseSelectionSchema(
     tldr="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
     additional_response_required=True,
     additional_template_id="2",
-    template_adds_information=True,
     match_quality="high",
 )
 
@@ -2252,7 +2247,6 @@ follow_up_generation_example_3_expected = FollowUpCannedResponseSelectionSchema(
     tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
     additional_response_required=True,
     additional_template_id="1",
-    template_adds_information=True,
     match_quality="partial",
 )
 follow_up_generation_example_3_shot = FollowUpCannedResponseSelectionShot(
@@ -2274,8 +2268,6 @@ follow_up_generation_example_4_expected = FollowUpCannedResponseSelectionSchema(
     unsatisfied_guidelines="",
     tldr="The last outputted message already captures the draft. Template 1 matches the draft, but it adds no new information compared to the last outputted message.",
     additional_response_required=False,
-    additional_template_id="1",
-    template_adds_information=False,
 )
 follow_up_generation_example_4_shot = FollowUpCannedResponseSelectionShot(
     description="An example where the draft was already captured by the last response. Assume there's an active guideline instructing the agent to inform the customer about our returns policy.",

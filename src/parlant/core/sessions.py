@@ -271,6 +271,7 @@ class Session:
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
+    metadata: Mapping[str, JSONSerializable]
 
 
 class SessionUpdateParams(TypedDict, total=False):
@@ -290,6 +291,8 @@ class SessionStore(ABC):
         agent_id: AgentId,
         creation_utc: Optional[datetime] = None,
         title: Optional[str] = None,
+        mode: Optional[SessionMode] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
     ) -> Session: ...
 
     @abstractmethod
@@ -317,6 +320,21 @@ class SessionStore(ABC):
         agent_id: Optional[AgentId] = None,
         customer_id: Optional[CustomerId] = None,
     ) -> Sequence[Session]: ...
+
+    @abstractmethod
+    async def set_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Session: ...
+
+    @abstractmethod
+    async def unset_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+    ) -> Session: ...
 
     @abstractmethod
     async def create_event(
@@ -411,6 +429,7 @@ class _SessionDocument(TypedDict, total=False):
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[_AgentStateDocument]
+    metadata: Mapping[str, JSONSerializable]
 
 
 class _EventDocument_v0_6_0(TypedDict, total=False):
@@ -645,6 +664,7 @@ class SessionDocumentStore(SessionStore):
                     )
                     for s in doc.get("agent_states", [])
                 ],
+                metadata={},
             )
 
         return await DocumentMigrationHelper[_SessionDocument](
@@ -835,6 +855,7 @@ class SessionDocumentStore(SessionStore):
                 )
                 for s in session.agent_states
             ],
+            metadata=session.metadata,
         )
 
     def _deserialize_session(
@@ -857,6 +878,7 @@ class SessionDocumentStore(SessionStore):
                 )
                 for s in session_document["agent_states"]
             ],
+            metadata=session_document.get("metadata", {}),
         )
 
     def _serialize_event(
@@ -900,6 +922,7 @@ class SessionDocumentStore(SessionStore):
         creation_utc: Optional[datetime] = None,
         title: Optional[str] = None,
         mode: Optional[SessionMode] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
     ) -> Session:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -915,6 +938,7 @@ class SessionDocumentStore(SessionStore):
                 consumption_offsets=consumption_offsets,
                 title=title,
                 agent_states=[],
+                metadata=metadata,
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))
@@ -991,6 +1015,66 @@ class SessionDocumentStore(SessionStore):
                 self._deserialize_session(d)
                 for d in await self._session_collection.find(filters=cast(Where, filters))
             ]
+
+    @override
+    async def set_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Session:
+        async with self._lock.writer_lock:
+            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+
+            if not session_document:
+                raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+            updated_metadata = {**session_document["metadata"], key: value}
+
+            result = await self._session_collection.update_one(
+                filters={"id": {"$eq": session_id}},
+                params={
+                    "metadata": updated_metadata,
+                },
+            )
+
+        assert result.updated_document
+
+        return self._deserialize_session(session_document=result.updated_document)
+
+    @override
+    async def unset_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+    ) -> Session:
+        async with self._lock.writer_lock:
+            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+
+            if not session_document:
+                raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+            updated_metadata = {k: v for k, v in session_document["metadata"].items() if k != key}
+
+            result = await self._session_collection.update_one(
+                filters={"id": {"$eq": session_id}},
+                params={
+                    "metadata": updated_metadata,
+                },
+            )
+
+        assert result.updated_document
+
+        result = await self._session_collection.update_one(
+            filters={"id": {"$eq": session_id}},
+            params={
+                "metadata": updated_metadata,
+            },
+        )
+
+        assert result.updated_document
+
+        return self._deserialize_session(session_document=result.updated_document)
 
     @override
     async def create_event(

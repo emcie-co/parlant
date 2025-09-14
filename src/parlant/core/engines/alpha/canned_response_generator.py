@@ -500,6 +500,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
+        self._follow_ups_enabled = False
 
     async def draft_generation_shots(
         self, composition_mode: CompositionMode
@@ -951,7 +952,7 @@ You will now be given the current state of the interaction to which you must gen
 
         for follow_up_generation_attempt in range(3):
             try:
-                if generation_result:
+                if generation_result and self._follow_ups_enabled:
                     (
                         follow_up_canrep_generation_info,
                         follow_up_canrep_response,
@@ -997,6 +998,12 @@ You will now be given the current state of the interaction to which you must gen
                 last_generation_exception = exc
 
         raise MessageCompositionError() from last_generation_exception
+
+    def enable_follow_ups(self) -> None:
+        self._follow_ups_enabled = True
+
+    def disable_follow_ups(self) -> None:
+        self._follow_ups_enabled = False
 
     def _get_guideline_matches_text(
         self,
@@ -2033,13 +2040,8 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
-        with open("follow up prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
-    # FIXME: handle cases where the customer sends a message before the follow-up generation is finished
-    # In the engine, we need to freeze the generation of the next message if the follow-up generation of the previous one has yet to finish.
-    # This is because we need the follow-up message to be in the context when we generate the next message.
     async def generate_follow_up_response(
         self,
         context: CannedResponseContext,
@@ -2082,8 +2084,6 @@ Output a JSON object with three properties:
                 prompt=prompt,
                 hints={"temperature": temperature},
             )
-            with open("follow up response.txt", "w") as f:
-                f.write(response.content.model_dump_json(indent=2))
 
             self._logger.trace(
                 f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"

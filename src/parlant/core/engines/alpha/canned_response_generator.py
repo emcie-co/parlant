@@ -1538,7 +1538,7 @@ Output a JSON object with three properties:
             return {
                 "draft": draft_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_response.content.response_body,
+                message=draft_message,
                 draft=None,
                 rendered_canned_responses=[],
                 chosen_canned_responses=[],
@@ -1675,7 +1675,7 @@ Output a JSON object with three properties:
                     "draft": draft_response.info,
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
-                    message=draft_response.content.response_body,
+                    message=draft_message,
                     draft=draft_response.content.response_body,
                     rendered_canned_responses=rendered_canreps,
                     chosen_canned_responses=[],
@@ -1691,7 +1691,7 @@ Output a JSON object with three properties:
                 "draft": draft_response.info,
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
-                message=draft_response.content.response_body,
+                message=draft_message,
                 draft=draft_response.content.response_body,
                 rendered_canned_responses=rendered_canreps,
                 chosen_canned_responses=[],

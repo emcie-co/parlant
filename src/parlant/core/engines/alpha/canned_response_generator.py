@@ -500,7 +500,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
-        self._follow_ups_enabled = False
+        self._follow_ups_enabled = True
 
     async def draft_generation_shots(
         self, composition_mode: CompositionMode

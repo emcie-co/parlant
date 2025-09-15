@@ -32,10 +32,10 @@ from parlant.api.common import (
     guideline_dto_example,
 )
 from parlant.app_modules.guidelines import (
-    GuidelineMetadataUpdateParamsModel,
-    GuidelineRelationshipModel,
-    GuidelineTagsUpdateParamsModel,
-    GuidelineToolAssociationUpdateParamsModel,
+    GuidelineMetadataUpdateParams,
+    GuidelineRelationship,
+    GuidelineTagsUpdateParams,
+    GuidelineToolAssociationUpdateParams,
 )
 from parlant.core.application import Application
 from parlant.core.common import (
@@ -353,7 +353,7 @@ def _guideline_relationship_kind_to_dto(
 
 
 def _guideline_relationship_to_dto(
-    relationship: GuidelineRelationshipModel,
+    relationship: GuidelineRelationship,
     indirect: bool,
 ) -> RelationshipDTO:
     if relationship.source_type == RelationshipEntityKind.GUIDELINE:
@@ -606,7 +606,7 @@ def create_router(
             guideline_id=guideline_id,
             condition=params.condition,
             action=params.action,
-            tool_associations=GuidelineToolAssociationUpdateParamsModel(
+            tool_associations=GuidelineToolAssociationUpdateParams(
                 add=[
                     ToolId(service_name=t.service_name, tool_name=t.tool_name)
                     for t in params.tool_associations.add
@@ -623,13 +623,13 @@ def create_router(
             if params.tool_associations
             else None,
             enabled=params.enabled,
-            tags=GuidelineTagsUpdateParamsModel(
+            tags=GuidelineTagsUpdateParams(
                 add=params.tags.add,
                 remove=params.tags.remove,
             )
             if params.tags
             else None,
-            metadata=GuidelineMetadataUpdateParamsModel(
+            metadata=GuidelineMetadataUpdateParams(
                 set=params.metadata.set,
                 unset=params.metadata.unset,
             )

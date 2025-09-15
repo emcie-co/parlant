@@ -20,9 +20,9 @@ from typing import Annotated, Sequence, TypeAlias, cast
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.app_modules.journeys import (
-    JourneyConditionUpdateParamsModel,
-    JourneyModel,
-    JourneyTagUpdateParamsModel,
+    JourneyConditionUpdateParams,
+    JourneyGraph,
+    JourneyTagUpdateParams,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -259,7 +259,7 @@ TagIdQuery: TypeAlias = Annotated[
 
 
 async def _build_mermaid_chart(
-    model: JourneyModel,
+    model: JourneyGraph,
 ) -> JourneyMermaidChartDTO:
     NORMAL_STYLE = "fill:#006e53,stroke:#ffffff,stroke-width:2px,color:#ffffff"
     TOOL_STYLE = "fill:#ffeeaa,stroke:#ffeeaa,stroke-width:2px,color:#dd6600"
@@ -553,12 +553,12 @@ def create_router(
             journey_id=journey_id,
             title=params.title,
             description=params.description,
-            conditions=JourneyConditionUpdateParamsModel(
+            conditions=JourneyConditionUpdateParams(
                 add=params.conditions.add, remove=params.conditions.remove
             )
             if params.conditions
             else None,
-            tags=JourneyTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
+            tags=JourneyTagUpdateParams(add=params.tags.add, remove=params.tags.remove)
             if params.tags
             else None,
         )

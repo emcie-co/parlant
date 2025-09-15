@@ -28,7 +28,7 @@ from parlant.api.common import (
     ExampleJson,
 )
 from parlant.app_modules.context_variables import (
-    ContextVariableTagsUpdateParamsModel,
+    ContextVariableTagsUpdateParams,
 )
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
@@ -451,7 +451,7 @@ def create_router(
             if params.tool_id
             else None,
             freshness_rules=params.freshness_rules,
-            tags=ContextVariableTagsUpdateParamsModel(
+            tags=ContextVariableTagsUpdateParams(
                 add=params.tags.add,
                 remove=params.tags.remove,
             )

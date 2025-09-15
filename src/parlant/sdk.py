@@ -71,19 +71,6 @@ from parlant.api.authorization import (
     RateLimitExceededException,
     RateLimiter,
 )
-from parlant.app_modules.agents import AgentModule
-from parlant.app_modules.guidelines import GuidelineModule
-from parlant.app_modules.sessions import SessionModule
-from parlant.app_modules.services import ServiceModule
-from parlant.app_modules.tags import TagModule
-from parlant.app_modules.customers import CustomerModule
-from parlant.app_modules.context_variables import ContextVariableModule
-from parlant.app_modules.relationships import RelationshipModule
-from parlant.app_modules.journeys import JourneyModule
-from parlant.app_modules.glossary import GlossaryModule
-from parlant.app_modules.evaluations import EvaluationModule
-from parlant.app_modules.capabilities import CapabilityModule
-from parlant.app_modules.canned_responses import CannedResponseModule
 
 
 from parlant.core import async_utils
@@ -93,7 +80,6 @@ from parlant.core.agents import (
     AgentStore,
     CompositionMode as _CompositionMode,
 )
-from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator, ItemNotFoundError, JSONSerializable, Version
@@ -2935,35 +2921,8 @@ class Server:
                         embedder_type_provider=get_embedder_type,
                     )  # type: ignore
                 )
-            c()[AgentModule] = lambda rc: AgentModule(rc)
-            c()[SessionModule] = lambda rc: SessionModule(rc)
-            c()[ServiceModule] = lambda rc: ServiceModule(rc)
-            c()[TagModule] = lambda rc: TagModule(rc)
-            c()[CustomerModule] = lambda rc: CustomerModule(rc)
-            c()[GuidelineModule] = lambda rc: GuidelineModule(rc)
-            c()[ContextVariableModule] = lambda rc: ContextVariableModule(rc)
-            c()[RelationshipModule] = lambda rc: RelationshipModule(rc)
-            c()[JourneyModule] = lambda rc: JourneyModule(rc)
-            c()[GlossaryModule] = lambda rc: GlossaryModule(rc)
-            c()[EvaluationModule] = lambda rc: EvaluationModule(rc)
-            c()[CapabilityModule] = lambda rc: CapabilityModule(rc)
-            c()[CannedResponseModule] = lambda rc: CannedResponseModule(rc)
 
-            c()[Application] = Application(
-                agent_module=c()[AgentModule],
-                session_module=c()[SessionModule],
-                service_module=c()[ServiceModule],
-                tag_module=c()[TagModule],
-                customer_module=c()[CustomerModule],
-                guideline_module=c()[GuidelineModule],
-                context_variable_module=c()[ContextVariableModule],
-                relationship_module=c()[RelationshipModule],
-                journey_module=c()[JourneyModule],
-                glossary_module=c()[GlossaryModule],
-                evaluation_module=c()[EvaluationModule],
-                capability_module=c()[CapabilityModule],
-                canned_response_module=c()[CannedResponseModule],
-            )
+            print("Debug")
 
         async def configure(c: Container) -> Container:
             latest_container = c

@@ -47,19 +47,6 @@ from parlant.api.authorization import (
     DevelopmentAuthorizationPolicy,
     ProductionAuthorizationPolicy,
 )
-from parlant.app_modules.agents import AgentModule
-from parlant.app_modules.sessions import SessionModule
-from parlant.app_modules.services import ServiceModule
-from parlant.app_modules.tags import TagModule
-from parlant.app_modules.customers import CustomerModule
-from parlant.app_modules.guidelines import GuidelineModule
-from parlant.app_modules.context_variables import ContextVariableModule
-from parlant.app_modules.relationships import RelationshipModule
-from parlant.app_modules.journeys import JourneyModule
-from parlant.app_modules.glossary import GlossaryModule
-from parlant.app_modules.evaluations import EvaluationModule
-from parlant.app_modules.capabilities import CapabilityModule
-from parlant.app_modules.canned_responses import CannedResponseModule
 
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -551,21 +538,7 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, Engine, AlphaEngine)
 
-    c[AgentModule] = Singleton(AgentModule)
-    c[SessionModule] = Singleton(SessionModule)
-    c[ServiceModule] = Singleton(ServiceModule)
-    c[TagModule] = Singleton(TagModule)
-    c[CustomerModule] = Singleton(CustomerModule)
-    c[GuidelineModule] = Singleton(GuidelineModule)
-    c[ContextVariableModule] = Singleton(ContextVariableModule)
-    c[RelationshipModule] = Singleton(RelationshipModule)
-    c[JourneyModule] = Singleton(JourneyModule)
-    c[GlossaryModule] = Singleton(GlossaryModule)
-    c[EvaluationModule] = Singleton(EvaluationListener)
-    c[CapabilityModule] = Singleton(CapabilityModule)
-    c[CannedResponseModule] = Singleton(CannedResponseModule)
-
-    c[Application] = Singleton(Application)
+    _define_singleton(c, Application, Application)
 
     yield c
 

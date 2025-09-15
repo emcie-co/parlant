@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import JSONSerializable
@@ -18,7 +17,7 @@ from parlant.core.tools import ToolId
 
 
 @dataclass(frozen=True)
-class ContextVariableTagsUpdateParamsModel:
+class ContextVariableTagsUpdateParams:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
 
@@ -26,13 +25,17 @@ class ContextVariableTagsUpdateParamsModel:
 class ContextVariableModule:
     def __init__(
         self,
-        container: Container,
-    ):
-        self._logger = container[Logger]
-        self._variable_store = container[ContextVariableStore]
-        self._service_registry = container[ServiceRegistry]
-        self._agent_store = container[AgentStore]
-        self._tag_store = container[TagStore]
+        logger: Logger,
+        context_variable_store: ContextVariableStore,
+        service_registry: ServiceRegistry,
+        agent_store: AgentStore,
+        tag_store: TagStore,
+    ) -> None:
+        self._logger = logger
+        self._variable_store = context_variable_store
+        self._service_registry = service_registry
+        self._agent_store = agent_store
+        self._tag_store = tag_store
 
     async def create(
         self,
@@ -85,7 +88,7 @@ class ContextVariableModule:
         description: str | None,
         tool_id: ToolId | None,
         freshness_rules: str | None,
-        tags: ContextVariableTagsUpdateParamsModel | None,
+        tags: ContextVariableTagsUpdateParams | None,
     ) -> ContextVariable:
         if name or description or tool_id or freshness_rules:
             update_params: ContextVariableUpdateParams = {}

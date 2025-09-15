@@ -30,20 +30,6 @@ from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
 
-from parlant.app_modules.agents import AgentModule
-from parlant.app_modules.sessions import SessionModule
-from parlant.app_modules.services import ServiceModule
-from parlant.app_modules.tags import TagModule
-from parlant.app_modules.customers import CustomerModule
-from parlant.app_modules.guidelines import GuidelineModule
-from parlant.app_modules.context_variables import ContextVariableModule
-from parlant.app_modules.relationships import RelationshipModule
-from parlant.app_modules.journeys import JourneyModule
-from parlant.app_modules.glossary import GlossaryModule
-from parlant.app_modules.evaluations import EvaluationModule
-from parlant.app_modules.capabilities import CapabilityModule
-from parlant.app_modules.canned_responses import CannedResponseModule
-
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -566,20 +552,6 @@ async def container(
         container[AuthorizationPolicy] = Singleton(DevelopmentAuthorizationPolicy)
 
         container[Engine] = Singleton(AlphaEngine)
-
-        container[AgentModule] = AgentModule(container)
-        container[SessionModule] = SessionModule(container)
-        container[ServiceModule] = ServiceModule(container)
-        container[TagModule] = TagModule(container)
-        container[CustomerModule] = CustomerModule(container)
-        container[GuidelineModule] = GuidelineModule(container)
-        container[ContextVariableModule] = ContextVariableModule(container)
-        container[RelationshipModule] = RelationshipModule(container)
-        container[JourneyModule] = JourneyModule(container)
-        container[GlossaryModule] = GlossaryModule(container)
-        container[EvaluationModule] = EvaluationModule(container)
-        container[CapabilityModule] = CapabilityModule(container)
-        container[CannedResponseModule] = CannedResponseModule(container)
 
         container[Application] = Singleton(Application)
 

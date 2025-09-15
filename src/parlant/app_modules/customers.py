@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Mapping, Sequence
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.loggers import Logger
@@ -23,12 +22,15 @@ class CustomerTagUpdateParams:
 class CustomerModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        customer_store: CustomerStore,
+        agent_store: AgentStore,
+        tag_store: TagStore,
     ):
-        self._logger = container[Logger]
-        self._customer_store = container[CustomerStore]
-        self._agent_store = container[AgentStore]
-        self._tag_store = container[TagStore]
+        self._logger = logger
+        self._customer_store = customer_store
+        self._agent_store = agent_store
+        self._tag_store = tag_store
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

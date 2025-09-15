@@ -1,5 +1,4 @@
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.loggers import Logger
 from parlant.core.tags import TagId, TagStore, Tag, TagUpdateParams
@@ -8,10 +7,11 @@ from parlant.core.tags import TagId, TagStore, Tag, TagUpdateParams
 class TagModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        tag_store: TagStore,
     ):
-        self._logger = container[Logger]
-        self._tag_store = container[TagStore]
+        self._logger = logger
+        self._tag_store = tag_store
 
     async def create(self, name: str) -> Tag:
         tag = await self._tag_store.create_tag(name=name)

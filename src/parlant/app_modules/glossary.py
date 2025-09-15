@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.loggers import Logger
@@ -17,12 +16,15 @@ class TermTagsUpdateParamsModel:
 class GlossaryModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        glossary_store: GlossaryStore,
+        agent_store: AgentStore,
+        tag_store: TagStore,
     ):
-        self._logger = container[Logger]
-        self._glossary_store = container[GlossaryStore]
-        self._agent_store = container[AgentStore]
-        self._tag_store = container[TagStore]
+        self._logger = logger
+        self._glossary_store = glossary_store
+        self._agent_store = agent_store
+        self._tag_store = tag_store
 
     async def _ensure_tag(self, tag: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag):

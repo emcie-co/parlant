@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
 from typing import Mapping, Sequence, cast
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId
@@ -24,25 +23,25 @@ from parlant.core.tools import Tool, ToolId
 
 
 @dataclass(frozen=True)
-class GuidelineMetadataUpdateParamsModel:
+class GuidelineMetadataUpdateParams:
     set: Mapping[str, JSONSerializable] | None = None
     unset: Sequence[str] | None = None
 
 
 @dataclass(frozen=True)
-class GuidelineTagsUpdateParamsModel:
+class GuidelineTagsUpdateParams:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
 
 
 @dataclass(frozen=True)
-class GuidelineToolAssociationUpdateParamsModel:
+class GuidelineToolAssociationUpdateParams:
     add: Sequence[ToolId] | None = None
     remove: Sequence[ToolId] | None = None
 
 
 @dataclass
-class GuidelineRelationshipModel:
+class GuidelineRelationship:
     id: RelationshipId
     source: Guideline | Tag | Tool
     source_type: RelationshipEntityKind
@@ -54,16 +53,23 @@ class GuidelineRelationshipModel:
 class GuidelineModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        guideline_store: GuidelineStore,
+        tag_store: TagStore,
+        agent_store: AgentStore,
+        journey_store: JourneyStore,
+        relationship_store: RelationshipStore,
+        guideline_tool_association_store: GuidelineToolAssociationStore,
+        service_registry: ServiceRegistry,
     ):
-        self._logger = container[Logger]
-        self._guideline_store = container[GuidelineStore]
-        self._tag_store = container[TagStore]
-        self._agent_store = container[AgentStore]
-        self._journey_store = container[JourneyStore]
-        self._relationship_store = container[RelationshipStore]
-        self._guideline_tool_association_store = container[GuidelineToolAssociationStore]
-        self._service_registry = container[ServiceRegistry]
+        self._logger = logger
+        self._guideline_store = guideline_store
+        self._tag_store = tag_store
+        self._agent_store = agent_store
+        self._journey_store = journey_store
+        self._relationship_store = relationship_store
+        self._guideline_tool_association_store = guideline_tool_association_store
+        self._service_registry = service_registry
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):
@@ -119,10 +125,10 @@ class GuidelineModule:
         guideline_id: GuidelineId,
         condition: str | None,
         action: str | None,
-        tool_associations: GuidelineToolAssociationUpdateParamsModel | None,
+        tool_associations: GuidelineToolAssociationUpdateParams | None,
         enabled: bool | None,
-        tags: GuidelineTagsUpdateParamsModel | None,
-        metadata: GuidelineMetadataUpdateParamsModel | None,
+        tags: GuidelineTagsUpdateParams | None,
+        metadata: GuidelineMetadataUpdateParams | None,
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
@@ -254,7 +260,7 @@ class GuidelineModule:
         entity_id: GuidelineId | TagId,
         kind: RelationshipKind,
         include_indirect: bool = True,
-    ) -> Sequence[tuple[GuidelineRelationshipModel, bool]]:
+    ) -> Sequence[tuple[GuidelineRelationship, bool]]:
         async def _get_entity(
             entity_id: GuidelineId | TagId,
             entity_type: RelationshipEntityKind,
@@ -287,7 +293,7 @@ class GuidelineModule:
             assert type(r.kind) is RelationshipKind
 
             relationships.append(
-                GuidelineRelationshipModel(
+                GuidelineRelationship(
                     id=r.id,
                     source=await _get_entity(cast(GuidelineId | TagId, r.source.id), r.source.kind),
                     source_type=r.source.kind,
@@ -310,7 +316,7 @@ class GuidelineModule:
         self,
         guideline_id: GuidelineId,
         include_indirect: bool = True,
-    ) -> Sequence[tuple[GuidelineRelationshipModel, bool]]:
+    ) -> Sequence[tuple[GuidelineRelationship, bool]]:
         return list(
             chain.from_iterable(
                 [

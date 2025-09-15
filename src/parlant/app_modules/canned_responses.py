@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.canned_responses import (
@@ -24,13 +23,17 @@ class CannedResponseTagUpdateParamsModel:
 class CannedResponseModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        canned_response_store: CannedResponseStore,
+        agent_store: AgentStore,
+        journey_store: JourneyStore,
+        tag_store: TagStore,
     ):
-        self._logger = container[Logger]
-        self._canrep_store = container[CannedResponseStore]
-        self._agent_store = container[AgentStore]
-        self._journey_store = container[JourneyStore]
-        self._tag_store = container[TagStore]
+        self._logger = logger
+        self._canrep_store = canned_response_store
+        self._agent_store = agent_store
+        self._journey_store = journey_store
+        self._tag_store = tag_store
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

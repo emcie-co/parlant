@@ -1,5 +1,4 @@
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.loggers import Logger
 from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
@@ -9,10 +8,11 @@ from parlant.core.tools import ToolService
 class ServiceModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        service_registry: ServiceRegistry,
     ):
-        self._logger = container[Logger]
-        self._service_registry = container[ServiceRegistry]
+        self._logger = logger
+        self._service_registry = service_registry
 
     async def read(self, name: str) -> ToolService:
         service = await self._service_registry.read_tool_service(name)

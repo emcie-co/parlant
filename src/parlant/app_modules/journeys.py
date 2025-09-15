@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.loggers import Logger
@@ -16,20 +15,20 @@ from parlant.core.tags import Tag, TagId
 
 
 @dataclass(frozen=True)
-class JourneyModel:
+class JourneyGraph:
     journey: Journey
     nodes: Sequence[JourneyNode]
     edges: Sequence[JourneyEdge]
 
 
 @dataclass(frozen=True)
-class JourneyConditionUpdateParamsModel:
+class JourneyConditionUpdateParams:
     add: Sequence[GuidelineId] | None
     remove: Sequence[GuidelineId] | None
 
 
 @dataclass(frozen=True)
-class JourneyTagUpdateParamsModel:
+class JourneyTagUpdateParams:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
 
@@ -37,11 +36,13 @@ class JourneyTagUpdateParamsModel:
 class JourneyModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        journey_store: JourneyStore,
+        guideline_store: GuidelineStore,
     ):
-        self._logger = container[Logger]
-        self._journey_store = container[JourneyStore]
-        self._guideline_store = container[GuidelineStore]
+        self._logger = logger
+        self._journey_store = journey_store
+        self._guideline_store = guideline_store
 
     async def create(
         self,
@@ -74,12 +75,12 @@ class JourneyModule:
 
         return journey, guidelines
 
-    async def read(self, journey_id: JourneyId) -> JourneyModel:
+    async def read(self, journey_id: JourneyId) -> JourneyGraph:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
         nodes = await self._journey_store.list_nodes(journey_id=journey.id)
         edges = await self._journey_store.list_edges(journey_id=journey.id)
 
-        return JourneyModel(journey=journey, nodes=nodes, edges=edges)
+        return JourneyGraph(journey=journey, nodes=nodes, edges=edges)
 
     async def find(self, tag_id: TagId | None) -> Sequence[Journey]:
         if tag_id:
@@ -96,8 +97,8 @@ class JourneyModule:
         journey_id: JourneyId,
         title: str | None,
         description: str | None,
-        conditions: JourneyConditionUpdateParamsModel | None,
-        tags: JourneyTagUpdateParamsModel | None,
+        conditions: JourneyConditionUpdateParams | None,
+        tags: JourneyTagUpdateParams | None,
     ) -> Journey:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 

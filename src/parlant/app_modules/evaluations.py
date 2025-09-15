@@ -1,5 +1,4 @@
 from typing import Sequence
-from lagom import Container
 
 from parlant.core.async_utils import Timeout
 from parlant.core.loggers import Logger
@@ -19,12 +18,15 @@ from parlant.core.services.indexing.behavioral_change_evaluation import Behavior
 class EvaluationModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        evaluation_store: EvaluationStore,
+        evaluation_service: BehavioralChangeEvaluator,
+        evaluation_listener: EvaluationListener,
     ):
-        self._logger = container[Logger]
-        self._evaluation_store = container[EvaluationStore]
-        self._evaluation_service = container[BehavioralChangeEvaluator]
-        self._evaluation_listener = container[EvaluationListener]
+        self._logger = logger
+        self._evaluation_store = evaluation_store
+        self._evaluation_service = evaluation_service
+        self._evaluation_listener = evaluation_listener
 
     async def create(self, payloads: Sequence[Payload]) -> Evaluation:
         evaluation_id = await self._evaluation_service.create_evaluation_task(

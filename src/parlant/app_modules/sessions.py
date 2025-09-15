@@ -3,8 +3,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping, Sequence, Set
 
-from lagom import Container
-
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
@@ -49,20 +47,29 @@ def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
 class SessionModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        agent_store: AgentStore,
+        correlator: ContextualCorrelator,
+        session_store: SessionStore,
+        customer_store: CustomerStore,
+        session_listener: SessionListener,
+        nlp_service: NLPService,
+        engine: Engine,
+        event_emitter_factory: EventEmitterFactory,
+        background_task_service: BackgroundTaskService,
     ):
-        self._logger = container[Logger]
-        self._agent_store = container[AgentStore]
-        self._correlator = container[ContextualCorrelator]
+        self._logger = logger
+        self._agent_store = agent_store
+        self._correlator = correlator
 
-        self._session_store = container[SessionStore]
-        self._customer_store = container[CustomerStore]
-        self._session_listener = container[SessionListener]
-        self._nlp_service = container[NLPService]
+        self._session_store = session_store
+        self._customer_store = customer_store
+        self._session_listener = session_listener
+        self._nlp_service = nlp_service
 
-        self._engine = container[Engine]
-        self._event_emitter_factory = container[EventEmitterFactory]
-        self._background_task_service = container[BackgroundTaskService]
+        self._engine = engine
+        self._event_emitter_factory = event_emitter_factory
+        self._background_task_service = background_task_service
 
         self._lock = asyncio.Lock()
 

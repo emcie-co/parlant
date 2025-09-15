@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
 from typing import Sequence, cast
-from lagom import Container
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
@@ -36,15 +35,21 @@ class RelationshipModel:
 class RelationshipModule:
     def __init__(
         self,
-        container: Container,
+        logger: Logger,
+        relationship_store: RelationshipStore,
+        tag_store: TagStore,
+        guideline_store: GuidelineStore,
+        service_registry: ServiceRegistry,
+        agent_store: AgentStore,
+        journey_store: JourneyStore,
     ):
-        self._logger = container[Logger]
-        self._relationship_store = container[RelationshipStore]
-        self._tag_store = container[TagStore]
-        self._guideline_store = container[GuidelineStore]
-        self._service_registry = container[ServiceRegistry]
-        self._agent_store = container[AgentStore]
-        self._journey_store = container[JourneyStore]
+        self._logger = logger
+        self._relationship_store = relationship_store
+        self._tag_store = tag_store
+        self._guideline_store = guideline_store
+        self._service_registry = service_registry
+        self._agent_store = agent_store
+        self._journey_store = journey_store
 
     async def _entity_id_to_tag(
         self,

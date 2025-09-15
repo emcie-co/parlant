@@ -946,59 +946,52 @@ You will now be given the current state of the interaction to which you must gen
                 hints={"type": "follow-up_canned_response-selection"}
             )
         )
-        if agent.composition_mode == CompositionMode.CANNED_STRICT:
-            for generation_attempt in range(3):
-                try:
-                    if generation_result and self._follow_ups_enabled:
-                        (
-                            follow_up_canrep_generation_info,
-                            follow_up_canrep_response,
-                        ) = await self.generate_follow_up_response(
-                            context=context,
-                            last_response_generation=generation_result,
-                            temperature=follow_up_selection_attempt_temperatures[
-                                generation_attempt
-                            ],
+        for generation_attempt in range(3):
+            try:
+                if generation_result and self._follow_ups_enabled:
+                    (
+                        follow_up_canrep_generation_info,
+                        follow_up_canrep_response,
+                    ) = await self.generate_follow_up_response(
+                        context=context,
+                        last_response_generation=generation_result,
+                        temperature=follow_up_selection_attempt_temperatures[generation_attempt],
+                    )
+
+                    if follow_up_canrep_response:
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "typing",
+                                "data": {},
+                            },
                         )
 
-                        if follow_up_canrep_response:
-                            await context.event_emitter.emit_status_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data={
-                                    "status": "typing",
-                                    "data": {},
-                                },
+                        follow_up_delay_time = 1.5
+                        await asyncio.sleep(follow_up_delay_time)
+
+                        follow_up_response_events = await output_messages(follow_up_canrep_response)
+                        events += follow_up_response_events
+                        if not follow_up_response_events:
+                            self._logger.debug(
+                                "Skipping follow up response; no additional response deemed necessary"
                             )
 
-                            follow_up_delay_time = 1.5
-                            await asyncio.sleep(follow_up_delay_time)
+                    return [
+                        MessageEventComposition(
+                            {**generation_info, **follow_up_canrep_generation_info}, events
+                        )
+                    ]
 
-                            follow_up_response_events = await output_messages(
-                                follow_up_canrep_response
-                            )
-                            events += follow_up_response_events
-                            if not follow_up_response_events:
-                                self._logger.debug(
-                                    "Skipping follow up response; no additional response deemed necessary"
-                                )
+                return [MessageEventComposition({**generation_info}, events)]
 
-                        return [
-                            MessageEventComposition(
-                                {**generation_info, **follow_up_canrep_generation_info}, events
-                            )
-                        ]
+            except Exception as exc:
+                self._logger.warning(
+                    f"Follow-up Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
+                last_generation_exception = exc
 
-                    return [MessageEventComposition({**generation_info}, events)]
-
-                except Exception as exc:
-                    self._logger.warning(
-                        f"Follow-up Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
-                    )
-                    last_generation_exception = exc
-
-            raise MessageCompositionError() from last_generation_exception
-        else:
-            return [MessageEventComposition({**generation_info}, events)]
+        raise MessageCompositionError() from last_generation_exception
 
     def enable_follow_ups(self) -> None:
         self._follow_ups_enabled = True
@@ -1345,8 +1338,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
             template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information.""",
         )
 
-        with open("draft prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _get_draft_output_format(
@@ -1538,9 +1529,6 @@ Output a JSON object with three properties:
             prompt=draft_prompt,
             hints={"temperature": temperature},
         )
-
-        with open("draft prompt response.txt", "w") as f:
-            f.write(draft_response.content.model_dump_json(indent=2))
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
@@ -2054,8 +2042,6 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
-        with open("follow up prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     async def generate_follow_up_response(
@@ -2100,9 +2086,6 @@ Output a JSON object with three properties:
                 prompt=prompt,
                 hints={"temperature": temperature},
             )
-
-            with open("follow up prompt response.txt", "w") as f:
-                f.write(response.content.model_dump_json(indent=2))
 
             self._logger.trace(
                 f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"

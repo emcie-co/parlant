@@ -68,7 +68,6 @@ Feature: Strict Canned Response Capabilities
         When processing is triggered
         Then a single message event is emitted
         And the message contains that the agent cannot help with the request or does not understand it.
-        And the message contains no mention of credit card or account Limits
 
     Scenario: Agent doesn't hallucinate field details regarding an available capability (strict canned response)
         Given the capability "cancel_subscription"

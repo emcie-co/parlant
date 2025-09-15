@@ -911,16 +911,14 @@ You will now be given the current state of the interaction to which you must gen
         generation_info: Mapping[str, GenerationInfo] = {}
         events: list[EmittedEvent] = []
 
-        for follow_up_generation_attempt in range(3):
+        for generation_attempt in range(3):
             try:
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
                     responses,
                     agent.composition_mode,
-                    temperature=follow_up_selection_attempt_temperatures[
-                        follow_up_generation_attempt
-                    ],
+                    temperature=follow_up_selection_attempt_temperatures[generation_attempt],
                 )
 
                 if latch:
@@ -938,7 +936,7 @@ You will now be given the current state of the interaction to which you must gen
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Follow-up Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
@@ -948,55 +946,59 @@ You will now be given the current state of the interaction to which you must gen
                 hints={"type": "follow-up_canned_response-selection"}
             )
         )
-
-        for follow_up_generation_attempt in range(3):
-            try:
-                if generation_result and self._follow_ups_enabled:
-                    (
-                        follow_up_canrep_generation_info,
-                        follow_up_canrep_response,
-                    ) = await self.generate_follow_up_response(
-                        context=context,
-                        last_response_generation=generation_result,
-                        temperature=follow_up_selection_attempt_temperatures[
-                            follow_up_generation_attempt
-                        ],
-                    )
-
-                    if follow_up_canrep_response:
-                        await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
-                            data={
-                                "status": "typing",
-                                "data": {},
-                            },
+        if agent.composition_mode == CompositionMode.CANNED_STRICT:
+            for generation_attempt in range(3):
+                try:
+                    if generation_result and self._follow_ups_enabled:
+                        (
+                            follow_up_canrep_generation_info,
+                            follow_up_canrep_response,
+                        ) = await self.generate_follow_up_response(
+                            context=context,
+                            last_response_generation=generation_result,
+                            temperature=follow_up_selection_attempt_temperatures[
+                                generation_attempt
+                            ],
                         )
 
-                        follow_up_delay_time = 1.5
-                        await asyncio.sleep(follow_up_delay_time)
-
-                        follow_up_response_events = await output_messages(follow_up_canrep_response)
-                        events += follow_up_response_events
-                        if not follow_up_response_events:
-                            self._logger.debug(
-                                "Skipping follow up response; no additional response deemed necessary"
+                        if follow_up_canrep_response:
+                            await context.event_emitter.emit_status_event(
+                                correlation_id=self._correlator.correlation_id,
+                                data={
+                                    "status": "typing",
+                                    "data": {},
+                                },
                             )
 
-                    return [
-                        MessageEventComposition(
-                            {**generation_info, **follow_up_canrep_generation_info}, events
-                        )
-                    ]
+                            follow_up_delay_time = 1.5
+                            await asyncio.sleep(follow_up_delay_time)
 
-                return [MessageEventComposition({**generation_info}, events)]
+                            follow_up_response_events = await output_messages(
+                                follow_up_canrep_response
+                            )
+                            events += follow_up_response_events
+                            if not follow_up_response_events:
+                                self._logger.debug(
+                                    "Skipping follow up response; no additional response deemed necessary"
+                                )
 
-            except Exception as exc:
-                self._logger.warning(
-                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
-                )
-                last_generation_exception = exc
+                        return [
+                            MessageEventComposition(
+                                {**generation_info, **follow_up_canrep_generation_info}, events
+                            )
+                        ]
 
-        raise MessageCompositionError() from last_generation_exception
+                    return [MessageEventComposition({**generation_info}, events)]
+
+                except Exception as exc:
+                    self._logger.warning(
+                        f"Follow-up Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    )
+                    last_generation_exception = exc
+
+            raise MessageCompositionError() from last_generation_exception
+        else:
+            return [MessageEventComposition({**generation_info}, events)]
 
     def enable_follow_ups(self) -> None:
         self._follow_ups_enabled = True
@@ -2052,6 +2054,8 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
+        with open("follow up prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     async def generate_follow_up_response(
@@ -2096,6 +2100,9 @@ Output a JSON object with three properties:
                 prompt=prompt,
                 hints={"temperature": temperature},
             )
+
+            with open("follow up prompt response.txt", "w") as f:
+                f.write(response.content.model_dump_json(indent=2))
 
             self._logger.trace(
                 f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"

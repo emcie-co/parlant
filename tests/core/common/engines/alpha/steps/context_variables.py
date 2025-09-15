@@ -184,7 +184,7 @@ def given_a_context_variable_with_freshness_rules(
 
     return context.sync_await(
         context_variable_store.update_variable(
-            id=variable.id,
+            variable_id=variable.id,
             params={"freshness_rules": freshness_rules},
         )
     )
@@ -206,7 +206,7 @@ def given_a_context_variable_with_tool(
 
     return context.sync_await(
         context_variable_store.update_variable(
-            id=variable.id,
+            variable_id=variable.id,
             params={"tool_id": ToolId(service_name="local", tool_name=tool_name)},
         )
     )

@@ -16,22 +16,26 @@ from collections import defaultdict
 from fastapi import APIRouter, Path, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from pydantic import Field
-from typing import Annotated, Optional, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias, cast
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
+from parlant.app_modules.journeys import (
+    JourneyConditionUpdateParams,
+    JourneyGraph,
+    JourneyTagUpdateParams,
+)
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
 from parlant.core.journeys import (
-    Journey,
     JourneyEdge,
     JourneyId,
     JourneyNode,
     JourneyNodeId,
     JourneyStore,
-    JourneyUpdateParams,
 )
-from parlant.core.guidelines import GuidelineId, GuidelineStore
-from parlant.core.tags import TagId, Tag
+from parlant.core.guidelines import GuidelineId
+from parlant.core.tags import TagId
 
 API_GROUP = "journeys"
 
@@ -143,7 +147,7 @@ class JourneyCreationParamsDTO(
     title: JourneyTitleField
     description: str
     conditions: Sequence[JourneyConditionField]
-    tags: Optional[JourneyTagsField] = None
+    tags: JourneyTagsField | None = None
 
 
 JourneyConditionUpdateAddField: TypeAlias = Annotated[
@@ -184,8 +188,8 @@ class JourneyConditionUpdateParamsDTO(
     Parameters for updating an existing journey's conditions.
     """
 
-    add: Optional[JourneyConditionUpdateAddField] = None
-    remove: Optional[JourneyConditionUpdateRemoveField] = None
+    add: JourneyConditionUpdateAddField | None = None
+    remove: JourneyConditionUpdateRemoveField | None = None
 
 
 JourneyTagUpdateAddField: TypeAlias = Annotated[
@@ -226,8 +230,8 @@ class JourneyTagUpdateParamsDTO(
     Parameters for updating an existing journey's tags.
     """
 
-    add: Optional[JourneyTagUpdateAddField] = None
-    remove: Optional[JourneyTagUpdateRemoveField] = None
+    add: JourneyTagUpdateAddField | None = None
+    remove: JourneyTagUpdateRemoveField | None = None
 
 
 class JourneyUpdateParamsDTO(
@@ -239,14 +243,14 @@ class JourneyUpdateParamsDTO(
     All fields are optional. Only provided fields will be updated.
     """
 
-    title: Optional[JourneyTitleField] = None
-    description: Optional[str] = None
-    conditions: Optional[JourneyConditionUpdateParamsDTO] = None
-    tags: Optional[JourneyTagUpdateParamsDTO] = None
+    title: JourneyTitleField | None = None
+    description: str | None = None
+    conditions: JourneyConditionUpdateParamsDTO | None = None
+    tags: JourneyTagUpdateParamsDTO | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
-    Optional[TagId],
+    TagId | None,
     Query(
         description="The tag ID to filter journeys by",
         examples=["tag:123"],
@@ -255,8 +259,7 @@ TagIdQuery: TypeAlias = Annotated[
 
 
 async def _build_mermaid_chart(
-    journey_store: JourneyStore,
-    journey: Journey,
+    model: JourneyGraph,
 ) -> JourneyMermaidChartDTO:
     NORMAL_STYLE = "fill:#006e53,stroke:#ffffff,stroke-width:2px,color:#ffffff"
     TOOL_STYLE = "fill:#ffeeaa,stroke:#ffeeaa,stroke-width:2px,color:#dd6600"
@@ -267,9 +270,9 @@ async def _build_mermaid_chart(
             == "tool"
         )
 
-    root_id: JourneyNodeId = journey.root_id
-    nodes = await journey_store.list_nodes(journey.id)
-    edges = await journey_store.list_edges(journey.id)
+    root_id: JourneyNodeId = model.journey.root_id
+    nodes = model.nodes
+    edges = model.edges
 
     node_by_id = {n.id: n for n in nodes if n.id != JourneyStore.END_NODE_ID}
 
@@ -373,8 +376,7 @@ async def _build_mermaid_chart(
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    journey_store: JourneyStore,
-    guideline_store: GuidelineStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -406,27 +408,9 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_JOURNEY)
 
-        guidelines = [
-            await guideline_store.create_guideline(
-                condition=condition,
-                action=None,
-                tags=[],
-            )
-            for condition in params.conditions
-        ]
-
-        journey = await journey_store.create_journey(
-            title=params.title,
-            description=params.description,
-            conditions=[g.id for g in guidelines],
-            tags=params.tags,
+        journey, guidelines = await app.journeys.create(
+            params.title, params.description, params.conditions, params.tags
         )
-
-        for guideline in guidelines:
-            await guideline_store.upsert_tag(
-                guideline_id=guideline.id,
-                tag_id=Tag.for_journey_id(journey.id),
-            )
 
         return JourneyDTO(
             id=journey.id,
@@ -457,12 +441,7 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_JOURNEYS)
 
-        if tag_id:
-            journeys = await journey_store.list_journeys(
-                tags=[tag_id],
-            )
-        else:
-            journeys = await journey_store.list_journeys()
+        journeys = await app.journeys.find(tag_id)
 
         result = []
         for journey in journeys:
@@ -502,14 +481,14 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_JOURNEY)
 
-        journey = await journey_store.read_journey(journey_id=journey_id)
+        model = await app.journeys.read(journey_id=journey_id)
 
         return JourneyDTO(
-            id=journey.id,
-            title=journey.title,
-            description=journey.description,
-            conditions=journey.conditions,
-            tags=journey.tags,
+            id=model.journey.id,
+            title=model.journey.title,
+            description=model.journey.description,
+            conditions=model.journey.conditions,
+            tags=model.journey.tags,
         )
 
     @router.get(
@@ -535,8 +514,8 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_JOURNEY)
 
-        journey = await journey_store.read_journey(journey_id=journey_id)
-        chart = await _build_mermaid_chart(journey_store, journey)
+        model = await app.journeys.read(journey_id=journey_id)
+        chart = await _build_mermaid_chart(model)
 
         return chart
 
@@ -570,62 +549,19 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.UPDATE_JOURNEY)
 
-        journey = await journey_store.read_journey(journey_id=journey_id)
-
-        if params.conditions:
-            if params.conditions.add:
-                for condition in params.conditions.add:
-                    await journey_store.add_condition(
-                        journey_id=journey_id,
-                        condition=condition,
-                    )
-
-                    guideline = await guideline_store.read_guideline(guideline_id=condition)
-
-                    await guideline_store.upsert_tag(
-                        guideline_id=condition,
-                        tag_id=Tag.for_journey_id(journey_id),
-                    )
-
-            if params.conditions.remove:
-                for condition in params.conditions.remove:
-                    await journey_store.remove_condition(
-                        journey_id=journey_id,
-                        condition=condition,
-                    )
-
-                    guideline = await guideline_store.read_guideline(guideline_id=condition)
-
-                    if guideline.tags == [Tag.for_journey_id(journey_id)]:
-                        await guideline_store.delete_guideline(guideline_id=condition)
-                    else:
-                        await guideline_store.remove_tag(
-                            guideline_id=condition,
-                            tag_id=Tag.for_journey_id(journey_id),
-                        )
-
-        update_params: JourneyUpdateParams = {}
-        if params.title:
-            update_params["title"] = params.title
-        if params.description:
-            update_params["description"] = params.description
-
-        if update_params:
-            journey = await journey_store.update_journey(
-                journey_id=journey_id,
-                params=update_params,
+        journey = await app.journeys.update(
+            journey_id=journey_id,
+            title=params.title,
+            description=params.description,
+            conditions=JourneyConditionUpdateParams(
+                add=params.conditions.add, remove=params.conditions.remove
             )
-
-        if params.tags:
-            if params.tags.add:
-                for tag in params.tags.add:
-                    await journey_store.upsert_tag(journey_id=journey_id, tag_id=tag)
-
-            if params.tags.remove:
-                for tag in params.tags.remove:
-                    await journey_store.remove_tag(journey_id=journey_id, tag_id=tag)
-
-        journey = await journey_store.read_journey(journey_id=journey_id)
+            if params.conditions
+            else None,
+            tags=JourneyTagUpdateParams(add=params.tags.add, remove=params.tags.remove)
+            if params.tags
+            else None,
+        )
 
         return JourneyDTO(
             id=journey.id,
@@ -662,22 +598,6 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_JOURNEY)
 
-        journey = await journey_store.read_journey(journey_id=journey_id)
-
-        await journey_store.delete_journey(journey_id=journey_id)
-
-        for condition in journey.conditions:
-            if not await journey_store.list_journeys(condition=condition):
-                await guideline_store.delete_guideline(guideline_id=condition)
-            else:
-                guideline = await guideline_store.read_guideline(guideline_id=condition)
-
-                if guideline.tags == [Tag.for_journey_id(journey_id)]:
-                    await guideline_store.delete_guideline(guideline_id=condition)
-                else:
-                    await guideline_store.remove_tag(
-                        guideline_id=condition,
-                        tag_id=Tag.for_journey_id(journey_id),
-                    )
+        await app.journeys.delete(journey_id)
 
     return router

@@ -478,7 +478,9 @@ class Test_that_journey_can_prioritize_another_journey(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
 
         assert relationship.kind == RelationshipKind.PRIORITY
         assert relationship.source.id == Tag.for_journey_id(self.journey_a.id)
@@ -508,7 +510,9 @@ class Test_that_journey_can_depend_on_a_guideline(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
 
         assert relationship.kind == RelationshipKind.DEPENDENCY
         assert relationship.source.id == Tag.for_journey_id(self.journey.id)

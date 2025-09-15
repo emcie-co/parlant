@@ -13,20 +13,20 @@
 # limitations under the License.
 
 from datetime import datetime
-from typing import Annotated, Optional, Sequence, TypeAlias
+from typing import Annotated, Sequence, TypeAlias
 import dateutil
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import Field
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
+from parlant.app_modules.canned_responses import CannedResponseTagUpdateParamsModel
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.canned_responses import (
     CannedResponseId,
-    CannedResponseStore,
-    CannedResponseUpdateParams,
     CannedResponseField,
 )
-from parlant.core.tags import TagId, TagStore
+from parlant.core.tags import TagId
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
 
 
@@ -178,8 +178,8 @@ class CannedResponseCreationParamsDTO(
 
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
-    tags: Optional[TagIdSequenceField] = None
-    signals: Optional[CannedResponseSignalSequenceField] = None
+    tags: TagIdSequenceField | None = None
+    signals: CannedResponseSignalSequenceField | None = None
 
 
 CannedResponseTagUpdateAddField: TypeAlias = Annotated[
@@ -219,8 +219,8 @@ class CannedResponseTagUpdateParamsDTO(
     Both operations can be performed in a single request.
     """
 
-    add: Optional[CannedResponseTagUpdateAddField] = None
-    remove: Optional[CannedResponseTagUpdateRemoveField] = None
+    add: CannedResponseTagUpdateAddField | None = None
+    remove: CannedResponseTagUpdateRemoveField | None = None
 
 
 canned_response_update_params_example: ExampleJson = {
@@ -241,9 +241,9 @@ class CannedResponseUpdateParamsDTO(
 ):
     """Parameters for updating an existing canned response."""
 
-    value: Optional[CannedResponseValueField] = None
-    fields: Optional[CannedResponseFieldSequenceField] = None
-    tags: Optional[CannedResponseTagUpdateParamsDTO] = None
+    value: CannedResponseValueField | None = None
+    fields: CannedResponseFieldSequenceField | None = None
+    tags: CannedResponseTagUpdateParamsDTO | None = None
 
 
 def _dto_to_canned_response_field(dto: CannedResponseFieldDTO) -> CannedResponseField:
@@ -272,8 +272,7 @@ TagsQuery: TypeAlias = Annotated[
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    canned_response_store: CannedResponseStore,
-    tag_store: TagStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -296,28 +295,20 @@ def create_router(
     ) -> CannedResponseDTO:
         await authorization_policy.authorize(request, Operation.CREATE_CANNED_RESPONSE)
 
-        tags = []
-
-        if params.tags:
-            for tag_id in params.tags:
-                _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        response = await canned_response_store.create_canned_response(
+        canrep = await app.canned_responses.create(
             value=params.value,
             fields=[_dto_to_canned_response_field(s) for s in params.fields],
-            tags=tags or None,
+            tags=params.tags or None,
             signals=params.signals or None,
         )
 
         return CannedResponseDTO(
-            id=response.id,
-            creation_utc=response.creation_utc,
-            value=response.value,
-            fields=[_canned_response_field_to_dto(s) for s in response.fields],
-            tags=response.tags,
-            signals=response.signals,
+            id=canrep.id,
+            creation_utc=canrep.creation_utc,
+            value=canrep.value,
+            fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
+            tags=canrep.tags,
+            signals=canrep.signals,
         )
 
     @router.get(
@@ -342,17 +333,15 @@ def create_router(
         """Retrieves details of a specific canned response by ID."""
         await authorization_policy.authorize(request, Operation.READ_CANNED_RESPONSE)
 
-        response = await canned_response_store.read_canned_response(
-            canned_response_id=canned_response_id
-        )
+        canrep = await app.canned_responses.read(canned_response_id=canned_response_id)
 
         return CannedResponseDTO(
-            id=response.id,
-            creation_utc=response.creation_utc,
-            value=response.value,
-            fields=[_canned_response_field_to_dto(s) for s in response.fields],
-            tags=response.tags,
-            signals=response.signals,
+            id=canrep.id,
+            creation_utc=canrep.creation_utc,
+            value=canrep.value,
+            fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
+            tags=canrep.tags,
+            signals=canrep.signals,
         )
 
     @router.get(
@@ -373,10 +362,7 @@ def create_router(
         """Lists all canned responses, optionally filtered by tags."""
         await authorization_policy.authorize(request, Operation.LIST_CANNED_RESPONSES)
 
-        if tags:
-            responses = await canned_response_store.list_canned_responses(tags=tags)
-        else:
-            responses = await canned_response_store.list_canned_responses()
+        canreps = await app.canned_responses.find(tags=tags)
 
         return [
             CannedResponseDTO(
@@ -387,7 +373,7 @@ def create_router(
                 tags=f.tags,
                 signals=f.signals,
             )
-            for f in responses
+            for f in canreps
         ]
 
     @router.patch(
@@ -428,36 +414,24 @@ def create_router(
                 detail="CannedResponse fields cannot be updated without providing a new value.",
             )
 
-        if params.value:
-            update_params: CannedResponseUpdateParams = {
-                "value": params.value,
-                "fields": (
-                    [_dto_to_canned_response_field(s) for s in params.fields]
-                    if params.fields
-                    else []
-                ),
-            }
-
-            await canned_response_store.update_canned_response(canned_response_id, update_params)
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-                    await canned_response_store.upsert_tag(canned_response_id, tag_id)
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await canned_response_store.remove_tag(canned_response_id, tag_id)
-
-        updated_canrep = await canned_response_store.read_canned_response(canned_response_id)
+        canrep = await app.canned_responses.update(
+            canned_response_id=canned_response_id,
+            value=params.value,
+            fields=(
+                [_dto_to_canned_response_field(s) for s in params.fields] if params.fields else []
+            ),
+            tags=CannedResponseTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
+            if params.tags
+            else None,
+        )
 
         return CannedResponseDTO(
-            id=updated_canrep.id,
-            creation_utc=updated_canrep.creation_utc,
-            value=updated_canrep.value,
-            fields=[_canned_response_field_to_dto(s) for s in updated_canrep.fields],
-            tags=updated_canrep.tags,
-            signals=updated_canrep.signals,
+            id=canrep.id,
+            creation_utc=canrep.creation_utc,
+            value=canrep.value,
+            fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
+            tags=canrep.tags,
+            signals=canrep.signals,
         )
 
     @router.delete(
@@ -479,6 +453,6 @@ def create_router(
     ) -> None:
         await authorization_policy.authorize(request, Operation.DELETE_CANNED_RESPONSE)
 
-        await canned_response_store.delete_canned_response(canned_response_id)
+        await app.canned_responses.delete(canned_response_id)
 
     return router

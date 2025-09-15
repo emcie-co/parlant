@@ -103,7 +103,7 @@ async def test_that_a_new_customer_session_can_be_created(
     context: ContextOfTest,
     agent_id: AgentId,
 ) -> None:
-    created_session = await context.app.create_customer_session(
+    created_session = await context.app.sessions.create(
         customer_id=context.customer_id,
         agent_id=agent_id,
     )
@@ -119,13 +119,13 @@ async def test_that_a_new_customer_session_with_a_proactive_agent_contains_a_mes
     context: ContextOfTest,
     proactive_agent_id: AgentId,
 ) -> None:
-    session = await context.app.create_customer_session(
+    session = await context.app.sessions.create(
         customer_id=context.customer_id,
         agent_id=proactive_agent_id,
         allow_greeting=True,
     )
 
-    assert await context.app.wait_for_update(
+    assert await context.app.sessions.wait_for_update(
         session_id=session.id,
         min_offset=0,
         kinds=[EventKind.MESSAGE],
@@ -141,7 +141,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -152,7 +152,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
         },
     )
 
-    await context.app.wait_for_update(
+    await context.app.sessions.wait_for_update(
         session_id=session.id,
         min_offset=1 + event.offset,
         kinds=[EventKind.MESSAGE],
@@ -168,7 +168,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -179,7 +179,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
         },
     )
 
-    assert await context.app.wait_for_update(
+    assert await context.app.sessions.wait_for_update(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[],
@@ -198,7 +198,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
     ]
 
     for m in messages:
-        await context.app.post_event(
+        await context.app.sessions.create_event(
             session_id=session.id,
             kind=EventKind.MESSAGE,
             data={
@@ -236,7 +236,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         tool_function=hand_off_to_human_operator,
     )
 
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -247,7 +247,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         },
     )
 
-    await context.app.wait_for_update(
+    await context.app.sessions.wait_for_update(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[EventKind.MESSAGE],
@@ -260,7 +260,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
     assert session.mode == "auto"
     assert updated_session.mode == "manual"
 
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -271,7 +271,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         },
     )
 
-    assert not await context.app.wait_for_update(
+    assert not await context.app.sessions.wait_for_update(
         session_id=session.id,
         min_offset=event.offset + 1,
         timeout=Timeout(3),

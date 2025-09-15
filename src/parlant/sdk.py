@@ -71,6 +71,8 @@ from parlant.api.authorization import (
     RateLimitExceededException,
     RateLimiter,
 )
+
+
 from parlant.core import async_utils
 from parlant.core.agents import (
     AgentDocumentStore,
@@ -78,7 +80,6 @@ from parlant.core.agents import (
     AgentStore,
     CompositionMode as _CompositionMode,
 )
-from parlant.core.application import Application
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator, ItemNotFoundError, JSONSerializable, Version
@@ -509,8 +510,6 @@ class _CachedEvaluator:
                         ),
                         tool_ids=tool_ids,
                         operation=PayloadOperation.ADD,
-                        coherence_check=False,  # Legacy and will be removed in the future
-                        connection_proposition=False,  # Legacy and will be removed in the future
                         action_proposition=action_proposition,
                         properties_proposition=properties_proposition,
                         journey_node_proposition=journey_state_proposition,
@@ -2923,7 +2922,7 @@ class Server:
                     )  # type: ignore
                 )
 
-            c()[Application] = lambda rc: Application(rc)
+            print("Debug")
 
         async def configure(c: Container) -> Container:
             latest_container = c

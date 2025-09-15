@@ -609,7 +609,7 @@ async def test_context_variable_deletion(
             assert len(values) == 3
 
             await context_variable_store.delete_variable(
-                id=variable.id,
+                variable_id=variable.id,
             )
 
             variables = await context_variable_store.list_variables(
@@ -747,8 +747,6 @@ async def test_evaluation_creation(
                     ),
                     tool_ids=[],
                     operation=PayloadOperation.ADD,
-                    coherence_check=False,
-                    connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
                     journey_node_proposition=False,
@@ -795,8 +793,6 @@ async def test_evaluation_update(
                     ),
                     tool_ids=[],
                     operation=PayloadOperation.ADD,
-                    coherence_check=False,
-                    connection_proposition=False,
                     action_proposition=True,
                     properties_proposition=True,
                     journey_node_proposition=False,
@@ -808,8 +804,6 @@ async def test_evaluation_update(
             )
 
             invoice_data: InvoiceData = InvoiceGuidelineData(
-                coherence_checks=[],
-                entailment_propositions=None,
                 properties_proposition={
                     "continuous": True,
                     "internal_action": "Provide a list of book recommendations",

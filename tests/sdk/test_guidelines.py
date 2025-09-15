@@ -43,7 +43,9 @@ class Test_that_guideline_priority_relationship_can_be_created(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
         assert relationship.kind == RelationshipKind.PRIORITY
 
 
@@ -67,7 +69,9 @@ class Test_that_guideline_entailment_relationship_can_be_created(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
         assert relationship.kind == RelationshipKind.ENTAILMENT
 
 
@@ -92,7 +96,9 @@ class Test_that_guideline_dependency_relationship_can_be_created(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
         assert relationship.kind == RelationshipKind.DEPENDENCY
 
 
@@ -156,7 +162,9 @@ class Test_that_a_reevaluation_relationship_can_be_created(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
         assert relationship.kind == RelationshipKind.REEVALUATION
 
 
@@ -183,7 +191,9 @@ class Test_that_guideline_can_prioritize_over_journey(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
 
         assert relationship.kind == RelationshipKind.PRIORITY
         assert relationship.source.id == self.guideline.id
@@ -213,7 +223,9 @@ class Test_that_guideline_can_depend_on_journey(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
-        relationship = await relationship_store.read_relationship(id=self.relationship.id)
+        relationship = await relationship_store.read_relationship(
+            relationship_id=self.relationship.id
+        )
 
         assert relationship.kind == RelationshipKind.DEPENDENCY
         assert relationship.source.id == self.guideline.id

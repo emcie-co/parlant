@@ -29,6 +29,7 @@ from parlant.adapters.nlp.openai_service import OpenAIService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
+
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
@@ -190,19 +191,9 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import (
-    GuidelineEvaluator,
-    LegacyBehavioralChangeEvaluator,
-)
-from parlant.core.services.indexing.coherence_checker import (
-    CoherenceChecker,
-    ConditionsEntailmentTestsSchema,
-    ActionsContradictionTestsSchema,
-)
-from parlant.core.services.indexing.guideline_connection_proposer import (
-    GuidelineConnectionProposer,
-    GuidelineConnectionPropositionsSchema,
-)
+from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+
+
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
 from parlant.core.application import Application
 from parlant.core.agents import AgentDocumentStore, AgentStore
@@ -370,7 +361,6 @@ async def container(
             EvaluationDocumentStore(TransientDocumentDatabase())
         )
         container[EvaluationListener] = PollingEvaluationListener
-        container[LegacyBehavioralChangeEvaluator] = LegacyBehavioralChangeEvaluator
         container[EventEmitterFactory] = Singleton(EventPublisherFactory)
 
         container[ServiceRegistry] = await stack.enter_async_context(
@@ -472,9 +462,6 @@ async def container(
             CannedResponseFieldExtractionSchema,
             single_tool_batch.SingleToolBatchSchema,
             overlapping_tools_batch.OverlappingToolsBatchSchema,
-            ConditionsEntailmentTestsSchema,
-            ActionsContradictionTestsSchema,
-            GuidelineConnectionPropositionsSchema,
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
             CustomerDependentActionSchema,
@@ -514,8 +501,6 @@ async def container(
         )
         container[ShotCollection[MessageGeneratorShot]] = message_generator.shot_collection
 
-        container[GuidelineConnectionProposer] = Singleton(GuidelineConnectionProposer)
-        container[CoherenceChecker] = Singleton(CoherenceChecker)
         container[GuidelineActionProposer] = Singleton(GuidelineActionProposer)
         container[GuidelineContinuousProposer] = Singleton(GuidelineContinuousProposer)
         container[CustomerDependentActionDetector] = Singleton(CustomerDependentActionDetector)
@@ -568,7 +553,7 @@ async def container(
 
         container[Engine] = Singleton(AlphaEngine)
 
-        container[Application] = Application(container)
+        container[Application] = Singleton(Application)
 
         yield container
 
@@ -710,32 +695,6 @@ def no_cache(container: Container) -> None:
             container[SchematicGenerator[single_tool_batch.SingleToolBatchSchema]],
         ).use_cache = False
 
-    if isinstance(
-        container[SchematicGenerator[ConditionsEntailmentTestsSchema]],
-        CachedSchematicGenerator,
-    ):
-        cast(
-            CachedSchematicGenerator[ConditionsEntailmentTestsSchema],
-            container[SchematicGenerator[ConditionsEntailmentTestsSchema]],
-        ).use_cache = False
-
-    if isinstance(
-        container[SchematicGenerator[ActionsContradictionTestsSchema]],
-        CachedSchematicGenerator,
-    ):
-        cast(
-            CachedSchematicGenerator[ActionsContradictionTestsSchema],
-            container[SchematicGenerator[ActionsContradictionTestsSchema]],
-        ).use_cache = False
-
-    if isinstance(
-        container[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
-        CachedSchematicGenerator,
-    ):
-        cast(
-            CachedSchematicGenerator[GuidelineConnectionPropositionsSchema],
-            container[SchematicGenerator[GuidelineConnectionPropositionsSchema]],
-        ).use_cache = False
     if isinstance(
         container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
         CachedSchematicGenerator,

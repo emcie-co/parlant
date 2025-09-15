@@ -18,9 +18,11 @@ import httpx
 from lagom import Container
 from pytest import raises
 
+from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError
 from parlant.core.canned_responses import CannedResponseStore, CannedResponseField
-from parlant.core.tags import TagStore
+from parlant.core.journeys import JourneyStore
+from parlant.core.tags import Tag, TagStore
 
 
 async def test_that_a_canned_response_can_be_created(
@@ -364,3 +366,139 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     assert response.status_code == status.HTTP_200_OK
     canned_responses = response.json()
     assert len(canned_responses) == 0
+
+
+async def test_that_agent_tag_can_be_added_to_a_canned_response(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+    agent = await container[AgentStore].create_agent("Test Agent")
+
+    canrep = await canned_response_store.create_canned_response(
+        value="Welcome {{username}}!",
+        fields=[
+            CannedResponseField(
+                name="username", description="User's name", examples=["Alice", "Bob"]
+            )
+        ],
+    )
+    agent_tag = Tag.for_agent_id(agent.id)
+
+    update_payload = {"tags": {"add": [agent_tag]}}
+    response = await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
+    response.raise_for_status()
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["tags"] == [agent_tag]
+
+
+async def test_that_agent_tag_can_be_removed_from_a_canned_response(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    canned_response_store = container[CannedResponseStore]
+
+    agent = await container[AgentStore].create_agent("Test Agent")
+
+    tag1 = await tag_store.create_tag("tag1")
+
+    agent_tag = Tag.for_agent_id(agent.id)
+
+    canrep = await canned_response_store.create_canned_response(
+        value="Welcome {{username}}!",
+        fields=[
+            CannedResponseField(
+                name="username", description="User's name", examples=["Alice", "Bob"]
+            )
+        ],
+        tags=[tag1.id, agent_tag],
+    )
+
+    update_payload = {"tags": {"remove": [agent_tag]}}
+    _ = (
+        await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
+    ).raise_for_status()
+
+    canrep_after_update = (
+        (await async_client.get(f"/canned_responses/{canrep.id}")).raise_for_status().json()
+    )
+
+    assert agent_tag not in canrep_after_update["tags"]
+    assert tag1.id in canrep_after_update["tags"]
+
+
+async def test_that_journey_tags_can_be_added_to_a_canned_response(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    journey_store = container[JourneyStore]
+    canned_response_store = container[CannedResponseStore]
+
+    journey = await journey_store.create_journey(
+        title="Customer Support Journey",
+        description="A journey for customer support interactions.",
+        conditions=[],
+    )
+    journey_tag = Tag.for_journey_id(journey.id)
+
+    tag1 = await tag_store.create_tag("tag1")
+
+    canrep = await canned_response_store.create_canned_response(
+        value="Welcome {{username}}!",
+        fields=[
+            CannedResponseField(
+                name="username", description="User's name", examples=["Alice", "Bob"]
+            )
+        ],
+    )
+
+    update_payload = {"tags": {"add": [tag1.id, journey_tag]}}
+    response = await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
+    response.raise_for_status()
+    updated_canrep = response.json()
+
+    assert tag1.id in updated_canrep["tags"]
+    assert journey_tag in updated_canrep["tags"]
+
+
+async def test_that_journey_tags_can_be_removed_from_a_canned_response(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+    canned_response_store = container[CannedResponseStore]
+    journey_store = container[JourneyStore]
+
+    journey = await journey_store.create_journey(
+        title="Customer Support Journey",
+        description="A journey for customer support interactions.",
+        conditions=[],
+    )
+    journey_tag = Tag.for_journey_id(journey.id)
+
+    tag1 = await tag_store.create_tag("tag1")
+
+    canrep = await canned_response_store.create_canned_response(
+        value="Welcome {{username}}!",
+        fields=[
+            CannedResponseField(
+                name="username", description="User's name", examples=["Alice", "Bob"]
+            )
+        ],
+        tags=[tag1.id, journey_tag],
+    )
+
+    update_payload = {"tags": {"remove": [journey_tag]}}
+    _ = (
+        await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
+    ).raise_for_status()
+
+    canrep_after_update = (
+        (await async_client.get(f"/canned_responses/{canrep.id}")).raise_for_status().json()
+    )
+
+    assert journey_tag not in canrep_after_update["tags"]
+    assert tag1.id in canrep_after_update["tags"]

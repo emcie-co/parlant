@@ -15,13 +15,15 @@
 from enum import Enum
 from fastapi import APIRouter, Path, Request, status
 from pydantic import Field
-from typing import Annotated, Optional, Sequence, TypeAlias
+from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
+from parlant.app_modules.agents import AgentTagUpdateParamsModel
+from parlant.core.agents import AgentId, CompositionMode
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.tags import TagId, TagStore
+from parlant.core.tags import TagId
 
 API_GROUP = "agents"
 
@@ -132,7 +134,7 @@ class AgentDTO(
 
     id: AgentIdPath
     name: AgentNameField
-    description: Optional[AgentDescriptionField] = None
+    description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField
     composition_mode: CompositionModeDTO
     tags: AgentTagsField
@@ -162,10 +164,10 @@ class AgentCreationParamsDTO(
     """
 
     name: AgentNameField
-    description: Optional[AgentDescriptionField] = None
-    max_engine_iterations: Optional[AgentMaxEngineIterationsField] = None
-    composition_mode: Optional[CompositionModeDTO] = None
-    tags: Optional[AgentTagsField] = None
+    description: AgentDescriptionField | None = None
+    max_engine_iterations: AgentMaxEngineIterationsField | None = None
+    composition_mode: CompositionModeDTO | None = None
+    tags: AgentTagsField | None = None
 
 
 agent_update_params_example: ExampleJson = {
@@ -196,8 +198,8 @@ class AgentTagUpdateParamsDTO(
     Parameters for updating an existing agent's tags.
     """
 
-    add: Optional[AgentTagUpdateAddField] = None
-    remove: Optional[AgentTagUpdateRemoveField] = None
+    add: AgentTagUpdateAddField | None = None
+    remove: AgentTagUpdateRemoveField | None = None
 
 
 class AgentUpdateParamsDTO(
@@ -211,11 +213,11 @@ class AgentUpdateParamsDTO(
     The agent's ID and creation timestamp cannot be modified.
     """
 
-    name: Optional[AgentNameField] = None
-    description: Optional[AgentDescriptionField] = None
-    max_engine_iterations: Optional[AgentMaxEngineIterationsField] = None
-    composition_mode: Optional[CompositionModeDTO] = None
-    tags: Optional[AgentTagUpdateParamsDTO] = None
+    name: AgentNameField | None = None
+    description: AgentDescriptionField | None = None
+    max_engine_iterations: AgentMaxEngineIterationsField | None = None
+    composition_mode: CompositionModeDTO | None = None
+    tags: AgentTagUpdateParamsDTO | None = None
 
 
 def _composition_mode_dto_to_composition_mode(dto: CompositionModeDTO) -> CompositionMode:
@@ -246,8 +248,7 @@ def _composition_mode_to_composition_mode_dto(
 
 def create_router(
     policy: AuthorizationPolicy,
-    agent_store: AgentStore,
-    tag_store: TagStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -287,22 +288,14 @@ def create_router(
             operation=Operation.CREATE_AGENT,
         )
 
-        tags = []
-
-        if params.tags:
-            for tag_id in params.tags:
-                _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        agent = await agent_store.create_agent(
+        agent = await app.agents.create(
             name=params and params.name or "Unnamed Agent",
             description=params and params.description or None,
             max_engine_iterations=params and params.max_engine_iterations or None,
             composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
             if params and params.composition_mode
             else None,
-            tags=tags or None,
+            tags=params.tags,
         )
 
         return AgentDTO(
@@ -339,7 +332,7 @@ def create_router(
             operation=Operation.LIST_AGENTS,
         )
 
-        agents = await agent_store.list_agents()
+        agents = await app.agents.find()
 
         return [
             AgentDTO(
@@ -381,7 +374,7 @@ def create_router(
             operation=Operation.READ_AGENT,
         )
 
-        agent = await agent_store.read_agent(agent_id=agent_id)
+        agent = await app.agents.read(agent_id=agent_id)
 
         if await policy.check_permission(request, Operation.READ_AGENT_DESCRIPTION):
             description = agent.description
@@ -432,45 +425,17 @@ def create_router(
             operation=Operation.UPDATE_AGENT,
         )
 
-        def from_dto(dto: AgentUpdateParamsDTO) -> AgentUpdateParams:
-            params: AgentUpdateParams = {}
-
-            if dto.name:
-                params["name"] = dto.name
-
-            if dto.description:
-                params["description"] = dto.description
-
-            if dto.max_engine_iterations:
-                params["max_engine_iterations"] = dto.max_engine_iterations
-
-            if dto.composition_mode:
-                params["composition_mode"] = _composition_mode_dto_to_composition_mode(
-                    dto.composition_mode
-                )
-
-            return params
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-                    await agent_store.upsert_tag(
-                        agent_id=agent_id,
-                        tag_id=tag_id,
-                    )
-
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await agent_store.remove_tag(
-                        agent_id=agent_id,
-                        tag_id=tag_id,
-                    )
-
-        agent = await agent_store.update_agent(
+        agent = await app.agents.update(
             agent_id=agent_id,
-            params=from_dto(params),
+            name=params.name,
+            description=params.description,
+            max_engine_iterations=params.max_engine_iterations,
+            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
+            if params.composition_mode
+            else None,
+            tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
+            if params.tags
+            else None,
         )
 
         return AgentDTO(
@@ -512,8 +477,6 @@ def create_router(
             operation=Operation.DELETE_AGENT,
         )
 
-        await agent_store.read_agent(agent_id=agent_id)
-
-        await agent_store.delete_agent(agent_id=agent_id)
+        await app.agents.delete(agent_id=agent_id)
 
     return router

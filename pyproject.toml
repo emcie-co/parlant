@@ -44,12 +44,12 @@ parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git"
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
-requests = "^2.32.3"
+requests = "^2.32.5"
 rich = "^13.7.1"
 semver = "^3.0.2"
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
-tiktoken = "^0.8"
+tiktoken = "^0.11"
 tokenizers = "^0.20"
 toml = "^0.10.2"
 types-aiofiles = "^24.1.0.20240626"
@@ -62,7 +62,7 @@ uvicorn = "^0.32.1"
 anthropic = { version = "^0.60.0", optional = true }
 cerebras-cloud-sdk = { version = "^1.25.0", optional = true }
 google-api-core = { version = "^2.24.2", optional = true }
-google-genai = { version = "^1.29.0", optional = true }
+google-genai = { version = "^1.36.0", optional = true }
 ollama = { version = "^0.5.0", optional = true }
 google-auth = { version = "^2.40.0", optional = true }
 together = { version = "^1.2.12", optional = true }

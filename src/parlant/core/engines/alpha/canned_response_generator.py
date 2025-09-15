@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO change few shots to not rely on journeys
 
 from __future__ import annotations
 
@@ -109,6 +108,15 @@ class CannedResponseSelectionSchema(DefaultBaseModel):
     match_quality: Optional[str] = None
 
 
+class FollowUpCannedResponseSelectionSchema(DefaultBaseModel):
+    remaining_message_draft: Optional[str] = None
+    unsatisfied_guidelines: Optional[str | list[str]] = None
+    tldr: Optional[str] = None
+    additional_response_required: Optional[bool] = False
+    additional_template_id: Optional[str] = None
+    match_quality: Optional[str] = None
+
+
 class CannedResponsePreambleSchema(DefaultBaseModel):
     preamble: str
 
@@ -124,6 +132,15 @@ class CannedResponseGeneratorDraftShot(Shot):
 
 
 @dataclass
+class FollowUpCannedResponseSelectionShot(Shot):
+    description: str
+    canned_responses: Mapping[str, str]
+    draft: str
+    last_agent_message: str
+    expected_result: FollowUpCannedResponseSelectionSchema
+
+
+@dataclass
 class _CannedResponseRenderResult:
     response: CannedResponse
     failed: bool
@@ -134,7 +151,8 @@ class _CannedResponseRenderResult:
 class _CannedResponseSelectionResult:
     message: str
     draft: str | None
-    canned_responses: list[tuple[CannedResponseId, str]]
+    rendered_canned_responses: Sequence[tuple[CannedResponseId, str]]
+    chosen_canned_responses: list[tuple[CannedResponseId, str]]
 
 
 @dataclass
@@ -234,7 +252,7 @@ class ToolBasedFieldExtraction(CannedResponseFieldExtractionMethod):
         )
 
         for tool_call in tool_calls_in_order_of_importance:
-            if value := tool_call["result"]["canned_response_fields"].get(field_name, None):
+            if value := tool_call["result"].get("canned_response_fields", {}).get(field_name, None):
                 return True, value
 
         return False, None
@@ -454,7 +472,10 @@ class CannedResponseGenerator(MessageEventComposer):
         canned_response_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
         canned_selection_generator: SchematicGenerator[CannedResponseSelectionSchema],
         canned_response_composition_generator: SchematicGenerator[CannedResponseRevisionSchema],
-        canned_response_fluid_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
+        canned_response_preamble_generator: SchematicGenerator[CannedResponsePreambleSchema],
+        follow_up_canned_response_generator: SchematicGenerator[
+            FollowUpCannedResponseSelectionSchema
+        ],
         perceived_performance_policy: PerceivedPerformancePolicy,
         canned_response_store: CannedResponseStore,
         field_extractor: CannedResponseFieldExtractor,
@@ -469,7 +490,8 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_draft_generator = canned_response_draft_generator
         self._canrep_selection_generator = canned_selection_generator
         self._canrep_composition_generator = canned_response_composition_generator
-        self._canrep_fluid_preamble_generator = canned_response_fluid_preamble_generator
+        self._canrep_preamble_generator = canned_response_preamble_generator
+        self._follow_up_canrep_generator = follow_up_canned_response_generator
         self._canned_response_store = canned_response_store
         self._perceived_performance_policy = perceived_performance_policy
         self._field_extractor = field_extractor
@@ -477,11 +499,12 @@ class CannedResponseGenerator(MessageEventComposer):
         self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
+        self._follow_ups_enabled = True
 
-    async def shots(
+    async def draft_generation_shots(
         self, composition_mode: CompositionMode
     ) -> Sequence[CannedResponseGeneratorDraftShot]:
-        shots = await shot_collection.list()
+        shots = await draft_generation_shot_collection.list()
         supported_shots = [s for s in shots if composition_mode in s.composition_modes]
         return supported_shots
 
@@ -630,7 +653,7 @@ You will now be given the current state of the interaction to which you must gen
             },
         )
 
-        canrep = await self._canrep_fluid_preamble_generator.generate(
+        canrep = await self._canrep_preamble_generator.generate(
             prompt=prompt_builder, hints={"temperature": 0.1}
         )
 
@@ -726,7 +749,9 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         fields_available_in_context = list(
-            chain.from_iterable(tc["result"]["canned_response_fields"] for tc in all_tool_calls)
+            chain.from_iterable(
+                tc["result"].get("canned_response_fields", []) for tc in all_tool_calls
+            )
         )
 
         fields_available_in_context.extend(("std", "generative"))
@@ -758,6 +783,81 @@ You will now be given the current state of the interaction to which you must gen
         loaded_context: LoadedContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
+        async def output_messages(
+            generation_result: _CannedResponseSelectionResult,
+        ) -> list[EmittedEvent]:
+            emitted_events: list[EmittedEvent] = []
+            if generation_result is not None:
+                sub_messages = generation_result.message.strip().split("\n\n")
+
+                while sub_messages:
+                    m = sub_messages.pop(0)
+
+                    if await self._hooks.call_on_message_generated(loaded_context, payload=m):
+                        # If we're in, the hook did not bail out.
+
+                        event = await event_emitter.emit_message_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data=MessageEventData(
+                                message=m,
+                                participant=Participant(id=agent.id, display_name=agent.name),
+                                draft=generation_result.draft,
+                                canned_responses=generation_result.chosen_canned_responses,
+                            )
+                            if generation_result.draft
+                            else MessageEventData(
+                                message=m,
+                                participant=Participant(id=agent.id, display_name=agent.name),
+                            ),
+                        )
+
+                        emitted_events.append(event)
+
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "ready",
+                                "data": {},
+                            },
+                        )
+
+                    if next_message := sub_messages[0] if sub_messages else None:
+                        await self._perceived_performance_policy.get_follow_up_delay()
+                        await context.event_emitter.emit_status_event(
+                            correlation_id=self._correlator.correlation_id,
+                            data={
+                                "status": "typing",
+                                "data": {},
+                            },
+                        )
+
+                        typing_speed_in_words_per_minute = 50
+
+                        initial_delay = 0.0
+
+                        word_count_for_the_message_that_was_just_sent = len(m.split())
+
+                        if word_count_for_the_message_that_was_just_sent <= 10:
+                            initial_delay += 0.5
+                        else:
+                            initial_delay += (
+                                word_count_for_the_message_that_was_just_sent
+                                / typing_speed_in_words_per_minute
+                            ) * 2
+
+                        word_count_for_next_message = len(next_message.split())
+
+                        if word_count_for_next_message <= 10:
+                            initial_delay += 1
+                        else:
+                            initial_delay += 2
+
+                        await asyncio.sleep(
+                            initial_delay
+                            + (word_count_for_next_message / typing_speed_in_words_per_minute)
+                        )
+            return emitted_events
+
         event_emitter = loaded_context.session_event_emitter
         agent = loaded_context.agent
         customer = loaded_context.customer
@@ -800,110 +900,109 @@ You will now be given the current state of the interaction to which you must gen
 
         responses = await self._get_relevant_canned_responses(context)
 
-        generation_attempt_temperatures = (
+        follow_up_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "canned-response-selection"}
+                hints={"type": "canned-response-generation"}
             )
         )
 
         last_generation_exception: Exception | None = None
+        generation_result: _CannedResponseSelectionResult | None = None
+        generation_info: Mapping[str, GenerationInfo] = {}
+        events: list[EmittedEvent] = []
 
-        for generation_attempt in range(3):
+        for follow_up_generation_attempt in range(3):
             try:
-                generation_info, result = await self._generate_response(
+                generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
                     responses,
                     agent.composition_mode,
-                    temperature=generation_attempt_temperatures[generation_attempt],
+                    temperature=follow_up_selection_attempt_temperatures[
+                        follow_up_generation_attempt
+                    ],
                 )
 
                 if latch:
                     latch.enable()
 
-                if result is not None:
-                    sub_messages = result.message.strip().split("\n\n")
-                    events = []
+                if generation_result:
+                    emitted_events = await output_messages(generation_result)
+                    events += emitted_events
 
-                    while sub_messages:
-                        m = sub_messages.pop(0)
+                    context.staged_message_events = (
+                        list(context.staged_message_events) + emitted_events
+                    )
 
-                        if await self._hooks.call_on_message_generated(loaded_context, payload=m):
-                            # If we're in, the hook did not bail out.
+                    break
 
-                            event = await event_emitter.emit_message_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data=MessageEventData(
-                                    message=m,
-                                    participant=Participant(id=agent.id, display_name=agent.name),
-                                    draft=result.draft,
-                                    canned_responses=result.canned_responses,
-                                )
-                                if result.draft
-                                else MessageEventData(
-                                    message=m,
-                                    participant=Participant(id=agent.id, display_name=agent.name),
-                                ),
-                            )
+            except Exception as exc:
+                self._logger.warning(
+                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
 
-                            events.append(event)
+                last_generation_exception = exc
 
+        follow_up_selection_attempt_temperatures = (
+            self._optimization_policy.get_message_generation_retry_temperatures(
+                hints={"type": "follow-up_canned_response-selection"}
+            )
+        )
+
+        for follow_up_generation_attempt in range(3):
+            try:
+                if generation_result and self._follow_ups_enabled:
+                    (
+                        follow_up_canrep_generation_info,
+                        follow_up_canrep_response,
+                    ) = await self.generate_follow_up_response(
+                        context=context,
+                        last_response_generation=generation_result,
+                        temperature=follow_up_selection_attempt_temperatures[
+                            follow_up_generation_attempt
+                        ],
+                    )
+
+                    if follow_up_canrep_response:
                         await context.event_emitter.emit_status_event(
                             correlation_id=self._correlator.correlation_id,
                             data={
-                                "status": "ready",
+                                "status": "typing",
                                 "data": {},
                             },
                         )
 
-                        if next_message := sub_messages[0] if sub_messages else None:
-                            await self._perceived_performance_policy.get_follow_up_delay()
+                        follow_up_delay_time = 1.5
+                        await asyncio.sleep(follow_up_delay_time)
 
-                            await context.event_emitter.emit_status_event(
-                                correlation_id=self._correlator.correlation_id,
-                                data={
-                                    "status": "typing",
-                                    "data": {},
-                                },
+                        follow_up_response_events = await output_messages(follow_up_canrep_response)
+                        events += follow_up_response_events
+                        if not follow_up_response_events:
+                            self._logger.debug(
+                                "Skipping follow up response; no additional response deemed necessary"
                             )
 
-                            typing_speed_in_words_per_minute = 50
+                    return [
+                        MessageEventComposition(
+                            {**generation_info, **follow_up_canrep_generation_info}, events
+                        )
+                    ]
 
-                            initial_delay = 0.0
+                return [MessageEventComposition({**generation_info}, events)]
 
-                            word_count_for_the_message_that_was_just_sent = len(m.split())
-
-                            if word_count_for_the_message_that_was_just_sent <= 10:
-                                initial_delay += 0.5
-                            else:
-                                initial_delay += (
-                                    word_count_for_the_message_that_was_just_sent
-                                    / typing_speed_in_words_per_minute
-                                ) * 2
-
-                            word_count_for_next_message = len(next_message.split())
-
-                            if word_count_for_next_message <= 10:
-                                initial_delay += 1
-                            else:
-                                initial_delay += 2
-
-                            await asyncio.sleep(
-                                initial_delay
-                                + (word_count_for_next_message / typing_speed_in_words_per_minute)
-                            )
-
-                    return [MessageEventComposition(generation_info, events)]
-                else:
-                    self._logger.debug("Skipping response; no response deemed necessary")
-                    return [MessageEventComposition(generation_info, [])]
             except Exception as exc:
                 self._logger.warning(
-                    f"Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Follow-up Generation attempt {follow_up_generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
                 last_generation_exception = exc
 
         raise MessageCompositionError() from last_generation_exception
+
+    def enable_follow_ups(self) -> None:
+        self._follow_ups_enabled = True
+
+    def disable_follow_ups(self) -> None:
+        self._follow_ups_enabled = False
 
     def _get_guideline_matches_text(
         self,
@@ -979,20 +1078,20 @@ These guidelines have already been pre-filtered based on the interaction's conte
 """
         return guideline_instruction
 
-    def _format_shots(
+    def _format_draft_shots(
         self,
         shots: Sequence[CannedResponseGeneratorDraftShot],
     ) -> str:
         return "\n".join(
             f"""
 Example {i} - {shot.description}: ###
-{self._format_shot(shot)}
+{self._format_draft_shot(shot)}
 ###
 """
             for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(
+    def _format_draft_shot(
         self,
         shot: CannedResponseGeneratorDraftShot,
     ) -> str:
@@ -1139,7 +1238,7 @@ EXAMPLES
 {formatted_shots}
 """,
             props={
-                "formatted_shots": self._format_shots(shots),
+                "formatted_shots": self._format_draft_shots(shots),
                 "shots": shots,
             },
         )
@@ -1296,30 +1395,11 @@ Produce a valid JSON object according to the following spec. Use the values prov
         draft_message: str,
         canned_responses: Sequence[tuple[CannedResponseId, str]],
     ) -> PromptBuilder:
-        guideline_representations = {
-            m.guideline.id: internal_representation(m.guideline)
-            for m in chain(
-                context.ordinary_guideline_matches, context.tool_enabled_guideline_matches
-            )
-        }
-
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
                 f"Canned Response Selection Prompt:\n{prompt}"
             )
         )
-
-        if context.guideline_matches:
-            formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second care, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
-
-            for match in [
-                g for g in context.guideline_matches if internal_representation(g.guideline).action
-            ]:
-                formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
-
-            formatted_guidelines += "\n###"
-        else:
-            formatted_guidelines = ""
 
         formatted_canreps = "\n".join(
             [f'Template ID: {canrep[0]} """\n{canrep[1]}\n"""' for canrep in canned_responses]
@@ -1339,6 +1419,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
 9. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
         )
 
+        builder.add_agent_identity(context.agent)
+        builder.add_customer_identity(context.customer)
         builder.add_glossary(context.terms)
         builder.add_interaction_history_for_message_generation(
             context.interaction_history,
@@ -1346,14 +1428,22 @@ Produce a valid JSON object according to the following spec. Use the values prov
         )
 
         builder.add_section(
-            name="canned-response-generator-selection-inputs",
+            name="canned-response-generator-selection-templates",
             template="""
 Pre-approved reply templates: ###
 {formatted_canned_responses}
 ###
-
-{formatted_guidelines}
-
+""",
+            props={
+                "formatted_canned_responses": formatted_canreps,
+            },
+        )
+        builder.add_guideliens_for_canrep_selection(
+            list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
+        )
+        builder.add_section(
+            name="canned-response-generator-selection-output-format",
+            template="""
 Draft reply message: ###
 {draft_message}
 ###
@@ -1368,16 +1458,6 @@ Output a JSON object with three properties:
 """,
             props={
                 "draft_message": draft_message,
-                "canned_responses": canned_responses,
-                "formatted_canned_responses": formatted_canreps,
-                "guidelines": [
-                    g
-                    for g in context.guideline_matches
-                    if internal_representation(g.guideline).action
-                ],
-                "formatted_guidelines": formatted_guidelines,
-                "composition_mode": context.agent.composition_mode,
-                "guideline_representations": guideline_representations,
             },
         )
         return builder
@@ -1409,7 +1489,7 @@ Output a JSON object with three properties:
             staged_tool_events=context.staged_tool_events,
             staged_message_events=context.staged_message_events,
             tool_insights=context.tool_insights,
-            shots=await self.shots(context.agent.composition_mode),
+            shots=await self.draft_generation_shots(context.agent.composition_mode),
         )
 
         if direct_draft_output_mode:
@@ -1428,7 +1508,8 @@ Output a JSON object with three properties:
             return {}, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
                 draft=None,
-                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
         else:
             await context.event_emitter.emit_status_event(
@@ -1459,7 +1540,8 @@ Output a JSON object with three properties:
             }, _CannedResponseSelectionResult(
                 message=draft_message,
                 draft=None,
-                canned_responses=[],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[],
             )
 
         # Check if, according to the hooks, we should consider the draft
@@ -1471,7 +1553,8 @@ Output a JSON object with three properties:
             }, _CannedResponseSelectionResult(
                 message=draft_message,
                 draft=None,
-                canned_responses=[],
+                rendered_canned_responses=[],
+                chosen_canned_responses=[],
             )
 
         await context.event_emitter.emit_status_event(
@@ -1538,8 +1621,9 @@ Output a JSON object with three properties:
                     "composition": recomposition_generation_info,
                 }, _CannedResponseSelectionResult(
                     message=composited_message,
-                    draft=draft_message,
-                    canned_responses=[],
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[],
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
@@ -1581,8 +1665,9 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
                     message=no_match_canrep.value,
-                    draft=draft_message,
-                    canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
                 )
             else:
                 # Return the draft message as the response
@@ -1591,8 +1676,9 @@ Output a JSON object with three properties:
                     "selection": selection_response.info,
                 }, _CannedResponseSelectionResult(
                     message=draft_message,
-                    draft=None,
-                    canned_responses=[],
+                    draft=draft_response.content.response_body,
+                    rendered_canned_responses=rendered_canreps,
+                    chosen_canned_responses=[],
                 )
 
         # Step 5.2: Assuming a partial match in non-strict mode
@@ -1606,8 +1692,9 @@ Output a JSON object with three properties:
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
                 message=draft_message,
-                draft=None,
-                canned_responses=[],
+                draft=draft_response.content.response_body,
+                rendered_canned_responses=rendered_canreps,
+                chosen_canned_responses=[],
             )
 
         # Step 5.3: Assuming a high-quality match or a partial match in strict mode
@@ -1631,8 +1718,9 @@ Output a JSON object with three properties:
                 "selection": selection_response.info,
             }, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
-                draft=draft_message,
-                canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
+                draft=draft_response.content.response_body,
+                rendered_canned_responses=rendered_canreps,
+                chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
         return {
@@ -1640,8 +1728,9 @@ Output a JSON object with three properties:
             "selection": selection_response.info,
         }, _CannedResponseSelectionResult(
             message=rendered_canned_response,
-            draft=draft_message,
-            canned_responses=[(selected_canrep_id, rendered_canned_response)],
+            draft=draft_response.content.response_body,
+            rendered_canned_responses=rendered_canreps,
+            chosen_canned_responses=[(selected_canrep_id, rendered_canned_response)],
         )
 
     async def _render_responses(
@@ -1763,12 +1852,276 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
 
         return result.info, result.content.revised_canned_response
 
+    def _format_follow_up_generation_shot(self, shot: FollowUpCannedResponseSelectionShot) -> str:
+        formatted_shot = ""
+
+        formatted_shot += f"""
+Draft: {shot.draft}
+Last agent message: {shot.last_agent_message}
+"""
+
+        candidate_canreps = "\n".join(
+            f"{canrep_id}) {canrep}" for canrep_id, canrep in shot.canned_responses.items()
+        )
+        formatted_shot += f"""
+- **Candidate Templates**:
+{candidate_canreps}
+
+"""
+
+        formatted_shot += f"""
+- **Expected Result**:
+```json
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+```
+"""
+
+        return formatted_shot
+
+    def _format_follow_up_generation_shots(
+        self,
+        shots: Sequence[FollowUpCannedResponseSelectionShot],
+    ) -> str:
+        return "\n".join(
+            f"""
+Example {i} - {shot.description}: ###
+{self._format_follow_up_generation_shot(shot)}
+###
+    """
+            for i, shot in enumerate(shots, 1)
+        )
+
+    def _build_follow_up_canned_response_prompt(
+        self,
+        context: CannedResponseContext,
+        draft_message: str,
+        canned_responses: Mapping[str, str],
+        shots: Sequence[FollowUpCannedResponseSelectionShot],
+    ) -> PromptBuilder:
+        outputted_message: str | None = next(
+            (
+                cast(Mapping[str, str], e.data).get("message", None)
+                for e in reversed(context.staged_message_events)
+                if e.source == EventSource.AI_AGENT
+            ),
+            None,
+        )
+        if not outputted_message:
+            outputted_message = next(
+                (
+                    cast(Mapping[str, str], e.data).get("message", None)
+                    for e in reversed(context.interaction_history)
+                    if e.source == EventSource.AI_AGENT and e.kind == EventKind.MESSAGE
+                ),
+                None,
+            )
+
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Follow-up Canned Response Selection Prompt:\n{prompt}"
+            )
+        )
+
+        formatted_canreps = "\n".join(
+            [f'Template ID: "{id}" """\n{canrep}\n"""' for id, canrep in canned_responses.items()]
+        )
+
+        builder.add_section(
+            name="follow-up-canned-response-generator-selection-general_instructions",
+            template="""
+
+GENERAL INSTRUCTIONS
+-----------------
+You are an AI agent who is part of a system that interacts with a user. The current state of this interaction will be provided to you later in this message.
+A draft reply to the user has been generated by a human operator. Based on this draft, a pre-approved template response was previously selected and sent to the customer.
+In certain cases, this singular template does not fully transmit the draft crafted by the human operator. In those cases, an additional template may be transmitted to cover whatever part of the draft that was not covered by the previously outputted pre-approved template.
+Key Terms:
+- Template: Pre-approved response patterns in Jinja2 format that have been vetted by business stakeholders for customer-facing AI conversations
+- Draft message: The original response crafted by the human operator
+- Behavioral guidelines: Instructions in the form of "when <X> then do <Y>" which you must follow
+""",
+        )
+
+        builder.add_section(
+            name="follow-up-canned-response-generator-selection-task-description",
+            template="""
+TASK DESCRIPTION
+-----------------
+Your task is to evaluate whether an additional template should be transmitted to the customer, and if necessary, choose the specific template that best captures the remainder of the human operator's draft reply.
+You are provided with a number of pre-approved templates to choose from. These templates have been vetted by business stakeholders for producing fluent customer-facing AI conversations.
+Perform your task as follows:
+1. Identify Unsatisfied Guidelines: Document which behavioral guidelines (instructions in the form of "when <X> then do <Y>" which you must follow) aren't satisfied by the last agent's message under the key "unsatisfied_guidelines".
+2. Analyze Coverage Gap: Examine the draft message and the message already outputted to the customer. Write down the parts of the draft message that are not covered by the already outputted message under the key "remaining_message_draft". If the outputted message already includes all the information from the draft, then output an empty string under the key "remaining_message_draft".
+3. Evaluate Need for Additional Response: Examine whether an additional response is required, and if so, which template best captures the remaining message draft. Document your thought process under the key "tldr". Prefer brevity, use fewer words when possible.
+ - Prefer outputting an additional response if a guideline that is currently unsatisfied can be satisfied by one of the available templates
+ - If no guideline is unsatisfied, or no template satisfies the unsatisfied guidelines, only output an additional response if it greatly matches the remaining message draft
+4. Make Decision: Decide whether an additional template can capture your chosen "remaining_message_draft". Document your decision under the key "additional_response_required".
+5. Select Template (if needed): If "additional_response_required" is True, then choose the template that best captures the "remaining_message_draft". Output the ID of your chosen template under the key "additional_template_id".
+6. Assess Match Quality (if a template was selected): Evaluate how well the chosen template captures the remaining message draft. Output your evaluation under the key "match_quality". You must choose one of the following options:
+    a. "low": You couldn't find a template that even comes close, or any such template also adds new information that is not in the draft.
+    b. "partial": You found a template that conveys at least some of the draft message's content, without adding information that is not in the draft or the active guidelines.
+    c. "high": You found a template that captures the draft message in both form and function. Note that it doesn't have to be a full, exact match.
+
+Some nuances regarding choosing the correct template:
+ - Pay special attention to whether the last outputted message already captures the draft. If it does, no further response is necessary, even if another candidate canned response matches the draft.
+ - There may be multiple relevant choices for the same purpose. Choose the MOST suitable one that is MOST LIKE the remaining draft
+ - When multiple templates provide partial matches, prefer templates that do not deviate from the remaining message draft semantically, even if they only address part of the draft message
+ - If the missing part of the draft includes multiple unrelated components that would each require different templates, prioritize the template that addresses the most critical information for customer understanding and conversation progression. Choose the component that is essential for the customer to take their next action or properly understand the agent's response.
+ - If there is any noticeable semantic deviation between the draft message and a template (e.g., the draft says "Do X" and the template says "Do Y"), do not choose that template, even if it captures other parts of the remaining message draft
+ - Prioritize factual accuracy. Never output a template that conveys information which contradicts the draft. Prefer outputting a different template, or even no template whatsoever.
+    - For example, if the draft mentions that a certain action takes 10 minutes to be completed, prefer a template that mentions it taking less than a day to one that says that action is completed immediately. Err on the side of caution.
+
+ """,
+        )
+
+        builder.add_section(
+            name="follow-up-canned-response-generator-selection-examples",
+            template="""
+EXAMPLES
+-----------------
+{formatted_shots}
+""",
+            props={"formatted_shots": self._format_follow_up_generation_shots(shots)},
+        )
+
+        builder.add_agent_identity(context.agent)
+        builder.add_customer_identity(context.customer)
+        builder.add_interaction_history(
+            context.interaction_history,
+            staged_events=context.staged_message_events,
+        )
+
+        builder.add_section(
+            name="follow-up-canned-response-generator-inputs",
+            template="""
+INPUTS
+---------------
+Draft message: ###
+{draft}
+###
+Message already sent to the customer: ###
+{last_agent_message}
+###
+Pre-approved reply templates: ###
+{formatted_canned_responses}
+###
+""",
+            props={
+                "draft": draft_message,
+                "last_agent_message": outputted_message or "",
+                "formatted_canned_responses": formatted_canreps,
+            },
+        )
+
+        builder.add_guideliens_for_canrep_selection(
+            list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
+        )
+
+        builder.add_section(
+            name="follow-up-canned-response-generator-selection-output_format",
+            template="""
+OUTPUT FORMAT
+-----------------
+Output a JSON object with three properties:
+{{
+    "remaining_message_draft": "<str, rephrasing of the part of the draft that isn't covered by the last outputted message>"
+    "unsatisfied_guidelines": "<str, restatement of all guidelines that were not satisfied by the last outputted message. Only restate the actionable part of the guideline (the one after 'then')>"
+    "tldr": "<str, brief explanation of the reasoning behind whether an additional response is required, and which template best encapsulates it>",
+    "additional_response_required": <bool, if False, all remaining keys should be omitted>,
+    "additional_template_id": "<str, ID of the chosen template>",
+    "match_quality": "<str, either "high", "partial" or "low" depending on how similar the chosen template is to the remaining message draft>",
+}}
+""",
+            props={
+                "draft": draft_message,
+                "last_agent_message": outputted_message or "",
+            },
+        )
+        return builder
+
+    async def generate_follow_up_response(
+        self,
+        context: CannedResponseContext,
+        last_response_generation: _CannedResponseSelectionResult,
+        temperature: float,
+    ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
+        selection_result: Optional[_CannedResponseSelectionResult] = None
+        if (
+            context.agent.composition_mode != CompositionMode.CANNED_STRICT
+            or last_response_generation.draft is None
+        ):
+            return {}, None
+
+        try:
+            outputted_canreps_ids = [
+                crid for (crid, canrep) in last_response_generation.chosen_canned_responses
+            ]
+
+            filtered_rendered_canreps: Sequence[tuple[CannedResponseId, str]] = [
+                (cid, canrep)
+                for cid, canrep in last_response_generation.rendered_canned_responses
+                if cid not in outputted_canreps_ids
+            ]  # removes outputted response/s
+
+            chronological_id_rendered_canreps = {
+                str(i): (cid, canrep)
+                for i, (cid, canrep) in enumerate(filtered_rendered_canreps, start=1)
+            }
+
+            prompt = self._build_follow_up_canned_response_prompt(
+                context=context,
+                draft_message=last_response_generation.draft,
+                canned_responses={
+                    i: canrep for i, (cid, canrep) in chronological_id_rendered_canreps.items()
+                },
+                shots=follow_up_generation_shots,
+            )
+
+            response = await self._follow_up_canrep_generator.generate(
+                prompt=prompt,
+                hints={"temperature": temperature},
+            )
+
+            self._logger.trace(
+                f"Follow-up Canned Response Draft Completion:\n{response.content.model_dump_json(indent=2)}"
+            )
+
+            if (
+                response.content.additional_response_required
+                and response.content.additional_template_id
+            ):
+                chosen_canrep = chronological_id_rendered_canreps.get(
+                    response.content.additional_template_id, None
+                )
+
+                if chosen_canrep is None:
+                    self._logger.warning(
+                        "Follow-up canned response returned an Illegal canned response ID"
+                    )
+
+                selection_result = (
+                    _CannedResponseSelectionResult(
+                        message=chosen_canrep[1],
+                        draft=response.content.remaining_message_draft,
+                        rendered_canned_responses=filtered_rendered_canreps,
+                        chosen_canned_responses=[chosen_canrep],
+                    )
+                    if chosen_canrep
+                    else None
+                )
+
+            return ({"follow-up": response.info}, selection_result)
+
+        except Exception as e:
+            self._logger.error(f"Failed to choose follow-up canned response: {e}")
+            return ({}, None)
+
 
 def shot_canned_canned_response_id(number: int) -> str:
     return f"<example-only-canned-response--{number}--do-not-use-in-your-completion>"
 
 
-example_1_expected = CannedResponseDraftSchema(
+draft_generation_example_1_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi, I'd like an onion cheeseburger please.",
     guidelines=[
         "When the user chooses and orders a burger, then provide it",
@@ -1782,14 +2135,14 @@ example_1_expected = CannedResponseDraftSchema(
     response_body="Unfortunately we're out of cheese. Would you like anything else instead?",
 )
 
-example_1_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_1_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[CompositionMode.CANNED_FLUID],
     description="A reply where one instruction was prioritized over another",
-    expected_result=example_1_expected,
+    expected_result=draft_generation_example_1_expected,
 )
 
 
-example_2_expected = CannedResponseDraftSchema(
+draft_generation_example_2_expected = CannedResponseDraftSchema(
     last_message_of_user="Hi there, can I get something to drink? What do you have on tap?",
     guidelines=["When the user asks for a drink, check the menu and offer what's on it"],
     insights=[
@@ -1800,18 +2153,18 @@ example_2_expected = CannedResponseDraftSchema(
     response_body="I'm sorry, but I'm having trouble accessing our menu at the moment. This isn't a great first impression! Can I possibly help you with anything else?",
 )
 
-example_2_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_2_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
         CompositionMode.CANNED_FLUID,
     ],
     description="Non-adherence to guideline due to missing data",
-    expected_result=example_2_expected,
+    expected_result=draft_generation_example_2_expected,
 )
 
 
-example_3_expected = CannedResponseDraftSchema(
+draft_generation_example_3_expected = CannedResponseDraftSchema(
     last_message_of_user=("Hey, how can I contact customer support?"),
     guidelines=[],
     insights=[
@@ -1821,21 +2174,117 @@ example_3_expected = CannedResponseDraftSchema(
     response_body="Unfortunately, I cannot refer you to live customer support. Is there anything else I can help you with?",
 )
 
-example_3_shot = CannedResponseGeneratorDraftShot(
+draft_generation_example_3_shot = CannedResponseGeneratorDraftShot(
     composition_modes=[
         CompositionMode.CANNED_STRICT,
         CompositionMode.CANNED_COMPOSITED,
         CompositionMode.CANNED_FLUID,
     ],
     description="An insight is derived and followed on not offering to help with something you don't know about",
-    expected_result=example_3_expected,
+    expected_result=draft_generation_example_3_expected,
 )
 
 
-_baseline_shots: Sequence[CannedResponseGeneratorDraftShot] = [
-    example_1_shot,
-    example_2_shot,
-    example_3_shot,
+_draft_generation_baseline_shots: Sequence[CannedResponseGeneratorDraftShot] = [
+    draft_generation_example_1_shot,
+    draft_generation_example_2_shot,
+    draft_generation_example_3_shot,
 ]
 
-shot_collection = ShotCollection[CannedResponseGeneratorDraftShot](_baseline_shots)
+draft_generation_shot_collection = ShotCollection[CannedResponseGeneratorDraftShot](
+    _draft_generation_baseline_shots
+)
+
+
+follow_up_generation_example_1_expected = FollowUpCannedResponseSelectionSchema(
+    remaining_message_draft="You can call a human representative at 1-800-123-1234.",
+    unsatisfied_guidelines="",
+    tldr="We haven't sent out our customer support number, so the draft is not fully transmitted. Template #2 has the relevant number, so we should send it to the customer.",
+    additional_response_required=True,
+    additional_template_id="2",
+    match_quality="high",
+)
+
+follow_up_generation_example_1_shot = FollowUpCannedResponseSelectionShot(
+    description="A simple example where a follow-up response is necessary",
+    draft=cast(str, follow_up_generation_example_1_expected.remaining_message_draft),
+    canned_responses={
+        "1": "Your account status is currently set to Active. You can change your account status using this chat, or by calling a customer support representative at 1-800-123-1234.",
+        "2": "Our customer support number is 1-800-123-1234. You can call a human representative at this number.",
+        "3": "Sorry, I didn't catch that. Could you please ask again in a different way?",
+        "4": "You can change your account status to either Active, Automatic, or Closed.",
+        "5": "Our customer support line is open from 8 AM to 8 PM Monday through Friday. You can call us at 1-800-123-1234.",
+    },
+    last_agent_message="I can assist you with altering the status of your account, or you can call a human representative.",
+    expected_result=follow_up_generation_example_1_expected,
+)
+
+
+follow_up_generation_example_2_expected = FollowUpCannedResponseSelectionSchema(
+    remaining_message_draft="Thank you for your purchase!",
+    unsatisfied_guidelines="",
+    tldr="The remaining part of the draft does not contain any critical information, and no template matches it, so no further response is necessary.",
+    additional_response_required=False,
+)
+
+follow_up_generation_example_2_shot = FollowUpCannedResponseSelectionShot(
+    description="A simple example where a follow-up response is not necessary",
+    draft=cast(str, follow_up_generation_example_2_expected.remaining_message_draft),
+    canned_responses={
+        "1": "The order will be shipped to you in up to 10 business days. Thank you for your purchase!",
+        "2": "Domestic orders are shipped through UPS",
+        "3": "I'm here to help! What can I do for you today?",
+        "4": "Your purchase is complete and will be shipped to you shortly!",
+        "5": "You can track your order status on our website at verygoodstore.com",
+    },
+    last_agent_message="The order will be shipped to you in 5-7 business days",
+    expected_result=follow_up_generation_example_2_expected,
+)
+
+follow_up_generation_example_3_expected = FollowUpCannedResponseSelectionSchema(
+    remaining_message_draft="Thank you for your purchase!",
+    unsatisfied_guidelines="",
+    tldr="Templates 1 and 4 both capture missing parts of the draft. Template 1 is more important as it mentions potential health concerns, so it should be sent out first.",
+    additional_response_required=True,
+    additional_template_id="1",
+    match_quality="partial",
+)
+follow_up_generation_example_3_shot = FollowUpCannedResponseSelectionShot(
+    description="An example where one response is prioritized for its importance",
+    draft="Your table is booked! Since you mentioned allergies, please note that our kitchen contains peanuts. You'll be able to get a souvenir from our store after your meal.",
+    canned_responses={
+        "1": "Please note that all dishes may contain peanuts",
+        "2": "Please inform us of any allergies you or your party have",
+        "3": "Thank you for coming in!",
+        "4": "Our souvenir shop is available for all diners after their meal",
+        "5": "Would you like to book another table?",
+    },
+    last_agent_message="Your table has been booked!",
+    expected_result=follow_up_generation_example_3_expected,
+)
+
+follow_up_generation_example_4_expected = FollowUpCannedResponseSelectionSchema(
+    remaining_message_draft="",
+    unsatisfied_guidelines="",
+    tldr="The last outputted message already captures the draft. Template 1 matches the draft, but it adds no new information compared to the last outputted message.",
+    additional_response_required=False,
+)
+follow_up_generation_example_4_shot = FollowUpCannedResponseSelectionShot(
+    description="An example where the draft was already captured by the last response. Assume there's an active guideline instructing the agent to inform the customer about our returns policy.",
+    draft="Unopened items can be returned for up to 30 days from the date of purchase",
+    canned_responses={
+        "1": "Any item can be returned for up to 30 days from the date of purchase, given that it has not been opened.",
+        "2": "Please check our website for more information about our returns policy.",
+        "3": "Your items will be returned to us within 30 days.",
+        "4": "Sorry, I didn't catch that",
+    },
+    last_agent_message="Of course! You may return your items for up to a month if they have not been opened.",
+    expected_result=follow_up_generation_example_4_expected,
+)
+
+follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
+    follow_up_generation_example_1_shot,
+    follow_up_generation_example_2_shot,
+    follow_up_generation_example_3_shot,
+    follow_up_generation_example_4_shot,
+]

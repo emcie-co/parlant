@@ -2189,6 +2189,179 @@ def given_the_journey_called(
 
         return journey
 
+    def book_hotel_journey() -> Journey:
+        conditions = ["The customer expresses interest in booking a hotel"]
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Book a Hotel Journey",
+                description="Assist the customer in booking a hotel",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask which hotel the customer would you like to stay in.",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node1.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer provided the name of the hotel they want to stay in",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition="",
+            )
+        )
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask what dates the customer would like to check in and check out?",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node2.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer provided their check-in and check-out dates",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition="",
+            )
+        )
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask how many guests will be staying",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer mentioned the number of guests",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition="",
+            )
+        )
+        node4 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer if they need a specific type of room, like single, double, or suite",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node4.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node4.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=node4.id,
+                condition="",
+            )
+        )
+        return journey
+
     JOURNEYS = {
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
@@ -2198,6 +2371,7 @@ def given_the_journey_called(
         "Request Loan Journey": create_request_loan_journey,
         "Change Credit Limits": create_change_credit_limit_journey,
         "Lock Card Journey": create_lock_card_journey,
+        "Book Hotel Journey": book_hotel_journey,
     }
 
     create_journey_func = JOURNEYS[journey_title]

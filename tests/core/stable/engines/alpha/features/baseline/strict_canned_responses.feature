@@ -309,7 +309,7 @@ Feature: Strict Canned Response
         And the message contains a suggestion to travel with bus or train but not with a flight
         And the message contains the text "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
- Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response) 
+     Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response) 
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
         Given the journey called "Book Taxi Ride"
@@ -352,46 +352,134 @@ Feature: Strict Canned Response
         Then a single message event is emitted
         And the message contains asking asking what green base the customer wants for their salad 
 
-    Scenario: Two journeys are used in unison (strict canned response) 
-        Given the journey called "Book Flight"
-        And a guideline "skip steps" to skip steps that are inapplicable due to other contextual reasons when applying a book flight journey
-        And a dependency relationship between the guideline "skip steps" and the "Book Flight" journey
-        And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
-        And a canned response, "Great. Are you interested in economy or business class?"
-        And a canned response, "Great. Only economy class is available for this booking. What is the name of the traveler?"
-        And a canned response, "Great. What is the name of the traveler?"
-        And a canned response, "Great. Are you interested in economy or business class? Also, what is the name of the person traveling?"
-        And a customer message, "Hi, I'd like to book a flight for myself. I'm 19 if that effects anything."
-        And an agent message, "Great! From and to where would are you looking to fly?"
-        And a customer message, "From LAX to JFK"
-        And an agent message, "Got it. And when are you looking to travel?"
-        And a customer message, "Next Monday until Friday"
-        And a journey path "[2, 3]" for the journey "Book Flight"
+
+    Scenario: Follow up canned response is selected when relevant (strict canned response)
+        Given an agent whose job is to schedule automatic vaccum cleaning services using robots
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to ensure that no pets and no children are in the house when a customer asks to schedule a deep-clean in a residential area 
+        And a customer message, "I need a deep-clean next Wednesday"
+        And an agent message, "Great! I can schedule a deep-clean for you. Is it at the location of your last deep-clean?"
+        And a customer message, "Yes"
+        And an agent message, "Just to confirm, the location is your parents house, at 1414 2nd Avenue, correct?"
+        And a customer message, "Yes"
+        And a canned response, "Great! I'll schedule a deep-clean at {{generative.location}} at {{generative.desired_date}}."
+        And a canned response, "For safety reasons, please ensure that no children are present at the house during the {{generative.service_type}}"
+        And a canned response, "Unfortunately, I lack the information to complete this booking"
+        And a canned response, "For safety reasons, please ensure that no pets are present at the house during the {{generative.service_type}}"
+        And a canned response, "For safety reasons, please ensure that no one is at the house during the {{generative.service_type}}"
+        When processing is triggered
+        Then a total of 2 message events are emitted
+        And at least one message contains the text "please ensure that no pets are present"
+        And at least one message contains the text "please ensure that no children are present"
+
+    Scenario: Follow up canned response is selected based on unfulfilled guideline (strict canned response)
+        Given an agent whose job is to book taxi rides
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to tell the customer to wait at curbside when a taxi booking is confirmed
+        And a guideline to confirm the taxi booking details from the book_taxi tool when a taxi booking was just confirmed
+        And a customer message, "Can I get a taxi from my home to work in 20 minutes? You got my details, right?"
+        And an agent message, "I have your home and work address"
+        And an agent message, "Do you prefer paying by cash or credit"
+        And a customer message, "Credit"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:book_taxi", "arguments": {"departure": "customer-home", "arrival": "customer-work", "time": "12:00:00"}, "result": {"data": "ORDER STATUS: Confirmed, awaiting pick up"}}]}
+        And a canned response, "Yes please"
+        And a canned response, "Let me check that for you"
+        And a canned response, "Your order is confirmed! A driver will be dispatched to {{generative.departure_address}} at the provided time"
+        And a canned response, "How many passengers are in your party?"
+        And a canned response, "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
+        And a canned response, "Your order cannot be processed at this time"
+        When processing is triggered
+        Then a total of 2 message events are emitted
+        And at least one message contains the text "Your order is confirmed! A driver will be dispatched to"
+        And at least one message contains the text "Your driver will meet you at the curbside of your pickup location. Please be ready at the curb when they arrive"
+
+    Scenario: Follow up canned response which uses fields is selected when relevant (strict canned response)
+        Given an agent whose job is to process insurance claims for auto accidents
+        And that the agent uses the canned_strict message composition mode
+        And a guideline to provide claim reference number and estimated processing time when a claim is successfully submitted
+        And a customer message, "I was in a fender bender yesterday and need to file a claim"
+        And an agent message, "I'm sorry to hear about your accident. Let me help you file a claim. What's your policy number?"
+        And a customer message, "It's POL-789456"
+        And an agent message, "Thank you. Can you describe what happened and provide the date and location?"
+        And a customer message, "Yesterday at 3pm, someone rear-ended me at the intersection of Oak and Main Street"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:file_claim", "arguments": {"policy_number": "POL-789456", "accident_type": "rear_end", "date": "2024-01-14", "location": "Oak and Main Street"}, "result": {"data": "CLAIM STATUS: Filed successfully. claim_number: CLM-2024-789456. estimated_time : 5-7 days"}}]}
+        And a canned response, "Your claim has been successfully filed. Your reference number is {{generative.claim_number}}."
+        And a canned response, "The estimated processing time is {{generative.processing_time}} business days."
+        And a canned response, "You'll receive an email confirmation shortly with all the details."
+        And a canned response, "A claims adjuster will contact you within 24 hours."
+        When processing is triggered
+        Then a total of 2 message events are emitted
+        And at least one message contains the text "Your claim has been successfully filed. Your reference number is CLM-2024-789456"
+        And at least one message contains the text "The estimated processing time is 5-7 business days"
+
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 1 (strict canned response) 
+        Given the journey called "Book Hotel Journey"
+        And that the agent uses the canned_strict message composition mode
+        And a customer message, "I need to book a hotel."
+        And an agent message, "Alright, tell me the hotel name so I can check it out for you."
+        And a customer message, "The Marriott Downtown"
+        And an agent message, "Perfect, now when are you looking to stay—check-in and check-out dates?"
+        And a customer message, "From September 10th to 25th"
+        And an agent message, "And how many people will be staying with you?"
+        And a customer message, "Just me and my wife"
+        And a canned response, "Do you have a preference—single, double, or maybe a suite?"
+        And a canned response, "What kind of room are you looking for? Single, double, or something fancier?"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains either asking for the name of the person traveling, or informing them that they are only eligible for economy class
+        And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
 
-
-    Scenario: Multistep journey invokes tool calls correctly (strict canned response) 
-        Given the journey called "Reset Password Journey"
-        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
-        And a customer message, "I want to reset my password"
-        And an agent message, "I can help you do just that. What's your username?"
-        And a customer message, "it's leonardo_barbosa_1982"
-        And an agent message, "Great! And what's the account's associated email address or phone number?"
-        And a customer message, "the email is leonardobarbosa@gmail.br"
-        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
-        And a customer message, "Thank you! Have a great day as well!"
-        And a canned response, "What is the name of your account?"
-        And a canned response, "can you please provide the email address or phone number attached to this account?"
-        And a canned response, "Thank you, have a good day!"
-        And a canned response, "I'm sorry but I have no information about that"
-        And a canned response, "Is there anything else I could help you with?"
-        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
-        And a canned response, "An error occurred, your password could not be reset"
+    # Nearly identical to the previous scenario. We previously saw cases where this fail when the previous did not
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 2 (strict canned response) 
+        Given the journey called "Book Hotel Journey"
+        And that the agent uses the canned_strict message composition mode
+        And a customer message, "I need to book a hotel."
+        And an agent message, "Alright, tell me the hotel name so I can check it out for you."
+        And a customer message, "The Marriott Downtown"
+        And an agent message, "Perfect, now when are you looking to stay—check-in and check-out dates?"
+        And a customer message, "From September 10th to 25th"
+        And an agent message, "And how many people will be staying with you?"
+        And a customer message, "Just me and my awesome wifey"
+        And a canned response, "Do you have a preference—single, double, or maybe a suite?"
+        And a canned response, "What kind of room are you looking for? Single, double, or something fancier?"
         When processing is triggered
-        Then a single tool calls event is emitted
-        And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
-        And a single message event is emitted
-        And the message contains that the password was reset and an email with instructions was sent to the customer
+        Then a single message event is emitted
+        And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
+
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 3 (strict canned response) 
+        Given the journey called "Book Hotel Journey"
+        And an agent whose job is to You're a sympathetic, sarcastically funny agent that helps customers in their hotel booking needs
+        And that the agent uses the canned_strict message composition mode
+        And a customer message, "I need to book a hotel."
+        And an agent message, "Alright, tell me the hotel name so I can check it out for you."
+        And a customer message, "the marriot hotel"
+        And a customer message, "it seems cannot find the check-in and check-out options on the booking page."
+        And an agent message, "You can set your check-in and check-out dates using the date picker at the top right of the booking page."
+        And an agent message, "What dates are you planning to check in and check out?"
+        And a customer message, "15th to the 23rd of september"
+        And an agent message, "How many guests should I book the room for?"
+        And a customer message, "Just me and my bro"
+        And a canned response, "The hotel is open for those dates. Want me to secure the booking now?"
+        And a canned response, "Okay, let me check the availability for you—one sec."
+        And a canned response, "What dates are you planning to check in and check out?"
+        And a canned response, "What's your budget range for this stay?"
+        And a canned response, "Do you want me to include extras like breakfast, parking, or gym access?"
+        And a canned response, "And how many people will be staying with you?"
+        And a canned response, "Alright, tell me the hotel name so I can check it out for you."
+        And a canned response, "You can set your check-in and check-out dates using the date picker at the top right of the booking page."
+        And a canned response, "Done and dusted. Your booking is confirmed—now the only thing left is to enjoy it."
+        And a canned response, "Do you have a preference—single, double, or maybe a suite?"
+        And a canned response, "Perfect, now when are you looking to stay—check-in and check-out dates?"
+        And a canned response, "Perfect, I'll confirm the booking right away."
+        And a canned response, "Got it! Which hotel are you thinking of staying at?"
+        And a canned response, "Bad news—the hotel's booked up for those preferences. Do you want me to suggest alternatives?"
+        And a canned response, "Got it. About how much are you planning to spend per night?"
+        And a canned response, "I'll run a quick check on the hotel's availability with your preferences"
+        And a canned response, "Great choice! I'll go ahead and book the hotel for you now."
+        And a canned response, "How many guests should I book the room for?"
+        And a canned response, "You can set your check-in and check-out dates using the date picker at the top right of the booking page."
+        And a canned response, "Any special amenities you'd like me to look for—like breakfast, a pool, or parking?"        
+        And a canned response, "hat kind of room are you looking for? Single, double, or something fancier?"
+        And a journey path "[2, 3, 4]" for the journey "Book Hotel Journey"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"

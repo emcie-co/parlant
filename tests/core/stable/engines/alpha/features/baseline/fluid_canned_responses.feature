@@ -188,3 +188,65 @@ Feature: Fluid Canned Response
         And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br 
         And a single message event is emitted
         And the message contains that the password was reset and an email with instructions was sent to the customer
+
+    Scenario: Agent doesn't hallucinate when necessary information is not provided 1 (fluid canned response)
+        Given a customer message, "I want to reset my password"
+        And an agent message, "I can help you do just that. What's your username?"
+        And a customer message, "it's leonardo_barbosa_1982"
+        And an agent message, "Great! And what's the account's associated email address or phone number?"
+        And a customer message, "the email is leonardobarbosa@gmail.br, now reset my password"
+        And an agent message, "The process is nearly done"
+        And a customer message, "Great!"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains anything but saying to the customer that their password has been reset
+
+    Scenario: Agent doesn't hallucinate when necessary information is not provided 2 (fluid canned response)
+        Given an agent named "Digital Assistant" whose job is to assist customers on behalf of Chase bank
+        And that the agent uses the canned_fluid message composition mode
+        And a guideline to provide the customer with their requested information when a customer asks how to contact our business
+        And a customer message, "Hi I'm trying to reach out to your manager"
+        And an agent message, "Hey there, can you clarify who exactly you're referring to?"
+        And a customer message, "Just give me your customer support number so I can talk to a human"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains no specific phone numbers
+
+    Scenario: Agent doesn't hallucinate when necessary information is not provided 3 (fluid canned response)
+        Given the capability "cancel_subscription"
+        And the capability "switch_delivery_method"
+        And the capability "check_order_status"
+        And the capability "check_balance"
+        And a customer message, "Hey, I want help checking if my order has been shipped"
+        And an agent message, "Hi there! It looks like it is still awaiting shipment at our warehouse. Would you like any help or information regarding your order?"
+        And a customer message, "Which delivery service would come here quicker? I'm in NYC"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains no specific information regarding delivery times, or which delivery service is quicker
+
+    
+    Scenario: Agent doesn't hallucinate when necessary information is not provided 4 (fluid canned response)
+        Given an agent whose job is to assist customers in transferring money and stocks between accounts for HSBC UK
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+        And a guideline to ask for the recipients account number and amount to transfer if it wasnt provided already when the customer asks you to make a transfer
+        And a customer message, "How can I reach out to one of your representatives?"
+        And an agent message, "You can reach out to one of our representatives by calling our customer service line or visiting your nearest HSBC UK branch. If you prefer, I can assist you further here as well. Let me know how you'd like to proceed."
+        And a customer message, "Please help me further in reaching out"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains no specific information about how to reach out, like a phone number or an exact address.
+
+    Scenario: Agent doesn't hallucinate when necessary information is not provided 5 (fluid canned response)
+        Given an agent whose job is to be a customer success representative for Chase Bank
+        And that the agent uses the canned_fluid message composition mode
+        And a guideline "booking_method" to tell them that they need to book via chase.com when the customer wants to schedule a meeting with a bank manager
+        And a guideline "recipient_details" to ask them to provide the recipient details when if the user wants to schedule a wire transfer
+        And a customer message, "I need to schedule an appointment because I want to do a high amount wire transfer"
+        And an agent message, "To schedule an appointment for your wire transfer, please visit chase.com. Additionally, could you provide the recipient's details so I can assist you further?"
+        And a customer message, "No, I don't want to do it here"
+        And that the "booking_method" guideline was matched in the previous iteration
+        And that the "recipient_details" guideline was matched in the previous iteration
+        When detection and processing are triggered
+        Then a single message event is emitted
+        And the message contains that the user or customer should schedule an appointment at chase bank's website, without mentioning physical branches or any phone numbers

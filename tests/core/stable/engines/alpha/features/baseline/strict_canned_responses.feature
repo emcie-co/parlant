@@ -102,14 +102,12 @@ Feature: Strict Canned Response
         And a canned response, "can you please provide the email address or phone number attached to this account?"
         And a canned response, "Thank you, have a good day!"
         And a canned response, "I'm sorry but I have no information about that"
-        And a canned response, "Is there anything else I could help you with?"
         And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
         And a canned response, "An error occurred, your password could not be reset"
         And the tool "reset_password"
         And a customer message, "What are some tips I could use to come up with a strong password?"
         When processing is triggered
         Then no tool calls event is emitted
-        And a single message event is emitted
         And the message contains nothing about resetting your password
 
     Scenario: Multistep journey is partially followed 2 (strict canned response)

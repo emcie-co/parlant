@@ -84,6 +84,9 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
 class OpenAISchematicGenerator(SchematicGenerator[T]):
     supported_openai_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_openai_params + ["strict"]
+    unsupported_params_by_model: dict[str, list[str]] = {
+        "gpt-5": ["temperature"],
+    }
 
     def __init__(
         self,
@@ -136,6 +139,20 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
             ):
                 return await self._do_generate(prompt, hints)
 
+    def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
+        exclude_params = [
+            k
+            for k in self.supported_openai_params
+            for prefix, excluded in self.unsupported_params_by_model.items()
+            if self.model_name.startswith(prefix) and k in excluded
+        ]
+
+        return {
+            k: v
+            for k, v in hints.items()
+            if k in self.supported_openai_params and k not in exclude_params
+        }
+
     async def _do_generate(
         self,
         prompt: str | PromptBuilder,
@@ -144,7 +161,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        openai_api_arguments = {k: v for k, v in hints.items() if k in self.supported_openai_params}
+        openai_api_arguments = self._list_arguments(hints)
 
         if hints.get("strict", False):
             t_start = time.time()

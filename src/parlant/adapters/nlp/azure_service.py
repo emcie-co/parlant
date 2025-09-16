@@ -59,6 +59,9 @@ class AzureEstimatingTokenizer(EstimatingTokenizer):
 class AzureSchematicGenerator(SchematicGenerator[T]):
     supported_azure_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_azure_params + ["strict"]
+    unsupported_params_by_model: dict[str, list[str]] = {
+        "gpt-5": ["temperature"],
+    }
 
     def __init__(
         self,
@@ -78,6 +81,20 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
     @property
     def tokenizer(self) -> AzureEstimatingTokenizer:
         return self._tokenizer
+
+    def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
+        exclude_params = [
+            k
+            for k in self.supported_azure_params
+            for prefix, excluded in self.unsupported_params_by_model.items()
+            if self.model_name.startswith(prefix) and k in excluded
+        ]
+
+        return {
+            k: v
+            for k, v in hints.items()
+            if k in self.supported_azure_params and k not in exclude_params
+        }
 
     @policy(
         [
@@ -108,7 +125,7 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        azure_api_arguments = {k: v for k, v in hints.items() if k in self.supported_azure_params}
+        azure_api_arguments = self._list_arguments(hints)
 
         if hints.get("strict", False):
             t_start = time.time()

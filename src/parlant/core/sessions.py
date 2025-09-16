@@ -649,7 +649,7 @@ class SessionDocumentStore(SessionStore):
 
             return _SessionDocument(
                 id=doc["id"],
-                version=Version.String("0.6.0"),
+                version=Version.String("0.7.0"),
                 creation_utc=doc["creation_utc"],
                 customer_id=doc["customer_id"],
                 agent_id=doc["agent_id"],

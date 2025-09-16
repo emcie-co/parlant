@@ -31,6 +31,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolResult
@@ -158,10 +159,13 @@ class ToolCaller:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         service_registry: ServiceRegistry,
         batcher: ToolCallBatcher,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._service_registry = service_registry
         self.batcher = batcher
 
@@ -209,17 +213,17 @@ class ToolCaller:
 
                 tools[(tool_id, tool)].append(guideline_match)
 
-        with self._logger.operation("Creating batches", create_scope=False):
-            batches = await self.batcher.create_batches(
-                tools=tools,
-                context=context,
-            )
+            async with self._meter.measure("create_batches"):
+                batches = await self.batcher.create_batches(
+                    tools=tools,
+                    context=context,
+                )
 
-        with self._logger.operation("Processing batches", create_scope=False):
-            batch_tasks = [batch.process() for batch in batches]
-            batch_results = await async_utils.safe_gather(*batch_tasks)
+            async with self._meter.measure("process_batches"):
+                batch_tasks = [batch.process() for batch in batches]
+                batch_results = await async_utils.safe_gather(*batch_tasks)
 
-        t_end = time.time()
+            t_end = time.time()
 
         # Aggregate insights from all batch results (e.g., missing data across batches)
         aggregated_evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
@@ -312,7 +316,7 @@ class ToolCaller:
         tool_calls: Sequence[ToolCall],
     ) -> Sequence[ToolCallResult]:
         with self._logger.scope("ToolCaller"):
-            with self._logger.operation("Execution", create_scope=False):
+            async with self._meter.measure("execution"):
                 tool_results = await async_utils.safe_gather(
                     *(
                         self._run_tool(

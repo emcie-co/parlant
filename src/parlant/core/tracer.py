@@ -26,7 +26,7 @@ _UNINITIALIZED = 0xC0FFEE
 class Tracer(ABC):
     @contextmanager
     @abstractmethod
-    def scope(
+    def span(
         self,
         scope_id: str,
         attributes: Mapping[str, Any] = {},
@@ -62,7 +62,7 @@ class LocalTracer(Tracer):
 
     @contextmanager
     @override
-    def scope(
+    def span(
         self,
         scope_id: str,
         attributes: Mapping[str, Any] = {},

@@ -63,6 +63,7 @@ from parlant.core.journey_guideline_projection import (
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId
+from parlant.core.meter import Meter
 from parlant.core.sessions import (
     AgentState,
     ContextVariable as StoredContextVariable,
@@ -91,7 +92,7 @@ from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceRationale, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
 from parlant.core.tracer import Tracer
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
 
@@ -126,6 +127,7 @@ class AlphaEngine(Engine):
         self,
         logger: Logger,
         tracer: Tracer,
+        meter: Meter,
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
         guideline_matcher: GuidelineMatcher,
@@ -138,6 +140,7 @@ class AlphaEngine(Engine):
     ) -> None:
         self._logger = logger
         self._tracer = tracer
+        self._meter = meter
 
         self._entity_queries = entity_queries
         self._entity_commands = entity_commands
@@ -166,10 +169,8 @@ class AlphaEngine(Engine):
             return True
 
         try:
-            with self._logger.operation(
-                f"Processing context for session {context.session_id}",
-                level=LogLevel.INFO,
-                create_scope=False,
+            async with self._meter.measure(
+                "processing_context_for_session", {"session_id": context.session_id}
             ):
                 await self._do_process(loaded_context)
             return True
@@ -205,9 +206,7 @@ class AlphaEngine(Engine):
         )
 
         try:
-            with self._logger.operation(
-                f"Uttering in session {context.session_id}", create_scope=False
-            ):
+            async with self._meter.measure("uttering_session", {"session_id": context.session_id}):
                 await self._do_utter(loaded_context, requests)
             return True
         except asyncio.CancelledError:

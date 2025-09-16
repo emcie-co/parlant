@@ -30,6 +30,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.capabilities import Capability
+from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -70,7 +71,7 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel, JSONSerializable
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
@@ -467,6 +468,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self,
         logger: Logger,
         tracer: Tracer,
+        meter: Meter,
         hooks: EngineHooks,
         optimization_policy: OptimizationPolicy,
         canned_response_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
@@ -485,6 +487,8 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> None:
         self._logger = logger
         self._tracer = tracer
+        self._meter = meter
+
         self._hooks = hooks
         self._optimization_policy = optimization_policy
         self._canrep_draft_generator = canned_response_draft_generator
@@ -515,7 +519,7 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                with self._logger.operation("Preamble generation", create_scope=False):
+                async with self._meter.measure("preamble_generation"):
                     return await self._do_generate_preamble(context)
 
     async def _do_generate_preamble(
@@ -586,8 +590,8 @@ You must generate the preamble message. You must produce a JSON object with a si
                 if Tag.preamble() in canrep.tags
             ]
 
-            with self._logger.operation(
-                "Rendering canned preamble templates", create_scope=False, level=LogLevel.TRACE
+            async with self._meter.measure(
+                "rendering_canned_preamble_templates",
             ):
                 preamble_choices = [
                     str(r.rendered_text)
@@ -697,7 +701,7 @@ You will now be given the current state of the interaction to which you must gen
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                with self._logger.operation("Response generation", create_scope=False):
+                async with self._meter.measure("response_generation"):
                     return await self._do_generate_events(
                         loaded_context=context,
                         latch=latch,
@@ -1571,10 +1575,8 @@ Output a JSON object with three properties:
         )
 
         # Step 2: Select the most relevant canned response templates based on the draft message
-        with self._logger.operation(
-            "Retrieving top relevant canned response templates",
-            create_scope=False,
-            level=LogLevel.TRACE,
+        async with self._meter.measure(
+            "retrieving_top_relevant_canned_response_templates",
         ):
             relevant_canreps = set(
                 r.canned_response
@@ -1598,9 +1600,7 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        with self._logger.operation(
-            "Rendering canned response templates", create_scope=False, level=LogLevel.TRACE
-        ):
+        async with self._meter.measure("rendering_canned_response_templates"):
             rendered_canreps = [
                 (r.response.id, str(r.rendered_text))
                 for r in await self._render_responses(
@@ -1612,9 +1612,7 @@ Output a JSON object with three properties:
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
         if composition_mode == CompositionMode.CANNED_COMPOSITED:
-            with self._logger.operation(
-                "Recomposing draft using canned responses", create_scope=False, level=LogLevel.TRACE
-            ):
+            async with self._meter.measure("recomposing_draft_using_canned_responses"):
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
                     draft_message=draft_message,
@@ -1632,9 +1630,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        with self._logger.operation(
-            "Selecting canned response", create_scope=False, level=LogLevel.TRACE
-        ):
+        async with self._meter.measure("selecting_canned_response"):
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,

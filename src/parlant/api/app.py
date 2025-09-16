@@ -47,9 +47,10 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
+from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.common import ItemNotFoundError, generate_id
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.application import Application
 
 
@@ -89,6 +90,7 @@ async def create_api_app(container: Container) -> ASGIApplication:
     tracer = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
+    meter = container[Meter]
 
     api_app = FastAPI()
 
@@ -135,11 +137,21 @@ async def create_api_app(container: Container) -> ASGIApplication:
             return await call_next(request)
 
         request_id = generate_id()
-        with tracer.scope(f"R{request_id}", {"request_id": request_id}):
-            with logger.operation(
-                f"HTTP Request: {request.method} {request.url.path}",
-                level=LogLevel.TRACE,
-                create_scope=False,
+        with tracer.span(
+            f"{request.method} {request.url.path}",
+            {
+                "request_id": request_id,
+                "url.path": request.url.path,
+                "http.request.method": request.method,
+            },
+        ):
+            async with meter.measure(
+                f"{request.method} {request.url.path}",
+                {
+                    "request_id": request_id,
+                    "url.path": request.url.path,
+                    "http.request.method": request.method,
+                },
             ):
                 return await call_next(request)
 

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Mapping
+from typing_extensions import override
 
 from parlant.core.common import AttributeValue
 
@@ -23,27 +23,18 @@ class Meter(ABC):
         attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None: ...
 
+    @abstractmethod
     @asynccontextmanager
-    async def measure_duration(
+    async def measure(
         self,
         name: str,
         attributes: Mapping[str, AttributeValue] | None = None,
     ) -> AsyncGenerator[None, None]:
-        """
-        Measure the duration of a block of code.
-        Usage:
-            async with meter.measure_duration("my_duration"):
-                # Code to measure
-        """
-        start_time = asyncio.get_event_loop().time()
-        try:
-            yield
-        finally:
-            duration = asyncio.get_event_loop().time() - start_time
-            await self.record_histogram(name, duration, attributes)
+        yield
 
 
 class NullMeter(Meter):
+    @override
     async def record_counter(
         self,
         name: str,
@@ -52,6 +43,7 @@ class NullMeter(Meter):
     ) -> None:
         pass
 
+    @override
     async def record_histogram(
         self,
         name: str,
@@ -59,3 +51,12 @@ class NullMeter(Meter):
         attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
         pass
+
+    @override
+    @asynccontextmanager
+    async def measure(
+        self,
+        name: str,
+        attributes: Mapping[str, AttributeValue] | None = None,
+    ) -> AsyncGenerator[None, None]:
+        yield

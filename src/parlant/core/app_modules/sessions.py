@@ -292,7 +292,7 @@ class SessionModule:
         return event
 
     async def dispatch_processing_task(self, session: Session) -> str:
-        with self._tracer.scope("process", {"session": session}):
+        with self._tracer.span("process", {"session": session}):
             await self._background_task_service.restart(
                 self._process_session(session),
                 tag=f"process-session({session.id})",
@@ -347,7 +347,7 @@ class SessionModule:
     ) -> Event:
         session = await self._session_store.read_session(session_id)
 
-        with self._tracer.scope("utter", {"session": session}):
+        with self._tracer.span("utter", {"session": session}):
             event_emitter = await self._event_emitter_factory.create_event_emitter(
                 emitting_agent_id=session.agent_id,
                 session_id=session.id,

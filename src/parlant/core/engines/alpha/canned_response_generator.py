@@ -797,7 +797,7 @@ You will now be given the current state of the interaction to which you must gen
                         # If we're in, the hook did not bail out.
 
                         event = await event_emitter.emit_message_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data=MessageEventData(
                                 message=m,
                                 participant=Participant(id=agent.id, display_name=agent.name),
@@ -814,7 +814,7 @@ You will now be given the current state of the interaction to which you must gen
                         emitted_events.append(event)
 
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data={
                                 "status": "ready",
                                 "data": {},
@@ -824,7 +824,7 @@ You will now be given the current state of the interaction to which you must gen
                     if next_message := sub_messages[0] if sub_messages else None:
                         await self._perceived_performance_policy.get_follow_up_delay()
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data={
                                 "status": "typing",
                                 "data": {},
@@ -1578,7 +1578,7 @@ Output a JSON object with three properties:
         ):
             relevant_canreps = set(
                 r.canned_response
-                for r in await self._canned_response_store.find_relevant_canned_responses(
+                for r in await self._canned_response_store.filter_relevant_canned_responses(
                     query=draft_message,
                     available_canned_responses=canned_responses,
                     max_count=30,

@@ -47,7 +47,7 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
-from parlant.core.contextual_correlator import Tracer
+from parlant.core.tracer import Tracer
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application

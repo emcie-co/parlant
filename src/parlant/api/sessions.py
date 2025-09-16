@@ -1741,7 +1741,7 @@ def create_router(
         session_id: SessionIdPath,
         min_offset: MinOffsetQuery | None = None,
         source: EventSourceDTO | None = None,
-        correlation_id: TraceIdQuery | None = None,
+        trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
     ) -> Sequence[EventDTO]:

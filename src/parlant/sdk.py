@@ -2922,8 +2922,6 @@ class Server:
                     )  # type: ignore
                 )
 
-            print("Debug")
-
         async def configure(c: Container) -> Container:
             latest_container = c
 

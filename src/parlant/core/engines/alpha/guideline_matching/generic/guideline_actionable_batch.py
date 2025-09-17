@@ -17,7 +17,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import os
 import traceback
+from typing import Optional
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -108,8 +110,6 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                         self._logger.trace(
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
-                        with open("guideline actionable batch output.txt", "w") as f:
-                            f.write(inference.content.model_dump_json(indent=2))
 
                     matches = []
 
@@ -311,7 +311,7 @@ OUTPUT FORMAT
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
                 "rationale": "<Explanation for why the condition is or isn't met when focusing on the most recent interaction>",
-                "applies": "<BOOL>",
+                "applies": "<BOOL>"
             }
             for i, g in self._guidelines.items()
         ]

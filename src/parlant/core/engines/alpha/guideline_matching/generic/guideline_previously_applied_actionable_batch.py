@@ -53,9 +53,6 @@ class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
     condition_met_again: bool
     action_wasnt_taken: Optional[bool] = None
     should_reapply: bool
-    is_missing_part_functional_or_behavioral_rational: Optional[str] = None
-    is_missing_part_functional_or_behavioral: Optional[str] = None
-    contra_arguments: Optional[str] = None
 
 
 class GenericPreviouslyAppliedActionableGuidelineMatchesSchema(DefaultBaseModel):
@@ -114,15 +111,6 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
-                    logs_dir = "logs"
-                    os.makedirs(logs_dir, exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    filename = (
-                        f"guideline_previously_applied_actionable_batch_output_{timestamp}.txt"
-                    )
-                    filepath = os.path.join(logs_dir, filename)
-                    with open(filepath, "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
 
                 matches = []
 
@@ -340,10 +328,7 @@ OUTPUT FORMAT
                 "action": guideline_representations[g.id].action,
                 "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
-                "should_reapply": "<BOOL>",
-                "is_missing_part_functional_or_behavioral_rational": "<str. A short explanation of whether the missing part is functional or behavioral, referencing the last user message>",
-                "is_missing_part_functional_or_behavioral": "<str. The classification: 'functional' or 'behavioral'>",
-                "contra_arguments": "<str. Any contra-arguments that support an opposite decision regarding the guideline, referencing the last user message and based on instructions>",
+                "should_reapply": "<BOOL>"
             }
             for i, g in self._guidelines.items()
         ]
